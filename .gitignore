@@ -1,0 +1,65 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Expo / React Native
+.expo/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+ios/Pods/
+ios/build/
+android/.gradle/
+android/app/build/
+
+# LLM models — NEVER COMMIT (900MB–4GB)
+models/
+*.gguf
+*.bin
+*.safetensors
+*.onnx
+*.mlpackage
+
+# Database — contains encrypted user data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+.secrets
+
+# Ruflo — commit config, not runtime state
+.claude-flow/memory/
+.claude-flow/sessions/
+.claude-flow/logs/
+.claude-flow/state/
+
+# IDE
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build / coverage
+build/
+out/
+coverage/
+*.tgz
+
+# Miniflare (local Cloudflare dev)
+.miniflare/
