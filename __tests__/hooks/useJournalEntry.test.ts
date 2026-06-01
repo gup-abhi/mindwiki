@@ -19,6 +19,10 @@ describe('useJournalEntry', () => {
     useEntryStore.getState().reset()
     mockCreateEntry.mockReset()
     mockProcessEntry.mockReset()
+    mockProcessEntry.mockResolvedValue({
+      tagged: true,
+      crisis: { tier: 0, confidence: 0, keywordMatch: false },
+    })
   })
 
   it('blocks advancing past required steps until they are filled', () => {
@@ -88,7 +92,11 @@ describe('useJournalEntry', () => {
       closing_note: null,
     })
     expect(res!.success).toBe(true)
-    expect(mockProcessEntry).toHaveBeenCalledWith(saved) // background tag + crisis
+    if (res!.success) {
+      expect(res!.data.entry).toEqual(saved)
+      expect(res!.data.crisis.tier).toBe(0)
+    }
+    expect(mockProcessEntry).toHaveBeenCalledWith(saved) // tag + crisis
     expect(result.current.step).toBe(1) // reset
     expect(result.current.draft.mood).toBeNull()
   })

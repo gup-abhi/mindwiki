@@ -1,9 +1,15 @@
 import { useCallback, useMemo, useState } from 'react'
 
+import { type CrisisAssessment } from '@/services/crisis/detector'
 import { processEntry } from '@/services/pipeline'
 import { createEntry, type Entry } from '@/services/storage/entries'
 import { useEntryStore, TOTAL_STEPS } from '@/store/entry.store'
-import { type Result, err } from '@/types/result'
+import { type Result, ok, err } from '@/types/result'
+
+export interface SubmitOutcome {
+  entry: Entry
+  crisis: CrisisAssessment
+}
 
 /**
  * Drives the CBT 5-step entry flow: exposes the draft + step, validates required
@@ -44,7 +50,7 @@ export function useJournalEntry() {
     goNext()
   }, [goNext])
 
-  const submit = useCallback(async (): Promise<Result<Entry>> => {
+  const submit = useCallback(async (): Promise<Result<SubmitOutcome>> => {
     if (draft.mood == null) {
       return err('ENTRY_INVALID', 'Mood is required before submitting')
     }
@@ -57,13 +63,14 @@ export function useJournalEntry() {
         behavior: draft.behavior.trim() || null,
         closing_note: draft.closing_note.trim() || null,
       })
-      if (result.success) {
-        // Background tag + crisis pass — off the save path so it never blocks
-        // or fails the save (ADR 004). Fire-and-forget; never throws.
-        void processEntry(result.data)
-        reset()
-      }
-      return result
+      if (!result.success) return result
+
+      // The entry is already persisted. Run tag + crisis assessment and surface
+      // the result so the caller can show crisis support. processEntry never
+      // throws; if the model is unavailable, the keyword safety net still runs.
+      const processed = await processEntry(result.data)
+      reset()
+      return ok({ entry: result.data, crisis: processed.crisis })
     } finally {
       setSubmitting(false)
     }
