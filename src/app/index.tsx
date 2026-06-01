@@ -25,6 +25,13 @@ export default function Home() {
             >
               <Text style={styles.ctaText}>New entry</Text>
             </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.wikiLink}
+              onPress={() => router.push('/wiki')}
+            >
+              <Text style={styles.wikiLinkText}>View wiki →</Text>
+            </Pressable>
             <Text style={styles.count}>
               {count} {count === 1 ? 'entry' : 'entries'} so far
             </Text>
@@ -60,7 +67,9 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   ctaText: { color: '#fff', fontSize: 17, fontWeight: '600' },
-  count: { marginTop: 20, fontSize: 14, color: '#999' },
+  wikiLink: { marginTop: 16 },
+  wikiLinkText: { fontSize: 15, color: '#1a1a2e', fontWeight: '600' },
+  count: { marginTop: 16, fontSize: 14, color: '#999' },
   row: { paddingHorizontal: 20, paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#eee' },
   situation: { fontSize: 16, color: '#1a1a2e' },
   tags: { fontSize: 13, color: '#666', marginTop: 4 },
