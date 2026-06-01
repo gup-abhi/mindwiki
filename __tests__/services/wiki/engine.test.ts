@@ -45,6 +45,17 @@ describe('candidateTopics', () => {
     ])
     expect(candidateTopics(entry({ emotion: null, distortion: null }))).toEqual([])
   })
+
+  it('adds a de-duplicated theme topic when provided', () => {
+    const topics = candidateTopics(entry({ distortion: 'none' }), 'Work')
+    expect(topics).toEqual([
+      { title: 'Anxiety', category: 'emotion' },
+      { title: 'Work', category: 'theme' },
+    ])
+    // a theme equal to an existing topic is de-duped
+    const deduped = candidateTopics(entry({ distortion: 'none' }), 'anxiety')
+    expect(deduped).toEqual([{ title: 'Anxiety', category: 'emotion' }])
+  })
 })
 
 describe('updateWikiForEntry', () => {

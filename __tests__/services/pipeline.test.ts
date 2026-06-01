@@ -39,7 +39,13 @@ describe('processEntry', () => {
 
   it('applies the model tags and assesses crisis from crisis_confidence', async () => {
     mockTagEntry.mockResolvedValue(
-      ok({ emotion: 'anxiety', distortion: 'none', mood_score: 0.4, crisis_confidence: 0.65 })
+      ok({
+        emotion: 'anxiety',
+        distortion: 'none',
+        mood_score: 0.4,
+        crisis_confidence: 0.65,
+        topic: 'Work',
+      })
     )
 
     const result = await processEntry(entry())
@@ -51,9 +57,10 @@ describe('processEntry', () => {
     })
     expect(result.tagged).toBe(true)
     expect(result.crisis.tier).toBe(2) // 0.65 -> tier 2
-    // wiki synthesis kicked off in the background with the tagged entry
+    // wiki synthesis kicked off in the background with the tagged entry + topic
     expect(mockUpdateWiki).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'e1', emotion: 'anxiety', distortion: 'none' })
+      expect.objectContaining({ id: 'e1', emotion: 'anxiety', distortion: 'none' }),
+      'Work'
     )
   })
 

@@ -24,7 +24,7 @@ describe('tagEntry', () => {
 
   it('returns the validated tag for well-formed JSON output', async () => {
     modelReturns(
-      'Sure: {"emotion":"anxiety","distortion":"catastrophizing","mood_score":0.2,"crisis_confidence":0.1} done'
+      'Sure: {"emotion":"anxiety","distortion":"catastrophizing","mood_score":0.2,"crisis_confidence":0.1,"topic":"Work"} done'
     )
     const result = await tagEntry({ situation: 's', thought: 't' })
     expect(result.success).toBe(true)
@@ -32,6 +32,7 @@ describe('tagEntry', () => {
       expect(result.data.emotion).toBe('anxiety')
       expect(result.data.mood_score).toBe(0.2)
       expect(result.data.crisis_confidence).toBe(0.1)
+      expect(result.data.topic).toBe('Work')
     }
   })
 

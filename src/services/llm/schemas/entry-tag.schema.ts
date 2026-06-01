@@ -8,6 +8,8 @@ export const EntryTagSchema = z.object({
   mood_score: z.number().min(0).max(1), // 0 = very negative … 1 = very positive
   // Transient — used by the crisis detector, not stored on the entry.
   crisis_confidence: z.number().min(0).max(1),
+  // Transient — short theme/topic (1-3 words) used to route a wiki page.
+  topic: z.string().min(1),
 })
 
 export type EntryTag = z.infer<typeof EntryTagSchema>

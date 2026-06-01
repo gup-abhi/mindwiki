@@ -14,17 +14,26 @@ function titleCase(s: string): string {
 }
 
 /**
- * Wiki page topics an entry contributes to, derived deterministically from its
- * fast-model tags (emotion + distortion). Requires the entry to be tagged.
+ * Wiki page topics an entry contributes to: emotion + distortion (from the
+ * persisted tags) plus an optional theme/topic (transient, from the fast model).
+ * De-duplicated by title.
  */
-export function candidateTopics(entry: Entry): Topic[] {
+export function candidateTopics(entry: Entry, topic?: string | null): Topic[] {
   const topics: Topic[] = []
-  if (entry.emotion && entry.emotion.trim()) {
-    topics.push({ title: titleCase(entry.emotion), category: 'emotion' })
+  const seen = new Set<string>()
+  const add = (raw: string, category: string) => {
+    const title = titleCase(raw)
+    const key = title.toLowerCase()
+    if (title && !seen.has(key)) {
+      seen.add(key)
+      topics.push({ title, category })
+    }
   }
+  if (entry.emotion && entry.emotion.trim()) add(entry.emotion, 'emotion')
   if (entry.distortion && entry.distortion.trim().toLowerCase() !== 'none') {
-    topics.push({ title: titleCase(entry.distortion), category: 'distortion' })
+    add(entry.distortion, 'distortion')
   }
+  if (topic && topic.trim()) add(topic, 'theme')
   return topics
 }
 
@@ -34,9 +43,12 @@ export function candidateTopics(entry: Entry): Topic[] {
  * throws — a failure on one page skips it without affecting the others or the
  * entry. Returns the titles successfully updated.
  */
-export async function updateWikiForEntry(entry: Entry): Promise<Result<string[]>> {
+export async function updateWikiForEntry(
+  entry: Entry,
+  topic?: string | null
+): Promise<Result<string[]>> {
   const updated: string[] = []
-  const topics = candidateTopics(entry)
+  const topics = candidateTopics(entry, topic)
   if (__DEV__) console.log(`[wiki] topics: ${topics.map((t) => t.title).join(', ') || '(none)'}`)
 
   for (const topic of topics) {

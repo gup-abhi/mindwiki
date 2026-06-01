@@ -40,7 +40,7 @@ export async function processEntry(entry: Entry): Promise<ProcessResult> {
       mood_score: tagResult.data.mood_score,
       tagged_at: Date.now(),
     }
-    void updateWikiForEntry(taggedEntry)
+    void updateWikiForEntry(taggedEntry, tagResult.data.topic)
   }
 
   const text = `${entry.situation}\n${entry.thought}`
