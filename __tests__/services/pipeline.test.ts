@@ -5,9 +5,13 @@ import { ok, err } from '@/types/result'
 
 jest.mock('@/services/llm/fast-model', () => ({ tagEntry: jest.fn() }))
 jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn() }))
+jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
+
+import { updateWikiForEntry } from '@/services/wiki/engine'
 
 const mockTagEntry = tagEntry as jest.Mock
 const mockApplyTags = applyTags as jest.Mock
+const mockUpdateWiki = updateWikiForEntry as jest.Mock
 
 const entry = (overrides: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -28,7 +32,9 @@ describe('processEntry', () => {
   beforeEach(() => {
     mockTagEntry.mockReset()
     mockApplyTags.mockReset()
+    mockUpdateWiki.mockReset()
     mockApplyTags.mockResolvedValue(ok(undefined))
+    mockUpdateWiki.mockResolvedValue(ok([]))
   })
 
   it('applies the model tags and assesses crisis from crisis_confidence', async () => {
@@ -45,6 +51,10 @@ describe('processEntry', () => {
     })
     expect(result.tagged).toBe(true)
     expect(result.crisis.tier).toBe(2) // 0.65 -> tier 2
+    // wiki synthesis kicked off in the background with the tagged entry
+    expect(mockUpdateWiki).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'e1', emotion: 'anxiety', distortion: 'none' })
+    )
   })
 
   it('still catches an explicit crisis via the keyword net when tagging fails', async () => {
@@ -54,6 +64,7 @@ describe('processEntry', () => {
 
     expect(result.tagged).toBe(false)
     expect(mockApplyTags).not.toHaveBeenCalled()
+    expect(mockUpdateWiki).not.toHaveBeenCalled() // no tags -> no wiki update
     expect(result.crisis.tier).toBe(3) // keyword safety net
   })
 

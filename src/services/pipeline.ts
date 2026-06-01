@@ -1,6 +1,7 @@
 import { assessCrisis, type CrisisAssessment } from '@/services/crisis/detector'
 import { tagEntry } from '@/services/llm/fast-model'
 import { applyTags, type Entry } from '@/services/storage/entries'
+import { updateWikiForEntry } from '@/services/wiki/engine'
 
 export interface ProcessResult {
   tagged: boolean
@@ -29,6 +30,17 @@ export async function processEntry(entry: Entry): Promise<ProcessResult> {
       mood_score: tagResult.data.mood_score,
     })
     tagged = applied.success
+
+    // Deep-model wiki synthesis — background, off the tag/crisis path (slow,
+    // ~18 tok/s). Fire-and-forget; updateWikiForEntry never throws.
+    const taggedEntry: Entry = {
+      ...entry,
+      emotion: tagResult.data.emotion,
+      distortion: tagResult.data.distortion,
+      mood_score: tagResult.data.mood_score,
+      tagged_at: Date.now(),
+    }
+    void updateWikiForEntry(taggedEntry)
   }
 
   const text = `${entry.situation}\n${entry.thought}`
