@@ -6,6 +6,7 @@ import { ok, err } from '@/types/result'
 jest.mock('@/services/llm/fast-model', () => ({ tagEntry: jest.fn() }))
 jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn() }))
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
+jest.mock('@/services/graph/engine', () => ({ updateGraphForEntry: jest.fn() }))
 
 const mockBegin = jest.fn()
 const mockEnd = jest.fn()
@@ -14,10 +15,12 @@ jest.mock('@/store/wiki.store', () => ({
 }))
 
 import { updateWikiForEntry } from '@/services/wiki/engine'
+import { updateGraphForEntry } from '@/services/graph/engine'
 
 const mockTagEntry = tagEntry as jest.Mock
 const mockApplyTags = applyTags as jest.Mock
 const mockUpdateWiki = updateWikiForEntry as jest.Mock
+const mockUpdateGraph = updateGraphForEntry as jest.Mock
 
 const entry = (overrides: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -39,10 +42,12 @@ describe('processEntry', () => {
     mockTagEntry.mockReset()
     mockApplyTags.mockReset()
     mockUpdateWiki.mockReset()
+    mockUpdateGraph.mockReset()
     mockBegin.mockReset()
     mockEnd.mockReset()
     mockApplyTags.mockResolvedValue(ok(undefined))
     mockUpdateWiki.mockResolvedValue(ok([]))
+    mockUpdateGraph.mockResolvedValue(ok(undefined))
   })
 
   it('applies the model tags and assesses crisis from crisis_confidence', async () => {
@@ -68,6 +73,11 @@ describe('processEntry', () => {
     // wiki synthesis kicked off in the background with the tagged entry + topic
     expect(mockUpdateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'e1', emotion: 'anxiety', distortion: 'none' }),
+      'Work'
+    )
+    // graph update also kicked off with the tagged entry + topic
+    expect(mockUpdateGraph).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'e1', emotion: 'anxiety' }),
       'Work'
     )
     // synthesis status begins, and ends once the background update settles

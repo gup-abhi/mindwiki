@@ -1,6 +1,7 @@
 import { assessCrisis, type CrisisAssessment } from '@/services/crisis/detector'
 import { tagEntry } from '@/services/llm/fast-model'
 import { applyTags, type Entry } from '@/services/storage/entries'
+import { updateGraphForEntry } from '@/services/graph/engine'
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
 
@@ -41,6 +42,10 @@ export async function processEntry(entry: Entry): Promise<ProcessResult> {
       mood_score: tagResult.data.mood_score,
       tagged_at: Date.now(),
     }
+    // Graph update is cheap (DB only) — fire-and-forget.
+    void updateGraphForEntry(taggedEntry, tagResult.data.topic)
+
+    // Wiki synthesis is the slow deep-model step — track it for the indicator.
     useWikiStore.getState().begin()
     void updateWikiForEntry(taggedEntry, tagResult.data.topic).finally(() =>
       useWikiStore.getState().end()
