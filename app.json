@@ -14,7 +14,8 @@
       "package": "com.mindwiki.app"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-asset"
     ]
   }
 }
