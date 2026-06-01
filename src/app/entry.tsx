@@ -20,10 +20,14 @@ export default function EntryScreen() {
 
   async function onSave() {
     const result = await j.submit()
-    if (result.success) {
-      router.replace('/saved')
-    } else {
+    if (!result.success) {
       Alert.alert('Could not save', result.error.message)
+      return
+    }
+    if (result.data.crisis.tier > 0) {
+      router.replace({ pathname: '/crisis', params: { tier: String(result.data.crisis.tier) } })
+    } else {
+      router.replace('/saved')
     }
   }
 

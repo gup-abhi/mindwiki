@@ -10,8 +10,11 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),
 }))
 jest.mock('@/services/storage/entries', () => ({ createEntry: jest.fn() }))
+jest.mock('@/services/pipeline', () => ({ processEntry: jest.fn() }))
 
 const mockCreateEntry = createEntry as jest.Mock
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const mockProcessEntry = require('@/services/pipeline').processEntry as jest.Mock
 
 describe('EntryScreen (5-step flow)', () => {
   beforeEach(() => {
@@ -19,7 +22,23 @@ describe('EntryScreen (5-step flow)', () => {
     mockReplace.mockReset()
     mockCreateEntry.mockReset()
     mockCreateEntry.mockResolvedValue(ok({ id: 'e1' }))
+    mockProcessEntry.mockReset()
+    mockProcessEntry.mockResolvedValue({
+      tagged: true,
+      crisis: { tier: 0, confidence: 0, keywordMatch: false },
+    })
   })
+
+  function fillAndSave() {
+    fireEvent.press(screen.getByText('4'))
+    fireEvent.press(screen.getByText('Next'))
+    fireEvent.changeText(screen.getByPlaceholderText('Describe the situation…'), 'a meeting')
+    fireEvent.press(screen.getByText('Next'))
+    fireEvent.changeText(screen.getByPlaceholderText('The automatic thought…'), 'I will fail')
+    fireEvent.press(screen.getByText('Next'))
+    fireEvent.press(screen.getByText('Skip'))
+    fireEvent.press(screen.getByText('Save entry'))
+  }
 
   it('walks all 5 steps (with a skip) and submits the built entry', async () => {
     render(<EntryScreen />)
@@ -62,5 +81,17 @@ describe('EntryScreen (5-step flow)', () => {
     expect(screen.getByPlaceholderText('Describe the situation…')).toBeTruthy()
     fireEvent.press(screen.getByText('Back')) // -> step 1
     expect(screen.getByText('Awful')).toBeTruthy()
+  })
+
+  it('routes to the crisis screen when a crisis tier is detected', async () => {
+    mockProcessEntry.mockResolvedValue({
+      tagged: true,
+      crisis: { tier: 3, confidence: 0.9, keywordMatch: true },
+    })
+    render(<EntryScreen />)
+    fillAndSave()
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith({ pathname: '/crisis', params: { tier: '3' } })
+    )
   })
 })
