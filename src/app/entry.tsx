@@ -21,7 +21,7 @@ export default function EntryScreen() {
   async function onSave() {
     const result = await j.submit()
     if (result.success) {
-      router.replace('/')
+      router.replace('/saved')
     } else {
       Alert.alert('Could not save', result.error.message)
     }

@@ -45,7 +45,7 @@ describe('EntryScreen (5-step flow)', () => {
         closing_note: null,
       })
     )
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/'))
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/saved'))
   })
 
   it('does not advance from step 1 until a mood is chosen', () => {
