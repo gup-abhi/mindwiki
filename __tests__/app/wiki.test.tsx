@@ -50,6 +50,23 @@ describe('WikiPageScreen', () => {
     expect(screen.getByText('emotion · v2 · 3 entries')).toBeTruthy()
   })
 
+  it('shows version history when present', () => {
+    mockUseWikiPage.mockReturnValue({
+      page: {
+        id: 'p1',
+        title: 'Anxiety',
+        category: 'emotion',
+        version: 2,
+        entry_count: 2,
+        content: 'current',
+        version_history: [{ version: 1, content: 'old', updated_at: 1700000000000 }],
+      },
+      loading: false,
+    })
+    render(<WikiPageScreen />)
+    expect(screen.getByText('1 previous version')).toBeTruthy()
+  })
+
   it('shows a not-found state', () => {
     mockUseWikiPage.mockReturnValue({ page: null, loading: false })
     render(<WikiPageScreen />)
