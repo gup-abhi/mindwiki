@@ -7,6 +7,12 @@ jest.mock('@/services/llm/fast-model', () => ({ tagEntry: jest.fn() }))
 jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn() }))
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
 
+const mockBegin = jest.fn()
+const mockEnd = jest.fn()
+jest.mock('@/store/wiki.store', () => ({
+  useWikiStore: { getState: () => ({ begin: mockBegin, end: mockEnd }) },
+}))
+
 import { updateWikiForEntry } from '@/services/wiki/engine'
 
 const mockTagEntry = tagEntry as jest.Mock
@@ -33,6 +39,8 @@ describe('processEntry', () => {
     mockTagEntry.mockReset()
     mockApplyTags.mockReset()
     mockUpdateWiki.mockReset()
+    mockBegin.mockReset()
+    mockEnd.mockReset()
     mockApplyTags.mockResolvedValue(ok(undefined))
     mockUpdateWiki.mockResolvedValue(ok([]))
   })
@@ -62,6 +70,10 @@ describe('processEntry', () => {
       expect.objectContaining({ id: 'e1', emotion: 'anxiety', distortion: 'none' }),
       'Work'
     )
+    // synthesis status begins, and ends once the background update settles
+    expect(mockBegin).toHaveBeenCalledTimes(1)
+    await Promise.resolve()
+    expect(mockEnd).toHaveBeenCalledTimes(1)
   })
 
   it('still catches an explicit crisis via the keyword net when tagging fails', async () => {

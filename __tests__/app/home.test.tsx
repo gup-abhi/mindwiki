@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react-native'
 
 import Home from '@/app/index'
 import { listEntries } from '@/services/storage/entries'
+import { useWikiStore } from '@/store/wiki.store'
 import { ok } from '@/types/result'
 
 jest.mock('expo-router', () => ({
@@ -30,7 +31,10 @@ const entry = (over = {}) => ({
 })
 
 describe('Home entries list', () => {
-  beforeEach(() => mockList.mockReset())
+  beforeEach(() => {
+    mockList.mockReset()
+    useWikiStore.setState({ pending: 0 })
+  })
 
   it('renders a tagged entry with its emotion/distortion', async () => {
     mockList.mockResolvedValue(
@@ -45,5 +49,12 @@ describe('Home entries list', () => {
     mockList.mockResolvedValue(ok([entry()]))
     render(<Home />)
     await waitFor(() => expect(screen.getByText('tagging…')).toBeTruthy())
+  })
+
+  it('shows the synthesizing indicator while wiki synthesis is pending', async () => {
+    mockList.mockResolvedValue(ok([]))
+    useWikiStore.setState({ pending: 1 })
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('Synthesizing your wiki…')).toBeTruthy())
   })
 })

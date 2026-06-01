@@ -2,10 +2,12 @@ import { useRouter } from 'expo-router'
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useWikiPages } from '@/hooks/useWiki'
+import { useWikiStore } from '@/store/wiki.store'
 
 export default function WikiBrowse() {
   const router = useRouter()
   const { pages, loading } = useWikiPages()
+  const synthesizing = useWikiStore((s) => s.pending > 0)
 
   return (
     <View style={styles.container}>
@@ -13,7 +15,12 @@ export default function WikiBrowse() {
         data={pages}
         keyExtractor={(p) => p.id}
         contentContainerStyle={styles.listContent}
-        ListHeaderComponent={<Text style={styles.title}>Your wiki</Text>}
+        ListHeaderComponent={
+          <View>
+            <Text style={styles.title}>Your wiki</Text>
+            {synthesizing && <Text style={styles.synth}>Synthesizing…</Text>}
+          </View>
+        }
         ListEmptyComponent={
           !loading ? (
             <Text style={styles.empty}>
@@ -43,6 +50,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   listContent: { padding: 20, paddingTop: 56 },
   title: { fontSize: 28, fontWeight: '700', color: '#1a1a2e', marginBottom: 16 },
+  synth: { fontSize: 13, color: '#7a7ad0', marginTop: -8, marginBottom: 16 },
   empty: { fontSize: 15, color: '#999', lineHeight: 22 },
   row: { paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#eee' },
   pageTitle: { fontSize: 18, fontWeight: '600', color: '#1a1a2e' },

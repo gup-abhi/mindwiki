@@ -3,10 +3,12 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 
 import { useEntries } from '@/hooks/useEntries'
+import { useWikiStore } from '@/store/wiki.store'
 
 export default function Home() {
   const router = useRouter()
   const { entries, count } = useEntries()
+  const synthesizing = useWikiStore((s) => s.pending > 0)
 
   return (
     <View style={styles.container}>
@@ -32,6 +34,7 @@ export default function Home() {
             >
               <Text style={styles.wikiLinkText}>View wiki →</Text>
             </Pressable>
+            {synthesizing && <Text style={styles.synth}>Synthesizing your wiki…</Text>}
             <Text style={styles.count}>
               {count} {count === 1 ? 'entry' : 'entries'} so far
             </Text>
@@ -69,6 +72,7 @@ const styles = StyleSheet.create({
   ctaText: { color: '#fff', fontSize: 17, fontWeight: '600' },
   wikiLink: { marginTop: 16 },
   wikiLinkText: { fontSize: 15, color: '#1a1a2e', fontWeight: '600' },
+  synth: { marginTop: 10, fontSize: 13, color: '#7a7ad0' },
   count: { marginTop: 16, fontSize: 14, color: '#999' },
   row: { paddingHorizontal: 20, paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#eee' },
   situation: { fontSize: 16, color: '#1a1a2e' },

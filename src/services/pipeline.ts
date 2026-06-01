@@ -2,6 +2,7 @@ import { assessCrisis, type CrisisAssessment } from '@/services/crisis/detector'
 import { tagEntry } from '@/services/llm/fast-model'
 import { applyTags, type Entry } from '@/services/storage/entries'
 import { updateWikiForEntry } from '@/services/wiki/engine'
+import { useWikiStore } from '@/store/wiki.store'
 
 export interface ProcessResult {
   tagged: boolean
@@ -40,7 +41,10 @@ export async function processEntry(entry: Entry): Promise<ProcessResult> {
       mood_score: tagResult.data.mood_score,
       tagged_at: Date.now(),
     }
-    void updateWikiForEntry(taggedEntry, tagResult.data.topic)
+    useWikiStore.getState().begin()
+    void updateWikiForEntry(taggedEntry, tagResult.data.topic).finally(() =>
+      useWikiStore.getState().end()
+    )
   }
 
   const text = `${entry.situation}\n${entry.thought}`
