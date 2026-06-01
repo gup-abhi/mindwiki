@@ -1,5 +1,4 @@
 import { CryptoModule } from '@/native/CryptoModule'
-import { LLMBridge } from '@/native/LLMBridge'
 
 jest.mock('expo-secure-store', () => {
   const store = new Map<string, string>()
@@ -27,17 +26,5 @@ describe('CryptoModule', () => {
     await expect(CryptoModule.deriveKey('pw', 'salt')).rejects.toThrow(/not implemented/)
     await expect(CryptoModule.encrypt('x', 'k')).rejects.toThrow(/not implemented/)
     await expect(CryptoModule.decrypt('x', 'k')).rejects.toThrow(/not implemented/)
-  })
-})
-
-describe('LLMBridge stubs', () => {
-  it('methods reject as not-implemented (native pending Phase 2)', async () => {
-    await expect(LLMBridge.loadModel('fast')).rejects.toThrow(/not implemented/)
-    await expect(LLMBridge.tag('p', { maxTokens: 10, temperature: 0.1 })).rejects.toThrow(
-      /not implemented/
-    )
-    await expect(
-      LLMBridge.synthesise('p', { maxTokens: 10, temperature: 0.7 })
-    ).rejects.toThrow(/not implemented/)
   })
 })
