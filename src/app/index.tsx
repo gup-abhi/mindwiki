@@ -1,36 +1,67 @@
 import { useRouter } from 'expo-router'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 
 import { useEntries } from '@/hooks/useEntries'
 
 export default function Home() {
   const router = useRouter()
-  const { count } = useEntries()
+  const { entries, count } = useEntries()
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
-      <Text style={styles.title}>MindWiki</Text>
-      <Text style={styles.subtitle}>How are you today?</Text>
-      <Pressable
-        accessibilityRole="button"
-        style={styles.cta}
-        onPress={() => router.push('/entry')}
-      >
-        <Text style={styles.ctaText}>New entry</Text>
-      </Pressable>
-      <Text style={styles.count}>
-        {count} {count === 1 ? 'entry' : 'entries'} so far
-      </Text>
+      <FlatList
+        data={entries}
+        keyExtractor={(e) => e.id}
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <Text style={styles.title}>MindWiki</Text>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.cta}
+              onPress={() => router.push('/entry')}
+            >
+              <Text style={styles.ctaText}>New entry</Text>
+            </Pressable>
+            <Text style={styles.count}>
+              {count} {count === 1 ? 'entry' : 'entries'} so far
+            </Text>
+          </View>
+        }
+        renderItem={({ item }) => (
+          <View style={styles.row}>
+            <Text style={styles.situation} numberOfLines={1}>
+              {item.situation}
+            </Text>
+            <Text style={styles.tags}>
+              {item.emotion
+                ? `${item.emotion} · ${item.distortion} · mood ${item.mood_score}`
+                : 'tagging…'}
+            </Text>
+          </View>
+        )}
+      />
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: '#fff' },
+  listContent: { paddingBottom: 32 },
+  header: { alignItems: 'center', paddingTop: 64, paddingBottom: 24 },
   title: { fontSize: 32, fontWeight: '700', color: '#1a1a2e' },
-  subtitle: { fontSize: 16, color: '#666', marginTop: 8, marginBottom: 32 },
-  cta: { backgroundColor: '#1a1a2e', paddingVertical: 16, paddingHorizontal: 48, borderRadius: 14 },
+  cta: {
+    backgroundColor: '#1a1a2e',
+    paddingVertical: 16,
+    paddingHorizontal: 48,
+    borderRadius: 14,
+    marginTop: 20,
+  },
   ctaText: { color: '#fff', fontSize: 17, fontWeight: '600' },
-  count: { marginTop: 24, fontSize: 14, color: '#999' },
+  count: { marginTop: 20, fontSize: 14, color: '#999' },
+  row: { paddingHorizontal: 20, paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#eee' },
+  situation: { fontSize: 16, color: '#1a1a2e' },
+  tags: { fontSize: 13, color: '#666', marginTop: 4 },
 })
