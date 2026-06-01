@@ -2,8 +2,11 @@ import { useRouter } from 'expo-router'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 
+import { useEntries } from '@/hooks/useEntries'
+
 export default function Home() {
   const router = useRouter()
+  const { count } = useEntries()
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
@@ -16,6 +19,9 @@ export default function Home() {
       >
         <Text style={styles.ctaText}>New entry</Text>
       </Pressable>
+      <Text style={styles.count}>
+        {count} {count === 1 ? 'entry' : 'entries'} so far
+      </Text>
     </View>
   )
 }
@@ -26,4 +32,5 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 16, color: '#666', marginTop: 8, marginBottom: 32 },
   cta: { backgroundColor: '#1a1a2e', paddingVertical: 16, paddingHorizontal: 48, borderRadius: 14 },
   ctaText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  count: { marginTop: 24, fontSize: 14, color: '#999' },
 })
