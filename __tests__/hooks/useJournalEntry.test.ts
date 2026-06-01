@@ -3,18 +3,22 @@ import { renderHook, act } from '@testing-library/react-native'
 import { useJournalEntry } from '@/hooks/useJournalEntry'
 import { useEntryStore } from '@/store/entry.store'
 import { createEntry } from '@/services/storage/entries'
+import { processEntry } from '@/services/pipeline'
 import { ok } from '@/types/result'
 
 jest.mock('@/services/storage/entries', () => ({
   createEntry: jest.fn(),
 }))
+jest.mock('@/services/pipeline', () => ({ processEntry: jest.fn() }))
 
 const mockCreateEntry = createEntry as jest.Mock
+const mockProcessEntry = processEntry as jest.Mock
 
 describe('useJournalEntry', () => {
   beforeEach(() => {
     useEntryStore.getState().reset()
     mockCreateEntry.mockReset()
+    mockProcessEntry.mockReset()
   })
 
   it('blocks advancing past required steps until they are filled', () => {
@@ -84,6 +88,7 @@ describe('useJournalEntry', () => {
       closing_note: null,
     })
     expect(res!.success).toBe(true)
+    expect(mockProcessEntry).toHaveBeenCalledWith(saved) // background tag + crisis
     expect(result.current.step).toBe(1) // reset
     expect(result.current.draft.mood).toBeNull()
   })

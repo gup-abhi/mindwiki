@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 
+import { processEntry } from '@/services/pipeline'
 import { createEntry, type Entry } from '@/services/storage/entries'
 import { useEntryStore, TOTAL_STEPS } from '@/store/entry.store'
 import { type Result, err } from '@/types/result'
@@ -56,7 +57,12 @@ export function useJournalEntry() {
         behavior: draft.behavior.trim() || null,
         closing_note: draft.closing_note.trim() || null,
       })
-      if (result.success) reset()
+      if (result.success) {
+        // Background tag + crisis pass — off the save path so it never blocks
+        // or fails the save (ADR 004). Fire-and-forget; never throws.
+        void processEntry(result.data)
+        reset()
+      }
       return result
     } finally {
       setSubmitting(false)
