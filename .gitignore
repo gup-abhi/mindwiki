@@ -5,6 +5,9 @@ yarn-error.log*
 
 # Expo / React Native
 .expo/
+# Generated native projects — regenerate with: expo prebuild
+android/
+ios/
 dist/
 web-build/
 *.jks
@@ -18,8 +21,9 @@ ios/build/
 android/.gradle/
 android/app/build/
 
-# LLM models — NEVER COMMIT (900MB–4GB)
-models/
+# LLM models — NEVER COMMIT (900MB–4GB) — keep README, ignore weights
+models/*
+!models/README.md
 *.gguf
 *.bin
 *.safetensors

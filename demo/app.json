@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "MindWiki Demo",
+    "slug": "mindwiki-demo",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.mindwiki.demo",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.mindwiki.demo"
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-dev-client",
+      "expo-asset"
+    ]
+  }
+}

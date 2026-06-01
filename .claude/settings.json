@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(adb devices *)",
+      "Bash(node -e \"console.log\\(require\\('expo-sqlite/package.json'\\).version\\)\")"
+    ]
+  }
+}

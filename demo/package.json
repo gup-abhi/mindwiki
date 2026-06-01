@@ -1,0 +1,35 @@
+{
+  "name": "mindwiki-demo",
+  "version": "0.0.1",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "prebuild": "expo prebuild --clean",
+    "tsc": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@op-engineering/op-sqlite": "^16.2.0",
+    "expo": "~52.0.11",
+    "expo-asset": "~11.0.5",
+    "expo-crypto": "~14.0.2",
+    "expo-dev-client": "~5.0.4",
+    "expo-notifications": "~0.29.11",
+    "expo-status-bar": "~2.0.0",
+    "llama.rn": "^0.12.4",
+    "react": "18.3.1",
+    "react-native": "0.76.9",
+    "react-native-argon2": "^2.0.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~18.3.12",
+    "babel-plugin-module-resolver": "^5.0.2",
+    "typescript": "^5.3.3"
+  },
+  "op-sqlite": {
+    "sqlcipher": true
+  }
+}

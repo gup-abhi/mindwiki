@@ -1,0 +1,8 @@
+{
+  "entryPoints": ["src/app/_layout.tsx", "src/services", "server/src/index.ts"],
+  "aliases": { "@": "./src" },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "server/src/**/*.ts"],
+  "exclude": ["node_modules", "ios", "android", "models", "__tests__", "demo", "*.test.ts"],
+  "nodeTypes": ["file", "function", "class", "import", "export"],
+  "maxDepth": 4
+}
