@@ -1,4 +1,13 @@
+import { getRandomBytesAsync } from 'expo-crypto'
+import * as SecureStore from 'expo-secure-store'
+
 import { notImplemented } from './notImplemented'
+
+const MASTER_KEY_ID = 'mindwiki.master_key'
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 /**
  * Crypto operations backed by native code. CRITICAL invariants (see CLAUDE.md):
@@ -26,11 +35,19 @@ export const CryptoModule: ICryptoModule = {
   async deriveKey() {
     return notImplemented('CryptoModule.deriveKey')
   },
+  // Anonymous-user master key: a random 256-bit key generated once and stored in
+  // the OS keystore (iOS Keychain / Android Keystore via expo-secure-store).
+  // Never derived from a password here — the Argon2/password path (deriveKey) is
+  // for the sync/auth flow in a later phase.
   async getKeyFromKeychain() {
-    return notImplemented('CryptoModule.getKeyFromKeychain')
+    const existing = await SecureStore.getItemAsync(MASTER_KEY_ID)
+    if (existing) return existing
+    const key = toHex(await getRandomBytesAsync(32))
+    await SecureStore.setItemAsync(MASTER_KEY_ID, key)
+    return key
   },
-  async setKeyInKeychain() {
-    return notImplemented('CryptoModule.setKeyInKeychain')
+  async setKeyInKeychain(key: string) {
+    await SecureStore.setItemAsync(MASTER_KEY_ID, key)
   },
   async encrypt() {
     return notImplemented('CryptoModule.encrypt')
