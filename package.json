@@ -15,7 +15,11 @@
   "jest": {
     "preset": "jest-expo"
   },
+  "op-sqlite": {
+    "sqlcipher": true
+  },
   "dependencies": {
+    "@op-engineering/op-sqlite": "^16.2.0",
     "expo": "~52.0.11",
     "expo-constants": "~17.0.3",
     "expo-linking": "~7.0.3",
