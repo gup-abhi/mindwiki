@@ -36,18 +36,24 @@ export function candidateTopics(entry: Entry): Topic[] {
  */
 export async function updateWikiForEntry(entry: Entry): Promise<Result<string[]>> {
   const updated: string[] = []
+  const topics = candidateTopics(entry)
+  if (__DEV__) console.log(`[wiki] topics: ${topics.map((t) => t.title).join(', ') || '(none)'}`)
 
-  for (const topic of candidateTopics(entry)) {
+  for (const topic of topics) {
     const existing = await getPageByTitle(topic.title)
     if (!existing.success) continue
 
     let page = existing.data
     if (page == null) {
       const created = await createPage({ title: topic.title, category: topic.category })
-      if (!created.success) continue
+      if (!created.success) {
+        if (__DEV__) console.log(`[wiki] create failed: ${created.error.code}`)
+        continue
+      }
       page = created.data
     }
 
+    if (__DEV__) console.log(`[wiki] synthesizing "${page.title}"…`)
     const synth = await synthesizePage({
       title: page.title,
       category: page.category,
@@ -55,10 +61,18 @@ export async function updateWikiForEntry(entry: Entry): Promise<Result<string[]>
       situation: entry.situation,
       thought: entry.thought,
     })
-    if (!synth.success) continue
+    if (!synth.success) {
+      if (__DEV__) console.log(`[wiki] synth failed: ${synth.error.code}`)
+      continue
+    }
 
     const applied = await updatePage(page.id, synth.data)
-    if (applied.success) updated.push(page.title)
+    if (applied.success) {
+      if (__DEV__) console.log(`[wiki] updated "${page.title}" -> v${applied.data.version}`)
+      updated.push(page.title)
+    } else if (__DEV__) {
+      console.log(`[wiki] update failed: ${applied.error.code}`)
+    }
   }
 
   return ok(updated)
