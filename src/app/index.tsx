@@ -7,6 +7,7 @@ import { useEntries } from '@/hooks/useEntries'
 import { useWikiStore } from '@/store/wiki.store'
 import { computeStreak } from '@/services/notifications/streak'
 import { streakStage } from '@/services/notifications/stage'
+import { generateDigest } from '@/services/digest/generator'
 
 export default function Home() {
   const router = useRouter()
@@ -16,6 +17,7 @@ export default function Home() {
     () => streakStage(computeStreak(entries.map((e) => e.created_at), Date.now()).current),
     [entries]
   )
+  const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
 
   return (
     <View style={styles.container}>
@@ -28,6 +30,16 @@ export default function Home() {
           <View style={styles.header}>
             <Text style={styles.title}>MindWiki</Text>
             <Text style={styles.stage}>{stage.headline}</Text>
+            {digestReady && (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.digestCard}
+                onPress={() => router.push('/digest')}
+              >
+                <Text style={styles.digestTitle}>Your weekly digest is ready</Text>
+                <Text style={styles.digestSub}>See your week at a glance →</Text>
+              </Pressable>
+            )}
             <Pressable
               accessibilityRole="button"
               style={styles.cta}
@@ -78,6 +90,16 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', paddingTop: 64, paddingBottom: 24 },
   title: { fontSize: 32, fontWeight: '700', color: '#1a1a2e' },
   stage: { marginTop: 8, fontSize: 14, color: '#7a7ad0', fontWeight: '600', textAlign: 'center' },
+  digestCard: {
+    marginTop: 20,
+    backgroundColor: '#7a7ad0',
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  digestTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  digestSub: { color: '#eee', fontSize: 13, marginTop: 4 },
   cta: {
     backgroundColor: '#1a1a2e',
     paddingVertical: 16,

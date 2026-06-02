@@ -57,4 +57,20 @@ describe('Home entries list', () => {
     render(<Home />)
     await waitFor(() => expect(screen.getByText('Synthesizing your wiki…')).toBeTruthy())
   })
+
+  it('shows the weekly digest card once enough recent entries exist', async () => {
+    const recent = Array.from({ length: 7 }, (_, i) =>
+      entry({ id: `e${i}`, created_at: Date.now() - i * 3_600_000 })
+    )
+    mockList.mockResolvedValue(ok(recent))
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('Your weekly digest is ready')).toBeTruthy())
+  })
+
+  it('hides the digest card with too few entries', async () => {
+    mockList.mockResolvedValue(ok([entry({ created_at: Date.now() })]))
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+    expect(screen.queryByText('Your weekly digest is ready')).toBeNull()
+  })
 })
