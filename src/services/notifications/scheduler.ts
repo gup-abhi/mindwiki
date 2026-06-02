@@ -15,6 +15,7 @@ import {
 const HISTOGRAM_KEY = 'notif_hour_histogram'
 const PERMISSION_ASKED_KEY = 'notif_permission_asked'
 const DAILY_ID = 'mindwiki-daily-reminder'
+const WEEKLY_DIGEST_ID = 'mindwiki-weekly-digest'
 const DAY_MS = 86_400_000
 
 /** Show reminders even when the app is foregrounded; no sound/badge. */
@@ -91,10 +92,31 @@ export async function rescheduleDailyReminder(
   }
 }
 
+/** Schedule the Sunday-morning (9am) weekly digest reminder, replacing any prior. */
+export async function scheduleWeeklyDigest(): Promise<Result<void>> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(WEEKLY_DIGEST_ID).catch(() => {})
+    await Notifications.scheduleNotificationAsync({
+      identifier: WEEKLY_DIGEST_ID,
+      content: { title: 'Your weekly digest', body: 'Your week in review is ready — take a look.' },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+        weekday: 1, // 1 = Sunday
+        hour: 9,
+        minute: 0,
+      },
+    })
+    return ok(undefined)
+  } catch (e) {
+    return err('DIGEST_SCHEDULE_FAILED', 'Failed to schedule weekly digest', e)
+  }
+}
+
 /**
  * Run after an entry is saved: ask for notification permission once (after the
  * first entry, never on launch), record the activity, and reschedule the daily
- * reminder. Best-effort — callers fire-and-forget; never blocks the entry.
+ * reminder + the weekly digest. Best-effort — callers fire-and-forget; never
+ * blocks the entry.
  */
 export async function onEntrySaved(
   now: number,
@@ -108,6 +130,7 @@ export async function onEntrySaved(
     }
     await recordActivity(now, db)
     await rescheduleDailyReminder(now, db)
+    await scheduleWeeklyDigest()
     return ok(undefined)
   } catch (e) {
     return err('NOTIF_ON_ENTRY_FAILED', 'Failed to update habit state', e)

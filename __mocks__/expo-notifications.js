@@ -1,7 +1,7 @@
 // Manual mock — expo-notifications is a native module and cannot load in Jest.
 // Auto-applied to any test importing the scheduler.
 module.exports = {
-  SchedulableTriggerInputTypes: { DAILY: 'daily' },
+  SchedulableTriggerInputTypes: { DAILY: 'daily', WEEKLY: 'weekly' },
   setNotificationHandler: jest.fn(),
   getPermissionsAsync: jest.fn(async () => ({ granted: false, canAskAgain: true })),
   requestPermissionsAsync: jest.fn(async () => ({ granted: true })),

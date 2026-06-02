@@ -6,6 +6,7 @@ import {
   onEntrySaved,
   recordActivity,
   rescheduleDailyReminder,
+  scheduleWeeklyDigest,
 } from '@/services/notifications/scheduler'
 
 const mockSchedule = Notifications.scheduleNotificationAsync as jest.Mock
@@ -107,6 +108,17 @@ describe('rescheduleDailyReminder', () => {
   })
 })
 
+describe('scheduleWeeklyDigest', () => {
+  it('schedules a Sunday 9am weekly trigger, replacing the prior', async () => {
+    const res = await scheduleWeeklyDigest()
+    expect(res).toEqual({ success: true, data: undefined })
+    expect(mockCancel).toHaveBeenCalledWith('mindwiki-weekly-digest')
+    const arg = mockSchedule.mock.calls[0][0]
+    expect(arg.identifier).toBe('mindwiki-weekly-digest')
+    expect(arg.trigger).toMatchObject({ type: 'weekly', weekday: 1, hour: 9, minute: 0 })
+  })
+})
+
 describe('onEntrySaved', () => {
   it('asks for permission on the first entry, records activity, and schedules', async () => {
     const { db, store } = createFakeDb()
@@ -116,7 +128,8 @@ describe('onEntrySaved', () => {
     expect(mockReqPerms).toHaveBeenCalledTimes(1)
     expect(store.get('notif_permission_asked')).toBe('1')
     expect(JSON.parse(store.get('notif_hour_histogram')!)[21]).toBe(1)
-    expect(mockSchedule).toHaveBeenCalledTimes(1)
+    // schedules both the daily reminder and the weekly digest
+    expect(mockSchedule).toHaveBeenCalledTimes(2)
   })
 
   it('does not ask for permission again on subsequent entries', async () => {
