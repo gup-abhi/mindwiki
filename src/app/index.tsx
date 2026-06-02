@@ -1,14 +1,21 @@
+import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 
 import { useEntries } from '@/hooks/useEntries'
 import { useWikiStore } from '@/store/wiki.store'
+import { computeStreak } from '@/services/notifications/streak'
+import { streakStage } from '@/services/notifications/stage'
 
 export default function Home() {
   const router = useRouter()
   const { entries, count } = useEntries()
   const synthesizing = useWikiStore((s) => s.pending > 0)
+  const stage = useMemo(
+    () => streakStage(computeStreak(entries.map((e) => e.created_at), Date.now()).current),
+    [entries]
+  )
 
   return (
     <View style={styles.container}>
@@ -20,6 +27,7 @@ export default function Home() {
         ListHeaderComponent={
           <View style={styles.header}>
             <Text style={styles.title}>MindWiki</Text>
+            <Text style={styles.stage}>{stage.headline}</Text>
             <Pressable
               accessibilityRole="button"
               style={styles.cta}
@@ -69,6 +77,7 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 32 },
   header: { alignItems: 'center', paddingTop: 64, paddingBottom: 24 },
   title: { fontSize: 32, fontWeight: '700', color: '#1a1a2e' },
+  stage: { marginTop: 8, fontSize: 14, color: '#7a7ad0', fontWeight: '600', textAlign: 'center' },
   cta: {
     backgroundColor: '#1a1a2e',
     paddingVertical: 16,
