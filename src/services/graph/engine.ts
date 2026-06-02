@@ -13,14 +13,23 @@ export async function updateGraphForEntry(
 ): Promise<Result<void>> {
   try {
     const specs: { type: NodeType; label: string }[] = []
-    if (entry.emotion && entry.emotion.trim()) {
-      specs.push({ type: 'emotion', label: entry.emotion.trim() })
+    const emotion = entry.emotion?.trim()
+    const distortion = entry.distortion?.trim()
+    if (emotion) {
+      specs.push({ type: 'emotion', label: emotion })
     }
-    if (entry.distortion && entry.distortion.trim().toLowerCase() !== 'none') {
-      specs.push({ type: 'distortion', label: entry.distortion.trim() })
+    if (distortion && distortion.toLowerCase() !== 'none') {
+      specs.push({ type: 'distortion', label: distortion })
     }
-    if (topic && topic.trim()) {
-      specs.push({ type: 'situation', label: topic.trim() })
+    const theme = topic?.trim()
+    if (theme) {
+      // Skip the theme node when it just repeats this entry's emotion or
+      // distortion (e.g. emotion "loneliness" + topic "Loneliness") so the
+      // same concept doesn't appear as two nodes.
+      const duplicatesTag = [emotion, distortion].some(
+        (l) => l != null && l.toLowerCase() === theme.toLowerCase()
+      )
+      if (!duplicatesTag) specs.push({ type: 'situation', label: theme })
     }
 
     const ids: string[] = []

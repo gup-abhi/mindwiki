@@ -59,4 +59,13 @@ describe('updateGraphForEntry', () => {
     await updateGraphForEntry(entry({ emotion: null, distortion: null }))
     expect(mockUpsertNode).not.toHaveBeenCalled()
   })
+
+  it('skips a theme node that just repeats the emotion (case-insensitive)', async () => {
+    await updateGraphForEntry(entry({ emotion: 'loneliness', distortion: 'none' }), 'Loneliness')
+
+    // only the emotion node — no duplicate "situation" node for the same word
+    expect(mockUpsertNode).toHaveBeenCalledTimes(1)
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'loneliness')
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Loneliness')
+  })
 })

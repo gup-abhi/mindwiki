@@ -12,7 +12,12 @@ function createFakeDb() {
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
       if (/^SELECT \* FROM graph_nodes WHERE type/.test(sql)) {
-        const row = [...nodes.values()].find((n) => n.type === params[0] && n.label === params[1])
+        // Mirror "COLLATE NOCASE": match label case-insensitively.
+        const row = [...nodes.values()].find(
+          (n) =>
+            n.type === params[0] &&
+            String(n.label).toLowerCase() === String(params[1]).toLowerCase()
+        )
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
       if (/^INSERT INTO graph_nodes/.test(sql)) {
@@ -82,6 +87,15 @@ describe('storage/graph', () => {
     await upsertNode('distortion', 'anxiety', db) // same label, different type
     const nodes = await listNodes(db)
     expect(nodes.success && nodes.data).toHaveLength(2)
+  })
+
+  it('merges labels that differ only by case (no duplicate)', async () => {
+    const { db } = createFakeDb()
+    await upsertNode('emotion', 'Loneliness', db)
+    const second = await upsertNode('emotion', 'loneliness', db)
+    expect(second.success && second.data.frequency).toBe(2)
+    const nodes = await listNodes(db)
+    expect(nodes.success && nodes.data).toHaveLength(1)
   })
 
   it('upserts an undirected edge (A,B) == (B,A) and increments weight', async () => {

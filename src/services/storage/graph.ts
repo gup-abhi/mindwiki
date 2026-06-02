@@ -64,7 +64,7 @@ export async function upsertNode(
   try {
     const now = Date.now()
     const existing = await db.execute(
-      'SELECT * FROM graph_nodes WHERE type = ? AND label = ?',
+      'SELECT * FROM graph_nodes WHERE type = ? AND label = ? COLLATE NOCASE',
       [type, label]
     )
     const row = existing.rows[0]
