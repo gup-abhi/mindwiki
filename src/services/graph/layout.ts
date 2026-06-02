@@ -85,18 +85,50 @@ export function computeLayout(
       db.y += uy * force
     }
 
-    // Apply displacement, limited by temperature; clamp to bounds.
+    // Gentle gravity toward the centre keeps small or disconnected graphs from
+    // drifting apart and pinning against the edges.
+    for (const id of nodeIds) {
+      const p = pos.get(id)!
+      const d = disp.get(id)!
+      d.x += (cx - p.x) * 0.03
+      d.y += (cy - p.y) * 0.03
+    }
+
+    // Apply displacement, limited by temperature (no hard clamp — the final
+    // pass below scales the whole layout to fit the canvas).
     for (const id of nodeIds) {
       const d = disp.get(id)!
       const p = pos.get(id)!
       const dl = Math.hypot(d.x, d.y) || 0.01
       p.x += (d.x / dl) * Math.min(dl, temp)
       p.y += (d.y / dl) * Math.min(dl, temp)
-      p.x = Math.max(0, Math.min(width, p.x))
-      p.y = Math.max(0, Math.min(height, p.y))
     }
 
     temp *= 0.95 // cool
+  }
+
+  // Fit the resulting bounding box into the canvas with padding, centred, so
+  // nodes and their labels always sit comfortably inside the viewport
+  // regardless of node count.
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const p of pos.values()) {
+    if (p.x < minX) minX = p.x
+    if (p.x > maxX) maxX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.y > maxY) maxY = p.y
+  }
+
+  const pad = 44
+  const spanX = maxX - minX || 1
+  const spanY = maxY - minY || 1
+  const s = Math.min((width - 2 * pad) / spanX, (height - 2 * pad) / spanY)
+  const offX = (width - spanX * s) / 2
+  const offY = (height - spanY * s) / 2
+  for (const [id, p] of pos) {
+    pos.set(id, { x: offX + (p.x - minX) * s, y: offY + (p.y - minY) * s })
   }
 
   return pos

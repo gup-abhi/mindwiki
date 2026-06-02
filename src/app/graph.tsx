@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg'
+import { useMemo, useRef, useState } from 'react'
+import { PanResponder, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import Svg, { Circle, G, Line, Text as SvgText } from 'react-native-svg'
 
 import { useGraph } from '@/hooks/useGraph'
 import { type NodeType } from '@/services/storage/graph'
@@ -22,7 +22,9 @@ function radius(frequency: number): number {
 
 export default function GraphScreen() {
   const { width, height } = useWindowDimensions()
-  const canvasH = Math.round(height * 0.7)
+  // Canvas fills the space left under the filter pills — measured via onLayout
+  // rather than a fixed fraction of the screen, so the graph isn't cramped.
+  const [canvasH, setCanvasH] = useState(Math.round(height * 0.7))
   const { nodes, edges, layout } = useGraph(width, canvasH)
   const [filter, setFilter] = useState<Filter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -43,11 +45,76 @@ export default function GraphScreen() {
   )
   const selected = visibleNodes.find((n) => n.id === selectedId) ?? null
 
+  // Zoom + pan: a single transform applied to the whole graph. Drag pans,
+  // the buttons zoom around the canvas centre. PanResponder only claims the
+  // gesture once the finger actually moves, so taps still reach the nodes.
+  const [tf, setTf] = useState({ scale: 1, tx: 0, ty: 0 })
+  const tfRef = useRef(tf)
+  tfRef.current = tf
+  // Live mirror of the data the gesture handler needs (the PanResponder is
+  // created once, so it must read positions/transform through a ref).
+  const dataRef = useRef({ nodes: visibleNodes, layout, tf })
+  dataRef.current = { nodes: visibleNodes, layout, tf }
+  const startRef = useRef({ scale: 1, tx: 0, ty: 0 })
+  const tapRef = useRef(false)
+
+  // Map a touch (in canvas coordinates) to the node under it, accounting for
+  // the current pan/zoom transform; null when the tap misses every node.
+  function hitTest(lx: number, ly: number): string | null {
+    const { nodes, layout, tf } = dataRef.current
+    for (const n of nodes) {
+      const p = layout.get(n.id)
+      if (!p) continue
+      const sx = tf.tx + tf.scale * p.x
+      const sy = tf.ty + tf.scale * p.y
+      const rr = radius(n.frequency) * tf.scale + 10 // touch slop
+      if ((lx - sx) ** 2 + (ly - sy) ** 2 <= rr * rr) return n.id
+    }
+    return null
+  }
+
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        startRef.current = tfRef.current
+        tapRef.current = true
+      },
+      onPanResponderMove: (_e, g) => {
+        if (Math.abs(g.dx) <= 6 && Math.abs(g.dy) <= 6) return
+        tapRef.current = false // it's a drag, not a tap
+        setTf({
+          scale: startRef.current.scale,
+          tx: startRef.current.tx + g.dx,
+          ty: startRef.current.ty + g.dy,
+        })
+      },
+      onPanResponderRelease: (e) => {
+        if (!tapRef.current) return // was a drag
+        setSelectedId(hitTest(e.nativeEvent.locationX, e.nativeEvent.locationY))
+      },
+    })
+  ).current
+
+  function zoomBy(factor: number) {
+    setTf((v) => {
+      const scale = Math.max(0.4, Math.min(4, v.scale * factor))
+      const r = scale / v.scale
+      return {
+        scale,
+        tx: (width / 2) * (1 - r) + r * v.tx,
+        ty: (canvasH / 2) * (1 - r) + r * v.ty,
+      }
+    })
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.pillBar}
         contentContainerStyle={styles.pills}
       >
         {(['all', ...presentTypes] as Filter[]).map((f) => (
@@ -69,7 +136,13 @@ export default function GraphScreen() {
           </Text>
         </View>
       ) : (
-        <Svg width={width} height={canvasH}>
+        <View
+          style={styles.canvas}
+          onLayout={(e) => setCanvasH(Math.round(e.nativeEvent.layout.height))}
+        >
+          <View style={StyleSheet.absoluteFill} {...pan.panHandlers}>
+          <Svg width={width} height={canvasH}>
+            <G transform={`translate(${tf.tx}, ${tf.ty}) scale(${tf.scale})`}>
           {visibleEdges.map((e) => {
             const a = layout.get(e.source_id)
             const b = layout.get(e.target_id)
@@ -111,7 +184,25 @@ export default function GraphScreen() {
               </SvgText>
             )
           })}
-        </Svg>
+            </G>
+          </Svg>
+          </View>
+          <View style={styles.zoomControls}>
+            <Pressable accessibilityRole="button" style={styles.zoomBtn} onPress={() => zoomBy(1.25)}>
+              <Text style={styles.zoomText}>+</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={styles.zoomBtn} onPress={() => zoomBy(0.8)}>
+              <Text style={styles.zoomText}>−</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.zoomBtn}
+              onPress={() => setTf({ scale: 1, tx: 0, ty: 0 })}
+            >
+              <Text style={styles.zoomReset}>⤢</Text>
+            </Pressable>
+          </View>
+        </View>
       )}
 
       {selected && (
@@ -132,13 +223,36 @@ export default function GraphScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff', paddingTop: 48 },
-  pills: { paddingHorizontal: 16, gap: 8, paddingBottom: 8 },
-  pill: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#f2f2f7' },
+  pillBar: { flexGrow: 0, maxHeight: 40 },
+  pills: { paddingHorizontal: 16, gap: 8, alignItems: 'center' },
+  pill: {
+    paddingVertical: 4,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: '#f2f2f7',
+    alignSelf: 'flex-start',
+  },
   pillActive: { backgroundColor: '#1a1a2e' },
-  pillText: { color: '#1a1a2e', fontSize: 14, textTransform: 'capitalize' },
+  pillText: { color: '#1a1a2e', fontSize: 13, textTransform: 'capitalize' },
   pillTextActive: { color: '#fff' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
   emptyText: { color: '#999', fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  canvas: { flex: 1, width: '100%' },
+  zoomControls: { position: 'absolute', right: 16, top: 12, gap: 10 },
+  zoomBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  zoomText: { fontSize: 24, color: '#1a1a2e', lineHeight: 26 },
+  zoomReset: { fontSize: 18, color: '#1a1a2e' },
   card: {
     position: 'absolute',
     left: 20,
