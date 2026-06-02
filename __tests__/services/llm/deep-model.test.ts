@@ -1,5 +1,6 @@
-import { synthesizePage } from '@/services/llm/deep-model'
+import { synthesizePage, generateReflectionQuestion } from '@/services/llm/deep-model'
 import { buildUpdatePagePrompt } from '@/services/llm/prompts/update-page'
+import { buildDigestQuestionPrompt } from '@/services/llm/prompts/digest-question'
 import { LLMBridge } from '@/native/LLMBridge'
 
 jest.mock('@/native/LLMBridge', () => ({ LLMBridge: { synthesise: jest.fn() } }))
@@ -51,5 +52,40 @@ describe('synthesizePage', () => {
     const result = await synthesizePage(input)
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('SYNTH_VALIDATION_FAILED')
+  })
+})
+
+describe('buildDigestQuestionPrompt', () => {
+  it('includes the aggregated pattern and correlation, asks for one question', () => {
+    const p = buildDigestQuestionPrompt({ pattern: 'mostly anxiety', correlation: 'low days carried dread' })
+    expect(p).toContain('mostly anxiety')
+    expect(p).toContain('low days carried dread')
+    expect(p).toMatch(/ONE[\s\S]*question/)
+  })
+})
+
+describe('generateReflectionQuestion', () => {
+  beforeEach(() => mockSynthesise.mockReset())
+  const qInput = { pattern: 'mostly anxiety', correlation: 'low days carried dread' }
+
+  it('returns the trimmed question on success', async () => {
+    mockSynthesise.mockResolvedValue({ text: '  What helps you feel grounded?  ' })
+    const result = await generateReflectionQuestion(qInput)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toBe('What helps you feel grounded?')
+  })
+
+  it('fails with DIGEST_QUESTION_INFERENCE_FAILED when the model throws', async () => {
+    mockSynthesise.mockRejectedValue(new Error('OOM'))
+    const result = await generateReflectionQuestion(qInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('DIGEST_QUESTION_INFERENCE_FAILED')
+  })
+
+  it('fails with DIGEST_QUESTION_VALIDATION_FAILED on empty output', async () => {
+    mockSynthesise.mockResolvedValue({ text: '   ' })
+    const result = await generateReflectionQuestion(qInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('DIGEST_QUESTION_VALIDATION_FAILED')
   })
 })
