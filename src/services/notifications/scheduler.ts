@@ -1,0 +1,91 @@
+import * as Notifications from 'expo-notifications'
+
+import { type SqliteDatabase, getDb } from '@/services/storage/db'
+import { getSetting, setSetting } from '@/services/storage/settings'
+import { type Result, ok, err } from '@/types/result'
+
+import { reminderCopy } from './copy'
+import {
+  type HourHistogram,
+  emptyHistogram,
+  optimalHour,
+  recordActivity as recordIntoHistogram,
+} from './timing'
+
+const HISTOGRAM_KEY = 'notif_hour_histogram'
+const DAILY_ID = 'mindwiki-daily-reminder'
+const DAY_MS = 86_400_000
+
+/** Show reminders even when the app is foregrounded; no sound/badge. */
+export function configureNotifications(): void {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    }),
+  })
+}
+
+/** Request notification permission (call after the first entry, not on launch). */
+export async function ensurePermission(): Promise<Result<boolean>> {
+  try {
+    const current = await Notifications.getPermissionsAsync()
+    if (current.granted) return ok(true)
+    if (current.canAskAgain === false) return ok(false)
+    const req = await Notifications.requestPermissionsAsync()
+    return ok(req.granted)
+  } catch (e) {
+    return err('NOTIF_PERMISSION_FAILED', 'Notification permission request failed', e)
+  }
+}
+
+async function loadHistogram(db: SqliteDatabase): Promise<HourHistogram> {
+  const res = await getSetting(HISTOGRAM_KEY, db)
+  if (res.success && res.data) {
+    try {
+      const parsed: unknown = JSON.parse(res.data)
+      if (Array.isArray(parsed) && parsed.length === 24) return parsed as HourHistogram
+    } catch {
+      // fall through to a fresh histogram
+    }
+  }
+  return emptyHistogram()
+}
+
+/** Record an activity (entry/open) into the persisted hour histogram. */
+export async function recordActivity(
+  ts: number,
+  db: SqliteDatabase = getDb()
+): Promise<Result<void>> {
+  try {
+    const next = recordIntoHistogram(await loadHistogram(db), ts)
+    return await setSetting(HISTOGRAM_KEY, JSON.stringify(next), db)
+  } catch (e) {
+    return err('NOTIF_RECORD_FAILED', 'Failed to record activity', e)
+  }
+}
+
+/**
+ * Reschedule the single daily reminder at the histogram's optimal hour, with
+ * the day's rotating copy. Replaces any previously scheduled reminder.
+ * Returns the chosen hour.
+ */
+export async function rescheduleDailyReminder(
+  now: number,
+  db: SqliteDatabase = getDb()
+): Promise<Result<number>> {
+  try {
+    const hour = optimalHour(await loadHistogram(db))
+    const dayIndex = Math.floor(now / DAY_MS)
+    await Notifications.cancelScheduledNotificationAsync(DAILY_ID).catch(() => {})
+    await Notifications.scheduleNotificationAsync({
+      identifier: DAILY_ID,
+      content: { title: 'MindWiki', body: reminderCopy(dayIndex) },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute: 0 },
+    })
+    return ok(hour)
+  } catch (e) {
+    return err('NOTIF_SCHEDULE_FAILED', 'Failed to schedule reminder', e)
+  }
+}
