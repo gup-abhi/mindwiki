@@ -1,33 +1,43 @@
 import { useRouter } from 'expo-router'
 import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import Svg, { Circle, Polyline } from 'react-native-svg'
+import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg'
 
 import { useDigest } from '@/hooks/useDigest'
 import { type MoodPoint } from '@/services/digest/generator'
 
-const ARC_H = 120
+const ARC_H = 130
 
 function MoodArc({ points, width }: { points: MoodPoint[]; width: number }) {
   if (points.length === 0) return null
-  const pad = 16
-  const innerW = width - pad * 2
-  const innerH = ARC_H - pad * 2
-  // x evenly spaced; y maps mood 1..5 to bottom..top.
-  const xy = points.map((p, i) => {
-    const x = pad + (points.length === 1 ? innerW / 2 : (innerW * i) / (points.length - 1))
-    const y = pad + innerH - ((p.mood - 1) / 4) * innerH
-    return { x, y }
-  })
+  const padX = 26
+  const padTop = 22
+  const padBottom = 18
+  const innerW = width - padX - 12
+  const innerH = ARC_H - padTop - padBottom
+  const yFor = (mood: number) => padTop + innerH - ((mood - 1) / 4) * innerH
+  const xFor = (i: number) =>
+    padX + (points.length === 1 ? innerW / 2 : (innerW * i) / (points.length - 1))
+  const xy = points.map((p, i) => ({ x: xFor(i), y: yFor(p.mood), mood: p.mood }))
+
   return (
     <Svg width={width} height={ARC_H}>
-      <Polyline
-        points={xy.map((p) => `${p.x},${p.y}`).join(' ')}
-        fill="none"
-        stroke="#7a7ad0"
-        strokeWidth={2}
-      />
+      {/* 1–5 scale: faint gridlines + end labels so a single point is still legible */}
+      {[1, 3, 5].map((m) => (
+        <Line key={m} x1={padX} y1={yFor(m)} x2={padX + innerW} y2={yFor(m)} stroke="#e6e6f0" strokeWidth={1} />
+      ))}
+      <SvgText x={padX - 8} y={yFor(5) + 4} fontSize={10} fill="#aaa" textAnchor="end">5</SvgText>
+      <SvgText x={padX - 8} y={yFor(1) + 4} fontSize={10} fill="#aaa" textAnchor="end">1</SvgText>
+
+      {xy.length > 1 && (
+        <Polyline points={xy.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#7a7ad0" strokeWidth={2} />
+      )}
       {xy.map((p, i) => (
-        <Circle key={i} testID="mood-point" cx={p.x} cy={p.y} r={4} fill="#1a1a2e" />
+        <Circle key={i} testID="mood-point" cx={p.x} cy={p.y} r={5} fill="#1a1a2e" />
+      ))}
+      {xy.map((p, i) => (
+        <SvgText key={`v${i}`} x={p.x} y={p.y - 10} fontSize={10} fill="#666" textAnchor="middle">
+          {p.mood.toFixed(1)}
+        </SvgText>
       ))}
     </Svg>
   )
@@ -66,8 +76,11 @@ export default function DigestScreen() {
       <Text style={styles.subtitle}>{digest.entryCount} entries</Text>
 
       <View style={styles.arcCard}>
-        <Text style={styles.cardLabel}>Mood</Text>
+        <Text style={styles.cardLabel}>Mood (1–5)</Text>
         <MoodArc points={digest.moodArc} width={width - 48 - 32} />
+        {digest.moodArc.length === 1 && (
+          <Text style={styles.arcHint}>One day so far — the line fills in as you journal across more days.</Text>
+        )}
       </View>
 
       <Text style={styles.section}>Observations</Text>
@@ -109,6 +122,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 15, color: '#999', marginTop: 4 },
   arcCard: { backgroundColor: '#f7f7fb', borderRadius: 14, padding: 16, marginTop: 20 },
   cardLabel: { fontSize: 13, color: '#7a7ad0', fontWeight: '600', marginBottom: 8 },
+  arcHint: { fontSize: 12, color: '#999', marginTop: 6, lineHeight: 17 },
   section: { fontSize: 14, fontWeight: '700', color: '#1a1a2e', marginTop: 24, marginBottom: 8 },
   card: { backgroundColor: '#f7f7fb', borderRadius: 12, padding: 14, marginBottom: 10 },
   cardText: { fontSize: 15, color: '#333', lineHeight: 21 },
