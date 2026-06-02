@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications'
 import { type SqliteDatabase } from '@/services/storage/db'
 import {
   ensurePermission,
+  onEntrySaved,
   recordActivity,
   rescheduleDailyReminder,
 } from '@/services/notifications/scheduler'
@@ -103,5 +104,26 @@ describe('rescheduleDailyReminder', () => {
     const { db } = createFakeDb()
     const res = await rescheduleDailyReminder(at(10), db)
     expect(res).toEqual({ success: true, data: 20 }) // DEFAULT_SEND_HOUR
+  })
+})
+
+describe('onEntrySaved', () => {
+  it('asks for permission on the first entry, records activity, and schedules', async () => {
+    const { db, store } = createFakeDb()
+    const res = await onEntrySaved(at(21), db)
+
+    expect(res).toEqual({ success: true, data: undefined })
+    expect(mockReqPerms).toHaveBeenCalledTimes(1)
+    expect(store.get('notif_permission_asked')).toBe('1')
+    expect(JSON.parse(store.get('notif_hour_histogram')!)[21]).toBe(1)
+    expect(mockSchedule).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not ask for permission again on subsequent entries', async () => {
+    const { db } = createFakeDb()
+    await onEntrySaved(at(21), db)
+    mockReqPerms.mockClear()
+    await onEntrySaved(at(21), db)
+    expect(mockReqPerms).not.toHaveBeenCalled()
   })
 })

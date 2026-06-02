@@ -10,6 +10,7 @@ jest.mock('@/services/storage/entries', () => ({
   createEntry: jest.fn(),
 }))
 jest.mock('@/services/pipeline', () => ({ processEntry: jest.fn() }))
+jest.mock('@/services/notifications/scheduler', () => ({ onEntrySaved: jest.fn() }))
 
 const mockCreateEntry = createEntry as jest.Mock
 const mockProcessEntry = processEntry as jest.Mock

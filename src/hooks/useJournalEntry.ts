@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 
 import { type CrisisAssessment } from '@/services/crisis/detector'
+import { onEntrySaved } from '@/services/notifications/scheduler'
 import { processEntry } from '@/services/pipeline'
 import { createEntry, type Entry } from '@/services/storage/entries'
 import { useEntryStore, TOTAL_STEPS } from '@/store/entry.store'
@@ -69,6 +70,9 @@ export function useJournalEntry() {
       // the result so the caller can show crisis support. processEntry never
       // throws; if the model is unavailable, the keyword safety net still runs.
       const processed = await processEntry(result.data)
+      // Habit system: permission (first entry only), activity, reminder.
+      // Best-effort — never blocks the save.
+      void onEntrySaved(Date.now())
       reset()
       return ok({ entry: result.data, crisis: processed.crisis })
     } finally {

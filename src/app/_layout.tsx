@@ -3,6 +3,7 @@ import { Stack } from 'expo-router'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import { initStorage } from '@/services/storage/bootstrap'
+import { configureNotifications } from '@/services/notifications/scheduler'
 
 type Status = 'loading' | 'ready' | 'error'
 
@@ -12,6 +13,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     let active = true
+    configureNotifications()
     initStorage().then((result) => {
       if (!active) return
       if (result.success) {

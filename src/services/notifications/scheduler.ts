@@ -13,6 +13,7 @@ import {
 } from './timing'
 
 const HISTOGRAM_KEY = 'notif_hour_histogram'
+const PERMISSION_ASKED_KEY = 'notif_permission_asked'
 const DAILY_ID = 'mindwiki-daily-reminder'
 const DAY_MS = 86_400_000
 
@@ -87,5 +88,28 @@ export async function rescheduleDailyReminder(
     return ok(hour)
   } catch (e) {
     return err('NOTIF_SCHEDULE_FAILED', 'Failed to schedule reminder', e)
+  }
+}
+
+/**
+ * Run after an entry is saved: ask for notification permission once (after the
+ * first entry, never on launch), record the activity, and reschedule the daily
+ * reminder. Best-effort — callers fire-and-forget; never blocks the entry.
+ */
+export async function onEntrySaved(
+  now: number,
+  db: SqliteDatabase = getDb()
+): Promise<Result<void>> {
+  try {
+    const asked = await getSetting(PERMISSION_ASKED_KEY, db)
+    if (!(asked.success && asked.data === '1')) {
+      await ensurePermission()
+      await setSetting(PERMISSION_ASKED_KEY, '1', db)
+    }
+    await recordActivity(now, db)
+    await rescheduleDailyReminder(now, db)
+    return ok(undefined)
+  } catch (e) {
+    return err('NOTIF_ON_ENTRY_FAILED', 'Failed to update habit state', e)
   }
 }
