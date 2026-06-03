@@ -1,3 +1,4 @@
+import { type Entry } from '@/services/storage/entries'
 import { type WikiPage } from '@/services/storage/wiki'
 
 export interface RankedPage {
@@ -50,4 +51,30 @@ export function rankPages(query: string, pages: WikiPage[], limit = 5): RankedPa
   }
 
   return ranked.sort((a, b) => b.score - a.score).slice(0, limit)
+}
+
+/**
+ * Rank journal entries for a query by term overlap across their text
+ * (situation, thought, closing note, emotion). Returns the most relevant
+ * entries — the evidence a user can open and re-read. Pure.
+ */
+export function rankEntries(query: string, entries: Entry[], limit = 5): Entry[] {
+  const terms = queryTerms(query)
+  if (terms.length === 0) return []
+
+  const scored: { entry: Entry; score: number }[] = []
+  for (const entry of entries) {
+    const text = [entry.situation, entry.thought, entry.closing_note ?? '', entry.emotion ?? ''].join(' ')
+    const counts = new Map<string, number>()
+    for (const w of tokenize(text)) counts.set(w, (counts.get(w) ?? 0) + 1)
+
+    let score = 0
+    for (const t of terms) score += counts.get(t) ?? 0
+    if (score > 0) scored.push({ entry, score })
+  }
+
+  return scored
+    .sort((a, b) => b.score - a.score || b.entry.created_at - a.entry.created_at)
+    .slice(0, limit)
+    .map((s) => s.entry)
 }
