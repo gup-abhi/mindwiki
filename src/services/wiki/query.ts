@@ -15,6 +15,24 @@ export interface WikiAnswer {
 const NO_MATCH =
   "I couldn't find anything in your wiki about that yet — keep journaling and it'll grow."
 
+const SUGGESTION_TEMPLATES: ((title: string) => string)[] = [
+  (t) => `What patterns show up around ${t}?`,
+  (t) => `How has ${t} been affecting me?`,
+  (t) => `What tends to trigger ${t}?`,
+]
+
+/**
+ * Suggested questions seeded from the user's richest wiki pages (most entries),
+ * varied across a few templates. Pure.
+ */
+export function suggestedQuestions(pages: WikiPage[], limit = 3): string[] {
+  return [...pages]
+    .filter((p) => p.entry_count > 0)
+    .sort((a, b) => b.entry_count - a.entry_count)
+    .slice(0, limit)
+    .map((p, i) => SUGGESTION_TEMPLATES[i % SUGGESTION_TEMPLATES.length](p.title))
+}
+
 /**
  * Answer a question from the wiki: rank pages, ground the deep model in the top
  * few, and report which pages (and how many entries) backed the answer. When no

@@ -1,4 +1,4 @@
-import { answerQuestion } from '@/services/wiki/query'
+import { answerQuestion, suggestedQuestions } from '@/services/wiki/query'
 import { answerFromWiki } from '@/services/llm/deep-model'
 import { type WikiPage } from '@/services/storage/wiki'
 import { ok, err } from '@/types/result'
@@ -58,5 +58,25 @@ describe('answerQuestion', () => {
     mockAnswer.mockResolvedValue(err('WIKI_ANSWER_INFERENCE_FAILED', 'down'))
     const res = await answerQuestion('anxiety', [page({ title: 'Anxiety', content: 'anxiety' })])
     expect(res.success).toBe(false)
+  })
+})
+
+describe('suggestedQuestions', () => {
+  it('seeds from the richest pages, most entries first, within the limit', () => {
+    const pages = [
+      page({ title: 'Work', entry_count: 2 }),
+      page({ title: 'Sleep', entry_count: 9 }),
+      page({ title: 'Food', entry_count: 5 }),
+      page({ title: 'Empty', entry_count: 0 }),
+    ]
+    const qs = suggestedQuestions(pages, 2)
+    expect(qs).toHaveLength(2)
+    expect(qs[0]).toContain('Sleep') // richest first
+    expect(qs[1]).toContain('Food')
+    expect(qs.every((q) => q.endsWith('?'))).toBe(true)
+  })
+
+  it('skips pages with no entries and returns nothing when none qualify', () => {
+    expect(suggestedQuestions([page({ entry_count: 0 })])).toEqual([])
   })
 })
