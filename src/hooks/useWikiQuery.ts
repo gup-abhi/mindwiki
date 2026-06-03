@@ -24,13 +24,17 @@ export function useWikiQuery(initialQuestion?: string) {
     if (!question.trim()) return
     setAsking(true)
     setAnswer(null)
-    setRelated(rankEntries(question, ents, 5))
+    setRelated([])
     const res = await answerQuestion(question, pgs)
-    setAnswer(
-      res.success
-        ? res.data
-        : { answer: 'Something went wrong answering that — please try again.', sources: [], evidenceCount: 0 }
-    )
+    const ans = res.success
+      ? res.data
+      : { answer: 'Something went wrong answering that — please try again.', sources: [], evidenceCount: 0 }
+    setAnswer(ans)
+    // Rank entries against the question *plus* the matched page topics, so an
+    // answer from the "Anxiety" page also surfaces entries tagged anxiety even
+    // when the question never used that exact word.
+    const expanded = [question, ...ans.sources.map((s) => s.title)].join(' ')
+    setRelated(rankEntries(expanded, ents, 5))
     setAsking(false)
   }, [])
 

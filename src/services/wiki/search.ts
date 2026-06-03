@@ -64,7 +64,13 @@ export function rankEntries(query: string, entries: Entry[], limit = 5): Entry[]
 
   const scored: { entry: Entry; score: number }[] = []
   for (const entry of entries) {
-    const text = [entry.situation, entry.thought, entry.closing_note ?? '', entry.emotion ?? ''].join(' ')
+    const text = [
+      entry.situation,
+      entry.thought,
+      entry.closing_note ?? '',
+      entry.emotion ?? '',
+      entry.distortion && entry.distortion !== 'none' ? entry.distortion : '',
+    ].join(' ')
     const counts = new Map<string, number>()
     for (const w of tokenize(text)) counts.set(w, (counts.get(w) ?? 0) + 1)
 
