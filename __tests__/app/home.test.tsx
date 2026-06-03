@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react-native'
 
 import Home from '@/app/index'
 import { listEntries } from '@/services/storage/entries'
+import { type WikiPage } from '@/services/storage/wiki'
 import { useWikiStore } from '@/store/wiki.store'
 import { ok } from '@/types/result'
 
@@ -12,6 +13,9 @@ jest.mock('expo-router', () => ({
   },
 }))
 jest.mock('@/services/storage/entries', () => ({ listEntries: jest.fn() }))
+
+const mockWiki = jest.fn(() => ({ pages: [] as WikiPage[], loading: false }))
+jest.mock('@/hooks/useWiki', () => ({ useWikiPages: () => mockWiki() }))
 
 const mockList = listEntries as jest.Mock
 
@@ -33,6 +37,7 @@ const entry = (over = {}) => ({
 describe('Home entries list', () => {
   beforeEach(() => {
     mockList.mockReset()
+    mockWiki.mockReturnValue({ pages: [], loading: false })
     useWikiStore.setState({ pending: 0 })
   })
 
@@ -72,5 +77,28 @@ describe('Home entries list', () => {
     render(<Home />)
     await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
     expect(screen.queryByText('Your weekly digest is ready')).toBeNull()
+  })
+
+  it('surfaces a proactive question from the richest wiki page', async () => {
+    mockList.mockResolvedValue(ok([entry()]))
+    mockWiki.mockReturnValue({
+      pages: [
+        {
+          id: 'p1',
+          title: 'Work',
+          category: null,
+          content: '',
+          entry_count: 5,
+          version: 1,
+          version_history: [],
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      loading: false,
+    })
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('Curious?')).toBeTruthy())
+    expect(screen.getByText(/Work/)).toBeTruthy()
   })
 })

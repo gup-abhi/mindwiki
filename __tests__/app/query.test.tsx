@@ -7,7 +7,10 @@ const mockUse = jest.fn()
 const mockPush = jest.fn()
 const mockAsk = jest.fn()
 jest.mock('@/hooks/useWikiQuery', () => ({ useWikiQuery: () => mockUse() }))
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, replace: jest.fn() }) }))
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  useLocalSearchParams: () => ({}),
+}))
 
 const page = (id: string, title: string) => ({
   id,

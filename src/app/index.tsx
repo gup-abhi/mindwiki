@@ -4,20 +4,24 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 
 import { useEntries } from '@/hooks/useEntries'
+import { useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
 import { computeStreak } from '@/services/notifications/streak'
 import { streakStage } from '@/services/notifications/stage'
 import { generateDigest } from '@/services/digest/generator'
+import { suggestedQuestions } from '@/services/wiki/query'
 
 export default function Home() {
   const router = useRouter()
   const { entries, count } = useEntries()
+  const { pages } = useWikiPages()
   const synthesizing = useWikiStore((s) => s.pending > 0)
   const stage = useMemo(
     () => streakStage(computeStreak(entries.map((e) => e.created_at), Date.now()).current),
     [entries]
   )
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
+  const surfacedQuestion = useMemo(() => suggestedQuestions(pages, 1)[0] ?? null, [pages])
 
   return (
     <View style={styles.container}>
@@ -68,6 +72,16 @@ export default function Home() {
             >
               <Text style={styles.wikiLinkText}>Ask your wiki →</Text>
             </Pressable>
+            {surfacedQuestion && (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.surfaceCard}
+                onPress={() => router.push({ pathname: '/query', params: { q: surfacedQuestion } })}
+              >
+                <Text style={styles.surfaceLabel}>Curious?</Text>
+                <Text style={styles.surfaceText}>{surfacedQuestion}</Text>
+              </Pressable>
+            )}
             {synthesizing && <Text style={styles.synth}>Synthesizing your wiki…</Text>}
             <Text style={styles.count}>
               {count} {count === 1 ? 'entry' : 'entries'} so far
@@ -107,6 +121,16 @@ const styles = StyleSheet.create({
   },
   digestTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
   digestSub: { color: '#eee', fontSize: 13, marginTop: 4 },
+  surfaceCard: {
+    marginTop: 16,
+    backgroundColor: '#f2f2f7',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    alignSelf: 'stretch',
+  },
+  surfaceLabel: { fontSize: 12, color: '#7a7ad0', fontWeight: '700' },
+  surfaceText: { fontSize: 15, color: '#1a1a2e', marginTop: 3 },
   cta: {
     backgroundColor: '#1a1a2e',
     paddingVertical: 16,

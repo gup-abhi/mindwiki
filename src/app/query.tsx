@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import {
   ActivityIndicator,
   Pressable,
@@ -14,8 +14,10 @@ import { useWikiQuery } from '@/hooks/useWikiQuery'
 
 export default function QueryScreen() {
   const router = useRouter()
-  const { suggestions, recentPages, answer, asking, ask } = useWikiQuery()
-  const [text, setText] = useState('')
+  const { q } = useLocalSearchParams<{ q?: string }>()
+  const initial = typeof q === 'string' ? q : undefined
+  const { suggestions, recentPages, answer, asking, ask } = useWikiQuery(initial)
+  const [text, setText] = useState(initial ?? '')
 
   const submit = (q: string) => {
     setText(q)
