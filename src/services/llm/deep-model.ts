@@ -1,8 +1,10 @@
 import { LLMBridge } from '@/native/LLMBridge'
 import { type Result, ok, err } from '@/types/result'
 
+import { buildAnswerQuestionPrompt, type AnswerQuestionInput } from './prompts/answer-question'
 import { buildDigestQuestionPrompt, type DigestQuestionInput } from './prompts/digest-question'
 import { buildUpdatePagePrompt, type UpdatePageInput } from './prompts/update-page'
+import { AnswerSchema } from './schemas/answer.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
 
@@ -52,6 +54,29 @@ export async function generateReflectionQuestion(
   const parsed = ReflectionQuestionSchema.safeParse(raw.trim())
   if (!parsed.success) {
     return err('DIGEST_QUESTION_VALIDATION_FAILED', 'Reflection question failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Answer a question grounded ONLY in the supplied wiki pages (on-device). Never
+ * throws; returns Result. Errors carry a code only, never page/question text.
+ */
+export async function answerFromWiki(input: AnswerQuestionInput): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildAnswerQuestionPrompt(input), {
+      maxTokens: 220,
+      temperature: 0.3,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('WIKI_ANSWER_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  const parsed = AnswerSchema.safeParse(raw.trim())
+  if (!parsed.success) {
+    return err('WIKI_ANSWER_VALIDATION_FAILED', 'Answer failed validation')
   }
   return ok(parsed.data)
 }

@@ -1,6 +1,7 @@
-import { synthesizePage, generateReflectionQuestion } from '@/services/llm/deep-model'
+import { synthesizePage, generateReflectionQuestion, answerFromWiki } from '@/services/llm/deep-model'
 import { buildUpdatePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildDigestQuestionPrompt } from '@/services/llm/prompts/digest-question'
+import { buildAnswerQuestionPrompt } from '@/services/llm/prompts/answer-question'
 import { LLMBridge } from '@/native/LLMBridge'
 
 jest.mock('@/native/LLMBridge', () => ({ LLMBridge: { synthesise: jest.fn() } }))
@@ -87,5 +88,44 @@ describe('generateReflectionQuestion', () => {
     const result = await generateReflectionQuestion(qInput)
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('DIGEST_QUESTION_VALIDATION_FAILED')
+  })
+})
+
+describe('buildAnswerQuestionPrompt', () => {
+  it('embeds the sources and the question, and restricts to the wiki', () => {
+    const p = buildAnswerQuestionPrompt({
+      question: 'What stresses me at work?',
+      sources: [{ title: 'Work', content: 'Deadlines spike anxiety.' }],
+    })
+    expect(p).toContain('Work')
+    expect(p).toContain('Deadlines spike anxiety.')
+    expect(p).toContain('What stresses me at work?')
+    expect(p).toMatch(/ONLY the personal wiki pages/)
+  })
+})
+
+describe('answerFromWiki', () => {
+  beforeEach(() => mockSynthesise.mockReset())
+  const aInput = { question: 'q?', sources: [{ title: 'Work', content: 'text' }] }
+
+  it('returns the trimmed answer on success', async () => {
+    mockSynthesise.mockResolvedValue({ text: '  Deadlines tend to spike it.  ' })
+    const result = await answerFromWiki(aInput)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toBe('Deadlines tend to spike it.')
+  })
+
+  it('fails with WIKI_ANSWER_INFERENCE_FAILED when the model throws', async () => {
+    mockSynthesise.mockRejectedValue(new Error('OOM'))
+    const result = await answerFromWiki(aInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('WIKI_ANSWER_INFERENCE_FAILED')
+  })
+
+  it('fails with WIKI_ANSWER_VALIDATION_FAILED on empty output', async () => {
+    mockSynthesise.mockResolvedValue({ text: '   ' })
+    const result = await answerFromWiki(aInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('WIKI_ANSWER_VALIDATION_FAILED')
   })
 })
