@@ -24,10 +24,25 @@ const page = (id: string, title: string) => ({
   updated_at: 0,
 })
 
+const entry = (id: string, situation: string, created_at = 0) => ({
+  id,
+  created_at,
+  mood: 3,
+  situation,
+  thought: 't',
+  behavior: null,
+  closing_note: null,
+  emotion: null,
+  distortion: null,
+  mood_score: null,
+  tagged_at: null,
+})
+
 const base = {
   suggestions: ['What patterns show up around Work?'],
   recentPages: [page('p1', 'Work')],
   answer: null as WikiAnswer | null,
+  related: [] as ReturnType<typeof entry>[],
   asking: false,
   ask: mockAsk,
 }
@@ -63,5 +78,17 @@ describe('QueryScreen', () => {
 
     fireEvent.press(screen.getByText('Work'))
     expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+  })
+
+  it('lists related entries and opens one for reading', () => {
+    mockUse.mockReturnValue({
+      ...base,
+      answer: { answer: 'A.', sources: [], evidenceCount: 0 },
+      related: [entry('en1', 'a tense meeting', 1)],
+    })
+    render(<QueryScreen />)
+    expect(screen.getByText('Entries behind this')).toBeTruthy()
+    fireEvent.press(screen.getByText('a tense meeting'))
+    expect(mockPush).toHaveBeenCalledWith('/entries/en1')
   })
 })

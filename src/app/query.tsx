@@ -16,7 +16,7 @@ export default function QueryScreen() {
   const router = useRouter()
   const { q } = useLocalSearchParams<{ q?: string }>()
   const initial = typeof q === 'string' ? q : undefined
-  const { suggestions, recentPages, answer, asking, ask } = useWikiQuery(initial)
+  const { suggestions, recentPages, answer, related, asking, ask } = useWikiQuery(initial)
   const [text, setText] = useState(initial ?? '')
 
   const submit = (q: string) => {
@@ -27,6 +27,7 @@ export default function QueryScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>Ask your wiki</Text>
+      <Text style={styles.subtitle}>Answers come only from your own journal.</Text>
 
       <View style={styles.searchRow}>
         <TextInput
@@ -75,6 +76,30 @@ export default function QueryScreen() {
         </View>
       )}
 
+      {answer && !asking && related.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Entries behind this</Text>
+          {related.map((e) => (
+            <Pressable
+              key={e.id}
+              accessibilityRole="button"
+              style={styles.entryRow}
+              onPress={() => router.push(`/entries/${e.id}`)}
+            >
+              <Text style={styles.entryDate}>
+                {new Date(e.created_at).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                })}
+              </Text>
+              <Text style={styles.entrySnippet} numberOfLines={1}>
+                {e.situation}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {!answer && !asking && suggestions.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Try asking</Text>
@@ -114,7 +139,20 @@ export default function QueryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   body: { padding: 24, paddingTop: 56 },
-  title: { fontSize: 28, fontWeight: '700', color: '#1a1a2e', marginBottom: 16 },
+  title: { fontSize: 28, fontWeight: '700', color: '#1a1a2e' },
+  subtitle: { fontSize: 14, color: '#999', marginTop: 4, marginBottom: 18 },
+  entryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#f7f7fb',
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  entryDate: { fontSize: 12, color: '#7a7ad0', fontWeight: '700', width: 48 },
+  entrySnippet: { flex: 1, fontSize: 15, color: '#1a1a2e' },
   searchRow: { flexDirection: 'row', gap: 10 },
   input: {
     flex: 1,

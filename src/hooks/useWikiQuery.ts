@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
+import { listEntries, type Entry } from '@/services/storage/entries'
 import { listPages, type WikiPage } from '@/services/storage/wiki'
 import { answerQuestion, suggestedQuestions, type WikiAnswer } from '@/services/wiki/query'
+import { rankEntries } from '@/services/wiki/search'
 
 /**
  * Wiki query state: loads pages on focus, exposes suggested questions + recent
@@ -12,14 +14,17 @@ import { answerQuestion, suggestedQuestions, type WikiAnswer } from '@/services/
  */
 export function useWikiQuery(initialQuestion?: string) {
   const [pages, setPages] = useState<WikiPage[]>([])
+  const [entries, setEntries] = useState<Entry[]>([])
   const [answer, setAnswer] = useState<WikiAnswer | null>(null)
+  const [related, setRelated] = useState<Entry[]>([])
   const [asking, setAsking] = useState(false)
   const askedInitial = useRef(false)
 
-  const runAnswer = useCallback(async (question: string, pgs: WikiPage[]) => {
+  const runAnswer = useCallback(async (question: string, pgs: WikiPage[], ents: Entry[]) => {
     if (!question.trim()) return
     setAsking(true)
     setAnswer(null)
+    setRelated(rankEntries(question, ents, 5))
     const res = await answerQuestion(question, pgs)
     setAnswer(
       res.success
@@ -31,18 +36,23 @@ export function useWikiQuery(initialQuestion?: string) {
 
   useFocusEffect(
     useCallback(() => {
-      listPages().then((r) => {
-        if (!r.success) return
-        setPages(r.data)
+      Promise.all([listPages(), listEntries(200)]).then(([p, e]) => {
+        const pgs = p.success ? p.data : []
+        const ents = e.success ? e.data : []
+        setPages(pgs)
+        setEntries(ents)
         if (initialQuestion && !askedInitial.current) {
           askedInitial.current = true
-          runAnswer(initialQuestion, r.data)
+          runAnswer(initialQuestion, pgs, ents)
         }
       })
     }, [initialQuestion, runAnswer])
   )
 
-  const ask = useCallback((question: string) => runAnswer(question, pages), [pages, runAnswer])
+  const ask = useCallback(
+    (question: string) => runAnswer(question, pages, entries),
+    [pages, entries, runAnswer]
+  )
 
   const suggestions = useMemo(() => suggestedQuestions(pages), [pages])
   const recentPages = useMemo(
@@ -50,5 +60,5 @@ export function useWikiQuery(initialQuestion?: string) {
     [pages]
   )
 
-  return { suggestions, recentPages, answer, asking, ask }
+  return { suggestions, recentPages, answer, related, asking, ask }
 }
