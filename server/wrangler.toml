@@ -1,0 +1,9 @@
+name = "mindwiki-server"
+main = "src/index.ts"
+compatibility_date = "2024-11-06"
+compatibility_flags = ["nodejs_compat"]
+
+# Local dev (wrangler dev) simulates KV + R2 via Miniflare; ids are placeholders
+# until real namespaces/buckets are created for staging/production.
+kv_namespaces = [{ binding = "AUTH_KV", id = "local_dev_auth_kv" }]
+r2_buckets = [{ binding = "R2", bucket_name = "mindwiki-sync" }]
