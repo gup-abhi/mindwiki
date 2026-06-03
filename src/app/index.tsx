@@ -61,6 +61,13 @@ export default function Home() {
             >
               <Text style={styles.wikiLinkText}>View graph →</Text>
             </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.wikiLink}
+              onPress={() => router.push('/query')}
+            >
+              <Text style={styles.wikiLinkText}>Ask your wiki →</Text>
+            </Pressable>
             {synthesizing && <Text style={styles.synth}>Synthesizing your wiki…</Text>}
             <Text style={styles.count}>
               {count} {count === 1 ? 'entry' : 'entries'} so far
