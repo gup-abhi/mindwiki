@@ -316,14 +316,17 @@ Fill this in `demo/README.md` before starting Phase 0.
   - Per-record key via HKDF
 
 ### Track B: Auth service (client) — sync-agent
+**Accounts are mandatory (no anonymous mode).** Account-first onboarding; the
+encrypted DB is opened only after a session + master key exist. Offline journaling
+is allowed after the first successful login.
 - [ ] `src/services/auth/auth.service.ts`
-  - `register(email?, password)` — derives master key, calls server
-  - `loginNewDevice(email, password)` — re-derives master key from escrow
+  - `register(email, password)` — generates a random master key, escrows it (Argon2-wrapped), calls server
+  - `loginNewDevice(email, password)` — recovers master key from escrow
   - `refreshAccessToken()` — auto-called by API client on 401
 - [ ] `src/services/auth/api-client.ts` — `authenticatedFetch()` with auto-refresh
-- [ ] `src/store/auth.store.ts` — anonymous / authenticated / unauthenticated
-- [ ] Auth modal UI (3 screens: intro, password, recovery phrase)
-- [ ] Settings → Sync entry point (anonymous nudge card)
+- [ ] `src/store/auth.store.ts` — authenticated / unauthenticated (+ loading on launch)
+- [ ] Onboarding/auth screens (welcome, register, login, recovery phrase) — gate app launch
+- [ ] Settings → Account/Sync entry point
 
 ### Track C: Cloudflare Workers server — server-agent
 Full spec in `docs/SERVER.md`. Summary:

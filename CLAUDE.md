@@ -385,13 +385,15 @@ if (!parsed.success) {
 
 ## Auth rules
 
-- Auth is **optional**. Anonymous users have full journaling. Auth enables sync only.
-- **Never** gate journaling features behind auth.
+- Auth is **mandatory**. Every user creates an account (email + password) before journaling — account-first onboarding. There is **no anonymous mode**.
+- App launch gates on auth: no session → onboarding (register/login); only after a valid session + master key is the encrypted DB opened and journaling shown.
+- **Offline-first after first login**: account creation / first login require a network connection. After that, the master key + session live in the OS keystore, so journaling works fully offline and syncs opportunistically when online — never block journaling once logged in.
 - Tokens stored in Keychain only — never AsyncStorage, never SQLite.
 - Password flow: client `SHA-256(password)` → server `bcrypt(hash, 12)` → stored in KV.
-- Master key derived `Argon2id(password, salt)` **client-side only** — never transmitted.
+- **Master key is a random 256-bit key** generated at registration (it is the SQLCipher DB key). It is escrowed wrapped by `Argon2id(password, salt)` (client-side only — the raw key and password are never transmitted). Password change re-wraps the escrow; it does not re-key the DB.
+- Data recovery is via the **recovery phrase** only — the server is zero-knowledge and cannot reset it.
 - All API calls go through `authenticatedFetch()` which handles 401 → token refresh.
-- If `refreshAccessToken()` fails → set auth state `'unauthenticated'` + show re-login — do not block journaling.
+- If `refreshAccessToken()` fails → set auth state `'unauthenticated'` + show re-login. Cached local journaling still works offline; only sync pauses until re-login.
 
 ---
 
