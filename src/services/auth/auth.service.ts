@@ -84,8 +84,8 @@ export async function loginNewDevice(email: string, password: string): Promise<R
   }
 }
 
-/** Sign out: drop the session and return to anonymous (local journaling stays). */
+/** Sign out: drop the session (re-login required); local master key + data stay. */
 export async function logout(): Promise<void> {
   await clearTokens()
-  useAuthStore.getState().setAnonymous()
+  useAuthStore.getState().setUnauthenticated()
 }

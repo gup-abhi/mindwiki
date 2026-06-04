@@ -31,7 +31,7 @@ const resp = (status: number, body: unknown = {}) => ({
 
 beforeEach(() => {
   jest.clearAllMocks()
-  useAuthStore.setState({ status: 'anonymous', accountId: null })
+  useAuthStore.setState({ status: 'loading', accountId: null })
   global.fetch = jest.fn()
   mockGetKey.mockResolvedValue(MASTER)
   mockDerive.mockResolvedValue(WRAP)

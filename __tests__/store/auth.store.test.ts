@@ -1,10 +1,10 @@
 import { useAuthStore } from '@/store/auth.store'
 
 describe('auth.store', () => {
-  beforeEach(() => useAuthStore.setState({ status: 'anonymous', accountId: null }))
+  beforeEach(() => useAuthStore.setState({ status: 'loading', accountId: null }))
 
-  it('starts anonymous', () => {
-    expect(useAuthStore.getState().status).toBe('anonymous')
+  it('starts in loading until launch hydration resolves', () => {
+    expect(useAuthStore.getState().status).toBe('loading')
     expect(useAuthStore.getState().accountId).toBeNull()
   })
 
@@ -13,15 +13,9 @@ describe('auth.store', () => {
     expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
   })
 
-  it('setUnauthenticated clears the account but keeps journaling usable', () => {
+  it('setUnauthenticated clears the account', () => {
     useAuthStore.getState().setAuthenticated('acc1')
     useAuthStore.getState().setUnauthenticated()
     expect(useAuthStore.getState()).toMatchObject({ status: 'unauthenticated', accountId: null })
-  })
-
-  it('setAnonymous resets', () => {
-    useAuthStore.getState().setAuthenticated('acc1')
-    useAuthStore.getState().setAnonymous()
-    expect(useAuthStore.getState()).toMatchObject({ status: 'anonymous', accountId: null })
   })
 })
