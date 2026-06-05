@@ -4,12 +4,16 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import { initStorage } from '@/services/storage/bootstrap'
 import { configureNotifications } from '@/services/notifications/scheduler'
+import { useSync } from '@/hooks/useSync'
 
 type Status = 'loading' | 'ready' | 'error'
 
 export default function RootLayout() {
   const [status, setStatus] = useState<Status>('loading')
   const [message, setMessage] = useState('')
+
+  // Opportunistic background sync once authenticated (no-op until then).
+  useSync()
 
   useEffect(() => {
     let active = true

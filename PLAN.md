@@ -357,9 +357,9 @@ Full spec in `docs/SERVER.md`. Summary:
 - [x] `src/services/storage/sync-queue.ts` — enqueue/pending/markSynced; writes (createEntry/applyTags/createPage/updatePage) enqueue best-effort
 - [x] `src/services/sync/engine.ts` — pushPending (encrypt → PUT → markSynced) + pullDelta (delta → decrypt → LWW apply → cursor) + sync()
 - [x] `src/services/sync/conflict.ts` — per-table strategies (LWW for entries + wiki_pages; graph excluded)
+- [x] `src/hooks/useSync.ts` — trigger: runs sync() on auth + app-foreground (no-op until authenticated); mounted in `_layout.tsx`
 - [ ] `src/services/sync/pairing.ts` — QR code + recovery phrase
 - [ ] Sync settings screen (connected devices, add device, WiFi-only toggle)
-- [ ] Wire `sync()` to a trigger (app foreground / post-save) once Argon2 native key derivation lands
 
 ### Track E: Wrangler deployment — server-agent
 - [ ] `wrangler dev` local with Miniflare (KV + R2 emulated, port 8787)

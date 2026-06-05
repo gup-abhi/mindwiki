@@ -27,6 +27,10 @@ both on-device; never throws):
   rows do NOT re-enqueue (no echo). Cursor (`sync:last_pull` in settings) advances
   to the newest applied updated_at.
 
+Trigger: hooks/useSync.ts (mounted in app/_layout.tsx) runs sync() when the user
+is authenticated — on mount/auth-transition and whenever the app foregrounds
+(AppState 'active'). Guarded against overlapping runs; no-op until authenticated.
+
 Synced tables: entries, wiki_pages (conflict.ts SYNCED_TABLES). Entries have no
 updated_at column → watermark is max(created_at, tagged_at). Graph is NOT synced
 (additive, rebuilt locally from entries — ADR 006).
