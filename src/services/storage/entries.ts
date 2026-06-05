@@ -3,6 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
+import { enqueueUpsert } from './sync-queue'
 
 export interface Entry {
   id: string
@@ -83,6 +84,7 @@ export async function createEntry(
         entry.closing_note,
       ]
     )
+    await enqueueUpsert('entries', entry.id, db) // best-effort; never blocks the save
     return ok(entry)
   } catch (e) {
     return err('ENTRY_CREATE_FAILED', 'Failed to create entry', e)
@@ -128,6 +130,7 @@ export async function applyTags(
       'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, tagged_at = ? WHERE id = ?',
       [tags.emotion, tags.distortion, tags.mood_score, Date.now(), id]
     )
+    await enqueueUpsert('entries', id, db) // tagging changes the row → re-sync
     return ok(undefined)
   } catch (e) {
     return err('ENTRY_TAG_FAILED', 'Failed to apply tags', e)

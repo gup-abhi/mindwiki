@@ -3,6 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
+import { enqueueUpsert } from './sync-queue'
 
 export interface WikiPageVersion {
   version: number
@@ -72,6 +73,7 @@ export async function createPage(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [page.id, page.title, page.category, page.content, 0, 1, '[]', now, now]
     )
+    await enqueueUpsert('wiki_pages', page.id, db) // best-effort; never blocks
     return ok(page)
   } catch (e) {
     return err('WIKI_CREATE_FAILED', 'Failed to create wiki page', e)
@@ -150,6 +152,7 @@ export async function updatePage(
        WHERE id = ?`,
       [next.content, next.version, JSON.stringify(history), next.entry_count, now, id]
     )
+    await enqueueUpsert('wiki_pages', id, db) // content changed → re-sync
     return ok(next)
   } catch (e) {
     return err('WIKI_UPDATE_FAILED', 'Failed to update wiki page', e)
