@@ -3,10 +3,24 @@ import { type Result, ok, err } from '@/types/result'
 
 import { buildAnswerQuestionPrompt, type AnswerQuestionInput } from './prompts/answer-question'
 import { buildDigestQuestionPrompt, type DigestQuestionInput } from './prompts/digest-question'
+import { buildDigestSynthesisPrompt, type DigestSynthesisInput } from './prompts/digest-synthesis'
 import { buildUpdatePagePrompt, type UpdatePageInput } from './prompts/update-page'
 import { AnswerSchema } from './schemas/answer.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
+import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
+
+// Pull the first {...} object out of the model output (it may add stray text).
+function extractJson(text: string): unknown {
+  const open = text.indexOf('{')
+  const close = text.lastIndexOf('}')
+  if (open < 0 || close <= open) return undefined
+  try {
+    return JSON.parse(text.slice(open, close + 1))
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Synthesize updated wiki-page content with the deep model. Runs in the
@@ -77,6 +91,37 @@ export async function answerFromWiki(input: AnswerQuestionInput): Promise<Result
   const parsed = AnswerSchema.safeParse(raw.trim())
   if (!parsed.success) {
     return err('WIKI_ANSWER_VALIDATION_FAILED', 'Answer failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Synthesize the weekly digest (themes / patterns / open questions) from the
+ * retriever's material with the deep model. Extracts + Zod-validates the JSON.
+ * Never throws; returns Result. Errors carry a code only, never entry text.
+ */
+export async function synthesizeDigest(
+  input: DigestSynthesisInput
+): Promise<Result<DigestSynthesis>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildDigestSynthesisPrompt(input), {
+      maxTokens: 400,
+      temperature: 0.5,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('DIGEST_SYNTH_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  const json = extractJson(raw)
+  if (json === undefined) {
+    return err('DIGEST_SYNTH_PARSE_FAILED', 'No JSON object found in model output')
+  }
+
+  const parsed = DigestSynthesisSchema.safeParse(json)
+  if (!parsed.success) {
+    return err('DIGEST_SYNTH_VALIDATION_FAILED', 'Digest synthesis failed validation')
   }
   return ok(parsed.data)
 }

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router'
-import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg'
 
 import { useDigest } from '@/hooks/useDigest'
@@ -46,7 +46,7 @@ function MoodArc({ points, width }: { points: MoodPoint[]; width: number }) {
 export default function DigestScreen() {
   const router = useRouter()
   const { width } = useWindowDimensions()
-  const { digest, loading } = useDigest()
+  const { digest, loading, synthesizing } = useDigest()
 
   if (loading && !digest) {
     return (
@@ -105,6 +105,56 @@ export default function DigestScreen() {
         <Text style={styles.questionText}>{digest.question}</Text>
       </View>
 
+      {synthesizing && !digest.synthesis && (
+        <View style={styles.synthLoading}>
+          <ActivityIndicator color="#7a7ad0" />
+          <Text style={styles.synthLoadingText}>Looking for themes across your week…</Text>
+        </View>
+      )}
+
+      {digest.synthesis && (
+        <>
+          {digest.synthesis.themes.length > 0 && (
+            <>
+              <Text style={styles.section}>Themes</Text>
+              {digest.synthesis.themes.map((t, i) => (
+                <View key={i} style={styles.card}>
+                  <Text style={styles.cardText}>{t}</Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          {digest.synthesis.patterns.length > 0 && (
+            <>
+              <Text style={styles.section}>Patterns</Text>
+              {digest.synthesis.patterns.map((p, i) => (
+                <View key={i} style={styles.card}>
+                  <Text style={styles.cardText}>{p}</Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          {digest.synthesis.openQuestions.length > 0 && (
+            <>
+              <Text style={styles.section}>Open questions</Text>
+              {digest.synthesis.openQuestions.map((q, i) => (
+                <View key={i} style={styles.card}>
+                  <Text style={styles.cardText}>{q}</Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          {digest.synthesis.flaggedClaims.length > 0 && (
+            <Text style={styles.flagged}>
+              Set aside — not enough in your entries to support: {digest.synthesis.flaggedClaims.join('; ')}
+            </Text>
+          )}
+        </>
+      )}
+
       <Text style={styles.quote}>“{digest.quote}”</Text>
 
       <Text style={styles.back} onPress={() => router.replace('/')}>
@@ -128,6 +178,9 @@ const styles = StyleSheet.create({
   cardText: { fontSize: 15, color: '#333', lineHeight: 21 },
   questionCard: { backgroundColor: '#1a1a2e', borderRadius: 14, padding: 18 },
   questionText: { fontSize: 17, color: '#fff', lineHeight: 24, fontWeight: '600' },
+  synthLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 24 },
+  synthLoadingText: { fontSize: 14, color: '#7a7ad0', fontWeight: '600' },
+  flagged: { fontSize: 13, color: '#999', fontStyle: 'italic', marginTop: 12, lineHeight: 19 },
   quote: { fontSize: 15, color: '#666', fontStyle: 'italic', textAlign: 'center', marginTop: 28, lineHeight: 22 },
   emptyTitle: { fontSize: 20, fontWeight: '700', color: '#1a1a2e', marginBottom: 8 },
   muted: { fontSize: 15, color: '#999', textAlign: 'center', lineHeight: 22 },

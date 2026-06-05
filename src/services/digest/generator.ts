@@ -34,6 +34,15 @@ export interface MoodPoint {
   mood: number
 }
 
+/** Multi-agent synthesis added on top of the deterministic sections (optional). */
+export interface DigestSynthesisResult {
+  themes: string[]
+  patterns: string[]
+  openQuestions: string[]
+  /** Claims the critic dropped for lack of supporting entries. */
+  flaggedClaims: string[]
+}
+
 export interface Digest {
   weekStart: number
   weekEnd: number
@@ -44,6 +53,8 @@ export interface Digest {
   correlation: string
   question: string
   quote: string
+  /** LLM-synthesized themes/patterns/questions (added best-effort, post-generate). */
+  synthesis?: DigestSynthesisResult
 }
 
 // Curated, non-clinical reflective lines. Rotated weekly. Never implies

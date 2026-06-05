@@ -287,7 +287,15 @@ Fill this in `demo/README.md` before starting Phase 0.
 - [ ] Sunday morning notification
 - [ ] "Digest ready" card on home screen
 
-**Exit criteria**: Digest generates after 7+ entries, all 6 sections populated.
+### Phase 6b — Multi-agent digest synthesis (additive)
+- [ ] `src/services/graph/neighborhood.ts` — pure graph-neighborhood helper (depth-limited walk; used by the retriever)
+- [ ] `src/services/digest/agents/retriever.ts` — pure: gather the week's material (focus labels → relevant entries, graph neighborhoods, wiki pages). No LLM.
+- [ ] `src/services/digest/agents/analyst.ts` + `src/services/llm/prompts/digest-synthesis.ts` + `schemas/digest-synthesis.schema.ts` — deep model produces Zod-validated `{ themes, patterns, openQuestions }`
+- [ ] `src/services/digest/agents/critic.ts` — pure claim-check: drop themes/patterns no source entry supports → `flaggedClaims`; open questions always kept
+- [ ] `src/services/digest/agents/orchestrator.ts` — retriever → analyst (bounded retry) → critic; graceful failure leaves the deterministic digest intact
+- [ ] `Digest.synthesis` field + synthesis section on the digest screen (themes / patterns / open questions + flagged claims) with a loading indicator while the deep model runs
+
+**Exit criteria**: Digest generates after 7+ entries, all 6 sections populated. Multi-agent synthesis adds themes/patterns/open questions on top, critic-grounded against source entries; the analyst runs on the deep (3B) model in the background, and any analyst failure degrades gracefully to the deterministic digest (no synthesis, never blocks).
 
 ---
 

@@ -175,7 +175,7 @@ mindwiki/
 │   │   ├── auth/                  ← auth service (client)
 │   │   ├── crisis/                ← crisis detection
 │   │   ├── notifications/         ← habit system
-│   │   ├── digest/                ← weekly digest
+│   │   ├── digest/                ← weekly digest (+ agents/ multi-agent synthesis)
 │   │   └── subscription/          ← RevenueCat
 │   ├── native/
 │   │   ├── LLMBridge.ts
@@ -281,7 +281,7 @@ If any code path sends raw entry text over the network — reject it immediately
 | `auth/` | Account register/login/refresh, token management |
 | `crisis/` | Confidence scoring, tier detection, keyword safety net |
 | `notifications/` | Scheduling, timing intelligence, copy rotation |
-| `digest/` | Weekly digest data compilation |
+| `digest/` | Weekly digest: deterministic generator + multi-agent synthesis (`agents/`: retriever → analyst → critic, orchestrated) |
 | `subscription/` | RevenueCat, trial logic, feature gating |
 
 ### `server/` — Cloudflare Workers, V8 isolates

@@ -7,6 +7,12 @@ User submits → Save to SQLite (immediate) → Fast model tag (sync ≤2s) →
 Crisis check (sync) → Wiki update via deep model (background) →
 Graph upsert (background) → Sync queue (background)
 
+## Weekly digest pipeline
+Deterministic generator (6 sections) → reflection question (deep model) →
+multi-agent synthesis (background): retriever (pure) → analyst (deep model) →
+critic (pure) ⟲ orchestrator. Additive and best-effort — analyst failure leaves
+the deterministic digest intact (no synthesis). See docs/LLM_PIPELINE.md.
+
 ## Module dependency rules
 screens/ → hooks/ → services/ → native/
 services/ cannot import store/, components/, screens/
