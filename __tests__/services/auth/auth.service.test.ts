@@ -1,6 +1,6 @@
-import { register, loginNewDevice } from '@/services/auth/auth.service'
+import { register, loginNewDevice, hydrateAuth } from '@/services/auth/auth.service'
 import { wrapMasterKey } from '@/services/auth/crypto'
-import { saveTokens } from '@/services/auth/token-store'
+import { saveTokens, getTokens } from '@/services/auth/token-store'
 import { CryptoModule } from '@/native/CryptoModule'
 import { useAuthStore } from '@/store/auth.store'
 
@@ -14,12 +14,17 @@ jest.mock('@/native/CryptoModule', () => ({
     setKeyInKeychain: jest.fn(),
   },
 }))
-jest.mock('@/services/auth/token-store', () => ({ saveTokens: jest.fn(), clearTokens: jest.fn() }))
+jest.mock('@/services/auth/token-store', () => ({
+  saveTokens: jest.fn(),
+  clearTokens: jest.fn(),
+  getTokens: jest.fn(),
+}))
 
 const mockGetKey = CryptoModule.getKeyFromKeychain as jest.Mock
 const mockDerive = CryptoModule.deriveKey as jest.Mock
 const mockSetKey = CryptoModule.setKeyInKeychain as jest.Mock
 const mockSave = saveTokens as jest.Mock
+const mockGetTokens = getTokens as jest.Mock
 
 const MASTER = 'ab'.repeat(32)
 const WRAP = 'cd'.repeat(32)
@@ -99,5 +104,19 @@ describe('loginNewDevice', () => {
     expect(res.success).toBe(false)
     if (!res.success) expect(res.error.code).toBe('LOGIN_DECRYPT_FAILED')
     expect(mockSetKey).not.toHaveBeenCalled()
+  })
+})
+
+describe('hydrateAuth', () => {
+  it('authenticates from stored tokens', async () => {
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    await hydrateAuth()
+    expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
+  })
+
+  it('falls back to unauthenticated when there is no session', async () => {
+    mockGetTokens.mockResolvedValue(null)
+    await hydrateAuth()
+    expect(useAuthStore.getState().status).toBe('unauthenticated')
   })
 })

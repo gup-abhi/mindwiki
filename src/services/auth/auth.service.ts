@@ -6,7 +6,7 @@ import { type Result, ok, err } from '@/types/result'
 
 import { API_URL } from './config'
 import { hashPassword, wrapMasterKey, unwrapMasterKey } from './crypto'
-import { saveTokens, clearTokens } from './token-store'
+import { getTokens, saveTokens, clearTokens } from './token-store'
 
 async function randomHex(bytes: number): Promise<string> {
   const arr = await getRandomBytesAsync(bytes)
@@ -82,6 +82,18 @@ export async function loginNewDevice(email: string, password: string): Promise<R
   } catch (e) {
     return err('LOGIN_FAILED', 'Login failed', e)
   }
+}
+
+/**
+ * Resolve the launch auth state from stored tokens: authenticated when a session
+ * exists (offline-first — journaling resumes without a network round-trip),
+ * otherwise unauthenticated. Called once after storage init, off the 'loading'
+ * state the store starts in.
+ */
+export async function hydrateAuth(): Promise<void> {
+  const tokens = await getTokens()
+  if (tokens) useAuthStore.getState().setAuthenticated(tokens.accountId)
+  else useAuthStore.getState().setUnauthenticated()
 }
 
 /** Sign out: drop the session (re-login required); local master key + data stay. */

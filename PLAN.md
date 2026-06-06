@@ -328,13 +328,15 @@ Fill this in `demo/README.md` before starting Phase 0.
 encrypted DB is opened only after a session + master key exist. Offline journaling
 is allowed after the first successful login.
 - [x] `src/native/CryptoModule.ts` `deriveKey` — real Argon2id via react-native-argon2 (argon2id, 64 MiB / t=3, 32-byte hex key, saltEncoding hex). **Requires native rebuild** (autolinked native module).
-- [ ] `src/services/auth/auth.service.ts`
+- [x] `src/services/auth/auth.service.ts`
   - `register(email, password)` — generates a random master key, escrows it (Argon2-wrapped), calls server
   - `loginNewDevice(email, password)` — recovers master key from escrow
   - `refreshAccessToken()` — auto-called by API client on 401
-- [ ] `src/services/auth/api-client.ts` — `authenticatedFetch()` with auto-refresh
-- [ ] `src/store/auth.store.ts` — authenticated / unauthenticated (+ loading on launch)
-- [ ] Onboarding/auth screens (welcome, register, login, recovery phrase) — gate app launch
+  - `hydrateAuth()` — resolve launch auth state from stored tokens
+- [x] `src/services/auth/api-client.ts` — `authenticatedFetch()` with auto-refresh
+- [x] `src/store/auth.store.ts` — authenticated / unauthenticated (+ loading on launch)
+- [x] Auth screen + launch gate — `components/auth/AuthScreen.tsx` (register/login via `hooks/useAuth`), gated in `_layout.tsx` (loading→spinner, unauthenticated→AuthScreen, authenticated→app)
+  - [ ] FOLLOW-UP: recovery-phrase display on register; open the encrypted DB *after* auth (currently opens at launch) — coupled with the loginNewDevice DB-rekey caveat
 - [ ] Settings → Account/Sync entry point
 
 ### Track C: Cloudflare Workers server — server-agent
