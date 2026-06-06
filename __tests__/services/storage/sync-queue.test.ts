@@ -1,5 +1,10 @@
 import { type SqliteDatabase } from '@/services/storage/db'
-import { enqueueUpsert, pendingUploads, markSynced } from '@/services/storage/sync-queue'
+import {
+  enqueueUpsert,
+  pendingUploads,
+  markSynced,
+  backfillSyncQueue,
+} from '@/services/storage/sync-queue'
 
 // In-memory fake backing exactly the queries sync-queue.ts issues, so we can
 // assert real semantics (enqueue -> list -> mark synced).
@@ -88,5 +93,70 @@ describe('storage/sync-queue', () => {
     }
     const res = await enqueueUpsert('entries', 'e1', db)
     expect(res.success).toBe(false)
+  })
+})
+
+function createBackfillDb(entryIds: string[], pageIds: string[]) {
+  const syncQueue = new Map<string, Record<string, unknown>>()
+  const settings = new Map<string, string>()
+  const db: SqliteDatabase = {
+    async execute(sql, params = []) {
+      if (/^SELECT value FROM settings WHERE key/.test(sql)) {
+        const v = settings.get(String(params[0]))
+        return { rows: v == null ? [] : [{ value: v }], rowsAffected: 0 }
+      }
+      if (/^INSERT INTO settings/.test(sql)) {
+        settings.set(String(params[0]), String(params[1]))
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT id FROM entries/.test(sql)) {
+        return { rows: entryIds.map((id) => ({ id })), rowsAffected: 0 }
+      }
+      if (/^SELECT id FROM wiki_pages/.test(sql)) {
+        return { rows: pageIds.map((id) => ({ id })), rowsAffected: 0 }
+      }
+      if (/^INSERT INTO sync_queue/.test(sql)) {
+        const [id, table_name, record_id, created_at] = params
+        syncQueue.set(String(id), { id, table_name, record_id, operation: 'upsert', created_at, synced_at: null })
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT \* FROM sync_queue WHERE synced_at IS NULL/.test(sql)) {
+        return { rows: [...syncQueue.values()].filter((r) => r.synced_at == null), rowsAffected: 0 }
+      }
+      throw new Error(`unhandled SQL: ${sql}`)
+    },
+    async transaction(fn) {
+      await fn(db)
+    },
+    close() {},
+  }
+  return { db, syncQueue, settings }
+}
+
+describe('backfillSyncQueue', () => {
+  it('enqueues every existing entry + wiki page once and sets the flag', async () => {
+    const { db, settings } = createBackfillDb(['e1', 'e2'], ['p1'])
+
+    const res = await backfillSyncQueue(['entries', 'wiki_pages'], db)
+    expect(res.success && res.data).toBe(3)
+    expect(settings.get('sync:backfilled')).toBe('1')
+
+    const pending = await pendingUploads(db)
+    expect(pending.success && pending.data.map((q) => q.id).sort()).toEqual([
+      'entries:e1',
+      'entries:e2',
+      'wiki_pages:p1',
+    ])
+  })
+
+  it('is a no-op once the flag is set (does not re-enqueue)', async () => {
+    const { db, settings } = createBackfillDb(['e1'], [])
+    settings.set('sync:backfilled', '1')
+
+    const res = await backfillSyncQueue(['entries', 'wiki_pages'], db)
+    expect(res.success && res.data).toBe(0)
+
+    const pending = await pendingUploads(db)
+    expect(pending.success && pending.data).toHaveLength(0)
   })
 })

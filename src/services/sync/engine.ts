@@ -3,7 +3,7 @@ import { authenticatedFetch } from '@/services/auth/api-client'
 import { getTokens } from '@/services/auth/token-store'
 import { type SqliteDatabase, getDb } from '@/services/storage/db'
 import { getSetting, setSetting } from '@/services/storage/settings'
-import { pendingUploads, markSynced } from '@/services/storage/sync-queue'
+import { pendingUploads, markSynced, backfillSyncQueue } from '@/services/storage/sync-queue'
 import { type Result, ok, err } from '@/types/result'
 
 import { SYNCED_TABLES, recordsToApply, type SyncTable, type Versioned } from './conflict'
@@ -178,6 +178,9 @@ export async function sync(): Promise<Result<{ pushed: number; pulled: number }>
   }
 
   const db = getDb()
+  // One-time: enqueue any data written before sync existed, so the first sync
+  // uploads the existing journal (not just new entries).
+  await backfillSyncQueue(SYNCED_TABLES, db)
   const pushed = await pushPending(masterKeyHex, tokens.accountId, db)
   if (!pushed.success) return pushed
   const pulled = await pullDelta(masterKeyHex, tokens.accountId, db)

@@ -4,6 +4,8 @@ import { type CrisisAssessment } from '@/services/crisis/detector'
 import { onEntrySaved } from '@/services/notifications/scheduler'
 import { processEntry } from '@/services/pipeline'
 import { createEntry, type Entry } from '@/services/storage/entries'
+import { sync } from '@/services/sync/engine'
+import { useAuthStore } from '@/store/auth.store'
 import { useEntryStore, TOTAL_STEPS } from '@/store/entry.store'
 import { type Result, ok, err } from '@/types/result'
 
@@ -73,6 +75,9 @@ export function useJournalEntry() {
       // Habit system: permission (first entry only), activity, reminder.
       // Best-effort — never blocks the save.
       void onEntrySaved(Date.now())
+      // Push the new entry promptly instead of waiting for the next foreground.
+      // Best-effort; sync() no-ops when unauthenticated and never throws.
+      if (useAuthStore.getState().status === 'authenticated') void sync()
       reset()
       return ok({ entry: result.data, crisis: processed.crisis })
     } finally {

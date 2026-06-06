@@ -1,6 +1,9 @@
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
+import { getSetting, setSetting } from './settings'
+
+const BACKFILL_KEY = 'sync:backfilled'
 
 export type SyncOperation = 'upsert' | 'delete'
 
@@ -44,6 +47,35 @@ export async function enqueueUpsert(
     return ok(undefined)
   } catch (e) {
     return err('SYNC_ENQUEUE_FAILED', 'Failed to enqueue record for sync', e)
+  }
+}
+
+/**
+ * One-time backfill: enqueue every existing row of the given tables so data
+ * written before sync existed gets uploaded on the first sync. Guarded by a
+ * settings flag — it runs once, because re-running would reset synced_at and
+ * re-upload everything. Best-effort per row; returns the number queued.
+ */
+export async function backfillSyncQueue(
+  tables: string[],
+  db: SqliteDatabase = getDb()
+): Promise<Result<number>> {
+  try {
+    const done = await getSetting(BACKFILL_KEY, db)
+    if (done.success && done.data === '1') return ok(0)
+
+    let queued = 0
+    for (const table of tables) {
+      const res = await db.execute(`SELECT id FROM ${table}`)
+      for (const row of res.rows) {
+        const r = await enqueueUpsert(table, String(row.id), db)
+        if (r.success) queued++
+      }
+    }
+    await setSetting(BACKFILL_KEY, '1', db)
+    return ok(queued)
+  } catch (e) {
+    return err('SYNC_BACKFILL_FAILED', 'Failed to backfill sync queue', e)
   }
 }
 

@@ -27,9 +27,14 @@ both on-device; never throws):
   rows do NOT re-enqueue (no echo). Cursor (`sync:last_pull` in settings) advances
   to the newest applied updated_at.
 
-Trigger: hooks/useSync.ts (mounted in app/_layout.tsx) runs sync() when the user
+Triggers: hooks/useSync.ts (mounted in app/_layout.tsx) runs sync() when the user
 is authenticated — on mount/auth-transition and whenever the app foregrounds
-(AppState 'active'). Guarded against overlapping runs; no-op until authenticated.
+(AppState 'active'). useJournalEntry also fires sync() after a successful save so
+new entries upload promptly. All guarded/best-effort; no-op until authenticated.
+
+Backfill: sync() runs backfillSyncQueue(SYNCED_TABLES) once (settings flag
+`sync:backfilled`) before the first push, enqueueing rows written before sync
+existed — so an existing journal uploads on first sync, not just new entries.
 
 Synced tables: entries, wiki_pages (conflict.ts SYNCED_TABLES). Entries have no
 updated_at column → watermark is max(created_at, tagged_at). Graph is NOT synced
