@@ -20,7 +20,7 @@ export function useAuth() {
       setError(null)
       const res =
         mode === 'register'
-          ? await register(password, email.trim() || undefined)
+          ? await register(email.trim(), password)
           : await loginNewDevice(email.trim(), password)
       setSubmitting(false)
       if (!res.success) setError(res.error.message)

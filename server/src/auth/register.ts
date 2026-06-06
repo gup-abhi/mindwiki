@@ -18,11 +18,13 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
   if (!body.key_escrow?.encrypted_key || !body.key_escrow?.salt) {
     return new Response('Missing key_escrow', { status: 400 })
   }
+  // Email is mandatory: login + escrow recovery are keyed by email, so an
+  // email-less account would be unrecoverable (a permanent lockout).
+  const email = body.email?.trim().toLowerCase()
+  if (!email) return new Response('Email required', { status: 400 })
 
-  if (body.email) {
-    const existing = await env.AUTH_KV.get(`email:${body.email.toLowerCase()}`)
-    if (existing) return new Response('Email already registered', { status: 409 })
-  }
+  const existing = await env.AUTH_KV.get(`email:${email}`)
+  if (existing) return new Response('Email already registered', { status: 409 })
 
   const passwordBcrypt = await hash(body.password_hash, 12)
   const accountId = crypto.randomUUID()
@@ -30,14 +32,9 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
 
   await env.AUTH_KV.put(
     `account:${accountId}`,
-    JSON.stringify({ email: body.email ?? null, password_bcrypt: passwordBcrypt, created_at: now })
+    JSON.stringify({ email, password_bcrypt: passwordBcrypt, created_at: now })
   )
-  if (body.email) {
-    await env.AUTH_KV.put(
-      `email:${body.email.toLowerCase()}`,
-      JSON.stringify({ account_id: accountId })
-    )
-  }
+  await env.AUTH_KV.put(`email:${email}`, JSON.stringify({ account_id: accountId }))
   await env.AUTH_KV.put(
     `escrow:${accountId}`,
     JSON.stringify({

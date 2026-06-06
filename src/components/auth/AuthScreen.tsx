@@ -12,6 +12,8 @@ import {
 
 import { useAuth, type AuthMode } from '@/hooks/useAuth'
 
+const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())
+
 /**
  * Account-first gate shown when there's no session. Register creates an account
  * (email optional) and escrows the master key; Login recovers it on a known
@@ -24,8 +26,9 @@ export function AuthScreen() {
   const { submit, submitting, error } = useAuth()
 
   const isRegister = mode === 'register'
-  const canSubmit =
-    password.length >= 8 && (isRegister || email.trim().length > 0) && !submitting
+  // Email is required for both flows: login looks the account up by email, and
+  // it's the only way back into the escrow, so an email-less account is a lockout.
+  const canSubmit = isValidEmail(email) && password.length >= 8 && !submitting
 
   return (
     <KeyboardAvoidingView
@@ -42,7 +45,7 @@ export function AuthScreen() {
 
         <TextInput
           style={styles.input}
-          placeholder={isRegister ? 'Email (optional)' : 'Email'}
+          placeholder="Email"
           placeholderTextColor="#999"
           autoCapitalize="none"
           keyboardType="email-address"

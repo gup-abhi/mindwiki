@@ -25,7 +25,7 @@ interface AuthResponse {
  * local data stays decryptable), wrapped under an Argon2id(password) key. The
  * server only ever sees SHA-256(password) + the encrypted escrow blob.
  */
-export async function register(password: string, email?: string): Promise<Result<{ accountId: string }>> {
+export async function register(email: string, password: string): Promise<Result<{ accountId: string }>> {
   try {
     const masterKey = await CryptoModule.getKeyFromKeychain()
     const salt = await randomHex(16)

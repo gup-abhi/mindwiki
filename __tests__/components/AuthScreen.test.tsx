@@ -21,14 +21,17 @@ describe('AuthScreen', () => {
     expect(screen.getByText('Welcome back')).toBeTruthy()
   })
 
-  it('keeps submit disabled until the password is long enough', () => {
+  it('requires a valid email and an 8+ char password before submitting', () => {
     render(<AuthScreen />)
+
+    // password only — still blocked (email required)
+    fireEvent.changeText(screen.getByTestId('auth-password'), 'password123')
     fireEvent.press(screen.getByTestId('auth-submit'))
     expect(submit).not.toHaveBeenCalled()
 
-    fireEvent.changeText(screen.getByTestId('auth-password'), 'password123')
+    fireEvent.changeText(screen.getByTestId('auth-email'), 'a@b.com')
     fireEvent.press(screen.getByTestId('auth-submit'))
-    expect(submit).toHaveBeenCalledWith('register', '', 'password123')
+    expect(submit).toHaveBeenCalledWith('register', 'a@b.com', 'password123')
   })
 
   it('shows the auth error', () => {

@@ -17,7 +17,7 @@ beforeEach(() => {
 })
 
 describe('useAuth', () => {
-  it('registers (email optional) and reports success', async () => {
+  it('registers with a trimmed email and reports success', async () => {
     mockRegister.mockResolvedValue({ success: true, data: { accountId: 'acc1' } })
     const { result } = renderHook(() => useAuth())
 
@@ -27,17 +27,8 @@ describe('useAuth', () => {
     })
 
     expect(ok).toBe(true)
-    expect(mockRegister).toHaveBeenCalledWith('password123', 'a@b.com')
+    expect(mockRegister).toHaveBeenCalledWith('a@b.com', 'password123')
     expect(result.current.error).toBeNull()
-  })
-
-  it('passes undefined email when register email is blank', async () => {
-    mockRegister.mockResolvedValue({ success: true, data: { accountId: 'acc1' } })
-    const { result } = renderHook(() => useAuth())
-    await act(async () => {
-      await result.current.submit('register', '   ', 'password123')
-    })
-    expect(mockRegister).toHaveBeenCalledWith('password123', undefined)
   })
 
   it('surfaces the error message on failure', async () => {

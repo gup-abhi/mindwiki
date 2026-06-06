@@ -47,7 +47,7 @@ describe('register', () => {
     ;(global.fetch as jest.Mock).mockResolvedValue(
       resp(200, { account_id: 'acc1', access_token: 'at', refresh_token: 'rt' })
     )
-    const res = await register('password', 'a@b.com')
+    const res = await register('a@b.com', 'password')
 
     expect(res).toEqual({ success: true, data: { accountId: 'acc1' } })
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
@@ -61,7 +61,7 @@ describe('register', () => {
 
   it('fails on a server error', async () => {
     ;(global.fetch as jest.Mock).mockResolvedValue(resp(409))
-    const res = await register('password')
+    const res = await register('a@b.com', 'password')
     expect(res.success).toBe(false)
   })
 })
