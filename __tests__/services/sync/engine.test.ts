@@ -2,6 +2,7 @@ import { authenticatedFetch } from '@/services/auth/api-client'
 import { getTokens } from '@/services/auth/token-store'
 import { type SqliteDatabase } from '@/services/storage/db'
 import { pushPending, pullDelta, sync } from '@/services/sync/engine'
+import { useSyncStore } from '@/store/sync.store'
 
 jest.mock('@/services/auth/api-client', () => ({ authenticatedFetch: jest.fn() }))
 jest.mock('@/services/auth/token-store', () => ({ getTokens: jest.fn() }))
@@ -118,7 +119,10 @@ describe('sync/engine pushPending', () => {
 })
 
 describe('sync/engine pullDelta', () => {
-  beforeEach(() => mockFetch.mockReset())
+  beforeEach(() => {
+    mockFetch.mockReset()
+    useSyncStore.setState({ revision: 0 })
+  })
 
   it('applies a remote record with no local copy and advances the cursor', async () => {
     const { db, entries, settings, syncQueue } = fakeDb()
@@ -135,6 +139,7 @@ describe('sync/engine pullDelta', () => {
     expect(settings.get('sync:last_pull')).toBe('5000')
     expect(syncQueue.size).toBe(0) // applyRemote must NOT re-enqueue (no echo)
     expect(mockFetch.mock.calls[0][0]).toBe('/sync/acc/delta?since=0')
+    expect(useSyncStore.getState().revision).toBe(1) // signals hooks to refetch
   })
 
   it('skips a remote record older than the local copy (last-write-wins)', async () => {
@@ -149,6 +154,7 @@ describe('sync/engine pullDelta', () => {
     const res = await pullDelta('mk', 'acc', db)
     expect(res.success && res.data).toBe(0)
     expect(entries.get('e3')?.situation).toBe('local-newer')
+    expect(useSyncStore.getState().revision).toBe(0) // nothing applied → no refetch signal
   })
 })
 

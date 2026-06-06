@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
 import { listEntries, getEntry, type Entry } from '@/services/storage/entries'
+import { useSyncStore } from '@/store/sync.store'
 
-/** Loads entries from storage and refreshes whenever the screen regains focus. */
+/** Loads entries from storage; refreshes on focus and after a sync pull. */
 export function useEntries() {
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(true)
+  const revision = useSyncStore((s) => s.revision)
 
   const refresh = useCallback(async () => {
     const result = await listEntries()
@@ -17,7 +19,7 @@ export function useEntries() {
   useFocusEffect(
     useCallback(() => {
       refresh()
-    }, [refresh])
+    }, [refresh, revision])
   )
 
   return { entries, count: entries.length, loading, refresh }

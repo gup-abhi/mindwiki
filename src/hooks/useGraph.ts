@@ -3,11 +3,13 @@ import { useFocusEffect } from 'expo-router'
 
 import { listNodes, listEdges, type GraphNode, type GraphEdge } from '@/services/storage/graph'
 import { computeLayout, type Point } from '@/services/graph/layout'
+import { useSyncStore } from '@/store/sync.store'
 
 /** Loads the graph and computes node positions for a canvas of width x height. */
 export function useGraph(width: number, height: number) {
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
+  const revision = useSyncStore((s) => s.revision)
 
   const refresh = useCallback(async () => {
     const [n, e] = await Promise.all([listNodes(), listEdges()])
@@ -18,7 +20,7 @@ export function useGraph(width: number, height: number) {
   useFocusEffect(
     useCallback(() => {
       refresh()
-    }, [refresh])
+    }, [refresh, revision])
   )
 
   const layout = useMemo<Map<string, Point>>(

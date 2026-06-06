@@ -1,5 +1,6 @@
+import { getDb } from '@/services/storage/db'
 import { upsertNode, upsertEdge, type NodeType } from '@/services/storage/graph'
-import { type Entry } from '@/services/storage/entries'
+import { listEntries, type Entry } from '@/services/storage/entries'
 import { type Result, ok, err } from '@/types/result'
 
 /**
@@ -48,5 +49,30 @@ export async function updateGraphForEntry(
     return ok(undefined)
   } catch (e) {
     return err('GRAPH_UPDATE_FAILED', 'Failed to update graph', e)
+  }
+}
+
+/**
+ * Rebuild the derived graph from all entries. Needed after a sync pull on a new
+ * device, where entries arrive as raw rows (no pipeline run) so the graph would
+ * otherwise stay empty. Clears first to stay idempotent (graph is additive).
+ * Best-effort, never throws.
+ *
+ * NOTE: theme/topic nodes can't be restored — `topic` is transient and not
+ * persisted on entries — so only emotion + distortion nodes/edges are rebuilt.
+ */
+export async function rebuildGraph(): Promise<Result<void>> {
+  try {
+    const db = getDb()
+    await db.execute('DELETE FROM graph_edges')
+    await db.execute('DELETE FROM graph_nodes')
+    const entries = await listEntries(10000)
+    if (!entries.success) return entries
+    for (const entry of entries.data) {
+      await updateGraphForEntry(entry, null)
+    }
+    return ok(undefined)
+  } catch (e) {
+    return err('GRAPH_REBUILD_FAILED', 'Failed to rebuild graph', e)
   }
 }

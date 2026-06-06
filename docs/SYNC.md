@@ -38,4 +38,11 @@ existed — so an existing journal uploads on first sync, not just new entries.
 
 Synced tables: entries, wiki_pages (conflict.ts SYNCED_TABLES). Entries have no
 updated_at column → watermark is max(created_at, tagged_at). Graph is NOT synced
-(additive, rebuilt locally from entries — ADR 006).
+(additive, rebuilt locally from entries — ADR 006): after a pull applies records,
+pullDelta calls graph/engine rebuildGraph() (clear + rebuild from entries) so a
+new device's graph populates. Limitation: theme/topic nodes aren't restored —
+topic is transient (not persisted), so rebuild covers emotion + distortion only.
+
+UI refresh: a pull that applies records bumps useSyncStore.revision; the list
+hooks (useEntries/useWikiPages/useGraph) include it in their focus-effect deps,
+so a first-login pull shows up immediately instead of only after a restart.

@@ -1,9 +1,11 @@
 import { CryptoModule } from '@/native/CryptoModule'
 import { authenticatedFetch } from '@/services/auth/api-client'
 import { getTokens } from '@/services/auth/token-store'
+import { rebuildGraph } from '@/services/graph/engine'
 import { type SqliteDatabase, getDb } from '@/services/storage/db'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { pendingUploads, markSynced, backfillSyncQueue } from '@/services/storage/sync-queue'
+import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
 
 import { SYNCED_TABLES, recordsToApply, type SyncTable, type Versioned } from './conflict'
@@ -158,6 +160,12 @@ export async function pullDelta(
   }
 
   await setSetting(LAST_PULL_KEY, String(maxUpdated), db)
+  // Tell data hooks to refetch so a first-login pull shows up immediately
+  // (and rebuild the derived graph from the now-synced entries).
+  if (applied > 0) {
+    await rebuildGraph()
+    useSyncStore.getState().bumpRevision()
+  }
   return ok(applied)
 }
 

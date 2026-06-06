@@ -1,4 +1,5 @@
-import { updateGraphForEntry } from '@/services/graph/engine'
+import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
+import { type SqliteDatabase, setDb } from '@/services/storage/db'
 import { upsertNode, upsertEdge } from '@/services/storage/graph'
 import { type Entry } from '@/services/storage/entries'
 import { ok } from '@/types/result'
@@ -67,5 +68,50 @@ describe('updateGraphForEntry', () => {
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'loneliness')
     expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Loneliness')
+  })
+})
+
+describe('rebuildGraph', () => {
+  beforeEach(() => {
+    mockUpsertNode.mockReset()
+    mockUpsertEdge.mockReset()
+    let n = 0
+    mockUpsertNode.mockImplementation(async (type, label) =>
+      ok({ id: `id-${++n}`, type, label, frequency: 1 })
+    )
+    mockUpsertEdge.mockResolvedValue(ok({}))
+  })
+  afterEach(() => setDb(null))
+
+  it('clears the graph then rebuilds emotion/distortion nodes from all entries', async () => {
+    const rows = [
+      entry({ id: 'e1', emotion: 'anxiety', distortion: 'catastrophizing' }),
+      entry({ id: 'e2', emotion: 'calm', distortion: 'none' }),
+    ]
+    const deletes: string[] = []
+    const fakeDb = {
+      async execute(sql: string) {
+        if (/^DELETE FROM/.test(sql)) {
+          deletes.push(sql)
+          return { rows: [], rowsAffected: 0 }
+        }
+        if (/^SELECT \* FROM entries/.test(sql)) return { rows, rowsAffected: 0 }
+        throw new Error(`unhandled SQL: ${sql}`)
+      },
+      async transaction(fn: (tx: SqliteDatabase) => Promise<void>) {
+        await fn(fakeDb)
+      },
+      close() {},
+    } as unknown as SqliteDatabase
+    setDb(fakeDb)
+
+    const res = await rebuildGraph()
+
+    expect(res.success).toBe(true)
+    expect(deletes).toHaveLength(2) // edges + nodes cleared first
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
+    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'calm')
+    expect(mockUpsertEdge).toHaveBeenCalledTimes(1) // e1: 2 nodes→1 edge; e2: 1 node→0
   })
 })
