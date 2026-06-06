@@ -33,6 +33,7 @@ const entry = (overrides: Partial<Entry> = {}): Entry => ({
   emotion: null,
   distortion: null,
   mood_score: null,
+  topic: null,
   tagged_at: null,
   ...overrides,
 })
@@ -67,6 +68,7 @@ describe('processEntry', () => {
       emotion: 'anxiety',
       distortion: 'none',
       mood_score: 0.4,
+      topic: 'Work',
     })
     expect(result.tagged).toBe(true)
     expect(result.crisis.tier).toBe(2) // 0.65 -> tier 2

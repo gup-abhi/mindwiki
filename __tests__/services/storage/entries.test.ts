@@ -47,9 +47,9 @@ function createFakeDb() {
         return { rows: all.slice(0, limit), rowsAffected: 0 }
       }
       if (/^UPDATE entries SET/.test(sql)) {
-        const [emotion, distortion, mood_score, tagged_at, id] = params
+        const [emotion, distortion, mood_score, topic, tagged_at, id] = params
         const row = rows.get(String(id))
-        if (row) Object.assign(row, { emotion, distortion, mood_score, tagged_at })
+        if (row) Object.assign(row, { emotion, distortion, mood_score, topic, tagged_at })
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^DELETE FROM entries WHERE id/.test(sql)) {
@@ -119,7 +119,7 @@ describe('storage/entries CRUD', () => {
     const created = await createEntry({ mood: 2, situation: 's', thought: 't' }, db)
     const id = created.success ? created.data.id : ''
 
-    const tagged = await applyTags(id, { emotion: 'anxiety', distortion: 'catastrophizing', mood_score: 0.3 }, db)
+    const tagged = await applyTags(id, { emotion: 'anxiety', distortion: 'catastrophizing', mood_score: 0.3, topic: 'Work' }, db)
     expect(tagged.success).toBe(true)
 
     const found = await getEntry(id, db)

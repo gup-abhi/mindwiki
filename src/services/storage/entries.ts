@@ -16,6 +16,8 @@ export interface Entry {
   emotion: string | null
   distortion: string | null
   mood_score: number | null
+  /** Fast-model theme (1–3 words) — persisted so the graph rebuilds across devices. */
+  topic: string | null
   tagged_at: number | null
 }
 
@@ -33,6 +35,7 @@ export interface EntryTags {
   emotion: string
   distortion: string
   mood_score: number
+  topic: string
 }
 
 function rowToEntry(row: Record<string, unknown>): Entry {
@@ -49,6 +52,7 @@ function rowToEntry(row: Record<string, unknown>): Entry {
     emotion: str(row.emotion),
     distortion: str(row.distortion),
     mood_score: num(row.mood_score),
+    topic: str(row.topic),
     tagged_at: num(row.tagged_at),
   }
 }
@@ -68,6 +72,7 @@ export async function createEntry(
     emotion: null,
     distortion: null,
     mood_score: null,
+    topic: null,
     tagged_at: null,
   }
   try {
@@ -127,8 +132,8 @@ export async function applyTags(
 ): Promise<Result<void>> {
   try {
     await db.execute(
-      'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, tagged_at = ? WHERE id = ?',
-      [tags.emotion, tags.distortion, tags.mood_score, Date.now(), id]
+      'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, tagged_at = ? WHERE id = ?',
+      [tags.emotion, tags.distortion, tags.mood_score, tags.topic, Date.now(), id]
     )
     await enqueueUpsert('entries', id, db) // tagging changes the row → re-sync
     return ok(undefined)

@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1])
-    expect(applied).toEqual([1])
+    if (result.success) expect(result.data).toEqual([1, 2])
+    expect(applied).toEqual([1, 2])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -58,5 +58,13 @@ describe('migration 001 (initial schema)', () => {
     const nodesAt = stmts.findIndex((s) => s.includes('CREATE TABLE graph_nodes'))
     const edgesAt = stmts.findIndex((s) => s.includes('CREATE TABLE graph_edges'))
     expect(nodesAt).toBeLessThan(edgesAt)
+  })
+})
+
+describe('migration 002 (entry topic)', () => {
+  it('is registered as version 2 and adds the topic column', () => {
+    expect(MIGRATIONS[1].version).toBe(2)
+    expect(MIGRATIONS[1].name).toBe('entry_topic')
+    expect(MIGRATIONS[1].statements).toEqual(['ALTER TABLE entries ADD COLUMN topic TEXT'])
   })
 })

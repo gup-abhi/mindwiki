@@ -30,6 +30,7 @@ export async function processEntry(entry: Entry): Promise<ProcessResult> {
       emotion: tagResult.data.emotion,
       distortion: tagResult.data.distortion,
       mood_score: tagResult.data.mood_score,
+      topic: tagResult.data.topic,
     })
     tagged = applied.success
 
@@ -40,6 +41,7 @@ export async function processEntry(entry: Entry): Promise<ProcessResult> {
       emotion: tagResult.data.emotion,
       distortion: tagResult.data.distortion,
       mood_score: tagResult.data.mood_score,
+      topic: tagResult.data.topic,
       tagged_at: Date.now(),
     }
     // Graph update is cheap (DB only) — fire-and-forget.

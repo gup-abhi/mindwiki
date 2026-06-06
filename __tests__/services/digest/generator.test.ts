@@ -14,6 +14,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   emotion: 'anxiety',
   distortion: 'catastrophizing',
   mood_score: 0.3,
+  topic: null,
   tagged_at: 1,
   ...over,
 })

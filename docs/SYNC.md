@@ -40,8 +40,11 @@ Synced tables: entries, wiki_pages (conflict.ts SYNCED_TABLES). Entries have no
 updated_at column → watermark is max(created_at, tagged_at). Graph is NOT synced
 (additive, rebuilt locally from entries — ADR 006): after a pull applies records,
 pullDelta calls graph/engine rebuildGraph() (clear + rebuild from entries) so a
-new device's graph populates. Limitation: theme/topic nodes aren't restored —
-topic is transient (not persisted), so rebuild covers emotion + distortion only.
+new device's graph populates. `topic` is persisted on entries (migration 002) and
+synced, so emotion + distortion + theme nodes all rebuild consistently across
+devices. Caveat: entries created BEFORE migration 002 have topic=NULL, so their
+theme nodes can't be rebuilt (both devices converge to emotion+distortion for
+those).
 
 UI refresh: a pull that applies records bumps useSyncStore.revision; the list
 hooks (useEntries/useWikiPages/useGraph) include it in their focus-effect deps,

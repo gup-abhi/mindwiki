@@ -22,6 +22,7 @@ const entry: Entry = {
   emotion: 'anxiety',
   distortion: 'catastrophizing',
   mood_score: 0.2,
+  topic: 'Work',
   tagged_at: 1,
 }
 

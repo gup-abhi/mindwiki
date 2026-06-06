@@ -14,6 +14,7 @@ const entry = (id: string, over: Partial<Entry> = {}): Entry => ({
   emotion: null,
   distortion: null,
   mood_score: null,
+  topic: null,
   tagged_at: null,
   ...over,
 })

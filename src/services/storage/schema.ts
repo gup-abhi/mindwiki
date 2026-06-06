@@ -92,3 +92,13 @@ export const migration001: Migration = {
     `CREATE INDEX idx_sync_queue_synced_at ON sync_queue (synced_at)`,
   ],
 }
+
+// Migration 002 — persist the fast-model topic on entries. Topic was transient
+// (used only at tag time), so the derived graph's theme/situation nodes couldn't
+// be rebuilt on another device. Storing it lets the graph rebuild deterministically
+// + consistently across devices. (Entries created before this stay topic=NULL.)
+export const migration002: Migration = {
+  version: 2,
+  name: 'entry_topic',
+  statements: ['ALTER TABLE entries ADD COLUMN topic TEXT'],
+}

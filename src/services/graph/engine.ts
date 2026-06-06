@@ -69,7 +69,7 @@ export async function rebuildGraph(): Promise<Result<void>> {
     const entries = await listEntries(10000)
     if (!entries.success) return entries
     for (const entry of entries.data) {
-      await updateGraphForEntry(entry, null)
+      await updateGraphForEntry(entry, entry.topic)
     }
     return ok(undefined)
   } catch (e) {
