@@ -327,6 +327,7 @@ Fill this in `demo/README.md` before starting Phase 0.
 **Accounts are mandatory (no anonymous mode).** Account-first onboarding; the
 encrypted DB is opened only after a session + master key exist. Offline journaling
 is allowed after the first successful login.
+- [x] `src/native/CryptoModule.ts` `deriveKey` — real Argon2id via react-native-argon2 (argon2id, 64 MiB / t=3, 32-byte hex key, saltEncoding hex). **Requires native rebuild** (autolinked native module).
 - [ ] `src/services/auth/auth.service.ts`
   - `register(email, password)` — generates a random master key, escrows it (Argon2-wrapped), calls server
   - `loginNewDevice(email, password)` — recovers master key from escrow

@@ -1,9 +1,22 @@
 import { getRandomBytesAsync } from 'expo-crypto'
 import * as SecureStore from 'expo-secure-store'
+import argon2, { type Argon2Options } from 'react-native-argon2'
 
 import { notImplemented } from './notImplemented'
 
 const MASTER_KEY_ID = 'mindwiki.master_key'
+
+// Argon2id params for password → 256-bit wrapping key. 64 MiB / 3 iterations is
+// comfortably above OWASP's mobile minimum; saltEncoding 'hex' because our salt
+// is a hex string. hashLength 32 → rawHash is 64 hex chars = the AES-256 key.
+const ARGON2_OPTS: Argon2Options = {
+  iterations: 3,
+  memory: 65536,
+  parallelism: 1,
+  hashLength: 32,
+  mode: 'argon2id',
+  saltEncoding: 'hex',
+}
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
@@ -32,8 +45,12 @@ export interface ICryptoModule {
 }
 
 export const CryptoModule: ICryptoModule = {
-  async deriveKey() {
-    return notImplemented('CryptoModule.deriveKey')
+  // Argon2id(password, salt) → 32-byte wrapping key (hex). Runs client-side
+  // only; the derived key never leaves the device. salt is the hex string from
+  // the escrow (same value on register + login, so the key reproduces exactly).
+  async deriveKey(password: string, salt: string) {
+    const { rawHash } = await argon2(password, salt, ARGON2_OPTS)
+    return rawHash
   },
   // Anonymous-user master key: a random 256-bit key generated once and stored in
   // the OS keystore (iOS Keychain / Android Keystore via expo-secure-store).
