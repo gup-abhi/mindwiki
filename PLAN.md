@@ -335,8 +335,10 @@ is allowed after the first successful login.
   - `hydrateAuth()` — resolve launch auth state from stored tokens
 - [x] `src/services/auth/api-client.ts` — `authenticatedFetch()` with auto-refresh
 - [x] `src/store/auth.store.ts` — authenticated / unauthenticated (+ loading on launch)
-- [x] Auth screen + launch gate — `components/auth/AuthScreen.tsx` (register/login via `hooks/useAuth`), gated in `_layout.tsx` (loading→spinner, unauthenticated→AuthScreen, authenticated→app)
-  - [ ] FOLLOW-UP: recovery-phrase display on register; open the encrypted DB *after* auth (currently opens at launch) — coupled with the loginNewDevice DB-rekey caveat
+- [x] Auth screen + launch gate — `components/auth/AuthScreen.tsx` (register/login via `hooks/useAuth`), gated in `_layout.tsx` (loading→spinner, unauthenticated→AuthScreen, authenticated→open DB→app)
+- [x] Open the encrypted DB *after* auth (was at launch) — fixes new-device login without a SQLCipher rekey: a fresh device's DB is created with the account master key on first open. Returning-device unaffected (existing DB, same key).
+  - [ ] FOLLOW-UP: recovery-phrase display on register
+  - [ ] EDGE (deferred): switching to a *different* account on a device that already has a DB → `initStorage` can't open the old DB with the new key; needs reset-on-key-mismatch (reinstall works for now). Doesn't affect the 2-device same-account exit criteria.
 - [ ] Settings → Account/Sync entry point
 
 ### Track C: Cloudflare Workers server — server-agent

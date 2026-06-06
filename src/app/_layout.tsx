@@ -9,48 +9,49 @@ import { useAuthStore } from '@/store/auth.store'
 import { useSync } from '@/hooks/useSync'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 
-type Status = 'loading' | 'ready' | 'error'
+type StorageStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+/**
+ * App subtree mounted only once authenticated AND the encrypted DB is open, so
+ * DB-backed work (screens, background sync) never runs before storage exists.
+ */
+function AppRoot() {
+  useSync()
+  return <Stack screenOptions={{ headerShown: false }} />
+}
 
 export default function RootLayout() {
-  const [status, setStatus] = useState<Status>('loading')
-  const [message, setMessage] = useState('')
   const authStatus = useAuthStore((s) => s.status)
+  const [storage, setStorage] = useState<StorageStatus>('idle')
+  const [message, setMessage] = useState('')
 
-  // Opportunistic background sync once authenticated (no-op until then).
-  useSync()
-
+  // Launch: configure notifications + resolve the session. No DB access yet.
   useEffect(() => {
-    let active = true
     configureNotifications()
-    initStorage().then((result) => {
-      if (!active) return
-      if (result.success) {
-        setStatus('ready')
-        // Resolve the session from stored tokens once storage is up.
-        void hydrateAuth()
-      } else {
-        setMessage(result.error.message)
-        setStatus('error')
-      }
-    })
-    return () => {
-      active = false
-    }
+    void hydrateAuth()
   }, [])
 
-  if (status === 'loading' || (status === 'ready' && authStatus === 'loading')) {
+  // Open the encrypted DB only after auth — so it's keyed with the correct
+  // master key (a fresh DB on a new-device login, the existing DB for a
+  // returning user). Opening before auth would create it with a throwaway
+  // device key and orphan it on login (see ADR/CLAUDE.md privacy model).
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || storage !== 'idle') return
+    setStorage('loading')
+    initStorage().then((result) => {
+      if (result.success) {
+        setStorage('ready')
+      } else {
+        setMessage(result.error.message)
+        setStorage('error')
+      }
+    })
+  }, [authStatus, storage])
+
+  if (authStatus === 'loading') {
     return (
       <View testID="storage-loading" style={styles.center}>
         <ActivityIndicator size="large" color="#1a1a2e" />
-      </View>
-    )
-  }
-
-  if (status === 'error') {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.errTitle}>Storage error</Text>
-        <Text style={styles.errMsg}>{message}</Text>
       </View>
     )
   }
@@ -59,7 +60,24 @@ export default function RootLayout() {
     return <AuthScreen />
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />
+  // Authenticated — gate on the encrypted DB opening.
+  if (storage === 'error') {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errTitle}>Storage error</Text>
+        <Text style={styles.errMsg}>{message}</Text>
+      </View>
+    )
+  }
+  if (storage !== 'ready') {
+    return (
+      <View testID="storage-loading" style={styles.center}>
+        <ActivityIndicator size="large" color="#1a1a2e" />
+      </View>
+    )
+  }
+
+  return <AppRoot />
 }
 
 const styles = StyleSheet.create({

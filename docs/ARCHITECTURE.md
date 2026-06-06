@@ -2,6 +2,14 @@
 # See the full version in the previous session output.
 # Key points reproduced here for agent reference.
 
+## Launch sequence
+configureNotifications + hydrateAuth (session from tokens, no DB) → gate:
+unauthenticated → AuthScreen; authenticated → open encrypted DB (initStorage)
+→ app. The DB opens ONLY after auth so it's keyed with the correct master key
+(fresh DB on new-device login, existing DB for a returning user) — never with a
+throwaway device key. DB-backed work (incl. background sync) lives under AppRoot,
+mounted only when storage is ready.
+
 ## Entry processing pipeline
 User submits → Save to SQLite (immediate) → Fast model tag (sync ≤2s) →
 Crisis check (sync) → Wiki update via deep model (background) →

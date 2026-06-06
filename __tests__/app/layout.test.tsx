@@ -12,6 +12,7 @@ jest.mock('@/services/auth/auth.service', () => ({
   register: jest.fn(),
   loginNewDevice: jest.fn(),
 }))
+jest.mock('@/hooks/useSync', () => ({ useSync: jest.fn() }))
 jest.mock('expo-router', () => {
   const { Text } = require('react-native')
   return { Stack: () => <Text>stack-rendered</Text> }
@@ -19,40 +20,34 @@ jest.mock('expo-router', () => {
 
 const mockInitStorage = initStorage as jest.Mock
 
-describe('RootLayout storage + auth gate', () => {
+describe('RootLayout — auth gate then DB open', () => {
   beforeEach(() => {
     mockInitStorage.mockReset()
+    mockInitStorage.mockResolvedValue(ok(undefined))
     useAuthStore.setState({ status: 'loading', accountId: null })
   })
 
-  it('shows a loading state until storage init resolves', () => {
-    mockInitStorage.mockReturnValue(new Promise(() => {})) // never resolves
+  it('shows a spinner while the session is resolving', () => {
     render(<RootLayout />)
     expect(screen.getByTestId('storage-loading')).toBeTruthy()
   })
 
-  it('keeps loading after storage is ready until auth resolves', async () => {
-    mockInitStorage.mockResolvedValue(ok(undefined))
-    render(<RootLayout />)
-    // storage ready but auth still 'loading' → still the spinner
-    await waitFor(() => expect(screen.getByTestId('storage-loading')).toBeTruthy())
-  })
-
-  it('renders the app once storage is ready and the user is authenticated', async () => {
-    mockInitStorage.mockResolvedValue(ok(undefined))
-    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
-    render(<RootLayout />)
-    await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())
-  })
-
-  it('shows the auth screen when unauthenticated', async () => {
-    mockInitStorage.mockResolvedValue(ok(undefined))
+  it('shows the auth screen when unauthenticated — and does NOT open the DB', async () => {
     useAuthStore.setState({ status: 'unauthenticated', accountId: null })
     render(<RootLayout />)
     await waitFor(() => expect(screen.getByTestId('auth-submit')).toBeTruthy())
+    expect(mockInitStorage).not.toHaveBeenCalled() // DB stays closed until auth
   })
 
-  it('shows an error state when storage init fails', async () => {
+  it('opens the DB and renders the app once authenticated', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    render(<RootLayout />)
+    await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())
+    expect(mockInitStorage).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows an error state when the DB fails to open', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
     mockInitStorage.mockResolvedValue(err('DB_INIT_FAILED', 'could not open db'))
     render(<RootLayout />)
     await waitFor(() => expect(screen.getByText('Storage error')).toBeTruthy())
