@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 
 import { useAuth, type AuthMode } from '@/hooks/useAuth'
 
@@ -23,6 +24,7 @@ export function AuthScreen() {
   const [mode, setMode] = useState<AuthMode>('register')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const { submit, submitting, error } = useAuth()
 
   const isRegister = mode === 'register'
@@ -53,16 +55,28 @@ export function AuthScreen() {
           onChangeText={setEmail}
           testID="auth-email"
         />
-        <TextInput
-          style={styles.input}
-          placeholder="Password (8+ characters)"
-          placeholderTextColor="#999"
-          secureTextEntry
-          autoCapitalize="none"
-          value={password}
-          onChangeText={setPassword}
-          testID="auth-password"
-        />
+        <View style={styles.passwordWrap}>
+          <TextInput
+            style={[styles.input, styles.passwordInput]}
+            placeholder="Password (8+ characters)"
+            placeholderTextColor="#999"
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            value={password}
+            onChangeText={setPassword}
+            testID="auth-password"
+          />
+          <Pressable
+            style={styles.eyeButton}
+            onPress={() => setShowPassword((v) => !v)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+            testID="auth-password-toggle"
+          >
+            <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={22} color="#999" />
+          </Pressable>
+        </View>
 
         {error && <Text style={styles.error}>{error}</Text>}
 
@@ -108,6 +122,9 @@ const styles = StyleSheet.create({
     color: '#1a1a2e',
     marginTop: 16,
   },
+  passwordWrap: { marginTop: 16, justifyContent: 'center' },
+  passwordInput: { marginTop: 0, paddingRight: 48 },
+  eyeButton: { position: 'absolute', right: 6, top: 0, bottom: 0, justifyContent: 'center', paddingHorizontal: 8 },
   error: { color: '#d12f2f', fontSize: 14, marginTop: 12 },
   button: {
     backgroundColor: '#1a1a2e',

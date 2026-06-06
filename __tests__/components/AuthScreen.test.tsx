@@ -34,6 +34,18 @@ describe('AuthScreen', () => {
     expect(submit).toHaveBeenCalledWith('register', 'a@b.com', 'password123')
   })
 
+  it('toggles password visibility with the eye button', () => {
+    render(<AuthScreen />)
+    const field = screen.getByTestId('auth-password')
+    expect(field.props.secureTextEntry).toBe(true)
+
+    fireEvent.press(screen.getByTestId('auth-password-toggle'))
+    expect(field.props.secureTextEntry).toBe(false)
+
+    fireEvent.press(screen.getByTestId('auth-password-toggle'))
+    expect(field.props.secureTextEntry).toBe(true)
+  })
+
   it('shows the auth error', () => {
     mockUseAuth.mockReturnValue({ submit, submitting: false, error: 'Registration failed (409)' })
     render(<AuthScreen />)
