@@ -16,7 +16,7 @@
 | 5 | Habit system | Notifications + streak |
 | 6 | Weekly digest | Sunday digest generates |
 | 7 | Wiki query | Ask questions of your wiki |
-| 8 | Auth + sync | E2E encrypted cross-device sync |
+| 8 | Auth + sync | E2E encrypted cross-device sync ✅ (device-verified 2026-06-07; cloud deploy deferred) |
 | 9 | Business model | Free trial + paywall |
 | 10 | Polish + launch | App Store submission ready |
 
@@ -314,65 +314,65 @@ Fill this in `demo/README.md` before starting Phase 0.
 
 ---
 
-## Phase 8 — Auth + cross-device sync
-**Goal**: E2E encrypted sync between 2 devices. Full server live.
+## Phase 8 — Auth + cross-device sync ✅ (device-verified 2026-06-07)
+**Goal**: E2E encrypted sync between 2 devices. **Met on hardware** — fresh
+release/debug build, two devices (Samsung + OnePlus), QR pairing + same-account
+sync confirmed. Remaining open items are a live Cloudflare deploy and a few
+deferred extras (below); the server runs on local Miniflare for now.
 
 ### Track A: Encryption service (client) — sync-agent
-- [ ] `src/services/sync/encryption.ts`
-  - `encryptRecord(plaintext, recordId, masterKey)` → AES-256-GCM
-  - `decryptRecord(ciphertext, recordId, masterKey)`
-  - Per-record key via HKDF
+- [x] `src/services/sync/encryption.ts` — AES-256-GCM via @noble; per-record key via HKDF-SHA256 bound to recordId; encrypt/decryptRecord (hex nonce||ct envelope)
 
 ### Track B: Auth service (client) — sync-agent
 **Accounts are mandatory (no anonymous mode).** Account-first onboarding; the
 encrypted DB is opened only after a session + master key exist. Offline journaling
 is allowed after the first successful login.
-- [x] `src/native/CryptoModule.ts` `deriveKey` — real Argon2id via react-native-argon2 (argon2id, 64 MiB / t=3, 32-byte hex key, saltEncoding hex). **Requires native rebuild** (autolinked native module).
+- [x] `src/native/CryptoModule.ts` `deriveKey` — real Argon2id via react-native-argon2 (argon2id, 64 MiB / t=3, 32-byte hex key, saltEncoding hex). Device-verified (<4s).
 - [x] `src/services/auth/auth.service.ts`
-  - `register(email, password)` — generates a random master key, escrows it (Argon2-wrapped), calls server
+  - `register(email, password)` — random master key, escrowed under Argon2(password) AND a recovery phrase; returns the phrase for one-time display
   - `loginNewDevice(email, password)` — recovers master key from escrow
-  - `refreshAccessToken()` — auto-called by API client on 401
-  - `hydrateAuth()` — resolve launch auth state from stored tokens
+  - `recoverAccount(email, phrase)` + `changePassword()` — lost-password recovery (re-wrap escrow, no DB re-key)
+  - `getRecoveryStatus()` / `addRecoveryPhrase()` — backfill recovery for pre-existing accounts
+  - `refreshAccessToken()` (api-client, auto on 401), `hydrateAuth()`, `logout()`
+- [x] `src/services/auth/recovery.ts` — bip39 phrase (entropy from expo-crypto, NOT WebCrypto), HKDF escrow key, SHA-256 recovery credential
 - [x] `src/services/auth/api-client.ts` — `authenticatedFetch()` with auto-refresh
 - [x] `src/store/auth.store.ts` — authenticated / unauthenticated (+ loading on launch)
-- [x] Auth screen + launch gate — `components/auth/AuthScreen.tsx` (register/login via `hooks/useAuth`), gated in `_layout.tsx` (loading→spinner, unauthenticated→AuthScreen, authenticated→open DB→app)
-- [x] Open the encrypted DB *after* auth (was at launch) — fixes new-device login without a SQLCipher rekey: a fresh device's DB is created with the account master key on first open. Returning-device unaffected (existing DB, same key).
-  - [ ] FOLLOW-UP: recovery-phrase display on register
-  - [ ] EDGE (deferred): switching to a *different* account on a device that already has a DB → `initStorage` can't open the old DB with the new key; needs reset-on-key-mismatch (reinstall works for now). Doesn't affect the 2-device same-account exit criteria.
-- [ ] Settings → Account/Sync entry point
+- [x] Auth screen + launch gate — `AuthScreen` (register/login/recover/pair via `hooks/useAuth`), gated in `_layout.tsx` (loading→spinner, unauthenticated→AuthScreen, authenticated→open DB→app)
+- [x] Open the encrypted DB *after* auth (was at launch) — fixes new-device login without a SQLCipher rekey
+- [x] Recovery-phrase display on register (one-time `RecoveryPhraseView`, checkbox-gated) + recover flow + Home backfill card
+- [x] Settings → Sync entry point (`app/settings.tsx`: sync status, Sync now, recovery, pairing, logout)
+  - [ ] EDGE (deferred): switching to a *different* account on a device that already has a DB → `initStorage` can't open the old DB with the new key; needs reset-on-key-mismatch (reinstall works for now).
 
 ### Track C: Cloudflare Workers server — server-agent
-Full spec in `docs/SERVER.md`. Summary:
-- [ ] `server/` Wrangler project init, `wrangler.toml`, KV + R2 bindings
-- [ ] KV namespace `AUTH_KV`: accounts, refresh token families, key escrow
-- [ ] `server/auth/register.ts` — bcrypt(SHA-256(password), 12), store account + escrow
-- [ ] `server/auth/login.ts` — bcrypt.compare, return tokens + escrow
-- [ ] `server/auth/refresh.ts` — rotate token, family invalidation on reuse
-- [ ] `server/auth/logout.ts` — invalidate family
-- [ ] `server/auth/change-password.ts` — re-bcrypt + update escrow
-- [ ] `server/auth/delete-account.ts` — delete KV + all R2 blobs
-- [ ] JWT signing key → `wrangler secret put JWT_SECRET`
-- [ ] `server/storage/upload.ts` — PUT /sync/{accountId}/{table}/{recordId}
-- [ ] `server/storage/delta.ts` — GET /sync/{accountId}/delta?since={ts}
-- [ ] `server/storage/delete.ts` — DELETE all blobs for account
-- [ ] `server/push/register.ts` — store push token → account mapping
-- [ ] `server/push/send.ts` — APNs HTTP/2 + FCM v1
+Full spec in `docs/SERVER.md`. Local Miniflare (`wrangler dev`), curl- + device-verified.
+- [x] `server/` Wrangler project, KV `AUTH_KV` + R2 bindings, secrets in `.dev.vars`
+- [x] `auth/register.ts` (bcrypt over SHA-256(password) + key escrow + recovery escrow), `auth/login.ts`, `auth/refresh.ts` (rotation + family invalidation), `auth/change-password.ts`
+- [x] `auth/recover.ts`, `auth/recovery-setup.ts` (status + set/rotate), `auth/pair.ts` (start mints one-time code, redeem → session)
+- [x] `storage/upload.ts` (PUT /sync/{acc}/{table}/{rec}), `storage/delta.ts` (GET delta?since)
+- [ ] `auth/logout.ts` (family invalidate), `auth/delete-account.ts`, `storage/delete.ts` — deferred
+- [ ] `push/register.ts` + `push/send.ts` (APNs/FCM) — deferred (Phase 5 used local notifications)
+- [ ] Known: `storage/delta.ts` R2 `include:['customMetadata']` flagged by Cloudflare types (works at runtime)
 
 ### Track D: Sync engine (client) — sync-agent
-- [x] `src/services/storage/sync-queue.ts` — enqueue/pending/markSynced; writes (createEntry/applyTags/createPage/updatePage) enqueue best-effort
-- [x] `src/services/sync/engine.ts` — pushPending (encrypt → PUT → markSynced) + pullDelta (delta → decrypt → LWW apply → cursor) + sync()
-- [x] `src/services/sync/conflict.ts` — per-table strategies (LWW for entries + wiki_pages; graph excluded)
-- [x] `src/hooks/useSync.ts` — trigger: runs sync() on auth + app-foreground (no-op until authenticated); mounted in `_layout.tsx`
-- [ ] `src/services/sync/pairing.ts` — QR code + recovery phrase
-- [ ] Sync settings screen (connected devices, add device, WiFi-only toggle)
+- [x] `src/services/storage/sync-queue.ts` — enqueue/pending/markSynced + backfill; writes enqueue best-effort
+- [x] `src/services/sync/engine.ts` — pushPending + pullDelta (LWW apply, cursor, rebuildGraph after pull) + sync()
+- [x] `src/services/sync/conflict.ts` — per-table strategies (LWW entries + wiki_pages; graph rebuilt locally, ADR 006); `topic` persisted (migration 002) for cross-device graph parity
+- [x] `src/hooks/useSync.ts` — triggers: auth-transition, app-foreground, post-save, connectivity-regained (NetInfo)
+- [x] `src/services/sync/pairing.ts` — QR pairing (one-time code + E2E master-key handoff); device-A `app/pair.tsx` (QR + retry/reload), device-B `PairScanScreen` (expo-camera)
+- [x] Sync settings screen (`app/settings.tsx` via `useSyncStatus` — last pull, pending count, Sync now with result message)
+- [ ] Delete-sync — deferred: `deleteEntry` exists but isn't wired to any UI, so propagating deletes would be speculative
+- [ ] WiFi-only toggle — deferred
 
 ### Track E: Wrangler deployment — server-agent
-- [ ] `wrangler dev` local with Miniflare (KV + R2 emulated, port 8787)
-- [ ] `wrangler deploy --env staging`
-- [ ] `wrangler deploy --env production`
-- [ ] GitHub Actions: auto-deploy on merge to main
+- [x] `wrangler dev` local with Miniflare (KV + R2 emulated, port 8787)
+- [ ] `wrangler deploy --env staging` / `production` — deferred (still local-only)
+- [ ] GitHub Actions: auto-deploy on merge to main — deferred
 
-**Exit criteria**: Two simulators with same account have identical wiki after sync.
+### Also added this phase (not in original plan)
+- [x] In-app LLM model download (`services/llm/model-manager.ts`) — single source of truth for the model location, shared with `LLMBridge`; existence check before download; Home `ModelDownloadCard`. A QR-paired device had no GGUF models, so tagging/wiki/Ask-your-wiki failed until this.
+
+**Exit criteria**: ✅ Two devices, same account → identical wiki after sync. Verified
+on hardware 2026-06-07 (QR pairing A→B, data synced down). Deferred: live cloud deploy.
 
 ---
 
