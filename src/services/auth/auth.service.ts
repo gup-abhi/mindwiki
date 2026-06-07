@@ -68,7 +68,8 @@ export async function register(
 
     const data = (await res.json()) as AuthResponse
     await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
-    useAuthStore.getState().setAuthenticated(data.account_id)
+    // Don't flip auth state yet: the caller shows the recovery phrase first, then
+    // authenticates on acknowledgement (so the user can't skip past saving it).
     return ok({ accountId: data.account_id, recoveryPhrase })
   } catch (e) {
     return err('REGISTER_FAILED', 'Registration failed', e)
@@ -109,8 +110,9 @@ export async function loginNewDevice(email: string, password: string): Promise<R
 /**
  * Recover an account with the recovery phrase when the password is lost. Unwraps
  * the recovery escrow with the phrase-derived key, installs the master key so
- * synced data decrypts, and starts a session. The caller should then prompt for
- * a NEW password (changePassword) — the old one is gone. Mirrors loginNewDevice.
+ * synced data decrypts, and stores the session — but does NOT flip auth state:
+ * recovery is a two-step wizard (recover → set a new password), so the caller
+ * authenticates only after changePassword succeeds.
  */
 export async function recoverAccount(
   email: string,
@@ -134,7 +136,6 @@ export async function recoverAccount(
 
     await CryptoModule.setKeyInKeychain(masterKey.data)
     await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
-    useAuthStore.getState().setAuthenticated(data.account_id)
     return ok({ accountId: data.account_id })
   } catch (e) {
     return err('RECOVER_FAILED', 'Recovery failed', e)

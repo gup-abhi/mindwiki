@@ -1,33 +1,71 @@
 import { useCallback, useState } from 'react'
 
-import { register, loginNewDevice } from '@/services/auth/auth.service'
+import { register, loginNewDevice, recoverAccount, changePassword } from '@/services/auth/auth.service'
+import { useAuthStore } from '@/store/auth.store'
 
 export type AuthMode = 'register' | 'login'
 
 /**
- * Drives the register/login form: tracks submit progress + the last error and
- * delegates to the auth service. On success the service sets the auth store to
- * 'authenticated', which flips the launch gate to the app — so callers only need
- * the boolean. Never throws.
+ * Drives the register/login/recover forms. Register and recovery are two-step
+ * wizards — the auth service stores the session but does NOT flip auth state, so
+ * the user can't skip past saving their recovery phrase / setting a new password.
+ * This hook owns that final 'authenticate' step. Never throws.
  */
 export function useAuth() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set after a successful register: the phrase to show once before entering the app.
+  const [pendingPhrase, setPendingPhrase] = useState<{ accountId: string; phrase: string } | null>(null)
 
   const submit = useCallback(
     async (mode: AuthMode, email: string, password: string): Promise<boolean> => {
       setSubmitting(true)
       setError(null)
-      const res =
-        mode === 'register'
-          ? await register(email.trim(), password)
-          : await loginNewDevice(email.trim(), password)
+      if (mode === 'register') {
+        const res = await register(email.trim(), password)
+        setSubmitting(false)
+        if (!res.success) {
+          setError(res.error.message)
+          return false
+        }
+        setPendingPhrase({ accountId: res.data.accountId, phrase: res.data.recoveryPhrase })
+        return true
+      }
+      const res = await loginNewDevice(email.trim(), password)
       setSubmitting(false)
       if (!res.success) setError(res.error.message)
-      return res.success
+      return res.success // loginNewDevice authenticates on success
     },
     []
   )
 
-  return { submit, submitting, error }
+  /** Enter the app after the user confirms they've saved their recovery phrase. */
+  const confirmPhrase = useCallback(() => {
+    if (pendingPhrase) useAuthStore.getState().setAuthenticated(pendingPhrase.accountId)
+  }, [pendingPhrase])
+
+  /** Recover with the phrase, set a new password, then enter the app. */
+  const recover = useCallback(
+    async (email: string, phrase: string, newPassword: string): Promise<boolean> => {
+      setSubmitting(true)
+      setError(null)
+      const rec = await recoverAccount(email.trim(), phrase)
+      if (!rec.success) {
+        setSubmitting(false)
+        setError(rec.error.message)
+        return false
+      }
+      const changed = await changePassword(newPassword)
+      setSubmitting(false)
+      if (!changed.success) {
+        setError('Recovered, but setting the new password failed. Please try again.')
+        return false
+      }
+      useAuthStore.getState().setAuthenticated(rec.data.accountId)
+      return true
+    },
+    []
+  )
+
+  return { submit, submitting, error, pendingPhrase, confirmPhrase, recover }
 }

@@ -13,6 +13,9 @@ import { Ionicons } from '@expo/vector-icons'
 
 import { useAuth, type AuthMode } from '@/hooks/useAuth'
 
+import { RecoverScreen } from './RecoverScreen'
+import { RecoveryPhraseView } from './RecoveryPhraseView'
+
 const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())
 
 /**
@@ -22,10 +25,15 @@ const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())
  */
 export function AuthScreen() {
   const [mode, setMode] = useState<AuthMode>('register')
+  const [recovering, setRecovering] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const { submit, submitting, error } = useAuth()
+  const { submit, submitting, error, pendingPhrase, confirmPhrase } = useAuth()
+
+  // After a successful register, show the recovery phrase once before entering.
+  if (pendingPhrase) return <RecoveryPhraseView phrase={pendingPhrase.phrase} onConfirm={confirmPhrase} />
+  if (recovering) return <RecoverScreen onCancel={() => setRecovering(false)} />
 
   const isRegister = mode === 'register'
   // Email is required for both flows: login looks the account up by email, and
@@ -102,6 +110,12 @@ export function AuthScreen() {
             {isRegister ? 'Already have an account? Sign in' : 'New here? Create an account'}
           </Text>
         </Pressable>
+
+        {!isRegister && (
+          <Pressable onPress={() => setRecovering(true)} disabled={submitting} testID="auth-forgot">
+            <Text style={styles.forgot}>Forgot password? Recover with your phrase</Text>
+          </Pressable>
+        )}
       </View>
     </KeyboardAvoidingView>
   )
@@ -136,4 +150,5 @@ const styles = StyleSheet.create({
   buttonDisabled: { backgroundColor: '#b9b9cc' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   toggle: { color: '#7a7ad0', fontSize: 15, fontWeight: '600', textAlign: 'center', marginTop: 22 },
+  forgot: { color: '#7a7ad0', fontSize: 14, textAlign: 'center', marginTop: 16 },
 })

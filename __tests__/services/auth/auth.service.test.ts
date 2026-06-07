@@ -68,7 +68,8 @@ describe('register', () => {
     expect(body.recovery_hash).toMatch(/^[0-9a-f]{64}$/) // second escrow credential
     expect(body.recovery_escrow.encrypted_key).toBeTruthy()
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
-    expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
+    // auth state is deferred until the user acknowledges the recovery phrase
+    expect(useAuthStore.getState().status).not.toBe('authenticated')
   })
 
   it('fails on a server error', async () => {
@@ -137,7 +138,9 @@ describe('recoverAccount', () => {
 
     expect(res).toEqual({ success: true, data: { accountId: 'acc1' } })
     expect(mockSetKey).toHaveBeenCalledWith(MASTER)
-    expect(useAuthStore.getState().status).toBe('authenticated')
+    expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    // recovery is a wizard — auth is flipped by the hook only after changePassword
+    expect(useAuthStore.getState().status).not.toBe('authenticated')
   })
 
   it('rejects an invalid phrase without hitting the server', async () => {

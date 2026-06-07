@@ -73,6 +73,12 @@ escrow:{account_id}
   Note: encrypted_key is AES-GCM(master_key, argon2(password, salt))
         Server cannot decrypt without user's password.
 
+recovery:{account_id}
+  → { recovery_bcrypt: string, encrypted_key: string, updated_at: number }
+  Second escrow path for /auth/recover when the password is lost.
+  encrypted_key is AES-GCM(master_key, HKDF(bip39_entropy)); recovery_bcrypt
+  is bcrypt(SHA-256(recovery phrase)). Server cannot decrypt without the phrase.
+
 refresh:{token_hash}
   → { account_id: string, family_id: string, expires_at: number }
   token_hash = SHA-256(refresh_token) — never store the token itself
@@ -98,6 +104,7 @@ email:{email_lower}
 
 import { handleRegister } from './auth/register'
 import { handleLogin } from './auth/login'
+import { handleRecover } from './auth/recover'
 import { handleRefresh } from './auth/refresh'
 import { handleLogout } from './auth/logout'
 import { handleChangePassword } from './auth/change-password'
@@ -127,6 +134,7 @@ export default {
     // Public routes (no auth)
     if (method === 'POST' && path === '/auth/register') return handleRegister(req, env)
     if (method === 'POST' && path === '/auth/login')    return handleLogin(req, env)
+    if (method === 'POST' && path === '/auth/recover')  return handleRecover(req, env)
     if (method === 'POST' && path === '/auth/refresh')  return handleRefresh(req, env)
 
     // Protected routes (require valid JWT)

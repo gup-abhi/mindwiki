@@ -7,10 +7,21 @@ jest.mock('@/hooks/useAuth', () => ({ useAuth: jest.fn() }))
 
 const mockUseAuth = useAuth as jest.Mock
 const submit = jest.fn()
+const confirmPhrase = jest.fn()
+const recover = jest.fn()
 
 beforeEach(() => {
   submit.mockReset()
-  mockUseAuth.mockReturnValue({ submit, submitting: false, error: null })
+  confirmPhrase.mockReset()
+  recover.mockReset()
+  mockUseAuth.mockReturnValue({
+    submit,
+    submitting: false,
+    error: null,
+    pendingPhrase: null,
+    confirmPhrase,
+    recover,
+  })
 })
 
 describe('AuthScreen', () => {
@@ -47,8 +58,43 @@ describe('AuthScreen', () => {
   })
 
   it('shows the auth error', () => {
-    mockUseAuth.mockReturnValue({ submit, submitting: false, error: 'Registration failed (409)' })
+    mockUseAuth.mockReturnValue({
+      submit,
+      submitting: false,
+      error: 'Registration failed (409)',
+      pendingPhrase: null,
+      confirmPhrase,
+      recover,
+    })
     render(<AuthScreen />)
     expect(screen.getByText('Registration failed (409)')).toBeTruthy()
+  })
+
+  it('shows the recovery phrase view after a successful register', () => {
+    mockUseAuth.mockReturnValue({
+      submit,
+      submitting: false,
+      error: null,
+      pendingPhrase: { accountId: 'acc1', phrase: 'alpha bravo charlie' },
+      confirmPhrase,
+      recover,
+    })
+    render(<AuthScreen />)
+    expect(screen.getByText('Save your recovery phrase')).toBeTruthy()
+    expect(screen.getByText('alpha')).toBeTruthy()
+
+    // Continue is gated on the "I've saved it" checkbox
+    fireEvent.press(screen.getByTestId('recovery-continue'))
+    expect(confirmPhrase).not.toHaveBeenCalled()
+    fireEvent.press(screen.getByTestId('recovery-saved-checkbox'))
+    fireEvent.press(screen.getByTestId('recovery-continue'))
+    expect(confirmPhrase).toHaveBeenCalled()
+  })
+
+  it('opens the recover flow from "Forgot password?" in login mode', () => {
+    render(<AuthScreen />)
+    fireEvent.press(screen.getByTestId('auth-toggle')) // → login
+    fireEvent.press(screen.getByTestId('auth-forgot'))
+    expect(screen.getByText('Recover your account')).toBeTruthy()
   })
 })
