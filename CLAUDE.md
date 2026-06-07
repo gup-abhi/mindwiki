@@ -51,7 +51,7 @@ MindWiki is a privacy-first AI journaling app that builds a **compounding person
 
 **The single most important thing**: this is not a chatbot on top of a journal. The *wiki* is the product. Entries feed a growing knowledge base. The AI synthesises, not retrieves.
 
-**Current project status**: Phase -1 (Demo app). Do not start Phase 0 until the demo app runs clean on physical hardware.
+**Current project status**: Phases -1 → 8 complete and device-verified (auth + E2E cross-device sync, recovery phrase, QR pairing, in-app model download — verified on two phones 2026-06-07). Server runs on local Miniflare; a live Cloudflare deploy is still pending. Next: Phase 9 (business model — RevenueCat trial + paywall).
 
 ---
 
