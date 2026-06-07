@@ -7,6 +7,8 @@ interface RegisterBody {
   email?: string
   password_hash: string // SHA-256(password) hex — computed client-side
   key_escrow: { encrypted_key: string; salt: string }
+  recovery_hash: string // SHA-256(recovery phrase) hex — computed client-side
+  recovery_escrow: { encrypted_key: string }
 }
 
 export async function handleRegister(req: Request, env: Env): Promise<Response> {
@@ -18,6 +20,12 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
   if (!body.key_escrow?.encrypted_key || !body.key_escrow?.salt) {
     return new Response('Missing key_escrow', { status: 400 })
   }
+  if (!body.recovery_hash || body.recovery_hash.length !== 64) {
+    return new Response('Invalid recovery_hash', { status: 400 })
+  }
+  if (!body.recovery_escrow?.encrypted_key) {
+    return new Response('Missing recovery_escrow', { status: 400 })
+  }
   // Email is mandatory: login + escrow recovery are keyed by email, so an
   // email-less account would be unrecoverable (a permanent lockout).
   const email = body.email?.trim().toLowerCase()
@@ -27,6 +35,7 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
   if (existing) return new Response('Email already registered', { status: 409 })
 
   const passwordBcrypt = await hash(body.password_hash, 12)
+  const recoveryBcrypt = await hash(body.recovery_hash, 12)
   const accountId = crypto.randomUUID()
   const now = Date.now()
 
@@ -40,6 +49,16 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
     JSON.stringify({
       encrypted_key: body.key_escrow.encrypted_key,
       salt: body.key_escrow.salt,
+      updated_at: now,
+    })
+  )
+  // Second escrow path: master key wrapped under the recovery phrase, plus the
+  // bcrypted recovery credential. Used by /auth/recover when the password is lost.
+  await env.AUTH_KV.put(
+    `recovery:${accountId}`,
+    JSON.stringify({
+      recovery_bcrypt: recoveryBcrypt,
+      encrypted_key: body.recovery_escrow.encrypted_key,
       updated_at: now,
     })
   )

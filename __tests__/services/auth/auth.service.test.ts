@@ -49,12 +49,17 @@ describe('register', () => {
     )
     const res = await register('a@b.com', 'password')
 
-    expect(res).toEqual({ success: true, data: { accountId: 'acc1' } })
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data.accountId).toBe('acc1')
+    expect(res.data.recoveryPhrase.split(' ')).toHaveLength(12) // shown once for the user to save
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
     expect(body.email).toBe('a@b.com')
     expect(body.password_hash).toBe('5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8')
     expect(body.key_escrow.encrypted_key).toBeTruthy()
     expect(body.key_escrow.salt).toBeTruthy()
+    expect(body.recovery_hash).toMatch(/^[0-9a-f]{64}$/) // second escrow credential
+    expect(body.recovery_escrow.encrypted_key).toBeTruthy()
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
   })
