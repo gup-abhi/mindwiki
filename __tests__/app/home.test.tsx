@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react-native'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 
 import Home from '@/app/index'
 import { listEntries } from '@/services/storage/entries'
@@ -23,6 +23,8 @@ jest.mock('@/hooks/useRecoverySetup', () => ({
     done: jest.fn(),
   }),
 }))
+const mockLogout = jest.fn()
+jest.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ logout: mockLogout }) }))
 
 const mockWiki = jest.fn(() => ({ pages: [] as WikiPage[], loading: false }))
 jest.mock('@/hooks/useWiki', () => ({ useWikiPages: () => mockWiki() }))
@@ -47,8 +49,17 @@ const entry = (over = {}) => ({
 describe('Home entries list', () => {
   beforeEach(() => {
     mockList.mockReset()
+    mockLogout.mockReset()
     mockWiki.mockReturnValue({ pages: [], loading: false })
     useWikiStore.setState({ pending: 0 })
+  })
+
+  it('logs out when the logout button is pressed', async () => {
+    mockList.mockResolvedValue(ok([]))
+    render(<Home />)
+    await waitFor(() => expect(screen.getByTestId('home-logout')).toBeTruthy())
+    fireEvent.press(screen.getByTestId('home-logout'))
+    expect(mockLogout).toHaveBeenCalled()
   })
 
   it('renders a tagged entry with its emotion/distortion', async () => {

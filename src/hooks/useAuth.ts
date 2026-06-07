@@ -1,6 +1,12 @@
 import { useCallback, useState } from 'react'
 
-import { register, loginNewDevice, recoverAccount, changePassword } from '@/services/auth/auth.service'
+import {
+  register,
+  loginNewDevice,
+  recoverAccount,
+  changePassword,
+  logout as logoutAccount,
+} from '@/services/auth/auth.service'
 import { useAuthStore } from '@/store/auth.store'
 
 export type AuthMode = 'register' | 'login'
@@ -67,5 +73,8 @@ export function useAuth() {
     []
   )
 
-  return { submit, submitting, error, pendingPhrase, confirmPhrase, recover }
+  /** Sign out: drops the session (re-login required); local data + master key stay. */
+  const logout = useCallback(() => logoutAccount(), [])
+
+  return { submit, submitting, error, pendingPhrase, confirmPhrase, recover, logout }
 }
