@@ -53,7 +53,7 @@ describe('LLMBridge (llama.rn)', () => {
 
     const { LLMBridge } = require('@/native/LLMBridge')
     await expect(LLMBridge.tag('x', { maxTokens: 10, temperature: 0.1 })).rejects.toThrow(
-      /did you adb push it/
+      /download the AI models in the app first/
     )
   })
 })

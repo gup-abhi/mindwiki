@@ -1,6 +1,13 @@
 # Model files
 
-Not committed to git (900MB–4GB each). Download before running Phase -1 demo.
+Not committed to git (900MB–4GB each).
+
+**In the app:** models download on demand — the Home "Download AI models" card
+(shown when they're missing) fetches both into the app's document directory
+(`${documentDirectory}models/`, see `src/services/llm/model-manager.ts`), the
+same location `LLMBridge` loads from. It checks before downloading, so it never
+re-fetches an existing file. No `adb push` needed on a real install (e.g. a
+QR-paired device). The manual steps below are for the Phase -1 demo / local dev.
 
 ```bash
 pip install huggingface_hub

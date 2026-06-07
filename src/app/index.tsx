@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router'
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 
+import { ModelDownloadCard } from '@/components/ModelDownloadCard'
 import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
 import { useAuth } from '@/hooks/useAuth'
 import { useEntries } from '@/hooks/useEntries'
@@ -37,6 +38,7 @@ export default function Home() {
           <View style={styles.header}>
             <Text style={styles.title}>MindWiki</Text>
             <Text style={styles.stage}>{stage.headline}</Text>
+            <ModelDownloadCard />
             <RecoverySetupCard />
             {digestReady && (
               <Pressable

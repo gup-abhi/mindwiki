@@ -25,6 +25,9 @@ jest.mock('@/hooks/useRecoverySetup', () => ({
 }))
 const mockLogout = jest.fn()
 jest.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ logout: mockLogout }) }))
+jest.mock('@/hooks/useModelDownload', () => ({
+  useModelDownload: () => ({ ready: true, downloading: false, progress: 1, error: null, download: jest.fn() }),
+}))
 
 const mockWiki = jest.fn(() => ({ pages: [] as WikiPage[], loading: false }))
 jest.mock('@/hooks/useWiki', () => ({ useWikiPages: () => mockWiki() }))

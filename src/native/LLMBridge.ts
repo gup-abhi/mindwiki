@@ -1,5 +1,7 @@
 import { initLlama, type LlamaContext } from 'llama.rn'
 
+import { modelLoadPath } from '@/services/llm/model-manager'
+
 export type ModelKind = 'fast' | 'deep'
 
 export interface InferenceOptions {
@@ -17,9 +19,8 @@ export interface InferenceResult {
  * On-device GGUF inference via llama.rn (validated in Phase -1: Qwen2.5 1.5B
  * ~45 tok/s, 3B ~18 tok/s). Raw entry text NEVER leaves the device.
  *
- * Models are not bundled — push them to the app's external files dir:
- *   adb push models/fast-model.gguf /storage/emulated/0/Android/data/com.mindwiki.app/files/
- *   adb push models/deep-model.gguf /storage/emulated/0/Android/data/com.mindwiki.app/files/
+ * Models are not bundled — they're downloaded in-app into MODELS_DIR (see
+ * services/llm/model-manager.ts), the same location this bridge loads from.
  */
 export interface ILLMBridge {
   loadModel(kind: ModelKind): Promise<void>
@@ -27,24 +28,18 @@ export interface ILLMBridge {
   synthesise(prompt: string, opts: InferenceOptions): Promise<InferenceResult>
 }
 
-const MODELS_DIR = '/storage/emulated/0/Android/data/com.mindwiki.app/files'
-const MODEL_PATHS = {
-  fast: `${MODELS_DIR}/fast-model.gguf`,
-  deep: `${MODELS_DIR}/deep-model.gguf`,
-} as const
-
 const contexts: Partial<Record<ModelKind, LlamaContext>> = {}
 
 async function ensureLoaded(kind: ModelKind): Promise<LlamaContext> {
   const existing = contexts[kind]
   if (existing) return existing
-  const model = MODEL_PATHS[kind]
+  const model = modelLoadPath(kind)
   try {
     const ctx = await initLlama({ model, n_ctx: 2048 })
     contexts[kind] = ctx
     return ctx
   } catch (e) {
-    throw new Error(`Failed to load ${kind} model at ${model} — did you adb push it? (${String(e)})`)
+    throw new Error(`Failed to load ${kind} model — download the AI models in the app first. (${String(e)})`)
   }
 }
 
