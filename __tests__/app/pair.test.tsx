@@ -36,4 +36,25 @@ describe('Pair (device A QR)', () => {
     fireEvent.press(screen.getByTestId('pair-back'))
     expect(mockBack).toHaveBeenCalled()
   })
+
+  it('retries after a failure and shows the QR', async () => {
+    mockStart
+      .mockResolvedValueOnce({ success: false, error: { code: 'X', message: 'no' } })
+      .mockResolvedValueOnce({ success: true, data: 'PAYLOAD' })
+    render(<Pair />)
+    await waitFor(() => expect(screen.getByTestId('pair-retry')).toBeTruthy())
+
+    fireEvent.press(screen.getByTestId('pair-retry'))
+    await waitFor(() => expect(screen.getByText('PAYLOAD')).toBeTruthy())
+    expect(mockStart).toHaveBeenCalledTimes(2)
+  })
+
+  it('regenerates the code via reload', async () => {
+    mockStart.mockResolvedValue({ success: true, data: 'PAYLOAD' })
+    render(<Pair />)
+    await waitFor(() => expect(screen.getByTestId('pair-reload')).toBeTruthy())
+
+    fireEvent.press(screen.getByTestId('pair-reload'))
+    await waitFor(() => expect(mockStart).toHaveBeenCalledTimes(2))
+  })
 })
