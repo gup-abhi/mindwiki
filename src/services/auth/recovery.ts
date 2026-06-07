@@ -1,7 +1,8 @@
 import { hkdf } from '@noble/hashes/hkdf'
 import { sha256 } from '@noble/hashes/sha256'
-import { generateMnemonic, mnemonicToEntropy, validateMnemonic } from '@scure/bip39'
+import { entropyToMnemonic, mnemonicToEntropy, validateMnemonic } from '@scure/bip39'
 import { wordlist } from '@scure/bip39/wordlists/english.js'
+import { getRandomBytesAsync } from 'expo-crypto'
 
 const KEY_BYTES = 32
 const RECOVERY_INFO = new TextEncoder().encode('mindwiki-recovery-v1')
@@ -15,9 +16,14 @@ function normalize(phrase: string): string {
   return phrase.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-/** Generate a fresh 12-word BIP39 recovery phrase (128 bits of entropy). */
-export function generateRecoveryPhrase(): string {
-  return generateMnemonic(wordlist, 128)
+/**
+ * Generate a fresh 12-word BIP39 recovery phrase (128 bits of entropy). Entropy
+ * comes from expo-crypto — NOT bip39's generateMnemonic, which pulls from
+ * WebCrypto's crypto.getRandomValues (undefined in Hermes, so it throws on device).
+ */
+export async function generateRecoveryPhrase(): Promise<string> {
+  const entropy = Uint8Array.from(await getRandomBytesAsync(16))
+  return entropyToMnemonic(entropy, wordlist)
 }
 
 /** True if the phrase is a structurally valid BIP39 mnemonic (word list + checksum). */

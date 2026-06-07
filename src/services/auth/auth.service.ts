@@ -49,7 +49,7 @@ export async function register(
     const wrapped = await wrapMasterKey(masterKey, wrappingKey)
     if (!wrapped.success) return wrapped
 
-    const recoveryPhrase = generateRecoveryPhrase()
+    const recoveryPhrase = await generateRecoveryPhrase()
     const recoveryWrapped = await wrapMasterKey(masterKey, recoveryKeyFromPhrase(recoveryPhrase))
     if (!recoveryWrapped.success) return recoveryWrapped
 
@@ -208,7 +208,7 @@ export async function getRecoveryStatus(): Promise<Result<boolean>> {
 export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: string }>> {
   try {
     const masterKey = await CryptoModule.getKeyFromKeychain()
-    const recoveryPhrase = generateRecoveryPhrase()
+    const recoveryPhrase = await generateRecoveryPhrase()
     const wrapped = await wrapMasterKey(masterKey, recoveryKeyFromPhrase(recoveryPhrase))
     if (!wrapped.success) return wrapped
 

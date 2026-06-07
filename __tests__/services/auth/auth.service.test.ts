@@ -14,7 +14,9 @@ import { CryptoModule } from '@/native/CryptoModule'
 import { useAuthStore } from '@/store/auth.store'
 
 jest.mock('expo-crypto', () => ({
-  getRandomBytesAsync: async (n: number) => new Uint8Array(n).fill(5),
+  // Non-deterministic so generated recovery phrases differ between calls.
+  getRandomBytesAsync: async (n: number) =>
+    Uint8Array.from({ length: n }, () => Math.floor(Math.random() * 256)),
 }))
 jest.mock('@/native/CryptoModule', () => ({
   CryptoModule: {
@@ -124,7 +126,7 @@ describe('loginNewDevice', () => {
 
 describe('recoverAccount', () => {
   it('unwraps the recovery escrow with the phrase and installs the master key', async () => {
-    const phrase = generateRecoveryPhrase()
+    const phrase = await generateRecoveryPhrase()
     const escrow = await wrapMasterKey(MASTER, recoveryKeyFromPhrase(phrase))
     if (!escrow.success) throw new Error('setup wrap failed')
     ;(global.fetch as jest.Mock).mockResolvedValue(
@@ -153,9 +155,9 @@ describe('recoverAccount', () => {
   })
 
   it('fails to decrypt with the wrong (but valid) phrase', async () => {
-    const phrase = generateRecoveryPhrase()
-    let other = generateRecoveryPhrase()
-    while (other === phrase) other = generateRecoveryPhrase()
+    const phrase = await generateRecoveryPhrase()
+    let other = await generateRecoveryPhrase()
+    while (other === phrase) other = await generateRecoveryPhrase()
     const escrow = await wrapMasterKey(MASTER, recoveryKeyFromPhrase(phrase))
     if (!escrow.success) throw new Error('setup wrap failed')
     ;(global.fetch as jest.Mock).mockResolvedValue(
