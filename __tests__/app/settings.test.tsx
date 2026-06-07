@@ -6,7 +6,8 @@ import { useRecoverySetup } from '@/hooks/useRecoverySetup'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
 
 const mockBack = jest.fn()
-jest.mock('expo-router', () => ({ useRouter: () => ({ back: mockBack, push: jest.fn() }) }))
+const mockPush = jest.fn()
+jest.mock('expo-router', () => ({ useRouter: () => ({ back: mockBack, push: mockPush }) }))
 jest.mock('@/hooks/useSyncStatus', () => ({ useSyncStatus: jest.fn() }))
 jest.mock('@/hooks/useRecoverySetup', () => ({ useRecoverySetup: jest.fn() }))
 jest.mock('@/hooks/useAuth', () => ({ useAuth: jest.fn() }))
@@ -61,5 +62,11 @@ describe('Settings', () => {
     expect(logout).toHaveBeenCalled()
     fireEvent.press(screen.getByTestId('settings-back'))
     expect(mockBack).toHaveBeenCalled()
+  })
+
+  it('opens the pair-a-device screen', () => {
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-pair'))
+    expect(mockPush).toHaveBeenCalledWith('/pair')
   })
 })

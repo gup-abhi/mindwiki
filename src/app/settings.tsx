@@ -92,6 +92,10 @@ export default function Settings() {
         </View>
 
         <Text style={styles.section}>Account</Text>
+        <Pressable style={styles.card} onPress={() => router.push('/pair')} testID="settings-pair">
+          <Text style={styles.value}>Pair a new device</Text>
+          <Text style={styles.hint}>Show a QR to sign in on another device without your password.</Text>
+        </Pressable>
         <Pressable style={styles.logout} onPress={() => logout()} testID="settings-logout">
           <Text style={styles.logoutText}>Log out</Text>
         </Pressable>
