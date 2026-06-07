@@ -1,5 +1,6 @@
-import { register, loginNewDevice, hydrateAuth } from '@/services/auth/auth.service'
+import { register, loginNewDevice, recoverAccount, hydrateAuth } from '@/services/auth/auth.service'
 import { wrapMasterKey } from '@/services/auth/crypto'
+import { generateRecoveryPhrase, recoveryKeyFromPhrase } from '@/services/auth/recovery'
 import { saveTokens, getTokens } from '@/services/auth/token-store'
 import { CryptoModule } from '@/native/CryptoModule'
 import { useAuthStore } from '@/store/auth.store'
@@ -108,6 +109,56 @@ describe('loginNewDevice', () => {
     const res = await loginNewDevice('a@b.com', 'wrong')
     expect(res.success).toBe(false)
     if (!res.success) expect(res.error.code).toBe('LOGIN_DECRYPT_FAILED')
+    expect(mockSetKey).not.toHaveBeenCalled()
+  })
+})
+
+describe('recoverAccount', () => {
+  it('unwraps the recovery escrow with the phrase and installs the master key', async () => {
+    const phrase = generateRecoveryPhrase()
+    const escrow = await wrapMasterKey(MASTER, recoveryKeyFromPhrase(phrase))
+    if (!escrow.success) throw new Error('setup wrap failed')
+    ;(global.fetch as jest.Mock).mockResolvedValue(
+      resp(200, {
+        account_id: 'acc1',
+        access_token: 'at',
+        refresh_token: 'rt',
+        recovery_escrow: { encrypted_key: escrow.data },
+      })
+    )
+
+    const res = await recoverAccount('a@b.com', phrase)
+
+    expect(res).toEqual({ success: true, data: { accountId: 'acc1' } })
+    expect(mockSetKey).toHaveBeenCalledWith(MASTER)
+    expect(useAuthStore.getState().status).toBe('authenticated')
+  })
+
+  it('rejects an invalid phrase without hitting the server', async () => {
+    const res = await recoverAccount('a@b.com', 'these words are not a valid bip39 phrase ok')
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('RECOVER_INVALID_PHRASE')
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('fails to decrypt with the wrong (but valid) phrase', async () => {
+    const phrase = generateRecoveryPhrase()
+    let other = generateRecoveryPhrase()
+    while (other === phrase) other = generateRecoveryPhrase()
+    const escrow = await wrapMasterKey(MASTER, recoveryKeyFromPhrase(phrase))
+    if (!escrow.success) throw new Error('setup wrap failed')
+    ;(global.fetch as jest.Mock).mockResolvedValue(
+      resp(200, {
+        account_id: 'acc1',
+        access_token: 'at',
+        refresh_token: 'rt',
+        recovery_escrow: { encrypted_key: escrow.data },
+      })
+    )
+
+    const res = await recoverAccount('a@b.com', other)
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('RECOVER_DECRYPT_FAILED')
     expect(mockSetKey).not.toHaveBeenCalled()
   })
 })

@@ -6,7 +6,12 @@ import { type Result, ok, err } from '@/types/result'
 
 import { API_URL } from './config'
 import { hashPassword, wrapMasterKey, unwrapMasterKey } from './crypto'
-import { generateRecoveryPhrase, recoveryKeyFromPhrase, recoveryHash } from './recovery'
+import {
+  generateRecoveryPhrase,
+  recoveryKeyFromPhrase,
+  recoveryHash,
+  isValidRecoveryPhrase,
+} from './recovery'
 import { getTokens, saveTokens, clearTokens } from './token-store'
 
 async function randomHex(bytes: number): Promise<string> {
@@ -19,6 +24,7 @@ interface AuthResponse {
   access_token: string
   refresh_token: string
   key_escrow?: { encrypted_key: string; salt: string }
+  recovery_escrow?: { encrypted_key: string }
 }
 
 /**
@@ -96,6 +102,41 @@ export async function loginNewDevice(email: string, password: string): Promise<R
     return ok({ accountId: data.account_id })
   } catch (e) {
     return err('LOGIN_FAILED', 'Login failed', e)
+  }
+}
+
+/**
+ * Recover an account with the recovery phrase when the password is lost. Unwraps
+ * the recovery escrow with the phrase-derived key, installs the master key so
+ * synced data decrypts, and starts a session. The caller should then prompt for
+ * a NEW password (changePassword) — the old one is gone. Mirrors loginNewDevice.
+ */
+export async function recoverAccount(
+  email: string,
+  phrase: string
+): Promise<Result<{ accountId: string }>> {
+  try {
+    if (!isValidRecoveryPhrase(phrase)) return err('RECOVER_INVALID_PHRASE', 'Invalid recovery phrase')
+
+    const res = await fetch(`${API_URL}/auth/recover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, recovery_hash: recoveryHash(phrase) }),
+    })
+    if (!res.ok) return err('RECOVER_FAILED', `Recovery failed (${res.status})`)
+
+    const data = (await res.json()) as AuthResponse
+    if (!data.recovery_escrow) return err('RECOVER_FAILED', 'Missing recovery escrow')
+
+    const masterKey = await unwrapMasterKey(data.recovery_escrow.encrypted_key, recoveryKeyFromPhrase(phrase))
+    if (!masterKey.success) return err('RECOVER_DECRYPT_FAILED', 'Wrong phrase or corrupt escrow')
+
+    await CryptoModule.setKeyInKeychain(masterKey.data)
+    await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
+    useAuthStore.getState().setAuthenticated(data.account_id)
+    return ok({ accountId: data.account_id })
+  } catch (e) {
+    return err('RECOVER_FAILED', 'Recovery failed', e)
   }
 }
 
