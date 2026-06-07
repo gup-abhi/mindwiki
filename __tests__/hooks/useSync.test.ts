@@ -1,5 +1,6 @@
 import { renderHook, act, waitFor } from '@testing-library/react-native'
 import { AppState } from 'react-native'
+import NetInfo from '@react-native-community/netinfo'
 
 import { useSync } from '@/hooks/useSync'
 import { sync } from '@/services/sync/engine'
@@ -9,6 +10,7 @@ jest.mock('@/services/sync/engine', () => ({ sync: jest.fn() }))
 
 const mockSync = sync as jest.Mock
 let changeHandler: (state: string) => void
+let netHandler: (state: { isConnected: boolean }) => void
 
 beforeEach(() => {
   mockSync.mockReset()
@@ -19,6 +21,12 @@ beforeEach(() => {
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
     changeHandler = handler as (state: string) => void
     return { remove: jest.fn() } as unknown as ReturnType<typeof AppState.addEventListener>
+  })
+  // Capture the NetInfo handler so we can simulate connectivity changes.
+  netHandler = () => {}
+  jest.spyOn(NetInfo, 'addEventListener').mockImplementation((handler) => {
+    netHandler = handler as (state: { isConnected: boolean }) => void
+    return jest.fn()
   })
 })
 
@@ -53,6 +61,33 @@ describe('useSync', () => {
       changeHandler('active')
     })
     await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(2))
+  })
+
+  it('syncs when connectivity is regained (offline → online)', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc' })
+    renderHook(() => useSync())
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1)) // mount run
+
+    await act(async () => {
+      netHandler({ isConnected: false }) // went offline — no sync
+    })
+    expect(mockSync).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      netHandler({ isConnected: true }) // back online — flush
+    })
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(2))
+  })
+
+  it('does not re-sync on connectivity events without an offline→online transition', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc' })
+    renderHook(() => useSync())
+    await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      netHandler({ isConnected: true }) // still connected — no extra sync
+    })
+    expect(mockSync).toHaveBeenCalledTimes(1)
   })
 
   it('ignores background/inactive app-state changes', async () => {

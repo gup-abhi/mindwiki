@@ -28,9 +28,12 @@ both on-device; never throws):
   to the newest applied updated_at.
 
 Triggers: hooks/useSync.ts (mounted in app/_layout.tsx) runs sync() when the user
-is authenticated — on mount/auth-transition and whenever the app foregrounds
-(AppState 'active'). useJournalEntry also fires sync() after a successful save so
-new entries upload promptly. All guarded/best-effort; no-op until authenticated.
+is authenticated — on mount/auth-transition, when the app foregrounds (AppState
+'active'), and when connectivity is regained (NetInfo offline→online transition,
+so an entry written offline uploads the moment the network returns).
+useJournalEntry also fires sync() after a successful save so new entries upload
+promptly. All guarded/best-effort; no-op until authenticated. Offline writes stay
+durably queued in sync_queue and flush on the next trigger.
 
 Backfill: sync() runs backfillSyncQueue(SYNCED_TABLES) once (settings flag
 `sync:backfilled`) before the first push, enqueueing rows written before sync
