@@ -1,10 +1,18 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
+import { areModelsReady } from '@/services/llm/model-manager'
 import { listEntries, type Entry } from '@/services/storage/entries'
 import { listPages, type WikiPage } from '@/services/storage/wiki'
 import { answerQuestion, suggestedQuestions, type WikiAnswer } from '@/services/wiki/query'
 import { rankEntries } from '@/services/wiki/search'
+
+const MODELS_MISSING: WikiAnswer = {
+  answer:
+    'The on-device AI models aren’t downloaded yet. Tap “Download AI models” on the Home screen, then try again.',
+  sources: [],
+  evidenceCount: 0,
+}
 
 /**
  * Wiki query state: loads pages on focus, exposes suggested questions + recent
@@ -25,6 +33,13 @@ export function useWikiQuery(initialQuestion?: string) {
     setAsking(true)
     setAnswer(null)
     setRelated([])
+    // Answering runs the deep model — if it isn't downloaded, say so (and point at
+    // the Home download card) instead of a generic failure.
+    if (!(await areModelsReady())) {
+      setAnswer(MODELS_MISSING)
+      setAsking(false)
+      return
+    }
     const res = await answerQuestion(question, pgs)
     const ans = res.success
       ? res.data
