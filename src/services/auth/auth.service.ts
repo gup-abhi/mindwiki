@@ -183,6 +183,50 @@ export async function changePassword(newPassword: string): Promise<Result<true>>
   }
 }
 
+/**
+ * Whether the current account already has a recovery phrase configured. Used to
+ * nudge accounts created before recovery existed. Best-effort (needs a session).
+ */
+export async function getRecoveryStatus(): Promise<Result<boolean>> {
+  try {
+    const res = await authenticatedFetch('/auth/recovery', { method: 'GET' })
+    if (!res.success) return res
+    if (!res.data.ok) return err('RECOVERY_STATUS_FAILED', `Recovery status failed (${res.data.status})`)
+    const data = (await res.data.json()) as { configured: boolean }
+    return ok(data.configured === true)
+  } catch (e) {
+    return err('RECOVERY_STATUS_FAILED', 'Recovery status failed', e)
+  }
+}
+
+/**
+ * Set up (or rotate) the recovery phrase for the current logged-in account:
+ * wraps the device's master key under a freshly generated phrase and uploads the
+ * escrow + credential. Returns the phrase for one-time display. Works only while
+ * authenticated (the key comes from this device's keychain).
+ */
+export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: string }>> {
+  try {
+    const masterKey = await CryptoModule.getKeyFromKeychain()
+    const recoveryPhrase = generateRecoveryPhrase()
+    const wrapped = await wrapMasterKey(masterKey, recoveryKeyFromPhrase(recoveryPhrase))
+    if (!wrapped.success) return wrapped
+
+    const res = await authenticatedFetch('/auth/recovery', {
+      method: 'POST',
+      body: JSON.stringify({
+        recovery_hash: recoveryHash(recoveryPhrase),
+        recovery_escrow: { encrypted_key: wrapped.data },
+      }),
+    })
+    if (!res.success) return res
+    if (!res.data.ok) return err('ADD_RECOVERY_FAILED', `Set recovery failed (${res.data.status})`)
+    return ok({ recoveryPhrase })
+  } catch (e) {
+    return err('ADD_RECOVERY_FAILED', 'Set recovery failed', e)
+  }
+}
+
 /** Sign out: drop the session (re-login required); local master key + data stay. */
 export async function logout(): Promise<void> {
   await clearTokens()

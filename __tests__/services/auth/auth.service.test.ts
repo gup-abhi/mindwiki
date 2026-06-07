@@ -3,6 +3,8 @@ import {
   loginNewDevice,
   recoverAccount,
   changePassword,
+  getRecoveryStatus,
+  addRecoveryPhrase,
   hydrateAuth,
 } from '@/services/auth/auth.service'
 import { wrapMasterKey } from '@/services/auth/crypto'
@@ -192,6 +194,48 @@ describe('changePassword', () => {
     mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     ;(global.fetch as jest.Mock).mockResolvedValue(resp(400))
     const res = await changePassword('newpassword')
+    expect(res.success).toBe(false)
+  })
+})
+
+describe('getRecoveryStatus', () => {
+  beforeEach(() => mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' }))
+
+  it('reports configured=false for accounts without recovery', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(200, { configured: false }))
+    const res = await getRecoveryStatus()
+    expect(res).toEqual({ success: true, data: false })
+  })
+
+  it('reports configured=true once recovery exists', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(200, { configured: true }))
+    const res = await getRecoveryStatus()
+    expect(res).toEqual({ success: true, data: true })
+  })
+})
+
+describe('addRecoveryPhrase', () => {
+  it('wraps the master key under a new phrase and uploads it', async () => {
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(204))
+
+    const res = await addRecoveryPhrase()
+
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data.recoveryPhrase.split(' ')).toHaveLength(12)
+    const [path, init] = (global.fetch as jest.Mock).mock.calls[0]
+    expect(path).toContain('/auth/recovery')
+    expect(init.method).toBe('POST')
+    const body = JSON.parse(init.body)
+    expect(body.recovery_hash).toMatch(/^[0-9a-f]{64}$/)
+    expect(body.recovery_escrow.encrypted_key).toBeTruthy()
+  })
+
+  it('fails when the server rejects', async () => {
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(400))
+    const res = await addRecoveryPhrase()
     expect(res.success).toBe(false)
   })
 })

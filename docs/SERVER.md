@@ -105,6 +105,7 @@ email:{email_lower}
 import { handleRegister } from './auth/register'
 import { handleLogin } from './auth/login'
 import { handleRecover } from './auth/recover'
+import { handleRecoveryStatus, handleSetRecovery } from './auth/recovery-setup'
 import { handleRefresh } from './auth/refresh'
 import { handleLogout } from './auth/logout'
 import { handleChangePassword } from './auth/change-password'
@@ -144,6 +145,8 @@ export default {
 
     if (method === 'POST'   && path === '/auth/logout')           return handleLogout(req, env, accountId)
     if (method === 'POST'   && path === '/auth/change-password')  return handleChangePassword(req, env, accountId)
+    if (method === 'GET'    && path === '/auth/recovery')         return handleRecoveryStatus(req, env, accountId)
+    if (method === 'POST'   && path === '/auth/recovery')         return handleSetRecovery(req, env, accountId)
     if (method === 'DELETE' && path === '/auth/account')          return handleDeleteAccount(req, env, accountId)
     if (method === 'PUT'    && path.startsWith('/sync/'))         return handleUpload(req, env, accountId, path)
     if (method === 'GET'    && path.endsWith('/delta'))           return handleDelta(req, env, accountId, url)

@@ -13,6 +13,16 @@ jest.mock('expo-router', () => ({
   },
 }))
 jest.mock('@/services/storage/entries', () => ({ listEntries: jest.fn() }))
+jest.mock('@/hooks/useRecoverySetup', () => ({
+  useRecoverySetup: () => ({
+    needsSetup: false,
+    phrase: null,
+    busy: false,
+    error: null,
+    setup: jest.fn(),
+    done: jest.fn(),
+  }),
+}))
 
 const mockWiki = jest.fn(() => ({ pages: [] as WikiPage[], loading: false }))
 jest.mock('@/hooks/useWiki', () => ({ useWikiPages: () => mockWiki() }))
