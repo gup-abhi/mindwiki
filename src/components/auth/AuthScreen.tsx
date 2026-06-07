@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons'
 
 import { useAuth, type AuthMode } from '@/hooks/useAuth'
 
+import { PairScanScreen } from './PairScanScreen'
 import { RecoverScreen } from './RecoverScreen'
 import { RecoveryPhraseView } from './RecoveryPhraseView'
 
@@ -26,6 +27,7 @@ const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())
 export function AuthScreen() {
   const [mode, setMode] = useState<AuthMode>('register')
   const [recovering, setRecovering] = useState(false)
+  const [scanning, setScanning] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -34,6 +36,7 @@ export function AuthScreen() {
   // After a successful register, show the recovery phrase once before entering.
   if (pendingPhrase) return <RecoveryPhraseView phrase={pendingPhrase.phrase} onConfirm={confirmPhrase} />
   if (recovering) return <RecoverScreen onCancel={() => setRecovering(false)} />
+  if (scanning) return <PairScanScreen onCancel={() => setScanning(false)} />
 
   const isRegister = mode === 'register'
   // Email is required for both flows: login looks the account up by email, and
@@ -116,6 +119,10 @@ export function AuthScreen() {
             <Text style={styles.forgot}>Forgot password? Recover with your phrase</Text>
           </Pressable>
         )}
+
+        <Pressable onPress={() => setScanning(true)} disabled={submitting} testID="auth-pair">
+          <Text style={styles.forgot}>Pair with another device</Text>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   )

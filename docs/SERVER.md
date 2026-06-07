@@ -79,6 +79,12 @@ recovery:{account_id}
   encrypted_key is AES-GCM(master_key, HKDF(bip39_entropy)); recovery_bcrypt
   is bcrypt(SHA-256(recovery phrase)). Server cannot decrypt without the phrase.
 
+pair:{code}
+  → { account_id: string }  (expirationTtl 300s, one-time — deleted on redeem)
+  Device pairing. /auth/pair/start (auth) mints it; /auth/pair/redeem (public)
+  swaps it for a session. The master key is NOT here — it travels device→device
+  inside the QR, so a stolen code mints only a session, never decryption.
+
 refresh:{token_hash}
   → { account_id: string, family_id: string, expires_at: number }
   token_hash = SHA-256(refresh_token) — never store the token itself
@@ -106,6 +112,7 @@ import { handleRegister } from './auth/register'
 import { handleLogin } from './auth/login'
 import { handleRecover } from './auth/recover'
 import { handleRecoveryStatus, handleSetRecovery } from './auth/recovery-setup'
+import { handlePairStart, handlePairRedeem } from './auth/pair'
 import { handleRefresh } from './auth/refresh'
 import { handleLogout } from './auth/logout'
 import { handleChangePassword } from './auth/change-password'
@@ -136,6 +143,7 @@ export default {
     if (method === 'POST' && path === '/auth/register') return handleRegister(req, env)
     if (method === 'POST' && path === '/auth/login')    return handleLogin(req, env)
     if (method === 'POST' && path === '/auth/recover')  return handleRecover(req, env)
+    if (method === 'POST' && path === '/auth/pair/redeem') return handlePairRedeem(req, env)
     if (method === 'POST' && path === '/auth/refresh')  return handleRefresh(req, env)
 
     // Protected routes (require valid JWT)
@@ -147,6 +155,7 @@ export default {
     if (method === 'POST'   && path === '/auth/change-password')  return handleChangePassword(req, env, accountId)
     if (method === 'GET'    && path === '/auth/recovery')         return handleRecoveryStatus(req, env, accountId)
     if (method === 'POST'   && path === '/auth/recovery')         return handleSetRecovery(req, env, accountId)
+    if (method === 'POST'   && path === '/auth/pair/start')       return handlePairStart(req, env, accountId)
     if (method === 'DELETE' && path === '/auth/account')          return handleDeleteAccount(req, env, accountId)
     if (method === 'PUT'    && path.startsWith('/sync/'))         return handleUpload(req, env, accountId, path)
     if (method === 'GET'    && path.endsWith('/delta'))           return handleDelta(req, env, accountId, url)

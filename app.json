@@ -17,7 +17,13 @@
       "expo-router",
       "expo-asset",
       "expo-secure-store",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MindWiki uses the camera only to scan a pairing QR code from another of your devices."
+        }
+      ]
     ]
   }
 }

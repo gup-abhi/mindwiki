@@ -9,6 +9,11 @@
 #   settings: last_modified_wins per key
 #   streak: take maximum
 # Device pairing: QR code (proximity) or 12-word recovery phrase
+#   QR pairing (sync/pairing.ts): device A (Settings → Pair) calls /auth/pair/start
+#   for a one-time 5-min code, shows QR {v,code,masterKey}. Device B (AuthScreen →
+#   Pair with another device) scans it (expo-camera), redeems the code at
+#   /auth/pair/redeem for a session, installs the master key from the QR, and
+#   authenticates. Master key travels device→device only — never to the server.
 
 ## Engine (src/services/sync/)
 Local writes enqueue into sync_queue (storage/sync-queue.ts): createEntry /

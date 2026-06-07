@@ -97,4 +97,10 @@ describe('AuthScreen', () => {
     fireEvent.press(screen.getByTestId('auth-forgot'))
     expect(screen.getByText('Recover your account')).toBeTruthy()
   })
+
+  it('opens the QR scanner from "Pair with another device"', () => {
+    render(<AuthScreen />)
+    fireEvent.press(screen.getByTestId('auth-pair'))
+    expect(screen.getByText('Scan the pairing QR')).toBeTruthy()
+  })
 })
