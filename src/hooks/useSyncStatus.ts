@@ -15,6 +15,7 @@ export function useSyncStatus() {
   const [lastPull, setLastPull] = useState<number | null>(null)
   const [pending, setPending] = useState(0)
   const [syncing, setSyncing] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     const lp = await getSetting('sync:last_pull')
@@ -29,10 +30,18 @@ export function useSyncStatus() {
 
   const syncNow = useCallback(async () => {
     setSyncing(true)
-    await sync()
+    setMessage(null)
+    const res = await sync()
     setSyncing(false)
     await refresh()
+    if (!res.success) {
+      setMessage('Sync failed — check your connection and try again.')
+    } else if (res.data.pushed === 0 && res.data.pulled === 0) {
+      setMessage('Everything’s already synced.')
+    } else {
+      setMessage(`Synced — ${res.data.pushed} uploaded, ${res.data.pulled} downloaded.`)
+    }
   }, [refresh])
 
-  return { lastPull, pending, syncing, syncNow }
+  return { lastPull, pending, syncing, message, syncNow }
 }

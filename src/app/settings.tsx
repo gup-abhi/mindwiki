@@ -27,7 +27,7 @@ function timeAgo(ms: number | null): string {
 
 export default function Settings() {
   const router = useRouter()
-  const { lastPull, pending, syncing, syncNow } = useSyncStatus()
+  const { lastPull, pending, syncing, message, syncNow } = useSyncStatus()
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
   const { logout } = useAuth()
 
@@ -63,6 +63,11 @@ export default function Settings() {
           >
             {syncing ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sync now</Text>}
           </Pressable>
+          {message && (
+            <Text style={styles.syncMessage} testID="settings-sync-message">
+              {message}
+            </Text>
+          )}
         </View>
 
         <Text style={styles.section}>Recovery phrase</Text>
@@ -115,6 +120,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 15, color: '#666' },
   value: { fontSize: 15, color: '#1a1a2e', fontWeight: '600' },
   hint: { fontSize: 14, color: '#666', lineHeight: 20 },
+  syncMessage: { fontSize: 13, color: '#4a8a4a', fontWeight: '600', textAlign: 'center', marginTop: 12 },
   error: { color: '#d12f2f', fontSize: 13, marginTop: 8 },
   button: { backgroundColor: '#1a1a2e', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 14 },
   buttonDisabled: { backgroundColor: '#b9b9cc' },

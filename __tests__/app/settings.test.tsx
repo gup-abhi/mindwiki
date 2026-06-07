@@ -23,19 +23,32 @@ const recoveryBase = { needsSetup: false, phrase: null, busy: false, error: null
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockSyncStatus.mockReturnValue({ lastPull: null, pending: 0, syncing: false, syncNow })
+  mockSyncStatus.mockReturnValue({ lastPull: null, pending: 0, syncing: false, message: null, syncNow })
   mockRecovery.mockReturnValue(recoveryBase)
   mockAuth.mockReturnValue({ logout })
 })
 
 describe('Settings', () => {
   it('shows sync status and runs sync now', () => {
-    mockSyncStatus.mockReturnValue({ lastPull: null, pending: 3, syncing: false, syncNow })
+    mockSyncStatus.mockReturnValue({ lastPull: null, pending: 3, syncing: false, message: null, syncNow })
     render(<Settings />)
     expect(screen.getByText('Never')).toBeTruthy()
     expect(screen.getByText('3')).toBeTruthy()
     fireEvent.press(screen.getByTestId('settings-sync-now'))
     expect(syncNow).toHaveBeenCalled()
+  })
+
+  it('shows the post-sync message (e.g. already synced)', () => {
+    mockSyncStatus.mockReturnValue({
+      lastPull: null,
+      pending: 0,
+      syncing: false,
+      message: 'Everything’s already synced.',
+      syncNow,
+    })
+    render(<Settings />)
+    expect(screen.getByTestId('settings-sync-message')).toBeTruthy()
+    expect(screen.getByText('Everything’s already synced.')).toBeTruthy()
   })
 
   it('shows the recovery setup action when not configured', () => {

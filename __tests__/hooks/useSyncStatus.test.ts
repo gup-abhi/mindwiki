@@ -46,4 +46,31 @@ describe('useSyncStatus', () => {
     expect(mockSync).toHaveBeenCalledTimes(1)
     expect(result.current.pending).toBe(0)
   })
+
+  it('reports "already synced" when nothing changed', async () => {
+    mockSync.mockResolvedValue({ success: true, data: { pushed: 0, pulled: 0 } })
+    const { result } = renderHook(() => useSyncStatus())
+    await act(async () => {
+      await result.current.syncNow()
+    })
+    expect(result.current.message).toMatch(/already synced/i)
+  })
+
+  it('reports counts when changes were synced', async () => {
+    mockSync.mockResolvedValue({ success: true, data: { pushed: 2, pulled: 1 } })
+    const { result } = renderHook(() => useSyncStatus())
+    await act(async () => {
+      await result.current.syncNow()
+    })
+    expect(result.current.message).toMatch(/2 uploaded, 1 downloaded/)
+  })
+
+  it('reports a failure message', async () => {
+    mockSync.mockResolvedValue({ success: false, error: { code: 'X', message: 'no' } })
+    const { result } = renderHook(() => useSyncStatus())
+    await act(async () => {
+      await result.current.syncNow()
+    })
+    expect(result.current.message).toMatch(/failed/i)
+  })
 })
