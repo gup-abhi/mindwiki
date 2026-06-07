@@ -1,0 +1,41 @@
+import type { Env } from '../types'
+import { issueTokens } from './tokens'
+
+const PAIR_TTL_SECONDS = 300 // 5 minutes — the QR is meant to be scanned in person, now
+
+/**
+ * Start device pairing (authenticated, device A). Mints a one-time, short-lived
+ * code bound to the account. The client puts this code + the master key into a
+ * QR; the master key never touches the server (zero-knowledge preserved).
+ */
+export async function handlePairStart(
+  _req: Request,
+  env: Env,
+  accountId: string
+): Promise<Response> {
+  const code = crypto.randomUUID()
+  await env.AUTH_KV.put(`pair:${code}`, JSON.stringify({ account_id: accountId }), {
+    expirationTtl: PAIR_TTL_SECONDS,
+  })
+  return Response.json({ code, expires_in: PAIR_TTL_SECONDS })
+}
+
+/**
+ * Redeem a pairing code (public, device B). Exchanges the one-time code for a
+ * session. The code is deleted on use; it only mints a session, so a stolen code
+ * can read ciphertext but cannot decrypt without the master key (carried in the QR).
+ */
+export async function handlePairRedeem(req: Request, env: Env): Promise<Response> {
+  const { code } = await req.json<{ code: string }>()
+
+  const rec = (await env.AUTH_KV.get(`pair:${code}`, 'json')) as { account_id: string } | null
+  if (!rec) return new Response('Invalid or expired pairing code', { status: 401 })
+  await env.AUTH_KV.delete(`pair:${code}`) // one-time use
+
+  const { accessToken, refreshToken } = await issueTokens(rec.account_id, env)
+  return Response.json({
+    account_id: rec.account_id,
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  })
+}
