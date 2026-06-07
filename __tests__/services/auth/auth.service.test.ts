@@ -1,4 +1,10 @@
-import { register, loginNewDevice, recoverAccount, hydrateAuth } from '@/services/auth/auth.service'
+import {
+  register,
+  loginNewDevice,
+  recoverAccount,
+  changePassword,
+  hydrateAuth,
+} from '@/services/auth/auth.service'
 import { wrapMasterKey } from '@/services/auth/crypto'
 import { generateRecoveryPhrase, recoveryKeyFromPhrase } from '@/services/auth/recovery'
 import { saveTokens, getTokens } from '@/services/auth/token-store'
@@ -160,6 +166,30 @@ describe('recoverAccount', () => {
     expect(res.success).toBe(false)
     if (!res.success) expect(res.error.code).toBe('RECOVER_DECRYPT_FAILED')
     expect(mockSetKey).not.toHaveBeenCalled()
+  })
+})
+
+describe('changePassword', () => {
+  it('re-wraps the escrow under the new password and updates the server', async () => {
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(204))
+
+    const res = await changePassword('newpassword')
+
+    expect(res).toEqual({ success: true, data: true })
+    const [path, init] = (global.fetch as jest.Mock).mock.calls[0]
+    expect(path).toContain('/auth/change-password')
+    const body = JSON.parse(init.body)
+    expect(body.password_hash).toMatch(/^[0-9a-f]{64}$/)
+    expect(body.key_escrow.encrypted_key).toBeTruthy()
+    expect(body.key_escrow.salt).toBeTruthy()
+  })
+
+  it('fails when the server rejects', async () => {
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(400))
+    const res = await changePassword('newpassword')
+    expect(res.success).toBe(false)
   })
 })
 

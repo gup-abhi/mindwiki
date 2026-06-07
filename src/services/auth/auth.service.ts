@@ -4,6 +4,7 @@ import { CryptoModule } from '@/native/CryptoModule'
 import { useAuthStore } from '@/store/auth.store'
 import { type Result, ok, err } from '@/types/result'
 
+import { authenticatedFetch } from './api-client'
 import { API_URL } from './config'
 import { hashPassword, wrapMasterKey, unwrapMasterKey } from './crypto'
 import {
@@ -150,6 +151,35 @@ export async function hydrateAuth(): Promise<void> {
   const tokens = await getTokens()
   if (tokens) useAuthStore.getState().setAuthenticated(tokens.accountId)
   else useAuthStore.getState().setUnauthenticated()
+}
+
+/**
+ * Change the account password. Re-wraps the password escrow under a key derived
+ * from the new password and updates the server; the master key is unchanged, so
+ * the local DB is never re-keyed. Requires an active session (authenticatedFetch).
+ * Used right after recoverAccount to set a fresh password.
+ */
+export async function changePassword(newPassword: string): Promise<Result<true>> {
+  try {
+    const masterKey = await CryptoModule.getKeyFromKeychain()
+    const salt = await randomHex(16)
+    const wrappingKey = await CryptoModule.deriveKey(newPassword, salt)
+    const wrapped = await wrapMasterKey(masterKey, wrappingKey)
+    if (!wrapped.success) return wrapped
+
+    const res = await authenticatedFetch('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        password_hash: hashPassword(newPassword),
+        key_escrow: { encrypted_key: wrapped.data, salt },
+      }),
+    })
+    if (!res.success) return res
+    if (!res.data.ok) return err('CHANGE_PASSWORD_FAILED', `Change password failed (${res.data.status})`)
+    return ok(true)
+  } catch (e) {
+    return err('CHANGE_PASSWORD_FAILED', 'Change password failed', e)
+  }
 }
 
 /** Sign out: drop the session (re-login required); local master key + data stay. */

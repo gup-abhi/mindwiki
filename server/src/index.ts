@@ -1,4 +1,5 @@
 import { handleRegister } from './auth/register'
+import { handleChangePassword } from './auth/change-password'
 import { handleLogin } from './auth/login'
 import { handleRecover } from './auth/recover'
 import { handleRefresh } from './auth/refresh'
@@ -24,6 +25,8 @@ export default {
     if (!auth.ok) return new Response('Unauthorized', { status: 401 })
     const accountId = auth.accountId
 
+    if (method === 'POST' && path === '/auth/change-password')
+      return handleChangePassword(req, env, accountId)
     if (method === 'GET' && path.endsWith('/delta')) return handleDelta(req, env, accountId, url)
     if (method === 'PUT' && path.startsWith('/sync/')) return handleUpload(req, env, accountId, path)
 
