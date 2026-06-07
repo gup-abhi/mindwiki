@@ -52,3 +52,8 @@ those).
 UI refresh: a pull that applies records bumps useSyncStore.revision; the list
 hooks (useEntries/useWikiPages/useGraph) include it in their focus-effect deps,
 so a first-login pull shows up immediately instead of only after a restart.
+
+Settings screen (app/settings.tsx, via hooks/useSyncStatus): shows last pull
+(sync:last_pull) + pending-upload count (sync_queue), a manual "Sync now"
+(runs sync()), recovery-phrase setup status, and logout. Read-only over the
+engine — refreshes on the sync revision bump.

@@ -76,6 +76,14 @@ export default function Home() {
             >
               <Text style={styles.wikiLinkText}>Ask your wiki →</Text>
             </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.wikiLink}
+              onPress={() => router.push('/settings')}
+              testID="home-settings"
+            >
+              <Text style={styles.wikiLinkText}>Settings →</Text>
+            </Pressable>
             {surfacedQuestion && (
               <Pressable
                 accessibilityRole="button"
