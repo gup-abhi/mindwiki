@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Stack } from 'expo-router'
+import * as SplashScreen from 'expo-splash-screen'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import {
+  useFonts,
+  Lora_400Regular,
+  Lora_500Medium,
+  Lora_600SemiBold,
+  Lora_700Bold,
+} from '@expo-google-fonts/lora'
+import { Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold } from '@expo-google-fonts/nunito'
 
 import { initStorage } from '@/services/storage/bootstrap'
 import { configureNotifications } from '@/services/notifications/scheduler'
@@ -8,6 +17,9 @@ import { hydrateAuth } from '@/services/auth/auth.service'
 import { useAuthStore } from '@/store/auth.store'
 import { useSync } from '@/hooks/useSync'
 import { AuthScreen } from '@/components/auth/AuthScreen'
+
+// Hold the native splash until our custom fonts are ready (best-effort).
+void SplashScreen.preventAutoHideAsync()
 
 type StorageStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -24,12 +36,29 @@ export default function RootLayout() {
   const authStatus = useAuthStore((s) => s.status)
   const [storage, setStorage] = useState<StorageStatus>('idle')
   const [message, setMessage] = useState('')
+  // Loads in parallel with hydrateAuth, so fonts don't add serial startup delay.
+  const [fontsLoaded] = useFonts({
+    Lora_400Regular,
+    Lora_500Medium,
+    Lora_600SemiBold,
+    Lora_700Bold,
+    Nunito_400Regular,
+    Nunito_600SemiBold,
+    Nunito_700Bold,
+  })
 
   // Launch: configure notifications + resolve the session. No DB access yet.
   useEffect(() => {
     configureNotifications()
     void hydrateAuth()
   }, [])
+
+  // Hide the splash once fonts are ready; until then keep it up (return null).
+  useEffect(() => {
+    if (fontsLoaded) void SplashScreen.hideAsync()
+  }, [fontsLoaded])
+
+  if (!fontsLoaded) return null
 
   // Open the encrypted DB only after auth — so it's keyed with the correct
   // master key (a fresh DB on a new-device login, the existing DB for a
