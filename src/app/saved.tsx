@@ -1,39 +1,44 @@
 import { useRouter } from 'expo-router'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
+
+import { Button, Screen, Text } from '@/components/ui'
+import { type Theme, useTheme, useThemedStyles } from '@/theme'
+
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing.md },
+    badge: {
+      width: 88,
+      height: 88,
+      borderRadius: t.radii.pill,
+      backgroundColor: t.colors.accentMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: t.spacing.sm,
+    },
+    subtitle: { textAlign: 'center', maxWidth: 300 },
+    cta: { marginTop: t.spacing.xl, alignSelf: 'stretch', paddingHorizontal: t.spacing['2xl'] },
+  })
 
 export default function SavedScreen() {
   const router = useRouter()
+  const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
   return (
-    <View style={styles.container}>
-      <Text style={styles.check}>✓</Text>
-      <Text style={styles.title}>Entry saved</Text>
-      <Text style={styles.subtitle}>
-        Your reflection is encrypted on your device. Each entry grows your wiki.
-      </Text>
-      <Pressable accessibilityRole="button" style={styles.cta} onPress={() => router.replace('/')}>
-        <Text style={styles.ctaText}>Done</Text>
-      </Pressable>
-    </View>
+    <Screen>
+      <View style={styles.center}>
+        <View style={styles.badge}>
+          <Ionicons name="checkmark" size={44} color={theme.colors.success} />
+        </View>
+        <Text variant="title">Entry saved</Text>
+        <Text variant="body" color="textSecondary" style={styles.subtitle}>
+          Your reflection is encrypted on your device. Each entry grows your wiki.
+        </Text>
+        <View style={styles.cta}>
+          <Button title="Done" fullWidth onPress={() => router.replace('/')} />
+        </View>
+      </View>
+    </Screen>
   )
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    padding: 32,
-  },
-  check: { fontSize: 56, color: '#1b9e4b', marginBottom: 12 },
-  title: { fontSize: 28, fontWeight: '700', color: '#1a1a2e' },
-  subtitle: { fontSize: 15, color: '#666', textAlign: 'center', marginTop: 12, lineHeight: 22 },
-  cta: {
-    backgroundColor: '#1a1a2e',
-    paddingVertical: 16,
-    paddingHorizontal: 48,
-    borderRadius: 14,
-    marginTop: 32,
-  },
-  ctaText: { color: '#fff', fontSize: 17, fontWeight: '600' },
-})

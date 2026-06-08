@@ -1,6 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Linking, Pressable, StyleSheet, View } from 'react-native'
 
+import { Button, Card, Screen, Text } from '@/components/ui'
+import { type Theme, useThemedStyles } from '@/theme'
 import { CRISIS_RESOURCES } from '@/services/crisis/resources'
 
 // Supportive, non-diagnostic copy that scales with severity. The app offers
@@ -22,6 +24,7 @@ const COPY: Record<number, { title: string; body: string }> = {
 
 export default function CrisisScreen() {
   const router = useRouter()
+  const styles = useThemedStyles(makeStyles)
   const { tier } = useLocalSearchParams<{ tier?: string }>()
   const t = Number(tier) || 1
   const copy = COPY[t] ?? COPY[1]
@@ -31,63 +34,57 @@ export default function CrisisScreen() {
   const showFullSupport = t >= 2
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.body}>
-      <Text style={styles.title}>{copy.title}</Text>
-      <Text style={styles.bodyText}>{copy.body}</Text>
+    <Screen scroll>
+      <Text variant="heading">{copy.title}</Text>
+      <Text variant="body" color="textSecondary" style={styles.bodyText}>
+        {copy.body}
+      </Text>
 
       {showFullSupport ? (
         <>
-          <Pressable style={styles.call} onPress={() => Linking.openURL('tel:988')}>
-            <Text style={styles.callText}>Call or text 988</Text>
-          </Pressable>
+          <View style={styles.callWrap}>
+            <Button
+              title="Call or text 988"
+              variant="destructive"
+              fullWidth
+              onPress={() => Linking.openURL('tel:988')}
+            />
+          </View>
 
           {CRISIS_RESOURCES.map((r) => (
-            <View key={r.name} style={styles.resource}>
-              <Text style={styles.resourceName}>{r.name}</Text>
-              <Text style={styles.resourceContact}>{r.contact}</Text>
-              <Text style={styles.resourceDesc}>{r.description}</Text>
-            </View>
+            <Card key={r.name} style={styles.resource}>
+              <Text variant="subtitle">{r.name}</Text>
+              <Text variant="body" style={styles.resourceContact}>
+                {r.contact}
+              </Text>
+              <Text variant="caption" color="textSecondary" style={styles.resourceDesc}>
+                {r.description}
+              </Text>
+            </Card>
           ))}
         </>
       ) : (
         <Pressable style={styles.softLink} onPress={() => Linking.openURL('tel:988')}>
-          <Text style={styles.softLinkText}>
+          <Text variant="bodyStrong" color="accent">
             If you ever want to talk, 988 is there — call or text, anytime.
           </Text>
         </Pressable>
       )}
 
-      <Pressable style={styles.continue} onPress={() => router.replace('/')}>
-        <Text style={styles.continueText}>Continue</Text>
-      </Pressable>
-    </ScrollView>
+      <View style={styles.continueWrap}>
+        <Button title="Continue" variant="ghost" fullWidth onPress={() => router.replace('/')} />
+      </View>
+    </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  body: { padding: 24, paddingTop: 48 },
-  title: { fontSize: 26, fontWeight: '700', color: '#1a1a2e' },
-  bodyText: { fontSize: 16, color: '#444', marginTop: 12, lineHeight: 24 },
-  call: {
-    backgroundColor: '#d12f2f',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  callText: { color: '#fff', fontSize: 17, fontWeight: '700' },
-  softLink: { marginTop: 24 },
-  softLinkText: { fontSize: 15, color: '#7a7ad0', lineHeight: 22, fontWeight: '600' },
-  resource: {
-    backgroundColor: '#f7f7fb',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 14,
-  },
-  resourceName: { fontSize: 16, fontWeight: '600', color: '#1a1a2e' },
-  resourceContact: { fontSize: 15, color: '#1a1a2e', marginTop: 4 },
-  resourceDesc: { fontSize: 13, color: '#666', marginTop: 4 },
-  continue: { paddingVertical: 16, alignItems: 'center', marginTop: 28 },
-  continueText: { color: '#666', fontSize: 16, fontWeight: '600' },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    bodyText: { marginTop: t.spacing.md },
+    callWrap: { marginTop: t.spacing.xl },
+    resource: { marginTop: t.spacing.md },
+    resourceContact: { marginTop: t.spacing.xs },
+    resourceDesc: { marginTop: t.spacing.xs },
+    softLink: { marginTop: t.spacing.xl },
+    continueWrap: { marginTop: t.spacing.xl },
+  })

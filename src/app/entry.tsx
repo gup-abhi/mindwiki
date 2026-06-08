@@ -1,14 +1,8 @@
 import { useRouter } from 'expo-router'
-import {
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native'
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 
+import { Button, ProgressBar, Screen, Text, TextField } from '@/components/ui'
+import { type Theme, useThemedStyles } from '@/theme'
 import { useJournalEntry } from '@/hooks/useJournalEntry'
 
 const MOODS = [1, 2, 3, 4, 5]
@@ -16,6 +10,7 @@ const MOOD_LABELS = ['Awful', 'Low', 'Okay', 'Good', 'Great']
 
 export default function EntryScreen() {
   const router = useRouter()
+  const styles = useThemedStyles(makeStyles)
   const j = useJournalEntry()
 
   async function onSave() {
@@ -34,30 +29,39 @@ export default function EntryScreen() {
   const optional = j.step === 4 || j.step === 5
 
   return (
-    <View style={styles.container}>
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${(j.step / j.totalSteps) * 100}%` }]} />
+    <Screen padded={false}>
+      <View style={styles.progressWrap}>
+        <ProgressBar progress={j.step / j.totalSteps} />
+        <Text variant="caption" color="textMuted" style={styles.stepLabel}>
+          Step {j.step} of {j.totalSteps}
+        </Text>
       </View>
-      <Text style={styles.stepLabel}>
-        Step {j.step} of {j.totalSteps}
-      </Text>
 
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {j.step === 1 && (
           <View>
-            <Text style={styles.q}>How are you feeling right now?</Text>
+            <Text variant="heading" style={styles.q}>
+              How are you feeling right now?
+            </Text>
             <View style={styles.moodRow}>
-              {MOODS.map((m) => (
-                <Pressable
-                  key={m}
-                  accessibilityRole="button"
-                  onPress={() => j.setMood(m)}
-                  style={[styles.mood, j.draft.mood === m && styles.moodActive]}
-                >
-                  <Text style={styles.moodNum}>{m}</Text>
-                  <Text style={styles.moodLabel}>{MOOD_LABELS[m - 1]}</Text>
-                </Pressable>
-              ))}
+              {MOODS.map((m) => {
+                const active = j.draft.mood === m
+                return (
+                  <Pressable
+                    key={m}
+                    accessibilityRole="button"
+                    onPress={() => j.setMood(m)}
+                    style={[styles.mood, active && styles.moodActive]}
+                  >
+                    <Text variant="subtitle" color={active ? 'primaryText' : 'textPrimary'}>
+                      {m}
+                    </Text>
+                    <Text variant="caption" color={active ? 'primaryText' : 'textSecondary'}>
+                      {MOOD_LABELS[m - 1]}
+                    </Text>
+                  </Pressable>
+                )
+              })}
             </View>
           </View>
         )}
@@ -103,35 +107,17 @@ export default function EntryScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        {j.step > 1 && (
-          <Pressable style={styles.secondary} onPress={j.back}>
-            <Text style={styles.secondaryText}>Back</Text>
-          </Pressable>
-        )}
-        {optional && !j.isLastStep && (
-          <Pressable style={styles.secondary} onPress={j.skip}>
-            <Text style={styles.secondaryText}>Skip</Text>
-          </Pressable>
-        )}
-        {j.isLastStep ? (
-          <Pressable
-            style={[styles.primary, j.submitting && styles.disabled]}
-            onPress={onSave}
-            disabled={j.submitting}
-          >
-            <Text style={styles.primaryText}>{j.submitting ? 'Saving…' : 'Save entry'}</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            style={[styles.primary, !j.canAdvance && styles.disabled]}
-            onPress={j.next}
-            disabled={!j.canAdvance}
-          >
-            <Text style={styles.primaryText}>Next</Text>
-          </Pressable>
-        )}
+        {j.step > 1 && <Button title="Back" variant="secondary" onPress={j.back} />}
+        {optional && !j.isLastStep && <Button title="Skip" variant="ghost" onPress={j.skip} />}
+        <View style={styles.grow}>
+          {j.isLastStep ? (
+            <Button title="Save entry" loading={j.submitting} fullWidth onPress={onSave} />
+          ) : (
+            <Button title="Next" disabled={!j.canAdvance} fullWidth onPress={j.next} />
+          )}
+        </View>
       </View>
-    </View>
+    </Screen>
   )
 }
 
@@ -146,81 +132,61 @@ function Field({
   value: string
   onChangeText: (t: string) => void
 }) {
+  const styles = useThemedStyles(makeStyles)
   return (
     <View>
-      <Text style={styles.q}>{label}</Text>
-      <TextInput
-        style={styles.input}
-        placeholder={placeholder}
-        value={value}
-        onChangeText={onChangeText}
-        multiline
-      />
+      <Text variant="heading" style={styles.q}>
+        {label}
+      </Text>
+      <TextField placeholder={placeholder} value={value} onChangeText={onChangeText} multiline />
     </View>
   )
 }
 
 function Reference({ label, text }: { label: string; text: string }) {
+  const styles = useThemedStyles(makeStyles)
   return (
     <View style={styles.reference}>
-      <Text style={styles.referenceLabel}>{label}</Text>
-      <Text style={styles.referenceText}>{text}</Text>
+      <Text variant="caption" color="textMuted">
+        {label}
+      </Text>
+      <Text variant="body" style={styles.referenceText}>
+        {text}
+      </Text>
     </View>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', paddingTop: 24 },
-  progressTrack: { height: 4, backgroundColor: '#eee', marginHorizontal: 20, borderRadius: 2 },
-  progressFill: { height: 4, backgroundColor: '#1a1a2e', borderRadius: 2 },
-  stepLabel: { marginHorizontal: 20, marginTop: 8, color: '#999', fontSize: 13 },
-  body: { padding: 20, paddingBottom: 40 },
-  q: { fontSize: 22, fontWeight: '700', color: '#1a1a2e', marginBottom: 16 },
-  moodRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  mood: {
-    flex: 1,
-    marginHorizontal: 4,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#f2f2f7',
-    alignItems: 'center',
-  },
-  moodActive: { backgroundColor: '#1a1a2e' },
-  moodNum: { fontSize: 20, fontWeight: '700', color: '#1a1a2e' },
-  moodLabel: { fontSize: 11, color: '#666', marginTop: 4 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    minHeight: 120,
-    textAlignVertical: 'top',
-  },
-  reference: { backgroundColor: '#f7f7fb', borderRadius: 10, padding: 12, marginBottom: 16 },
-  referenceLabel: { fontSize: 12, color: '#999', marginBottom: 4 },
-  referenceText: { fontSize: 15, color: '#333' },
-  footer: {
-    flexDirection: 'row',
-    gap: 12,
-    padding: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  secondary: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    backgroundColor: '#f2f2f7',
-  },
-  secondaryText: { color: '#1a1a2e', fontSize: 16, fontWeight: '600' },
-  primary: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: '#1a1a2e',
-    alignItems: 'center',
-  },
-  primaryText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  disabled: { opacity: 0.4 },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    progressWrap: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md },
+    stepLabel: { marginTop: t.spacing.sm },
+    body: { padding: t.spacing.xl, paddingBottom: t.spacing['2xl'] },
+    q: { marginBottom: t.spacing.lg },
+    moodRow: { flexDirection: 'row', justifyContent: 'space-between', gap: t.spacing.sm },
+    mood: {
+      flex: 1,
+      paddingVertical: t.spacing.lg,
+      borderRadius: t.radii.md,
+      backgroundColor: t.colors.surfaceAlt,
+      alignItems: 'center',
+      gap: t.spacing.xs,
+    },
+    moodActive: { backgroundColor: t.colors.primary },
+    reference: {
+      backgroundColor: t.colors.surfaceSunken,
+      borderRadius: t.radii.md,
+      padding: t.spacing.md,
+      marginBottom: t.spacing.lg,
+    },
+    referenceText: { marginTop: t.spacing.xs },
+    footer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: t.spacing.md,
+      padding: t.spacing.xl,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: t.colors.border,
+    },
+    grow: { flex: 1 },
+  })
