@@ -23,7 +23,8 @@
         {
           "cameraPermission": "MindWiki uses the camera only to scan a pairing QR code from another of your devices."
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }
