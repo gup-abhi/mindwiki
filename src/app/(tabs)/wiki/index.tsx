@@ -1,58 +1,62 @@
 import { useRouter } from 'expo-router'
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { FlatList, StyleSheet } from 'react-native'
 
+import { Divider, EmptyState, ListRow, Screen, Text } from '@/components/ui'
+import { type Theme, useThemedStyles } from '@/theme'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
 
 export default function WikiBrowse() {
   const router = useRouter()
+  const styles = useThemedStyles(makeStyles)
   const { pages, loading } = useWikiPages()
   const synthesizing = useWikiStore((s) => s.pending > 0)
 
   return (
-    <View style={styles.container}>
+    <Screen padded={false}>
       <FlatList
         data={pages}
         keyExtractor={(p) => p.id}
         contentContainerStyle={styles.listContent}
+        ItemSeparatorComponent={Divider}
         ListHeaderComponent={
-          <View>
-            <Text style={styles.title}>Your wiki</Text>
-            {synthesizing && <Text style={styles.synth}>Synthesizing…</Text>}
-          </View>
+          <>
+            <Text variant="title" style={styles.title}>
+              Your wiki
+            </Text>
+            {synthesizing && (
+              <Text variant="caption" color="accent" style={styles.synth}>
+                Synthesizing…
+              </Text>
+            )}
+          </>
         }
         ListEmptyComponent={
           !loading ? (
-            <Text style={styles.empty}>
-              No pages yet — write a few entries and they’ll be synthesized here.
-            </Text>
+            <EmptyState
+              icon="book-outline"
+              title="No pages yet"
+              message="Write a few entries and they’ll be synthesized here."
+            />
           ) : null
         }
         renderItem={({ item }) => (
-          <Pressable
-            accessibilityRole="button"
-            style={styles.row}
+          <ListRow
+            title={item.title}
+            subtitle={`${item.category ?? 'page'} · ${item.entry_count} ${
+              item.entry_count === 1 ? 'entry' : 'entries'
+            }`}
             onPress={() => router.push(`/wiki/${item.id}`)}
-          >
-            <Text style={styles.pageTitle}>{item.title}</Text>
-            <Text style={styles.meta}>
-              {item.category ?? 'page'} · {item.entry_count}{' '}
-              {item.entry_count === 1 ? 'entry' : 'entries'}
-            </Text>
-          </Pressable>
+          />
         )}
       />
-    </View>
+    </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  listContent: { padding: 20, paddingTop: 56 },
-  title: { fontSize: 28, fontWeight: '700', color: '#1a1a2e', marginBottom: 16 },
-  synth: { fontSize: 13, color: '#7a7ad0', marginTop: -8, marginBottom: 16 },
-  empty: { fontSize: 15, color: '#999', lineHeight: 22 },
-  row: { paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#eee' },
-  pageTitle: { fontSize: 18, fontWeight: '600', color: '#1a1a2e' },
-  meta: { fontSize: 13, color: '#666', marginTop: 4 },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    listContent: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, paddingBottom: t.spacing['2xl'] },
+    title: { marginBottom: t.spacing.md },
+    synth: { marginTop: -t.spacing.sm, marginBottom: t.spacing.md },
+  })
