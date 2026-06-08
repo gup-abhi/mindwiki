@@ -1,0 +1,45 @@
+import { type ReactNode } from 'react'
+import { ScrollView, StyleSheet, View } from 'react-native'
+import { StatusBar } from 'expo-status-bar'
+import { SafeAreaView, type Edge } from 'react-native-safe-area-context'
+
+import { type Theme, useThemedStyles, useTheme } from '@/theme'
+
+interface ScreenProps {
+  children: ReactNode
+  /** Wrap content in a ScrollView. */
+  scroll?: boolean
+  /** Apply default horizontal+top padding. */
+  padded?: boolean
+  edges?: readonly Edge[]
+}
+
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    safe: { flex: 1, backgroundColor: t.colors.bg },
+    padded: { paddingHorizontal: t.spacing.xl },
+    scrollContent: { paddingHorizontal: t.spacing.xl, paddingBottom: t.spacing['2xl'] },
+    flex: { flex: 1 },
+  })
+
+/** Themed screen wrapper: safe-area, background, and a status bar matching the theme. */
+export function Screen({ children, scroll, padded = true, edges = ['top', 'left', 'right'] }: ScreenProps) {
+  const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
+  return (
+    <SafeAreaView style={styles.safe} edges={edges}>
+      <StatusBar style={theme.statusBar} />
+      {scroll ? (
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={padded ? styles.scrollContent : undefined}
+          keyboardShouldPersistTaps="handled"
+        >
+          {children}
+        </ScrollView>
+      ) : (
+        <View style={[styles.flex, padded && styles.padded]}>{children}</View>
+      )}
+    </SafeAreaView>
+  )
+}
