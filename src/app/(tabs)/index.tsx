@@ -5,7 +5,6 @@ import { StatusBar } from 'expo-status-bar'
 
 import { ModelDownloadCard } from '@/components/ModelDownloadCard'
 import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
-import { useAuth } from '@/hooks/useAuth'
 import { useEntries } from '@/hooks/useEntries'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
@@ -16,7 +15,6 @@ import { suggestedQuestions } from '@/services/wiki/query'
 
 export default function Home() {
   const router = useRouter()
-  const { logout } = useAuth()
   const { entries, count } = useEntries()
   const { pages } = useWikiPages()
   const synthesizing = useWikiStore((s) => s.pending > 0)
@@ -57,35 +55,6 @@ export default function Home() {
             >
               <Text style={styles.ctaText}>New entry</Text>
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              style={styles.wikiLink}
-              onPress={() => router.push('/wiki')}
-            >
-              <Text style={styles.wikiLinkText}>View wiki →</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              style={styles.wikiLink}
-              onPress={() => router.push('/graph')}
-            >
-              <Text style={styles.wikiLinkText}>View graph →</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              style={styles.wikiLink}
-              onPress={() => router.push('/query')}
-            >
-              <Text style={styles.wikiLinkText}>Ask your wiki →</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              style={styles.wikiLink}
-              onPress={() => router.push('/settings')}
-              testID="home-settings"
-            >
-              <Text style={styles.wikiLinkText}>Settings →</Text>
-            </Pressable>
             {surfacedQuestion && (
               <Pressable
                 accessibilityRole="button"
@@ -100,9 +69,6 @@ export default function Home() {
             <Text style={styles.count}>
               {count} {count === 1 ? 'entry' : 'entries'} so far
             </Text>
-            <Pressable accessibilityRole="button" style={styles.wikiLink} onPress={() => logout()} testID="home-logout">
-              <Text style={styles.logoutText}>Log out</Text>
-            </Pressable>
           </View>
         }
         renderItem={({ item }) => (
@@ -156,11 +122,8 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   ctaText: { color: '#fff', fontSize: 17, fontWeight: '600' },
-  wikiLink: { marginTop: 16 },
-  wikiLinkText: { fontSize: 15, color: '#1a1a2e', fontWeight: '600' },
   synth: { marginTop: 10, fontSize: 13, color: '#7a7ad0' },
   count: { marginTop: 16, fontSize: 14, color: '#999' },
-  logoutText: { fontSize: 15, color: '#d12f2f', fontWeight: '600' },
   row: { paddingHorizontal: 20, paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#eee' },
   situation: { fontSize: 16, color: '#1a1a2e' },
   tags: { fontSize: 13, color: '#666', marginTop: 4 },

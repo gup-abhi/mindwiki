@@ -13,6 +13,13 @@ jest.mock('react-native-reanimated', () => {
 // Silences a useNativeDriver / worklet warning under the mock.
 global.__reanimatedWorkletInit = () => {}
 
+// SafeAreaProvider needs a layout pass to expose insets, which never fires in
+// the test renderer. The library ships a mock that renders children with zero
+// insets — use it so screens/layouts mount synchronously.
+jest.mock('react-native-safe-area-context', () =>
+  require('react-native-safe-area-context/jest/mock').default
+)
+
 // Custom fonts: treat as already loaded in tests; splash no-op.
 jest.mock('expo-splash-screen', () => ({
   preventAutoHideAsync: jest.fn(() => Promise.resolve()),

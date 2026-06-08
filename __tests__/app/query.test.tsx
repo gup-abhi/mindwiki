@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react-native'
 
-import QueryScreen from '@/app/query'
+import QueryScreen from '@/app/(tabs)/query'
 import { type WikiAnswer } from '@/services/wiki/query'
 
 const mockUse = jest.fn()

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native'
 
-import Settings from '@/app/settings'
+import Settings from '@/app/(tabs)/settings'
 import { useAuth } from '@/hooks/useAuth'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
 import { useSyncStatus } from '@/hooks/useSyncStatus'

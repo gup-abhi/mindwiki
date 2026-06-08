@@ -13,6 +13,12 @@ jest.mock('@/services/auth/auth.service', () => ({
   loginNewDevice: jest.fn(),
 }))
 jest.mock('@/hooks/useSync', () => ({ useSync: jest.fn() }))
+// ThemeProvider hydrates the saved theme preference from settings once
+// authenticated; stub it so the gate test doesn't touch the encrypted DB.
+jest.mock('@/services/storage/settings', () => ({
+  getSetting: jest.fn(() => Promise.resolve({ success: false, error: { code: 'X', message: 'x' } })),
+  setSetting: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
+}))
 jest.mock('expo-router', () => {
   const { Text } = require('react-native')
   return { Stack: () => <Text>stack-rendered</Text> }

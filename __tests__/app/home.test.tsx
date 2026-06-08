@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
+import { render, screen, waitFor } from '@testing-library/react-native'
 
-import Home from '@/app/index'
+import Home from '@/app/(tabs)/index'
 import { listEntries } from '@/services/storage/entries'
 import { type WikiPage } from '@/services/storage/wiki'
 import { useWikiStore } from '@/store/wiki.store'
@@ -23,8 +23,6 @@ jest.mock('@/hooks/useRecoverySetup', () => ({
     done: jest.fn(),
   }),
 }))
-const mockLogout = jest.fn()
-jest.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ logout: mockLogout }) }))
 jest.mock('@/hooks/useModelDownload', () => ({
   useModelDownload: () => ({ ready: true, downloading: false, progress: 1, error: null, download: jest.fn() }),
 }))
@@ -52,17 +50,8 @@ const entry = (over = {}) => ({
 describe('Home entries list', () => {
   beforeEach(() => {
     mockList.mockReset()
-    mockLogout.mockReset()
     mockWiki.mockReturnValue({ pages: [], loading: false })
     useWikiStore.setState({ pending: 0 })
-  })
-
-  it('logs out when the logout button is pressed', async () => {
-    mockList.mockResolvedValue(ok([]))
-    render(<Home />)
-    await waitFor(() => expect(screen.getByTestId('home-logout')).toBeTruthy())
-    fireEvent.press(screen.getByTestId('home-logout'))
-    expect(mockLogout).toHaveBeenCalled()
   })
 
   it('renders a tagged entry with its emotion/distortion', async () => {

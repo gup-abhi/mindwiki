@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react-native'
 
-import GraphScreen from '@/app/graph'
+import GraphScreen from '@/app/(tabs)/graph'
 
 const mockUseGraph = jest.fn()
 jest.mock('@/hooks/useGraph', () => ({ useGraph: (...a: unknown[]) => mockUseGraph(...a) }))

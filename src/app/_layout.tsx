@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Stack } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import {
   useFonts,
@@ -17,6 +18,7 @@ import { hydrateAuth } from '@/services/auth/auth.service'
 import { useAuthStore } from '@/store/auth.store'
 import { useSync } from '@/hooks/useSync'
 import { AuthScreen } from '@/components/auth/AuthScreen'
+import { ThemeProvider } from '@/theme'
 
 // Hold the native splash until our custom fonts are ready (best-effort).
 void SplashScreen.preventAutoHideAsync()
@@ -32,33 +34,17 @@ function AppRoot() {
   return <Stack screenOptions={{ headerShown: false }} />
 }
 
-export default function RootLayout() {
+/** Auth + encrypted-DB gate. Rendered inside the theme + safe-area providers. */
+function AppGate() {
   const authStatus = useAuthStore((s) => s.status)
   const [storage, setStorage] = useState<StorageStatus>('idle')
   const [message, setMessage] = useState('')
-  // Loads in parallel with hydrateAuth, so fonts don't add serial startup delay.
-  const [fontsLoaded] = useFonts({
-    Lora_400Regular,
-    Lora_500Medium,
-    Lora_600SemiBold,
-    Lora_700Bold,
-    Nunito_400Regular,
-    Nunito_600SemiBold,
-    Nunito_700Bold,
-  })
 
   // Launch: configure notifications + resolve the session. No DB access yet.
   useEffect(() => {
     configureNotifications()
     void hydrateAuth()
   }, [])
-
-  // Hide the splash once fonts are ready; until then keep it up (return null).
-  useEffect(() => {
-    if (fontsLoaded) void SplashScreen.hideAsync()
-  }, [fontsLoaded])
-
-  if (!fontsLoaded) return null
 
   // Open the encrypted DB only after auth — so it's keyed with the correct
   // master key (a fresh DB on a new-device login, the existing DB for a
@@ -107,6 +93,34 @@ export default function RootLayout() {
   }
 
   return <AppRoot />
+}
+
+export default function RootLayout() {
+  // Loads in parallel with hydrateAuth, so fonts don't add serial startup delay.
+  const [fontsLoaded] = useFonts({
+    Lora_400Regular,
+    Lora_500Medium,
+    Lora_600SemiBold,
+    Lora_700Bold,
+    Nunito_400Regular,
+    Nunito_600SemiBold,
+    Nunito_700Bold,
+  })
+
+  // Hide the splash once fonts are ready; until then keep it up (return null).
+  useEffect(() => {
+    if (fontsLoaded) void SplashScreen.hideAsync()
+  }, [fontsLoaded])
+
+  if (!fontsLoaded) return null
+
+  return (
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <AppGate />
+      </ThemeProvider>
+    </SafeAreaProvider>
+  )
 }
 
 const styles = StyleSheet.create({

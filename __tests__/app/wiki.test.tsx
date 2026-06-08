@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react-native'
 
-import WikiBrowse from '@/app/wiki/index'
+import WikiBrowse from '@/app/(tabs)/wiki/index'
 import WikiPageScreen from '@/app/wiki/[id]'
 
 const mockPush = jest.fn()
