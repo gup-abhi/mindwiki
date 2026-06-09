@@ -53,8 +53,12 @@ export default function QueryScreen() {
             testID="query-clear"
           />
         )}
-        {!answer && <Button title="Ask" onPress={() => submit(text)} />}
       </View>
+      {!answer && (
+        <View style={styles.askRow}>
+          <Button title="Ask" fullWidth onPress={() => submit(text)} />
+        </View>
+      )}
 
       {asking && <ActivityIndicator style={styles.spinner} color={theme.colors.accent} />}
 
@@ -143,6 +147,7 @@ const makeStyles = (t: Theme) =>
     subtitle: { marginTop: t.spacing.xs, marginBottom: t.spacing.lg },
     searchRow: { flexDirection: 'row', gap: t.spacing.sm, alignItems: 'center' },
     searchInput: { flex: 1 },
+    askRow: { marginTop: t.spacing.md },
     spinner: { marginTop: t.spacing['2xl'] },
     answerCard: { marginTop: t.spacing.lg },
     evidence: { marginTop: t.spacing.md },
