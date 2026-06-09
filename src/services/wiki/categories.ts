@@ -1,12 +1,23 @@
 // The categories the wiki engine assigns to pages (see candidateTopics in
 // engine.ts). "other" is a display-only fallback for pages with a null/unknown
 // category (e.g. created before categories existed).
-export const CATEGORY_ORDER = ['emotion', 'distortion', 'theme', 'other'] as const
+export const CATEGORY_ORDER = [
+  'emotion',
+  'distortion',
+  'theme',
+  'person',
+  'place',
+  'activity',
+  'other',
+] as const
 
 export const CATEGORY_LABEL: Record<string, string> = {
   emotion: 'Emotions',
   distortion: 'Distortions',
   theme: 'Themes',
+  person: 'People',
+  place: 'Places',
+  activity: 'Activities',
   other: 'Other',
 }
 

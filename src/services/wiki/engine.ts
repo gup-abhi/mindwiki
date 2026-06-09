@@ -1,11 +1,30 @@
 import { synthesizePage } from '@/services/llm/deep-model'
 import { type Entry } from '@/services/storage/entries'
+import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
 import { getPageByTitle, createPage, updatePage } from '@/services/storage/wiki'
 import { type Result, ok } from '@/types/result'
 
 export interface Topic {
   title: string
   category: string
+}
+
+// Entities (person/place/activity) earn a wiki page only once they recur — a
+// page is created/maintained when the entity has appeared in ≥2 entries. This
+// keeps one-off mentions out of the wiki while the graph still shows them all.
+const RECURRENCE_THRESHOLD = 2
+
+async function recurringEntityTopics(entryId: string): Promise<Topic[]> {
+  const res = await listEntitiesForEntry(entryId)
+  if (!res.success) return []
+  const out: Topic[] = []
+  for (const e of res.data) {
+    const count = await countEntriesForEntity(e.type, e.label)
+    if (count.success && count.data >= RECURRENCE_THRESHOLD) {
+      out.push({ title: e.label, category: e.type })
+    }
+  }
+  return out
 }
 
 function titleCase(s: string): string {
@@ -49,6 +68,14 @@ export async function updateWikiForEntry(
 ): Promise<Result<string[]>> {
   const updated: string[] = []
   const topics = candidateTopics(entry, topic)
+  // Add recurring people/places/activities, skipping any title already covered
+  // by an emotion/distortion/theme topic (get-or-create matches on title alone).
+  const seen = new Set(topics.map((t) => t.title.toLowerCase()))
+  for (const t of await recurringEntityTopics(entry.id)) {
+    if (seen.has(t.title.toLowerCase())) continue
+    seen.add(t.title.toLowerCase())
+    topics.push(t)
+  }
   if (__DEV__) console.log(`[wiki] topics: ${topics.map((t) => t.title).join(', ') || '(none)'}`)
 
   for (const topic of topics) {
