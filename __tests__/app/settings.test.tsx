@@ -80,4 +80,11 @@ describe('Settings', () => {
     fireEvent.press(screen.getByTestId('settings-pair'))
     expect(mockPush).toHaveBeenCalledWith('/pair')
   })
+
+  it('offers the System/Light/Dark appearance options', () => {
+    render(<Settings />)
+    expect(screen.getByTestId('appearance-system')).toBeTruthy()
+    expect(screen.getByTestId('appearance-light')).toBeTruthy()
+    expect(screen.getByTestId('appearance-dark')).toBeTruthy()
+  })
 })

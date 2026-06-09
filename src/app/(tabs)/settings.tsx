@@ -1,8 +1,8 @@
 import { Modal, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 
-import { Button, Card, Screen, Text } from '@/components/ui'
-import { type Theme, useThemedStyles } from '@/theme'
+import { Button, Card, Chip, Screen, Text } from '@/components/ui'
+import { type Theme, type ThemePreference, useThemePreference, useThemedStyles } from '@/theme'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
@@ -19,11 +19,18 @@ function timeAgo(ms: number | null): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+]
+
 export default function Settings() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const { lastPull, pending, syncing, message, syncNow } = useSyncStatus()
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
+  const { preference, setPreference } = useThemePreference()
   const { logout } = useAuth()
 
   return (
@@ -35,6 +42,21 @@ export default function Settings() {
       )}
 
       <Text variant="title">Settings</Text>
+
+      <Text variant="label" color="textMuted" style={styles.section}>
+        Appearance
+      </Text>
+      <View style={styles.appearance}>
+        {APPEARANCE_OPTIONS.map((o) => (
+          <Chip
+            key={o.value}
+            label={o.label}
+            selected={preference === o.value}
+            onPress={() => setPreference(o.value)}
+            testID={`appearance-${o.value}`}
+          />
+        ))}
+      </View>
 
       <Text variant="label" color="textMuted" style={styles.section}>
         Sync
@@ -110,6 +132,7 @@ export default function Settings() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     section: { marginTop: t.spacing['2xl'], marginBottom: t.spacing.sm, textTransform: 'uppercase' },
+    appearance: { flexDirection: 'row', gap: t.spacing.sm },
     row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: t.spacing.xs },
     action: { marginTop: t.spacing.md },
     syncMessage: { textAlign: 'center', marginTop: t.spacing.md },
