@@ -10,6 +10,12 @@ export const EntryTagSchema = z.object({
   crisis_confidence: z.number().min(0).max(1),
   // Transient — short theme/topic (1-3 words) used to route a wiki page.
   topic: z.string().min(1),
+  // Concrete entities → entry_entities rows + graph nodes. Tolerant: a missing
+  // or malformed list never fails the whole tag (a bad parse must not block the
+  // save — ADR 004); it just yields no entities of that kind.
+  people: z.array(z.string()).default([]).catch([]),
+  places: z.array(z.string()).default([]).catch([]),
+  activities: z.array(z.string()).default([]).catch([]),
 })
 
 export type EntryTag = z.infer<typeof EntryTagSchema>

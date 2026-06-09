@@ -1,6 +1,7 @@
 import { assessCrisis, type CrisisAssessment } from '@/services/crisis/detector'
 import { tagEntry } from '@/services/llm/fast-model'
 import { applyTags, type Entry } from '@/services/storage/entries'
+import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
 import { updateGraphForEntry } from '@/services/graph/engine'
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
@@ -19,7 +20,12 @@ export interface ProcessResult {
  * safety net still runs, so an explicit crisis is caught even without the model.
  */
 export async function processEntry(entry: Entry): Promise<ProcessResult> {
-  const tagResult = await tagEntry({ situation: entry.situation, thought: entry.thought })
+  const tagResult = await tagEntry({
+    situation: entry.situation,
+    thought: entry.thought,
+    behavior: entry.behavior,
+    closing_note: entry.closing_note,
+  })
 
   let tagged = false
   let crisisConfidence = 0
@@ -34,8 +40,16 @@ export async function processEntry(entry: Entry): Promise<ProcessResult> {
     })
     tagged = applied.success
 
-    // Deep-model wiki synthesis — background, off the tag/crisis path (slow,
-    // ~18 tok/s). Fire-and-forget; updateWikiForEntry never throws.
+    // Persist extracted entities before graph/wiki run — the graph reads them to
+    // build person/place/activity nodes and the wiki uses the recurrence count
+    // (which must include this entry). Cheap DB write; await it.
+    const entities: NewEntity[] = [
+      ...tagResult.data.people.map((label) => ({ type: 'person' as const, label })),
+      ...tagResult.data.places.map((label) => ({ type: 'place' as const, label })),
+      ...tagResult.data.activities.map((label) => ({ type: 'activity' as const, label })),
+    ]
+    await setEntitiesForEntry(entry.id, entities)
+
     const taggedEntry: Entry = {
       ...entry,
       emotion: tagResult.data.emotion,

@@ -1,4 +1,4 @@
-import { tagEntry } from '@/services/llm/fast-model'
+import { tagEntry, normalizeEntities } from '@/services/llm/fast-model'
 import { buildTagPrompt } from '@/services/llm/prompts/tag-entry'
 import { LLMBridge } from '@/native/LLMBridge'
 
@@ -55,5 +55,28 @@ describe('tagEntry', () => {
     const result = await tagEntry({ situation: 's', thought: 't' })
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('TAG_VALIDATION_FAILED')
+  })
+
+  it('extracts + normalizes entity lists (and tolerates a missing list)', async () => {
+    modelReturns(
+      '{"emotion":"joy","distortion":"none","mood_score":0.8,"crisis_confidence":0.0,"topic":"Friends",' +
+        '"people":["sarah"," sarah ","me","Bob"],"places":["the Office"]}'
+    )
+    const result = await tagEntry({ situation: 's', thought: 't' })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      // title-cased, de-duped (case-insensitive), self-reference dropped
+      expect(result.data.people).toEqual(['Sarah', 'Bob'])
+      expect(result.data.places).toEqual(['The Office'])
+      expect(result.data.activities).toEqual([]) // missing list -> []
+    }
+  })
+})
+
+describe('normalizeEntities', () => {
+  it('trims, title-cases, drops blanks/none/first-person, dedupes, caps at 3', () => {
+    expect(
+      normalizeEntities(['  alice ', 'Alice', 'none', 'I', 'bob', 'carol', 'dave'])
+    ).toEqual(['Alice', 'Bob', 'Carol']) // 'alice' dup + 'none'/'I' dropped, capped at 3
   })
 })

@@ -5,6 +5,7 @@ import { ok, err } from '@/types/result'
 
 jest.mock('@/services/llm/fast-model', () => ({ tagEntry: jest.fn() }))
 jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn() }))
+jest.mock('@/services/storage/entities', () => ({ setEntitiesForEntry: jest.fn() }))
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
 jest.mock('@/services/graph/engine', () => ({ updateGraphForEntry: jest.fn() }))
 
@@ -16,11 +17,26 @@ jest.mock('@/store/wiki.store', () => ({
 
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { updateGraphForEntry } from '@/services/graph/engine'
+import { setEntitiesForEntry } from '@/services/storage/entities'
 
 const mockTagEntry = tagEntry as jest.Mock
 const mockApplyTags = applyTags as jest.Mock
 const mockUpdateWiki = updateWikiForEntry as jest.Mock
 const mockUpdateGraph = updateGraphForEntry as jest.Mock
+const mockSetEntities = setEntitiesForEntry as jest.Mock
+
+// Tag output always carries the three entity lists (normalized in fast-model).
+const tags = (over: Record<string, unknown> = {}) => ({
+  emotion: 'anxiety',
+  distortion: 'none',
+  mood_score: 0.4,
+  crisis_confidence: 0.65,
+  topic: 'Work',
+  people: [],
+  places: [],
+  activities: [],
+  ...over,
+})
 
 const entry = (overrides: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -49,20 +65,20 @@ describe('processEntry', () => {
     mockApplyTags.mockResolvedValue(ok(undefined))
     mockUpdateWiki.mockResolvedValue(ok([]))
     mockUpdateGraph.mockResolvedValue(ok(undefined))
+    mockSetEntities.mockReset()
+    mockSetEntities.mockResolvedValue(ok(undefined))
   })
 
   it('applies the model tags and assesses crisis from crisis_confidence', async () => {
-    mockTagEntry.mockResolvedValue(
-      ok({
-        emotion: 'anxiety',
-        distortion: 'none',
-        mood_score: 0.4,
-        crisis_confidence: 0.65,
-        topic: 'Work',
-      })
-    )
+    mockTagEntry.mockResolvedValue(ok(tags({ people: ['Sarah'], places: ['Office'] })))
 
     const result = await processEntry(entry())
+
+    // extracted entities are persisted (people + places mapped to typed rows)
+    expect(mockSetEntities).toHaveBeenCalledWith('e1', [
+      { type: 'person', label: 'Sarah' },
+      { type: 'place', label: 'Office' },
+    ])
 
     expect(mockApplyTags).toHaveBeenCalledWith('e1', {
       emotion: 'anxiety',
@@ -101,7 +117,7 @@ describe('processEntry', () => {
 
   it('reports tier 0 for a calm entry with low crisis confidence', async () => {
     mockTagEntry.mockResolvedValue(
-      ok({ emotion: 'calm', distortion: 'none', mood_score: 0.8, crisis_confidence: 0.02 })
+      ok(tags({ emotion: 'calm', mood_score: 0.8, crisis_confidence: 0.02 }))
     )
 
     const result = await processEntry(entry())

@@ -16,6 +16,33 @@ function extractJson(text: string): unknown {
   }
 }
 
+// The writer is never an extracted "person"; drop self-references the model
+// sometimes emits.
+const FIRST_PERSON = new Set(['i', 'me', 'my', 'myself', 'we', 'us', 'mine', 'none'])
+
+function titleCase(s: string): string {
+  return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s
+}
+
+/**
+ * Clean a raw entity list from the model: trim, drop blanks / 'none' /
+ * first-person, title-case, de-dupe case-insensitively, cap at 3. Keeps junk out
+ * of the graph + wiki regardless of how noisy the small on-device model is.
+ */
+export function normalizeEntities(raw: string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const label = titleCase(item.trim())
+    const key = label.toLowerCase()
+    if (!label || FIRST_PERSON.has(key) || seen.has(key)) continue
+    seen.add(key)
+    out.push(label)
+    if (out.length >= 3) break
+  }
+  return out
+}
+
 /**
  * Tag an entry with the fast model. Runs inference, extracts + Zod-validates the
  * JSON, and returns a Result. Never throws — caller must treat failure as "skip
@@ -24,7 +51,8 @@ function extractJson(text: string): unknown {
 export async function tagEntry(input: TagPromptInput): Promise<Result<EntryTag>> {
   let raw: string
   try {
-    const output = await LLMBridge.tag(buildTagPrompt(input), { maxTokens: 80, temperature: 0.2 })
+    // 150 tokens leaves room for the three entity lists on top of the scalars.
+    const output = await LLMBridge.tag(buildTagPrompt(input), { maxTokens: 150, temperature: 0.2 })
     raw = output.text
   } catch (e) {
     return err('TAG_INFERENCE_FAILED', 'Fast model inference failed', e)
@@ -40,5 +68,10 @@ export async function tagEntry(input: TagPromptInput): Promise<Result<EntryTag>>
     return err('TAG_VALIDATION_FAILED', 'Tag output failed schema validation')
   }
 
-  return ok(parsed.data)
+  return ok({
+    ...parsed.data,
+    people: normalizeEntities(parsed.data.people),
+    places: normalizeEntities(parsed.data.places),
+    activities: normalizeEntities(parsed.data.activities),
+  })
 }
