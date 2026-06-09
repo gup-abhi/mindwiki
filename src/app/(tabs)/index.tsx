@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
-import { FlatList, StyleSheet, View } from 'react-native'
+import { FlatList, Pressable, StyleSheet, View } from 'react-native'
 
 import { Button, Card, Screen, Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
@@ -79,7 +79,11 @@ export default function Home() {
           </View>
         }
         renderItem={({ item }) => (
-          <View style={styles.row}>
+          <Pressable
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+            onPress={() => router.push(`/entries/${item.id}`)}
+          >
             <Text variant="body" numberOfLines={1}>
               {item.situation}
             </Text>
@@ -88,7 +92,7 @@ export default function Home() {
                 ? `${item.emotion} · ${item.distortion} · mood ${item.mood_score}`
                 : 'tagging…'}
             </Text>
-          </View>
+          </Pressable>
         )}
       />
     </Screen>
@@ -112,5 +116,6 @@ const makeStyles = (t: Theme) =>
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: t.colors.border,
     },
+    rowPressed: { backgroundColor: t.colors.surfaceAlt },
     tags: { marginTop: t.spacing.xs },
   })

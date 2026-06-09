@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react-native'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 
 import Home from '@/app/(tabs)/index'
 import { listEntries } from '@/services/storage/entries'
@@ -6,8 +6,9 @@ import { type WikiPage } from '@/services/storage/wiki'
 import { useWikiStore } from '@/store/wiki.store'
 import { ok } from '@/types/result'
 
+const mockPush = jest.fn()
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: mockPush }),
   useFocusEffect: (cb: () => void) => {
     require('react').useEffect(() => cb(), [])
   },
@@ -50,8 +51,17 @@ const entry = (over = {}) => ({
 describe('Home entries list', () => {
   beforeEach(() => {
     mockList.mockReset()
+    mockPush.mockReset()
     mockWiki.mockReturnValue({ pages: [], loading: false })
     useWikiStore.setState({ pending: 0 })
+  })
+
+  it('opens an entry for reading when its row is tapped', async () => {
+    mockList.mockResolvedValue(ok([entry()]))
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+    fireEvent.press(screen.getByText('a tense meeting'))
+    expect(mockPush).toHaveBeenCalledWith('/entries/a')
   })
 
   it('renders a tagged entry with its emotion/distortion', async () => {
