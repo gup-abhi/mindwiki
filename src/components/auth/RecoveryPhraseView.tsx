@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+
+import { Button, Text } from '@/components/ui'
+import { type Theme, useTheme, useThemedStyles } from '@/theme'
 
 /**
  * One-time display of the recovery phrase right after registration. The phrase is
@@ -8,13 +11,15 @@ import { Ionicons } from '@expo/vector-icons'
  * gates "Continue" so the user can't blow past it. On confirm, the app enters.
  */
 export function RecoveryPhraseView({ phrase, onConfirm }: { phrase: string; onConfirm: () => void }) {
+  const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
   const [saved, setSaved] = useState(false)
   const words = phrase.split(' ')
 
   return (
-    <ScrollView contentContainerStyle={styles.body}>
-      <Text style={styles.title}>Save your recovery phrase</Text>
-      <Text style={styles.subtitle}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.body}>
+      <Text variant="heading">Save your recovery phrase</Text>
+      <Text variant="body" color="textSecondary" style={styles.subtitle}>
         These 12 words are the only way back into your journal if you forget your password. We can't
         reset it for you. Write them down and keep them somewhere safe — never share them.
       </Text>
@@ -22,8 +27,10 @@ export function RecoveryPhraseView({ phrase, onConfirm }: { phrase: string; onCo
       <View style={styles.grid} testID="recovery-phrase-grid">
         {words.map((word, i) => (
           <View key={`${i}-${word}`} style={styles.wordChip}>
-            <Text style={styles.wordIndex}>{i + 1}</Text>
-            <Text style={styles.word}>{word}</Text>
+            <Text variant="caption" color="textMuted" style={styles.wordIndex}>
+              {i + 1}
+            </Text>
+            <Text variant="bodyStrong">{word}</Text>
           </View>
         ))}
       </View>
@@ -38,42 +45,38 @@ export function RecoveryPhraseView({ phrase, onConfirm }: { phrase: string; onCo
         <Ionicons
           name={saved ? 'checkbox' : 'square-outline'}
           size={24}
-          color={saved ? '#1a1a2e' : '#999'}
+          color={saved ? theme.colors.accent : theme.colors.textMuted}
         />
-        <Text style={styles.checkboxLabel}>I've written down my recovery phrase</Text>
+        <Text variant="body" style={styles.checkboxLabel}>
+          I've written down my recovery phrase
+        </Text>
       </Pressable>
 
-      <Pressable
-        style={[styles.button, !saved && styles.buttonDisabled]}
-        disabled={!saved}
-        onPress={onConfirm}
-        testID="recovery-continue"
-      >
-        <Text style={styles.buttonText}>Continue</Text>
-      </Pressable>
+      <View style={styles.continue}>
+        <Button title="Continue" disabled={!saved} fullWidth onPress={onConfirm} testID="recovery-continue" />
+      </View>
     </ScrollView>
   )
 }
 
-const styles = StyleSheet.create({
-  body: { padding: 28, paddingTop: 64 },
-  title: { fontSize: 26, fontWeight: '700', color: '#1a1a2e' },
-  subtitle: { fontSize: 15, color: '#666', marginTop: 8, lineHeight: 22 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 24, gap: 10 },
-  wordChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f4f4fb',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minWidth: '45%',
-  },
-  wordIndex: { fontSize: 13, color: '#9a9ab8', width: 22, fontVariant: ['tabular-nums'] },
-  word: { fontSize: 16, fontWeight: '600', color: '#1a1a2e' },
-  checkboxRow: { flexDirection: 'row', alignItems: 'center', marginTop: 28, gap: 10 },
-  checkboxLabel: { fontSize: 15, color: '#1a1a2e', flexShrink: 1 },
-  button: { backgroundColor: '#1a1a2e', borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginTop: 24 },
-  buttonDisabled: { backgroundColor: '#b9b9cc' },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: t.colors.bg },
+    body: { padding: t.spacing['2xl'], paddingTop: t.spacing['3xl'] },
+    subtitle: { marginTop: t.spacing.sm },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: t.spacing.xl, gap: t.spacing.sm },
+    wordChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: t.spacing.xs,
+      backgroundColor: t.colors.surfaceAlt,
+      borderRadius: t.radii.md,
+      paddingHorizontal: t.spacing.md,
+      paddingVertical: t.spacing.sm + 2,
+      minWidth: '45%',
+    },
+    wordIndex: { width: 22, fontVariant: ['tabular-nums'] },
+    checkboxRow: { flexDirection: 'row', alignItems: 'center', marginTop: t.spacing.xl, gap: t.spacing.sm },
+    checkboxLabel: { flexShrink: 1 },
+    continue: { marginTop: t.spacing.xl },
+  })
