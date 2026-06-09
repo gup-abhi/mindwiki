@@ -1,3 +1,5 @@
+import { EMOTIONS, DISTORTIONS } from '../taxonomy'
+
 export interface TagPromptInput {
   situation: string
   thought: string
@@ -7,14 +9,16 @@ export interface TagPromptInput {
 
 /**
  * Instruction for the fast model to tag an entry. Output is constrained to a
- * single JSON object matching EntryTagSchema. Runs on-device only.
+ * single JSON object matching EntryTagSchema. emotion + distortion must come
+ * from the controlled vocabulary (also enforced in code via taxonomy.ts). Runs
+ * on-device only.
  */
 export function buildTagPrompt({ situation, thought, behavior, closing_note }: TagPromptInput): string {
   const lines = [
     'You analyze a journal entry and output ONLY a JSON object — no prose, no markdown.',
     'Schema: {"emotion": string, "distortion": string, "mood_score": number, "crisis_confidence": number, "topic": string, "people": string[], "places": string[], "activities": string[]}',
-    '- emotion: the primary emotion (one or two words).',
-    '- distortion: the main cognitive distortion, or "none".',
+    `- emotion: choose the single closest from this list ONLY: ${EMOTIONS.join(', ')}.`,
+    `- distortion: choose the single closest from this list ONLY, or "none": ${DISTORTIONS.join(', ')}.`,
     '- mood_score: 0.0 (very negative) to 1.0 (very positive).',
     '- crisis_confidence: 0.0 to 1.0 — likelihood the writer is in crisis or at risk of self-harm.',
     '- topic: a short 1-3 word theme for this entry (e.g. "Work", "Public speaking", "Family").',

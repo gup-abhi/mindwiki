@@ -3,6 +3,7 @@ import { type Result, ok, err } from '@/types/result'
 
 import { buildTagPrompt, type TagPromptInput } from './prompts/tag-entry'
 import { EntryTagSchema, type EntryTag } from './schemas/entry-tag.schema'
+import { canonicalizeEmotion, canonicalizeDistortion } from './taxonomy'
 
 // Pull the first {...} object out of the model output (it may add stray text).
 function extractJson(text: string): unknown {
@@ -70,6 +71,9 @@ export async function tagEntry(input: TagPromptInput): Promise<Result<EntryTag>>
 
   return ok({
     ...parsed.data,
+    // Snap to the controlled vocabulary so near-synonyms collapse to one node/page.
+    emotion: canonicalizeEmotion(parsed.data.emotion),
+    distortion: canonicalizeDistortion(parsed.data.distortion),
     people: normalizeEntities(parsed.data.people),
     places: normalizeEntities(parsed.data.places),
     activities: normalizeEntities(parsed.data.activities),

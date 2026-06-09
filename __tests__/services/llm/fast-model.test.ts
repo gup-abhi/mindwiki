@@ -1,5 +1,6 @@
 import { tagEntry, normalizeEntities } from '@/services/llm/fast-model'
 import { buildTagPrompt } from '@/services/llm/prompts/tag-entry'
+import { canonicalizeEmotion, canonicalizeDistortion } from '@/services/llm/taxonomy'
 import { LLMBridge } from '@/native/LLMBridge'
 
 jest.mock('@/native/LLMBridge', () => ({ LLMBridge: { tag: jest.fn() } }))
@@ -29,7 +30,9 @@ describe('tagEntry', () => {
     const result = await tagEntry({ situation: 's', thought: 't' })
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.emotion).toBe('anxiety')
+      // snapped to the controlled vocabulary (Title Case)
+      expect(result.data.emotion).toBe('Anxiety')
+      expect(result.data.distortion).toBe('Catastrophizing')
       expect(result.data.mood_score).toBe(0.2)
       expect(result.data.crisis_confidence).toBe(0.1)
       expect(result.data.topic).toBe('Work')
@@ -78,5 +81,21 @@ describe('normalizeEntities', () => {
     expect(
       normalizeEntities(['  alice ', 'Alice', 'none', 'I', 'bob', 'carol', 'dave'])
     ).toEqual(['Alice', 'Bob', 'Carol']) // 'alice' dup + 'none'/'I' dropped, capped at 3
+  })
+})
+
+describe('controlled vocabulary', () => {
+  it('snaps emotion synonyms/variants to a single canonical term', () => {
+    expect(canonicalizeEmotion('anxious')).toBe('Anxiety') // alias
+    expect(canonicalizeEmotion('nervous')).toBe('Anxiety') // alias
+    expect(canonicalizeEmotion('ANXIETY')).toBe('Anxiety') // exact, case-insensitive
+    expect(canonicalizeEmotion('saddness')).toBe('Sadness') // fuzzy (typo) -> nearest
+  })
+
+  it('snaps distortions and resolves unknowns to none', () => {
+    expect(canonicalizeDistortion('catastrophising')).toBe('Catastrophizing') // alias spelling
+    expect(canonicalizeDistortion('mind-reading')).toBe('Mind reading') // alias
+    expect(canonicalizeDistortion('none')).toBe('none')
+    expect(canonicalizeDistortion('totally unrelated phrase')).toBe('none') // unknown -> none
   })
 })
