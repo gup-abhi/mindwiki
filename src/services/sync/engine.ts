@@ -33,6 +33,12 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
+  // Entities are write-once per entry (re-tagging replaces the set), so
+  // created_at is a sufficient last-write-wins watermark.
+  entry_entities: {
+    columns: ['id', 'entry_id', 'type', 'label', 'created_at'],
+    updatedAt: (r) => Number(r.created_at) || 0,
+  },
 }
 
 function isSyncTable(t: string): t is SyncTable {

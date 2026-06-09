@@ -1,12 +1,13 @@
 // Per-table conflict resolution for delta sync.
 //
-// entries + wiki_pages sync as encrypted blobs with last-write-wins by
-// updated_at. Graph tables are additive (ADR 006) and are rebuilt locally from
-// entries rather than blob-synced, so they are intentionally not in this set.
+// entries + wiki_pages + entry_entities sync as encrypted blobs with
+// last-write-wins by updated_at. Graph tables are additive (ADR 006) and are
+// rebuilt locally from entries + entry_entities rather than blob-synced, so they
+// are intentionally not in this set.
 
-export type SyncTable = 'entries' | 'wiki_pages'
+export type SyncTable = 'entries' | 'wiki_pages' | 'entry_entities'
 
-export const SYNCED_TABLES: SyncTable[] = ['entries', 'wiki_pages']
+export const SYNCED_TABLES: SyncTable[] = ['entries', 'wiki_pages', 'entry_entities']
 
 export interface Versioned {
   record_id: string

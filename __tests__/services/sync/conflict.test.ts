@@ -27,7 +27,7 @@ describe('recordsToApply', () => {
 })
 
 describe('SYNCED_TABLES', () => {
-  it('covers entries and wiki_pages, excludes graph tables', () => {
-    expect(SYNCED_TABLES).toEqual(['entries', 'wiki_pages'])
+  it('covers entries, wiki_pages and entry_entities, excludes graph tables', () => {
+    expect(SYNCED_TABLES).toEqual(['entries', 'wiki_pages', 'entry_entities'])
   })
 })
