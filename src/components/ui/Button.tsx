@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, StyleSheet, View, type ViewStyle } from 'react-native'
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 
@@ -42,7 +42,6 @@ const makeStyles = (t: Theme) =>
     ghost: { backgroundColor: 'transparent' },
     destructive: { backgroundColor: t.colors.danger },
     disabled: { opacity: 0.45 },
-    pressed: { opacity: 0.85 },
     fullWidth: { alignSelf: 'stretch' },
   })
 
@@ -91,15 +90,17 @@ export function Button({
       disabled={isDisabled}
       accessibilityRole="button"
       testID={testID}
-      style={({ pressed }): ViewStyle[] => [
+      // NOTE: an Animated (reanimated) component must take a static/array style —
+      // a function style ({ pressed }) => … is NOT applied, which silently drops
+      // the background/padding. Press feedback comes from the scale animation.
+      style={[
         styles.base,
         styles[size],
         styles[variant],
         fullWidth && styles.fullWidth,
         isDisabled && styles.disabled,
-        pressed && !isDisabled && styles.pressed,
         animStyle,
-      ].filter(Boolean) as ViewStyle[]}
+      ]}
     >
       {loading ? (
         <ActivityIndicator color={tint} />
