@@ -48,4 +48,27 @@ describe('useWikiQuery', () => {
     await waitFor(() => expect(result.current.answer?.answer).toBe('real answer'))
     expect(mockAnswer).toHaveBeenCalled()
   })
+
+  it('drops an in-flight answer when cleared before it resolves', async () => {
+    mockReady.mockResolvedValue(true)
+    // Hold the answer until we decide to resolve it.
+    let resolveAnswer!: (v: unknown) => void
+    mockAnswer.mockReturnValue(new Promise((res) => (resolveAnswer = res)))
+
+    const { result } = renderHook(() => useWikiQuery())
+    act(() => {
+      result.current.ask('why am I anxious?')
+    })
+    await waitFor(() => expect(result.current.asking).toBe(true))
+
+    // User clears before the model returns.
+    act(() => result.current.clear())
+    expect(result.current.asking).toBe(false)
+
+    // The late result must be ignored.
+    await act(async () => {
+      resolveAnswer(ok({ answer: 'stale answer', sources: [], evidenceCount: 1 }))
+    })
+    expect(result.current.answer).toBeNull()
+  })
 })

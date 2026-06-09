@@ -27,20 +27,27 @@ export function useWikiQuery(initialQuestion?: string) {
   const [related, setRelated] = useState<Entry[]>([])
   const [asking, setAsking] = useState(false)
   const askedInitial = useRef(false)
+  // Identifies the in-flight request; clear() or a new ask bumps it so a
+  // superseded answer's result is ignored when it eventually resolves (the
+  // deep model can't be aborted mid-inference, so we just drop stale output).
+  const reqId = useRef(0)
 
   const runAnswer = useCallback(async (question: string, pgs: WikiPage[], ents: Entry[]) => {
     if (!question.trim()) return
+    const id = ++reqId.current
     setAsking(true)
     setAnswer(null)
     setRelated([])
     // Answering runs the deep model — if it isn't downloaded, say so (and point at
     // the Home download card) instead of a generic failure.
     if (!(await areModelsReady())) {
+      if (reqId.current !== id) return
       setAnswer(MODELS_MISSING)
       setAsking(false)
       return
     }
     const res = await answerQuestion(question, pgs)
+    if (reqId.current !== id) return // cleared or superseded while answering
     const ans = res.success
       ? res.data
       : { answer: 'Something went wrong answering that — please try again.', sources: [], evidenceCount: 0 }
@@ -73,10 +80,13 @@ export function useWikiQuery(initialQuestion?: string) {
     [pages, entries, runAnswer]
   )
 
-  // Reset to the pre-question state (suggestions + recent pages).
+  // Reset to the pre-question state (suggestions + recent pages). Bumping reqId
+  // cancels any in-flight answer so it won't land after the user has moved on.
   const clear = useCallback(() => {
+    reqId.current++
     setAnswer(null)
     setRelated([])
+    setAsking(false)
   }, [])
 
   const suggestions = useMemo(() => suggestedQuestions(pages), [pages])
