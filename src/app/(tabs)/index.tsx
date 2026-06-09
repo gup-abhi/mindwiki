@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
-import { StatusBar } from 'expo-status-bar'
+import { FlatList, StyleSheet, View } from 'react-native'
 
+import { Button, Card, Screen, Text } from '@/components/ui'
+import { type Theme, useThemedStyles } from '@/theme'
 import { ModelDownloadCard } from '@/components/ModelDownloadCard'
 import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
 import { useEntries } from '@/hooks/useEntries'
@@ -15,6 +16,7 @@ import { suggestedQuestions } from '@/services/wiki/query'
 
 export default function Home() {
   const router = useRouter()
+  const styles = useThemedStyles(makeStyles)
   const { entries, count } = useEntries()
   const { pages } = useWikiPages()
   const synthesizing = useWikiStore((s) => s.pending > 0)
@@ -26,57 +28,62 @@ export default function Home() {
   const surfacedQuestion = useMemo(() => suggestedQuestions(pages, 1)[0] ?? null, [pages])
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="dark" />
+    <Screen padded={false}>
       <FlatList
         data={entries}
         keyExtractor={(e) => e.id}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.header}>
-            <Text style={styles.title}>MindWiki</Text>
-            <Text style={styles.stage}>{stage.headline}</Text>
+            <Text variant="display">MindWiki</Text>
+            <Text variant="label" color="accent" style={styles.stage}>
+              {stage.headline}
+            </Text>
             <ModelDownloadCard />
             <RecoverySetupCard />
             {digestReady && (
-              <Pressable
-                accessibilityRole="button"
-                style={styles.digestCard}
-                onPress={() => router.push('/digest')}
-              >
-                <Text style={styles.digestTitle}>Your weekly digest is ready</Text>
-                <Text style={styles.digestSub}>See your week at a glance →</Text>
-              </Pressable>
+              <Card variant="accent" style={styles.fullWidth} onPress={() => router.push('/digest')}>
+                <Text variant="subtitle" color="accentText">
+                  Your weekly digest is ready
+                </Text>
+                <Text variant="caption" color="accentText" style={styles.digestSub}>
+                  See your week at a glance →
+                </Text>
+              </Card>
             )}
-            <Pressable
-              accessibilityRole="button"
-              style={styles.cta}
-              onPress={() => router.push('/entry')}
-            >
-              <Text style={styles.ctaText}>New entry</Text>
-            </Pressable>
+            <View style={styles.cta}>
+              <Button title="New entry" size="lg" fullWidth onPress={() => router.push('/entry')} />
+            </View>
             {surfacedQuestion && (
-              <Pressable
-                accessibilityRole="button"
-                style={styles.surfaceCard}
+              <Card
+                variant="sunken"
+                style={styles.fullWidth}
                 onPress={() => router.push({ pathname: '/query', params: { q: surfacedQuestion } })}
               >
-                <Text style={styles.surfaceLabel}>Curious?</Text>
-                <Text style={styles.surfaceText}>{surfacedQuestion}</Text>
-              </Pressable>
+                <Text variant="caption" color="accent">
+                  Curious?
+                </Text>
+                <Text variant="body" style={styles.surfaceText}>
+                  {surfacedQuestion}
+                </Text>
+              </Card>
             )}
-            {synthesizing && <Text style={styles.synth}>Synthesizing your wiki…</Text>}
-            <Text style={styles.count}>
+            {synthesizing && (
+              <Text variant="caption" color="accent" style={styles.synth}>
+                Synthesizing your wiki…
+              </Text>
+            )}
+            <Text variant="caption" color="textMuted" style={styles.count}>
               {count} {count === 1 ? 'entry' : 'entries'} so far
             </Text>
           </View>
         }
         renderItem={({ item }) => (
           <View style={styles.row}>
-            <Text style={styles.situation} numberOfLines={1}>
+            <Text variant="body" numberOfLines={1}>
               {item.situation}
             </Text>
-            <Text style={styles.tags}>
+            <Text variant="caption" color="textSecondary" style={styles.tags}>
               {item.emotion
                 ? `${item.emotion} · ${item.distortion} · mood ${item.mood_score}`
                 : 'tagging…'}
@@ -84,47 +91,26 @@ export default function Home() {
           </View>
         )}
       />
-    </View>
+    </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  listContent: { paddingBottom: 32 },
-  header: { alignItems: 'center', paddingTop: 64, paddingBottom: 24 },
-  title: { fontSize: 32, fontWeight: '700', color: '#1a1a2e' },
-  stage: { marginTop: 8, fontSize: 14, color: '#7a7ad0', fontWeight: '600', textAlign: 'center' },
-  digestCard: {
-    marginTop: 20,
-    backgroundColor: '#7a7ad0',
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-  },
-  digestTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  digestSub: { color: '#eee', fontSize: 13, marginTop: 4 },
-  surfaceCard: {
-    marginTop: 16,
-    backgroundColor: '#f2f2f7',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    alignSelf: 'stretch',
-  },
-  surfaceLabel: { fontSize: 12, color: '#7a7ad0', fontWeight: '700' },
-  surfaceText: { fontSize: 15, color: '#1a1a2e', marginTop: 3 },
-  cta: {
-    backgroundColor: '#1a1a2e',
-    paddingVertical: 16,
-    paddingHorizontal: 48,
-    borderRadius: 14,
-    marginTop: 20,
-  },
-  ctaText: { color: '#fff', fontSize: 17, fontWeight: '600' },
-  synth: { marginTop: 10, fontSize: 13, color: '#7a7ad0' },
-  count: { marginTop: 16, fontSize: 14, color: '#999' },
-  row: { paddingHorizontal: 20, paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#eee' },
-  situation: { fontSize: 16, color: '#1a1a2e' },
-  tags: { fontSize: 13, color: '#666', marginTop: 4 },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    listContent: { paddingBottom: t.spacing['2xl'] },
+    header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.xl, paddingHorizontal: t.spacing.xl },
+    stage: { marginTop: t.spacing.sm, textAlign: 'center' },
+    fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
+    digestSub: { marginTop: t.spacing.xs },
+    cta: { alignSelf: 'stretch', marginTop: t.spacing.lg },
+    surfaceText: { marginTop: t.spacing.xs },
+    synth: { marginTop: t.spacing.md },
+    count: { marginTop: t.spacing.lg },
+    row: {
+      paddingHorizontal: t.spacing.xl,
+      paddingVertical: t.spacing.md,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: t.colors.border,
+    },
+    tags: { marginTop: t.spacing.xs },
+  })

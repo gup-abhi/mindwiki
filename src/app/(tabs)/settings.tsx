@@ -1,14 +1,8 @@
+import { Modal, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native'
 
+import { Button, Card, Screen, Text } from '@/components/ui'
+import { type Theme, useThemedStyles } from '@/theme'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
@@ -27,104 +21,99 @@ function timeAgo(ms: number | null): string {
 
 export default function Settings() {
   const router = useRouter()
+  const styles = useThemedStyles(makeStyles)
   const { lastPull, pending, syncing, message, syncNow } = useSyncStatus()
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
   const { logout } = useAuth()
 
   return (
-    <View style={styles.container}>
+    <Screen scroll>
       {phrase && (
         <Modal visible animationType="slide" onRequestClose={done}>
           <RecoveryPhraseView phrase={phrase} onConfirm={done} />
         </Modal>
       )}
 
-      <ScrollView contentContainerStyle={styles.body}>
-        <Pressable onPress={() => router.back()} testID="settings-back">
-          <Text style={styles.back}>‹ Home</Text>
-        </Pressable>
-        <Text style={styles.title}>Settings</Text>
+      <Text variant="title">Settings</Text>
 
-        <Text style={styles.section}>Sync</Text>
-        <View style={styles.card}>
-          <View style={styles.row}>
-            <Text style={styles.label}>Last synced</Text>
-            <Text style={styles.value}>{timeAgo(lastPull)}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Waiting to upload</Text>
-            <Text style={styles.value}>{pending === 0 ? 'All synced' : `${pending}`}</Text>
-          </View>
-          <Pressable
-            style={[styles.button, syncing && styles.buttonDisabled]}
-            disabled={syncing}
-            onPress={() => syncNow()}
-            testID="settings-sync-now"
-          >
-            {syncing ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sync now</Text>}
-          </Pressable>
-          {message && (
-            <Text style={styles.syncMessage} testID="settings-sync-message">
-              {message}
-            </Text>
-          )}
+      <Text variant="label" color="textMuted" style={styles.section}>
+        Sync
+      </Text>
+      <Card variant="sunken">
+        <View style={styles.row}>
+          <Text variant="body" color="textSecondary">
+            Last synced
+          </Text>
+          <Text variant="bodyStrong">{timeAgo(lastPull)}</Text>
         </View>
+        <View style={styles.row}>
+          <Text variant="body" color="textSecondary">
+            Waiting to upload
+          </Text>
+          <Text variant="bodyStrong">{pending === 0 ? 'All synced' : `${pending}`}</Text>
+        </View>
+        <View style={styles.action}>
+          <Button title="Sync now" loading={syncing} fullWidth onPress={() => syncNow()} testID="settings-sync-now" />
+        </View>
+        {message && (
+          <Text variant="caption" color="success" style={styles.syncMessage} testID="settings-sync-message">
+            {message}
+          </Text>
+        )}
+      </Card>
 
-        <Text style={styles.section}>Recovery phrase</Text>
-        <View style={styles.card}>
-          {needsSetup ? (
-            <>
-              <Text style={styles.hint}>
-                Set up a recovery phrase so you can get back in if you forget your password.
+      <Text variant="label" color="textMuted" style={styles.section}>
+        Recovery phrase
+      </Text>
+      <Card variant="sunken">
+        {needsSetup ? (
+          <>
+            <Text variant="body" color="textSecondary">
+              Set up a recovery phrase so you can get back in if you forget your password.
+            </Text>
+            {error && (
+              <Text variant="caption" color="danger" style={styles.error}>
+                {error}
               </Text>
-              {error && <Text style={styles.error}>{error}</Text>}
-              <Pressable
-                style={[styles.button, busy && styles.buttonDisabled]}
-                disabled={busy}
+            )}
+            <View style={styles.action}>
+              <Button
+                title="Set up recovery phrase"
+                loading={busy}
+                fullWidth
                 onPress={() => setup()}
                 testID="settings-setup-recovery"
-              >
-                {busy ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>Set up recovery phrase</Text>
-                )}
-              </Pressable>
-            </>
-          ) : (
-            <Text style={styles.value}>✓ Recovery phrase is set up</Text>
-          )}
-        </View>
+              />
+            </View>
+          </>
+        ) : (
+          <Text variant="bodyStrong">✓ Recovery phrase is set up</Text>
+        )}
+      </Card>
 
-        <Text style={styles.section}>Account</Text>
-        <Pressable style={styles.card} onPress={() => router.push('/pair')} testID="settings-pair">
-          <Text style={styles.value}>Pair a new device</Text>
-          <Text style={styles.hint}>Show a QR to sign in on another device without your password.</Text>
-        </Pressable>
-        <Pressable style={styles.logout} onPress={() => logout()} testID="settings-logout">
-          <Text style={styles.logoutText}>Log out</Text>
-        </Pressable>
-      </ScrollView>
-    </View>
+      <Text variant="label" color="textMuted" style={styles.section}>
+        Account
+      </Text>
+      <Card variant="sunken" onPress={() => router.push('/pair')} testID="settings-pair">
+        <Text variant="bodyStrong">Pair a new device</Text>
+        <Text variant="caption" color="textSecondary" style={styles.hint}>
+          Show a QR to sign in on another device without your password.
+        </Text>
+      </Card>
+      <View style={styles.logout}>
+        <Button title="Log out" variant="destructive" fullWidth onPress={() => logout()} testID="settings-logout" />
+      </View>
+    </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  body: { padding: 24, paddingTop: 64 },
-  back: { fontSize: 16, color: '#7a7ad0', fontWeight: '600' },
-  title: { fontSize: 30, fontWeight: '700', color: '#1a1a2e', marginTop: 8 },
-  section: { fontSize: 13, color: '#9a9ab8', fontWeight: '700', textTransform: 'uppercase', marginTop: 28, marginBottom: 8 },
-  card: { backgroundColor: '#f4f4fb', borderRadius: 14, padding: 16 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
-  label: { fontSize: 15, color: '#666' },
-  value: { fontSize: 15, color: '#1a1a2e', fontWeight: '600' },
-  hint: { fontSize: 14, color: '#666', lineHeight: 20 },
-  syncMessage: { fontSize: 13, color: '#4a8a4a', fontWeight: '600', textAlign: 'center', marginTop: 12 },
-  error: { color: '#d12f2f', fontSize: 13, marginTop: 8 },
-  button: { backgroundColor: '#1a1a2e', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 14 },
-  buttonDisabled: { backgroundColor: '#b9b9cc' },
-  buttonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  logout: { paddingVertical: 14, alignItems: 'center' },
-  logoutText: { color: '#d12f2f', fontSize: 16, fontWeight: '700' },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    section: { marginTop: t.spacing['2xl'], marginBottom: t.spacing.sm, textTransform: 'uppercase' },
+    row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: t.spacing.xs },
+    action: { marginTop: t.spacing.md },
+    syncMessage: { textAlign: 'center', marginTop: t.spacing.md },
+    error: { marginTop: t.spacing.sm },
+    hint: { marginTop: t.spacing.xs },
+    logout: { marginTop: t.spacing.xl },
+  })

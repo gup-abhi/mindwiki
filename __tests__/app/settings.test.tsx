@@ -69,12 +69,10 @@ describe('Settings', () => {
     expect(screen.getByText('Save your recovery phrase')).toBeTruthy()
   })
 
-  it('logs out and navigates back', () => {
+  it('logs out', () => {
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-logout'))
     expect(logout).toHaveBeenCalled()
-    fireEvent.press(screen.getByTestId('settings-back'))
-    expect(mockBack).toHaveBeenCalled()
   })
 
   it('opens the pair-a-device screen', () => {

@@ -1,5 +1,7 @@
-import { Modal, Pressable, StyleSheet, Text } from 'react-native'
+import { Modal, StyleSheet } from 'react-native'
 
+import { Card, Text } from '@/components/ui'
+import { type Theme, useThemedStyles } from '@/theme'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
 
 import { RecoveryPhraseView } from './RecoveryPhraseView'
@@ -10,6 +12,7 @@ import { RecoveryPhraseView } from './RecoveryPhraseView'
  * phrase once in a modal. Renders nothing once the account has recovery.
  */
 export function RecoverySetupCard() {
+  const styles = useThemedStyles(makeStyles)
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
 
   if (phrase) {
@@ -23,34 +26,26 @@ export function RecoverySetupCard() {
   if (!needsSetup) return null
 
   return (
-    <Pressable
-      accessibilityRole="button"
+    <Card
+      variant="accent"
       style={styles.card}
-      onPress={setup}
-      disabled={busy}
+      onPress={busy ? undefined : setup}
       testID="recovery-setup-card"
     >
-      <Text style={styles.title}>Protect your account</Text>
-      <Text style={styles.sub}>
+      <Text variant="label" color="accentText">
+        Protect your account
+      </Text>
+      <Text variant="caption" color="accentText" style={styles.sub}>
         {busy
           ? 'Setting up…'
           : (error ?? 'Set up a recovery phrase so you can get back in if you forget your password.')}
       </Text>
-    </Pressable>
+    </Card>
   )
 }
 
-const styles = StyleSheet.create({
-  card: {
-    marginTop: 16,
-    backgroundColor: '#fdf3e7',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    alignSelf: 'stretch',
-    borderWidth: 1,
-    borderColor: '#f0d9b8',
-  },
-  title: { fontSize: 15, color: '#8a5a1a', fontWeight: '700' },
-  sub: { fontSize: 13, color: '#9a6a2a', marginTop: 4, lineHeight: 19 },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    card: { marginTop: t.spacing.lg, alignSelf: 'stretch' },
+    sub: { marginTop: t.spacing.xs },
+  })
