@@ -36,6 +36,24 @@ describe('WikiBrowse', () => {
     render(<WikiBrowse />)
     expect(screen.getByText(/No pages yet/)).toBeTruthy()
   })
+
+  it('groups pages under Emotions / Distortions / Themes headers', () => {
+    mockUseWikiPages.mockReturnValue({
+      pages: [
+        { id: 'p1', title: 'Anxiety', category: 'emotion', entry_count: 3 },
+        { id: 'p2', title: 'Catastrophizing', category: 'distortion', entry_count: 2 },
+        { id: 'p3', title: 'Work', category: 'theme', entry_count: 5 },
+      ],
+      loading: false,
+    })
+    render(<WikiBrowse />)
+    expect(screen.getByText('Emotions')).toBeTruthy()
+    expect(screen.getByText('Distortions')).toBeTruthy()
+    expect(screen.getByText('Themes')).toBeTruthy()
+    expect(screen.getByText('Anxiety')).toBeTruthy()
+    expect(screen.getByText('Catastrophizing')).toBeTruthy()
+    expect(screen.getByText('Work')).toBeTruthy()
+  })
 })
 
 describe('WikiPageScreen', () => {

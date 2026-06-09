@@ -1,23 +1,56 @@
+import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
-import { FlatList, StyleSheet } from 'react-native'
+import { SectionList, StyleSheet } from 'react-native'
 
 import { Divider, EmptyState, ListRow, Screen, Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
+import { type WikiPage } from '@/services/storage/wiki'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
+
+// Pages are grouped by the category the wiki engine assigns (emotion /
+// distortion / theme); anything else falls into "Other".
+const CATEGORY_ORDER = ['emotion', 'distortion', 'theme', 'other'] as const
+const CATEGORY_LABEL: Record<string, string> = {
+  emotion: 'Emotions',
+  distortion: 'Distortions',
+  theme: 'Themes',
+  other: 'Other',
+}
+
+interface Section {
+  title: string
+  data: WikiPage[]
+}
+
+function groupByCategory(pages: WikiPage[]): Section[] {
+  const buckets = new Map<string, WikiPage[]>()
+  for (const p of pages) {
+    const key = p.category && CATEGORY_LABEL[p.category] ? p.category : 'other'
+    const bucket = buckets.get(key) ?? []
+    bucket.push(p)
+    buckets.set(key, bucket)
+  }
+  return CATEGORY_ORDER.filter((c) => buckets.has(c)).map((c) => ({
+    title: CATEGORY_LABEL[c],
+    data: buckets.get(c) ?? [],
+  }))
+}
 
 export default function WikiBrowse() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const { pages, loading } = useWikiPages()
   const synthesizing = useWikiStore((s) => s.pending > 0)
+  const sections = useMemo(() => groupByCategory(pages), [pages])
 
   return (
     <Screen padded={false}>
-      <FlatList
-        data={pages}
+      <SectionList
+        sections={sections}
         keyExtractor={(p) => p.id}
         contentContainerStyle={styles.listContent}
+        stickySectionHeadersEnabled={false}
         ItemSeparatorComponent={Divider}
         ListHeaderComponent={
           <>
@@ -40,6 +73,11 @@ export default function WikiBrowse() {
             />
           ) : null
         }
+        renderSectionHeader={({ section }) => (
+          <Text variant="label" color="textMuted" style={styles.sectionHeader}>
+            {section.title}
+          </Text>
+        )}
         renderItem={({ item }) => (
           <ListRow
             title={item.title}
@@ -59,4 +97,9 @@ const makeStyles = (t: Theme) =>
     listContent: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, paddingBottom: t.spacing['2xl'] },
     title: { marginBottom: t.spacing.md },
     synth: { marginTop: -t.spacing.sm, marginBottom: t.spacing.md },
+    sectionHeader: {
+      marginTop: t.spacing.xl,
+      marginBottom: t.spacing.sm,
+      textTransform: 'uppercase',
+    },
   })
