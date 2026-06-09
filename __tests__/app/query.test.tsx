@@ -6,6 +6,7 @@ import { type WikiAnswer } from '@/services/wiki/query'
 const mockUse = jest.fn()
 const mockPush = jest.fn()
 const mockAsk = jest.fn()
+const mockClear = jest.fn()
 jest.mock('@/hooks/useWikiQuery', () => ({ useWikiQuery: () => mockUse() }))
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
@@ -45,6 +46,7 @@ const base = {
   related: [] as ReturnType<typeof entry>[],
   asking: false,
   ask: mockAsk,
+  clear: mockClear,
 }
 
 describe('QueryScreen', () => {
@@ -52,11 +54,13 @@ describe('QueryScreen', () => {
     mockUse.mockReset()
     mockPush.mockReset()
     mockAsk.mockReset()
+    mockClear.mockReset()
   })
 
   it('shows suggestions and asks when one is tapped', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
+    expect(screen.getByText('Ask')).toBeTruthy() // Ask button visible pre-answer
     const suggestion = screen.getByText('What patterns show up around Work?')
     fireEvent.press(suggestion)
     expect(mockAsk).toHaveBeenCalledWith('What patterns show up around Work?')
@@ -78,6 +82,17 @@ describe('QueryScreen', () => {
 
     fireEvent.press(screen.getByText('Work'))
     expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+  })
+
+  it('hides the Ask button once answered and clears via the clear icon', () => {
+    mockUse.mockReturnValue({
+      ...base,
+      answer: { answer: 'Deadlines tend to spike it.', sources: [], evidenceCount: 0 },
+    })
+    render(<QueryScreen />)
+    expect(screen.queryByText('Ask')).toBeNull() // Ask hidden after an answer
+    fireEvent.press(screen.getByTestId('query-clear'))
+    expect(mockClear).toHaveBeenCalled()
   })
 
   it('lists related entries and opens one for reading', () => {

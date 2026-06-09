@@ -73,11 +73,17 @@ export function useWikiQuery(initialQuestion?: string) {
     [pages, entries, runAnswer]
   )
 
+  // Reset to the pre-question state (suggestions + recent pages).
+  const clear = useCallback(() => {
+    setAnswer(null)
+    setRelated([])
+  }, [])
+
   const suggestions = useMemo(() => suggestedQuestions(pages), [pages])
   const recentPages = useMemo(
     () => [...pages].sort((a, b) => b.updated_at - a.updated_at).slice(0, 5),
     [pages]
   )
 
-  return { suggestions, recentPages, answer, related, asking, ask }
+  return { suggestions, recentPages, answer, related, asking, ask, clear }
 }

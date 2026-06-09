@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
 
-import { Button, Card, Chip, Screen, Text, TextField } from '@/components/ui'
+import { Button, Card, Chip, IconButton, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { useWikiQuery } from '@/hooks/useWikiQuery'
 
@@ -12,13 +12,20 @@ export default function QueryScreen() {
   const theme = useTheme()
   const { q } = useLocalSearchParams<{ q?: string }>()
   const initial = typeof q === 'string' ? q : undefined
-  const { suggestions, recentPages, answer, related, asking, ask } = useWikiQuery(initial)
+  const { suggestions, recentPages, answer, related, asking, ask, clear } = useWikiQuery(initial)
   const [text, setText] = useState(initial ?? '')
 
   const submit = (q: string) => {
     setText(q)
     ask(q)
   }
+
+  // Reset the field and the answer, back to the suggestions view.
+  const clearQuestion = () => {
+    setText('')
+    clear()
+  }
+  const canClear = text.length > 0 || answer !== null
 
   return (
     <Screen scroll>
@@ -37,7 +44,16 @@ export default function QueryScreen() {
             returnKeyType="search"
           />
         </View>
-        <Button title="Ask" onPress={() => submit(text)} />
+        {canClear && (
+          <IconButton
+            name="close-circle"
+            color="textMuted"
+            accessibilityLabel="Clear question"
+            onPress={clearQuestion}
+            testID="query-clear"
+          />
+        )}
+        {!answer && <Button title="Ask" onPress={() => submit(text)} />}
       </View>
 
       {asking && <ActivityIndicator style={styles.spinner} color={theme.colors.accent} />}
@@ -125,7 +141,7 @@ export default function QueryScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     subtitle: { marginTop: t.spacing.xs, marginBottom: t.spacing.lg },
-    searchRow: { flexDirection: 'row', gap: t.spacing.sm, alignItems: 'flex-start' },
+    searchRow: { flexDirection: 'row', gap: t.spacing.sm, alignItems: 'center' },
     searchInput: { flex: 1 },
     spinner: { marginTop: t.spacing['2xl'] },
     answerCard: { marginTop: t.spacing.lg },
