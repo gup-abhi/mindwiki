@@ -1,12 +1,15 @@
 import { render, screen, fireEvent } from '@testing-library/react-native'
 
 import WikiBrowse from '@/app/(tabs)/wiki/index'
+import WikiCategoryScreen from '@/app/wiki/category/[category]'
 import WikiPageScreen from '@/app/wiki/[id]'
 
 const mockPush = jest.fn()
+const mockBack = jest.fn()
+let mockParams: Record<string, string> = { id: 'p1' }
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
-  useLocalSearchParams: () => ({ id: 'p1' }),
+  useRouter: () => ({ push: mockPush, back: mockBack }),
+  useLocalSearchParams: () => mockParams,
 }))
 
 const mockUseWikiPages = jest.fn()
@@ -16,19 +19,28 @@ jest.mock('@/hooks/useWiki', () => ({
   useWikiPage: () => mockUseWikiPage(),
 }))
 
-describe('WikiBrowse', () => {
-  beforeEach(() => mockPush.mockReset())
+const mixedPages = [
+  { id: 'p1', title: 'Anxiety', category: 'emotion', entry_count: 3 },
+  { id: 'p2', title: 'Joy', category: 'emotion', entry_count: 1 },
+  { id: 'p3', title: 'Catastrophizing', category: 'distortion', entry_count: 2 },
+  { id: 'p4', title: 'Work', category: 'theme', entry_count: 5 },
+]
 
-  it('lists pages and navigates to a page on tap', () => {
-    mockUseWikiPages.mockReturnValue({
-      pages: [{ id: 'p1', title: 'Anxiety', category: 'emotion', entry_count: 3 }],
-      loading: false,
-    })
+describe('WikiBrowse (category list)', () => {
+  beforeEach(() => {
+    mockPush.mockReset()
+    mockParams = { id: 'p1' }
+  })
+
+  it('lists categories with page counts and opens one', () => {
+    mockUseWikiPages.mockReturnValue({ pages: mixedPages, loading: false })
     render(<WikiBrowse />)
-    expect(screen.getByText('Anxiety')).toBeTruthy()
-    expect(screen.getByText('emotion · 3 entries')).toBeTruthy()
-    fireEvent.press(screen.getByText('Anxiety'))
-    expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+    expect(screen.getByText('Emotions')).toBeTruthy()
+    expect(screen.getByText('2 pages')).toBeTruthy() // two emotion pages
+    expect(screen.getByText('Distortions')).toBeTruthy()
+    expect(screen.getByText('Themes')).toBeTruthy()
+    fireEvent.press(screen.getByText('Emotions'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/category/emotion')
   })
 
   it('shows an empty state when there are no pages', () => {
@@ -36,27 +48,40 @@ describe('WikiBrowse', () => {
     render(<WikiBrowse />)
     expect(screen.getByText(/No pages yet/)).toBeTruthy()
   })
+})
 
-  it('groups pages under Emotions / Distortions / Themes headers', () => {
-    mockUseWikiPages.mockReturnValue({
-      pages: [
-        { id: 'p1', title: 'Anxiety', category: 'emotion', entry_count: 3 },
-        { id: 'p2', title: 'Catastrophizing', category: 'distortion', entry_count: 2 },
-        { id: 'p3', title: 'Work', category: 'theme', entry_count: 5 },
-      ],
-      loading: false,
-    })
-    render(<WikiBrowse />)
-    expect(screen.getByText('Emotions')).toBeTruthy()
-    expect(screen.getByText('Distortions')).toBeTruthy()
-    expect(screen.getByText('Themes')).toBeTruthy()
+describe('WikiCategoryScreen', () => {
+  beforeEach(() => {
+    mockPush.mockReset()
+    mockBack.mockReset()
+  })
+
+  it('lists only the pages in the category and opens one', () => {
+    mockParams = { category: 'emotion' }
+    mockUseWikiPages.mockReturnValue({ pages: mixedPages, loading: false })
+    render(<WikiCategoryScreen />)
+    expect(screen.getByText('Emotions')).toBeTruthy() // header label
     expect(screen.getByText('Anxiety')).toBeTruthy()
-    expect(screen.getByText('Catastrophizing')).toBeTruthy()
-    expect(screen.getByText('Work')).toBeTruthy()
+    expect(screen.getByText('Joy')).toBeTruthy()
+    expect(screen.queryByText('Work')).toBeNull() // theme page excluded
+    fireEvent.press(screen.getByText('Anxiety'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+  })
+
+  it('goes back to the wiki list', () => {
+    mockParams = { category: 'theme' }
+    mockUseWikiPages.mockReturnValue({ pages: mixedPages, loading: false })
+    render(<WikiCategoryScreen />)
+    fireEvent.press(screen.getByTestId('category-back'))
+    expect(mockBack).toHaveBeenCalled()
   })
 })
 
 describe('WikiPageScreen', () => {
+  beforeEach(() => {
+    mockParams = { id: 'p1' }
+  })
+
   it('renders the page title and synthesized content', () => {
     mockUseWikiPage.mockReturnValue({
       page: { id: 'p1', title: 'Anxiety', category: 'emotion', version: 2, entry_count: 3, content: 'You tend to expect the worst before meetings.' },

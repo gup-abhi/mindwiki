@@ -1,56 +1,47 @@
 import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
-import { SectionList, StyleSheet } from 'react-native'
+import { FlatList, StyleSheet } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 
 import { Divider, EmptyState, ListRow, Screen, Text } from '@/components/ui'
-import { type Theme, useThemedStyles } from '@/theme'
-import { type WikiPage } from '@/services/storage/wiki'
+import { type Theme, useTheme, useThemedStyles } from '@/theme'
+import { CATEGORY_ORDER, categoryKey, categoryLabel } from '@/services/wiki/categories'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
 
-// Pages are grouped by the category the wiki engine assigns (emotion /
-// distortion / theme); anything else falls into "Other".
-const CATEGORY_ORDER = ['emotion', 'distortion', 'theme', 'other'] as const
-const CATEGORY_LABEL: Record<string, string> = {
-  emotion: 'Emotions',
-  distortion: 'Distortions',
-  theme: 'Themes',
-  other: 'Other',
-}
-
-interface Section {
-  title: string
-  data: WikiPage[]
-}
-
-function groupByCategory(pages: WikiPage[]): Section[] {
-  const buckets = new Map<string, WikiPage[]>()
-  for (const p of pages) {
-    const key = p.category && CATEGORY_LABEL[p.category] ? p.category : 'other'
-    const bucket = buckets.get(key) ?? []
-    bucket.push(p)
-    buckets.set(key, bucket)
-  }
-  return CATEGORY_ORDER.filter((c) => buckets.has(c)).map((c) => ({
-    title: CATEGORY_LABEL[c],
-    data: buckets.get(c) ?? [],
-  }))
+interface CategorySummary {
+  key: string
+  label: string
+  count: number
 }
 
 export default function WikiBrowse() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
   const { pages, loading } = useWikiPages()
   const synthesizing = useWikiStore((s) => s.pending > 0)
-  const sections = useMemo(() => groupByCategory(pages), [pages])
+
+  // One row per category present, with its page count.
+  const categories = useMemo<CategorySummary[]>(() => {
+    const counts = new Map<string, number>()
+    for (const p of pages) {
+      const k = categoryKey(p.category)
+      counts.set(k, (counts.get(k) ?? 0) + 1)
+    }
+    return CATEGORY_ORDER.filter((c) => counts.has(c)).map((c) => ({
+      key: c,
+      label: categoryLabel(c),
+      count: counts.get(c) ?? 0,
+    }))
+  }, [pages])
 
   return (
     <Screen padded={false}>
-      <SectionList
-        sections={sections}
-        keyExtractor={(p) => p.id}
+      <FlatList
+        data={categories}
+        keyExtractor={(c) => c.key}
         contentContainerStyle={styles.listContent}
-        stickySectionHeadersEnabled={false}
         ItemSeparatorComponent={Divider}
         ListHeaderComponent={
           <>
@@ -73,18 +64,12 @@ export default function WikiBrowse() {
             />
           ) : null
         }
-        renderSectionHeader={({ section }) => (
-          <Text variant="label" color="textMuted" style={styles.sectionHeader}>
-            {section.title}
-          </Text>
-        )}
         renderItem={({ item }) => (
           <ListRow
-            title={item.title}
-            subtitle={`${item.category ?? 'page'} · ${item.entry_count} ${
-              item.entry_count === 1 ? 'entry' : 'entries'
-            }`}
-            onPress={() => router.push(`/wiki/${item.id}`)}
+            title={item.label}
+            subtitle={`${item.count} ${item.count === 1 ? 'page' : 'pages'}`}
+            onPress={() => router.push(`/wiki/category/${item.key}`)}
+            right={<Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />}
           />
         )}
       />
@@ -97,9 +82,4 @@ const makeStyles = (t: Theme) =>
     listContent: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, paddingBottom: t.spacing['2xl'] },
     title: { marginBottom: t.spacing.md },
     synth: { marginTop: -t.spacing.sm, marginBottom: t.spacing.md },
-    sectionHeader: {
-      marginTop: t.spacing.xl,
-      marginBottom: t.spacing.sm,
-      textTransform: 'uppercase',
-    },
   })
