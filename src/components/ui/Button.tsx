@@ -1,10 +1,13 @@
 import { ActivityIndicator, Pressable, StyleSheet, View, type ViewStyle } from 'react-native'
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { haptics } from '@/lib/haptics'
 
 import { Text } from './Text'
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive'
 type Size = 'sm' | 'md' | 'lg'
@@ -67,14 +70,24 @@ export function Button({
   const isDisabled = disabled || loading
   const tint = theme.colors[textColorFor[variant]]
 
+  // Calm press-scale: a small dip on press-in, springs back on release.
+  const scale = useSharedValue(1)
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }))
+
   const handlePress = () => {
     if (haptic) haptics.light()
     onPress()
   }
 
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={handlePress}
+      onPressIn={() => {
+        if (!isDisabled) scale.value = withTiming(0.97, { duration: 90 })
+      }}
+      onPressOut={() => {
+        scale.value = withTiming(1, { duration: 120 })
+      }}
       disabled={isDisabled}
       accessibilityRole="button"
       testID={testID}
@@ -85,6 +98,7 @@ export function Button({
         fullWidth && styles.fullWidth,
         isDisabled && styles.disabled,
         pressed && !isDisabled && styles.pressed,
+        animStyle,
       ].filter(Boolean) as ViewStyle[]}
     >
       {loading ? (
@@ -97,6 +111,6 @@ export function Button({
           </Text>
         </View>
       )}
-    </Pressable>
+    </AnimatedPressable>
   )
 }

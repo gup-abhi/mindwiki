@@ -2,12 +2,14 @@ import { Tabs } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 
 import { useTheme } from '@/theme'
+import { haptics } from '@/lib/haptics'
 
 /** Bottom tab bar: Home / Wiki / Graph / Ask / Settings, themed. */
 export default function TabsLayout() {
   const theme = useTheme()
   return (
     <Tabs
+      screenListeners={{ tabPress: () => haptics.select() }}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: theme.colors.accent,

@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet } from 'react-native'
 
 import { type Theme, useThemedStyles } from '@/theme'
+import { haptics } from '@/lib/haptics'
 
 import { Text } from './Text'
 
@@ -26,9 +27,15 @@ const makeStyles = (t: Theme) =>
 /** Pill — filter / selectable tag. */
 export function Chip({ label, selected = false, onPress, testID }: ChipProps) {
   const styles = useThemedStyles(makeStyles)
+  const handlePress = onPress
+    ? () => {
+        haptics.select()
+        onPress()
+      }
+    : undefined
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       disabled={!onPress}
       accessibilityRole="button"
       accessibilityState={{ selected }}

@@ -3,6 +3,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 
 import { Button, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
+import { haptics } from '@/lib/haptics'
 import { useJournalEntry } from '@/hooks/useJournalEntry'
 
 const MOODS = [1, 2, 3, 4, 5]
@@ -19,6 +20,7 @@ export default function EntryScreen() {
       Alert.alert('Could not save', result.error.message)
       return
     }
+    haptics.success()
     if (result.data.crisis.tier > 0) {
       router.replace({ pathname: '/crisis', params: { tier: String(result.data.crisis.tier) } })
     } else {
@@ -50,7 +52,10 @@ export default function EntryScreen() {
                   <Pressable
                     key={m}
                     accessibilityRole="button"
-                    onPress={() => j.setMood(m)}
+                    onPress={() => {
+                      haptics.select()
+                      j.setMood(m)
+                    }}
                     style={[styles.mood, active && styles.moodActive]}
                   >
                     <Text variant="subtitle" color={active ? 'primaryText' : 'textPrimary'}>

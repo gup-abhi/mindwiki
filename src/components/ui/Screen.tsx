@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
+import Animated, { FadeIn } from 'react-native-reanimated'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context'
 
@@ -35,10 +36,12 @@ export function Screen({ children, scroll, padded = true, edges = ['top', 'left'
           contentContainerStyle={padded ? styles.scrollContent : undefined}
           keyboardShouldPersistTaps="handled"
         >
-          {children}
+          <Animated.View entering={FadeIn.duration(250)}>{children}</Animated.View>
         </ScrollView>
       ) : (
-        <View style={[styles.flex, padded && styles.padded]}>{children}</View>
+        <Animated.View style={[styles.flex, padded && styles.padded]} entering={FadeIn.duration(250)}>
+          {children}
+        </Animated.View>
       )}
     </SafeAreaView>
   )
