@@ -1,6 +1,7 @@
 import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { type SqliteDatabase, setDb } from '@/services/storage/db'
 import { upsertNode, upsertEdge } from '@/services/storage/graph'
+import { listEntitiesForEntry } from '@/services/storage/entities'
 import { type Entry } from '@/services/storage/entries'
 import { ok } from '@/types/result'
 
@@ -8,9 +9,11 @@ jest.mock('@/services/storage/graph', () => ({
   upsertNode: jest.fn(),
   upsertEdge: jest.fn(),
 }))
+jest.mock('@/services/storage/entities', () => ({ listEntitiesForEntry: jest.fn() }))
 
 const mockUpsertNode = upsertNode as jest.Mock
 const mockUpsertEdge = upsertEdge as jest.Mock
+const mockListEntities = listEntitiesForEntry as jest.Mock
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -32,6 +35,8 @@ describe('updateGraphForEntry', () => {
   beforeEach(() => {
     mockUpsertNode.mockReset()
     mockUpsertEdge.mockReset()
+    mockListEntities.mockReset()
+    mockListEntities.mockResolvedValue(ok([]))
     let n = 0
     mockUpsertNode.mockImplementation(async (type, label) =>
       ok({ id: `id-${++n}`, type, label, frequency: 1 })
@@ -70,12 +75,29 @@ describe('updateGraphForEntry', () => {
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'loneliness')
     expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Loneliness')
   })
+
+  it('adds person/place/activity nodes from the entry entities', async () => {
+    mockListEntities.mockResolvedValue(
+      ok([
+        { id: 'x1', entry_id: 'e1', type: 'person', label: 'Sarah', created_at: 0 },
+        { id: 'x2', entry_id: 'e1', type: 'place', label: 'Office', created_at: 0 },
+      ])
+    )
+    await updateGraphForEntry(entry({ distortion: 'none' }), null) // emotion + 2 entities = 3 nodes
+
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
+    expect(mockUpsertNode).toHaveBeenCalledWith('person', 'Sarah')
+    expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Office')
+    expect(mockUpsertEdge).toHaveBeenCalledTimes(3) // 3 nodes -> 3 pairs
+  })
 })
 
 describe('rebuildGraph', () => {
   beforeEach(() => {
     mockUpsertNode.mockReset()
     mockUpsertEdge.mockReset()
+    mockListEntities.mockReset()
+    mockListEntities.mockResolvedValue(ok([]))
     let n = 0
     mockUpsertNode.mockImplementation(async (type, label) =>
       ok({ id: `id-${++n}`, type, label, frequency: 1 })

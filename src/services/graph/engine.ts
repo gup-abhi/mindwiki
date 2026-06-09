@@ -1,12 +1,14 @@
 import { getDb } from '@/services/storage/db'
 import { upsertNode, upsertEdge, type NodeType } from '@/services/storage/graph'
 import { listEntries, type Entry } from '@/services/storage/entries'
+import { listEntitiesForEntry } from '@/services/storage/entities'
 import { type Result, ok, err } from '@/types/result'
 
 /**
  * Build graph nodes + co-occurrence edges from a tagged entry: a node per
- * emotion / distortion / theme(topic), and an edge between every pair that
- * co-occurred in this entry (additive weight). Best-effort, never throws.
+ * emotion / distortion / theme(topic) and per extracted entity (person / place /
+ * activity), and an edge between every pair that co-occurred in this entry
+ * (additive weight). Best-effort, never throws.
  */
 export async function updateGraphForEntry(
   entry: Entry,
@@ -33,6 +35,12 @@ export async function updateGraphForEntry(
       if (!duplicatesTag) specs.push({ type: 'situation', label: theme })
     }
 
+    // Extracted entities (person/place/activity) co-occur with the tags above.
+    const entities = await listEntitiesForEntry(entry.id)
+    if (entities.success) {
+      for (const e of entities.data) specs.push({ type: e.type, label: e.label })
+    }
+
     const ids: string[] = []
     for (const spec of specs) {
       const node = await upsertNode(spec.type, spec.label)
@@ -54,12 +62,13 @@ export async function updateGraphForEntry(
 
 /**
  * Rebuild the derived graph from all entries. Needed after a sync pull on a new
- * device, where entries arrive as raw rows (no pipeline run) so the graph would
- * otherwise stay empty. Clears first to stay idempotent (graph is additive).
- * Best-effort, never throws.
+ * device, where entries + entry_entities arrive as raw rows (no pipeline run) so
+ * the graph would otherwise stay empty. Clears first to stay idempotent (graph
+ * is additive). Best-effort, never throws.
  *
- * NOTE: theme/topic nodes can't be restored — `topic` is transient and not
- * persisted on entries — so only emotion + distortion nodes/edges are rebuilt.
+ * Restores emotion + distortion + theme (persisted `topic`) nodes and the
+ * person/place/activity nodes from entry_entities (updateGraphForEntry reads
+ * them per entry).
  */
 export async function rebuildGraph(): Promise<Result<void>> {
   try {
