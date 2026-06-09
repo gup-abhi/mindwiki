@@ -11,6 +11,8 @@ export type NodeType =
   | 'belief'
   | 'behavior'
   | 'distortion'
+  | 'place'
+  | 'activity'
 
 export interface GraphNode {
   id: string

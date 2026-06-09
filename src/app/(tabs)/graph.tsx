@@ -24,6 +24,8 @@ export default function GraphScreen() {
     belief: theme.colors.graphBelief,
     behavior: theme.colors.graphBehavior,
     distortion: theme.colors.graphDistortion,
+    place: theme.colors.graphPlace,
+    activity: theme.colors.graphActivity,
   }
   // Canvas fills the space left under the filter pills — measured via onLayout
   // rather than a fixed fraction of the screen, so the graph isn't cramped.

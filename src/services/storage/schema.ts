@@ -102,3 +102,53 @@ export const migration002: Migration = {
   name: 'entry_topic',
   statements: ['ALTER TABLE entries ADD COLUMN topic TEXT'],
 }
+
+// Migration 003 — richer entity extraction. Adds a normalized entry_entities
+// table (people / places / activities pulled from an entry) and widens the
+// graph_nodes type CHECK to include 'place'/'activity'. SQLite can't ALTER a
+// CHECK in place, so graph_nodes/graph_edges are dropped + recreated; the graph
+// is derived, so rebuildGraph() (run after this migration / on next sync) fully
+// repopulates it from entries + entry_entities. Pre-existing pages/entries are
+// untouched.
+export const migration003: Migration = {
+  version: 3,
+  name: 'entry_entities',
+  statements: [
+    // Normalized entities, write-once per entry (re-tagging replaces the set).
+    `CREATE TABLE entry_entities (
+      id         TEXT PRIMARY KEY,
+      entry_id   TEXT NOT NULL REFERENCES entries(id),
+      type       TEXT NOT NULL CHECK (type IN ('person','place','activity')),
+      label      TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE (entry_id, type, label)
+    )`,
+    `CREATE INDEX idx_entry_entities_type_label ON entry_entities (type, label)`,
+    `CREATE INDEX idx_entry_entities_entry ON entry_entities (entry_id)`,
+
+    // Widen the node-type CHECK by rebuilding the derived graph tables.
+    `DROP TABLE graph_edges`,
+    `DROP TABLE graph_nodes`,
+    `CREATE TABLE graph_nodes (
+      id         TEXT PRIMARY KEY,
+      type       TEXT NOT NULL CHECK (type IN
+                 ('emotion','situation','person','belief','behavior','distortion','place','activity')),
+      label      TEXT NOT NULL,
+      frequency  INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (type, label)
+    )`,
+    `CREATE TABLE graph_edges (
+      id         TEXT PRIMARY KEY,
+      source_id  TEXT NOT NULL REFERENCES graph_nodes(id),
+      target_id  TEXT NOT NULL REFERENCES graph_nodes(id),
+      weight     INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (source_id, target_id)
+    )`,
+    `CREATE INDEX idx_graph_edges_source ON graph_edges (source_id)`,
+    `CREATE INDEX idx_graph_edges_target ON graph_edges (target_id)`,
+  ],
+}

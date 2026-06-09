@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2])
-    expect(applied).toEqual([1, 2])
+    if (result.success) expect(result.data).toEqual([1, 2, 3])
+    expect(applied).toEqual([1, 2, 3])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -66,5 +66,30 @@ describe('migration 002 (entry topic)', () => {
     expect(MIGRATIONS[1].version).toBe(2)
     expect(MIGRATIONS[1].name).toBe('entry_topic')
     expect(MIGRATIONS[1].statements).toEqual(['ALTER TABLE entries ADD COLUMN topic TEXT'])
+  })
+})
+
+describe('migration 003 (entry entities)', () => {
+  it('is registered as version 3', () => {
+    expect(MIGRATIONS[2].version).toBe(3)
+    expect(MIGRATIONS[2].name).toBe('entry_entities')
+  })
+
+  it('creates entry_entities and recreates graph_nodes with place/activity', () => {
+    const stmts = MIGRATIONS[2].statements
+    expect(stmts.some((s) => s.includes('CREATE TABLE entry_entities'))).toBe(true)
+    // graph_nodes is dropped + recreated with the widened type CHECK
+    expect(stmts.some((s) => s.includes('DROP TABLE graph_nodes'))).toBe(true)
+    const recreate = stmts.find((s) => s.includes('CREATE TABLE graph_nodes'))
+    expect(recreate).toBeDefined()
+    expect(recreate).toContain("'place'")
+    expect(recreate).toContain("'activity'")
+  })
+
+  it('recreates graph_nodes before graph_edges (FK target first)', () => {
+    const stmts = MIGRATIONS[2].statements
+    const nodesAt = stmts.findIndex((s) => s.includes('CREATE TABLE graph_nodes'))
+    const edgesAt = stmts.findIndex((s) => s.includes('CREATE TABLE graph_edges'))
+    expect(nodesAt).toBeLessThan(edgesAt)
   })
 })

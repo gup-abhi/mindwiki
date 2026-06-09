@@ -30,6 +30,8 @@ export interface ColorTokens {
   graphBelief: string
   graphBehavior: string
   graphDistortion: string
+  graphPlace: string
+  graphActivity: string
 }
 
 export const lightColors: ColorTokens = {
@@ -58,6 +60,8 @@ export const lightColors: ColorTokens = {
   graphBelief: '#B98AD6',
   graphBehavior: '#E0BE72',
   graphDistortion: '#6FC2C9',
+  graphPlace: '#D69A6F',
+  graphActivity: '#9AA86F',
 }
 
 export const darkColors: ColorTokens = {
@@ -86,4 +90,6 @@ export const darkColors: ColorTokens = {
   graphBelief: '#B98AD6',
   graphBehavior: '#E0BE72',
   graphDistortion: '#6FC2C9',
+  graphPlace: '#D69A6F',
+  graphActivity: '#9AA86F',
 }
