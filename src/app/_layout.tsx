@@ -18,7 +18,7 @@ import { hydrateAuth } from '@/services/auth/auth.service'
 import { useAuthStore } from '@/store/auth.store'
 import { useSync } from '@/hooks/useSync'
 import { AuthScreen } from '@/components/auth/AuthScreen'
-import { ThemeProvider } from '@/theme'
+import { ThemeProvider, type Theme, useTheme, useThemedStyles } from '@/theme'
 
 // Hold the native splash until our custom fonts are ready (best-effort).
 void SplashScreen.preventAutoHideAsync()
@@ -37,6 +37,8 @@ function AppRoot() {
 /** Auth + encrypted-DB gate. Rendered inside the theme + safe-area providers. */
 function AppGate() {
   const authStatus = useAuthStore((s) => s.status)
+  const theme = useTheme()
+  const styles = useThemedStyles(makeStyles)
   const [storage, setStorage] = useState<StorageStatus>('idle')
   const [message, setMessage] = useState('')
 
@@ -66,7 +68,7 @@ function AppGate() {
   if (authStatus === 'loading') {
     return (
       <View testID="storage-loading" style={styles.center}>
-        <ActivityIndicator size="large" color="#1a1a2e" />
+        <ActivityIndicator size="large" color={theme.colors.accent} />
       </View>
     )
   }
@@ -87,7 +89,7 @@ function AppGate() {
   if (storage !== 'ready') {
     return (
       <View testID="storage-loading" style={styles.center}>
-        <ActivityIndicator size="large" color="#1a1a2e" />
+        <ActivityIndicator size="large" color={theme.colors.accent} />
       </View>
     )
   }
@@ -123,8 +125,9 @@ export default function RootLayout() {
   )
 }
 
-const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', padding: 32 },
-  errTitle: { fontSize: 20, fontWeight: '700', color: '#d12f2f' },
-  errMsg: { fontSize: 14, color: '#666', marginTop: 8, textAlign: 'center' },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.bg, padding: t.spacing['2xl'] },
+    errTitle: { fontSize: 20, fontWeight: '700', color: t.colors.danger },
+    errMsg: { fontSize: 14, color: t.colors.textSecondary, marginTop: t.spacing.sm, textAlign: 'center' },
+  })

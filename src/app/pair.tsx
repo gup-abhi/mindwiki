@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'expo-router'
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
 import QRCode from 'react-native-qrcode-svg'
 
+import { Button, Screen, Text } from '@/components/ui'
+import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { startPairing } from '@/services/sync/pairing'
 
 /**
@@ -13,6 +15,8 @@ import { startPairing } from '@/services/sync/pairing'
  */
 export default function Pair() {
   const router = useRouter()
+  const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
   const [payload, setPayload] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -32,47 +36,56 @@ export default function Pair() {
   }, [generate])
 
   return (
-    <View style={styles.container}>
+    <Screen>
       <Pressable onPress={() => router.back()} testID="pair-back">
-        <Text style={styles.back}>‹ Settings</Text>
+        <Text variant="label" color="accent">
+          ‹ Settings
+        </Text>
       </Pressable>
-      <Text style={styles.title}>Pair a new device</Text>
-      <Text style={styles.subtitle}>
+      <Text variant="title" style={styles.title}>
+        Pair a new device
+      </Text>
+      <Text variant="body" color="textSecondary" style={styles.subtitle}>
         On your new device, choose “Pair with another device” and scan this code. It expires in 5
         minutes. Anyone who scans it gets full access — only show it to a device you own.
       </Text>
       <View style={styles.qrWrap} testID="pair-qr">
         {loading ? (
-          <ActivityIndicator size="large" color="#1a1a2e" />
+          <ActivityIndicator size="large" color={theme.colors.accent} />
         ) : error ? (
           <>
-            <Text style={styles.error}>{error}</Text>
-            <Pressable style={styles.button} onPress={() => generate()} testID="pair-retry">
-              <Text style={styles.buttonText}>Try again</Text>
-            </Pressable>
+            <Text variant="caption" color="danger" style={styles.error}>
+              {error}
+            </Text>
+            <View style={styles.retry}>
+              <Button title="Try again" onPress={() => generate()} testID="pair-retry" />
+            </View>
           </>
         ) : payload ? (
           <>
-            <QRCode value={payload} size={240} />
+            {/* QR stays black-on-white for reliable scanning in any theme. */}
+            <View style={styles.qrCode}>
+              <QRCode value={payload} size={240} />
+            </View>
             <Pressable style={styles.reload} onPress={() => generate()} testID="pair-reload">
-              <Text style={styles.reloadText}>Reload code</Text>
+              <Text variant="label" color="accent">
+                Reload code
+              </Text>
             </Pressable>
           </>
         ) : null}
       </View>
-    </View>
+    </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', padding: 24, paddingTop: 64 },
-  back: { fontSize: 16, color: '#7a7ad0', fontWeight: '600' },
-  title: { fontSize: 28, fontWeight: '700', color: '#1a1a2e', marginTop: 8 },
-  subtitle: { fontSize: 15, color: '#666', marginTop: 8, lineHeight: 22 },
-  qrWrap: { alignItems: 'center', justifyContent: 'center', marginTop: 40, minHeight: 240 },
-  error: { color: '#d12f2f', fontSize: 14, textAlign: 'center' },
-  button: { backgroundColor: '#1a1a2e', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 28, marginTop: 20 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  reload: { marginTop: 24, paddingVertical: 10, paddingHorizontal: 24 },
-  reloadText: { color: '#7a7ad0', fontSize: 15, fontWeight: '600' },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    title: { marginTop: t.spacing.sm },
+    subtitle: { marginTop: t.spacing.sm },
+    qrWrap: { alignItems: 'center', justifyContent: 'center', marginTop: t.spacing['3xl'], minHeight: 240 },
+    qrCode: { backgroundColor: '#fff', padding: t.spacing.md, borderRadius: t.radii.md },
+    error: { textAlign: 'center' },
+    retry: { marginTop: t.spacing.lg },
+    reload: { marginTop: t.spacing.xl, paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.xl },
+  })
