@@ -1,4 +1,5 @@
 import { CryptoModule } from '@/native/CryptoModule'
+import { rebuildGraph } from '@/services/graph/engine'
 import { type Result, ok, err } from '@/types/result'
 
 import { initDb } from './db'
@@ -22,6 +23,12 @@ export async function initStorage(): Promise<Result<void>> {
 
   const migrated = await migrate()
   if (!migrated.success) return migrated
+
+  // Migration 003 recreates the derived graph tables (to widen the node-type
+  // CHECK), which empties them. Rebuild from entries + entry_entities so a
+  // single-device user (who never pulls a sync delta) doesn't lose their graph.
+  // Best-effort — a rebuild failure must not block storage init.
+  if (migrated.data.includes(3)) await rebuildGraph()
 
   return ok(undefined)
 }
