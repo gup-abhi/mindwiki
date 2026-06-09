@@ -2,17 +2,10 @@ import { useMemo, useRef, useState } from 'react'
 import { PanResponder, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Svg, { Circle, G, Line, Text as SvgText } from 'react-native-svg'
 
+import { Screen } from '@/components/ui'
+import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { useGraph } from '@/hooks/useGraph'
 import { type NodeType } from '@/services/storage/graph'
-
-const COLORS: Record<NodeType, string> = {
-  emotion: '#e06c75',
-  situation: '#61afef',
-  person: '#98c379',
-  belief: '#c678dd',
-  behavior: '#e5c07b',
-  distortion: '#56b6c2',
-}
 
 type Filter = NodeType | 'all'
 
@@ -22,6 +15,16 @@ function radius(frequency: number): number {
 
 export default function GraphScreen() {
   const { width, height } = useWindowDimensions()
+  const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
+  const colors: Record<NodeType, string> = {
+    emotion: theme.colors.graphEmotion,
+    situation: theme.colors.graphSituation,
+    person: theme.colors.graphPerson,
+    belief: theme.colors.graphBelief,
+    behavior: theme.colors.graphBehavior,
+    distortion: theme.colors.graphDistortion,
+  }
   // Canvas fills the space left under the filter pills — measured via onLayout
   // rather than a fixed fraction of the screen, so the graph isn't cramped.
   const [canvasH, setCanvasH] = useState(Math.round(height * 0.7))
@@ -110,7 +113,7 @@ export default function GraphScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <Screen padded={false}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -154,7 +157,7 @@ export default function GraphScreen() {
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke="#ccc"
+                stroke={theme.colors.border}
                 strokeWidth={Math.min(e.weight, 4)}
                 strokeDasharray={e.weight < 4 ? '4 4' : undefined}
               />
@@ -170,7 +173,7 @@ export default function GraphScreen() {
                 cx={p.x}
                 cy={p.y}
                 r={radius(n.frequency)}
-                fill={COLORS[n.type]}
+                fill={colors[n.type]}
                 onPress={() => setSelectedId(n.id)}
               />
             )
@@ -179,7 +182,7 @@ export default function GraphScreen() {
             const p = layout.get(n.id)
             if (!p) return null
             return (
-              <SvgText key={`${n.id}-label`} x={p.x} y={p.y - radius(n.frequency) - 4} fontSize={11} fill="#444" textAnchor="middle">
+              <SvgText key={`${n.id}-label`} x={p.x} y={p.y - radius(n.frequency) - 4} fontSize={11} fill={theme.colors.textSecondary} textAnchor="middle">
                 {n.label}
               </SvgText>
             )
@@ -217,56 +220,50 @@ export default function GraphScreen() {
           </Pressable>
         </View>
       )}
-    </View>
+    </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', paddingTop: 48 },
-  pillBar: { flexGrow: 0, maxHeight: 40 },
-  pills: { paddingHorizontal: 16, gap: 8, alignItems: 'center' },
-  pill: {
-    paddingVertical: 4,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: '#f2f2f7',
-    alignSelf: 'flex-start',
-  },
-  pillActive: { backgroundColor: '#1a1a2e' },
-  pillText: { color: '#1a1a2e', fontSize: 13, textTransform: 'capitalize' },
-  pillTextActive: { color: '#fff' },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
-  emptyText: { color: '#999', fontSize: 15, textAlign: 'center', lineHeight: 22 },
-  canvas: { flex: 1, width: '100%' },
-  zoomControls: { position: 'absolute', right: 16, top: 12, gap: 10 },
-  zoomBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  zoomText: { fontSize: 24, color: '#1a1a2e', lineHeight: 26 },
-  zoomReset: { fontSize: 18, color: '#1a1a2e' },
-  card: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
-    bottom: 32,
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 18,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  cardTitle: { fontSize: 18, fontWeight: '700', color: '#1a1a2e' },
-  cardMeta: { fontSize: 14, color: '#666', marginTop: 4 },
-  cardClose: { fontSize: 15, color: '#7a7ad0', fontWeight: '600', marginTop: 12 },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    pillBar: { flexGrow: 0, maxHeight: 40 },
+    pills: { paddingHorizontal: t.spacing.lg, gap: t.spacing.sm, alignItems: 'center' },
+    pill: {
+      paddingVertical: t.spacing.xs,
+      paddingHorizontal: t.spacing.lg,
+      borderRadius: t.radii.pill,
+      backgroundColor: t.colors.surfaceAlt,
+      alignSelf: 'flex-start',
+    },
+    pillActive: { backgroundColor: t.colors.primary },
+    pillText: { color: t.colors.textPrimary, fontSize: 13, fontFamily: t.fontFamily.uiSemibold, textTransform: 'capitalize' },
+    pillTextActive: { color: t.colors.primaryText },
+    empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing['2xl'] },
+    emptyText: { color: t.colors.textMuted, fontSize: 15, fontFamily: t.fontFamily.serifRegular, textAlign: 'center', lineHeight: 22 },
+    canvas: { flex: 1, width: '100%' },
+    zoomControls: { position: 'absolute', right: t.spacing.lg, top: t.spacing.md, gap: t.spacing.sm },
+    zoomBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: t.colors.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...t.shadows.med,
+    },
+    zoomText: { fontSize: 24, color: t.colors.textPrimary, lineHeight: 26 },
+    zoomReset: { fontSize: 18, color: t.colors.textPrimary },
+    card: {
+      position: 'absolute',
+      left: t.spacing.xl,
+      right: t.spacing.xl,
+      bottom: t.spacing['2xl'],
+      backgroundColor: t.colors.surface,
+      borderRadius: t.radii.lg,
+      padding: t.spacing.lg,
+      ...t.shadows.high,
+    },
+    cardTitle: { fontSize: 18, fontFamily: t.fontFamily.serifSemibold, color: t.colors.textPrimary },
+    cardMeta: { fontSize: 14, fontFamily: t.fontFamily.uiRegular, color: t.colors.textSecondary, marginTop: t.spacing.xs },
+    cardClose: { fontSize: 15, fontFamily: t.fontFamily.uiSemibold, color: t.colors.accent, marginTop: t.spacing.md },
+  })

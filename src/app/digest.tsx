@@ -1,13 +1,16 @@
 import { useRouter } from 'expo-router'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native'
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg'
 
+import { Card, Screen, Text } from '@/components/ui'
+import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { useDigest } from '@/hooks/useDigest'
 import { type MoodPoint } from '@/services/digest/generator'
 
 const ARC_H = 130
 
 function MoodArc({ points, width }: { points: MoodPoint[]; width: number }) {
+  const theme = useTheme()
   if (points.length === 0) return null
   const padX = 26
   const padTop = 22
@@ -23,19 +26,19 @@ function MoodArc({ points, width }: { points: MoodPoint[]; width: number }) {
     <Svg width={width} height={ARC_H}>
       {/* 1–5 scale: faint gridlines + end labels so a single point is still legible */}
       {[1, 3, 5].map((m) => (
-        <Line key={m} x1={padX} y1={yFor(m)} x2={padX + innerW} y2={yFor(m)} stroke="#e6e6f0" strokeWidth={1} />
+        <Line key={m} x1={padX} y1={yFor(m)} x2={padX + innerW} y2={yFor(m)} stroke={theme.colors.divider} strokeWidth={1} />
       ))}
-      <SvgText x={padX - 8} y={yFor(5) + 4} fontSize={10} fill="#aaa" textAnchor="end">5</SvgText>
-      <SvgText x={padX - 8} y={yFor(1) + 4} fontSize={10} fill="#aaa" textAnchor="end">1</SvgText>
+      <SvgText x={padX - 8} y={yFor(5) + 4} fontSize={10} fill={theme.colors.textMuted} textAnchor="end">5</SvgText>
+      <SvgText x={padX - 8} y={yFor(1) + 4} fontSize={10} fill={theme.colors.textMuted} textAnchor="end">1</SvgText>
 
       {xy.length > 1 && (
-        <Polyline points={xy.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#7a7ad0" strokeWidth={2} />
+        <Polyline points={xy.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={theme.colors.accent} strokeWidth={2} />
       )}
       {xy.map((p, i) => (
-        <Circle key={i} testID="mood-point" cx={p.x} cy={p.y} r={5} fill="#1a1a2e" />
+        <Circle key={i} testID="mood-point" cx={p.x} cy={p.y} r={5} fill={theme.colors.primary} />
       ))}
       {xy.map((p, i) => (
-        <SvgText key={`v${i}`} x={p.x} y={p.y - 10} fontSize={10} fill="#666" textAnchor="middle">
+        <SvgText key={`v${i}`} x={p.x} y={p.y - 10} fontSize={10} fill={theme.colors.textSecondary} textAnchor="middle">
           {p.mood.toFixed(1)}
         </SvgText>
       ))}
@@ -46,69 +49,97 @@ function MoodArc({ points, width }: { points: MoodPoint[]; width: number }) {
 export default function DigestScreen() {
   const router = useRouter()
   const { width } = useWindowDimensions()
+  const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
   const { digest, loading, synthesizing } = useDigest()
 
   if (loading && !digest) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.muted}>Preparing your week…</Text>
-      </View>
+      <Screen>
+        <View style={styles.center}>
+          <Text variant="body" color="textMuted">
+            Preparing your week…
+          </Text>
+        </View>
+      </Screen>
     )
   }
 
   if (!digest) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.emptyTitle}>No digest yet</Text>
-        <Text style={styles.muted}>
-          Your first weekly digest appears once you’ve journaled through a week.
-        </Text>
-        <Text style={styles.back} onPress={() => router.replace('/')}>
-          ← Home
-        </Text>
-      </View>
+      <Screen>
+        <View style={styles.center}>
+          <Text variant="heading" style={styles.emptyTitle}>
+            No digest yet
+          </Text>
+          <Text variant="body" color="textMuted" style={styles.centerText}>
+            Your first weekly digest appears once you’ve journaled through a week.
+          </Text>
+          <Text variant="label" color="accent" style={styles.back} onPress={() => router.replace('/')}>
+            ← Home
+          </Text>
+        </View>
+      </Screen>
     )
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.body}>
-      <Text style={styles.title}>Your week</Text>
-      <Text style={styles.subtitle}>{digest.entryCount} entries</Text>
+    <Screen scroll>
+      <Text variant="title">Your week</Text>
+      <Text variant="caption" color="textMuted" style={styles.subtitle}>
+        {digest.entryCount} entries
+      </Text>
 
-      <View style={styles.arcCard}>
-        <Text style={styles.cardLabel}>Mood (1–5)</Text>
+      <Card variant="sunken" style={styles.arcCard}>
+        <Text variant="label" color="accent" style={styles.cardLabel}>
+          Mood (1–5)
+        </Text>
         <MoodArc points={digest.moodArc} width={width - 48 - 32} />
         {digest.moodArc.length === 1 && (
-          <Text style={styles.arcHint}>One day so far — the line fills in as you journal across more days.</Text>
+          <Text variant="caption" color="textMuted" style={styles.arcHint}>
+            One day so far — the line fills in as you journal across more days.
+          </Text>
         )}
-      </View>
+      </Card>
 
-      <Text style={styles.section}>Observations</Text>
+      <Text variant="label" style={styles.section}>
+        Observations
+      </Text>
       {digest.observations.map((o, i) => (
-        <View key={i} style={styles.card}>
-          <Text style={styles.cardText}>{o}</Text>
-        </View>
+        <Card key={i} variant="sunken" style={styles.card}>
+          <Text variant="body">{o}</Text>
+        </Card>
       ))}
 
-      <Text style={styles.section}>Pattern</Text>
-      <View style={styles.card}>
-        <Text style={styles.cardText}>{digest.pattern}</Text>
-      </View>
+      <Text variant="label" style={styles.section}>
+        Pattern
+      </Text>
+      <Card variant="sunken" style={styles.card}>
+        <Text variant="body">{digest.pattern}</Text>
+      </Card>
 
-      <Text style={styles.section}>Correlation</Text>
-      <View style={styles.card}>
-        <Text style={styles.cardText}>{digest.correlation}</Text>
-      </View>
+      <Text variant="label" style={styles.section}>
+        Correlation
+      </Text>
+      <Card variant="sunken" style={styles.card}>
+        <Text variant="body">{digest.correlation}</Text>
+      </Card>
 
-      <Text style={styles.section}>A question to sit with</Text>
+      <Text variant="label" style={styles.section}>
+        A question to sit with
+      </Text>
       <View style={styles.questionCard}>
-        <Text style={styles.questionText}>{digest.question}</Text>
+        <Text variant="subtitle" color="primaryText">
+          {digest.question}
+        </Text>
       </View>
 
       {synthesizing && !digest.synthesis && (
         <View style={styles.synthLoading}>
-          <ActivityIndicator color="#7a7ad0" />
-          <Text style={styles.synthLoadingText}>Looking for themes across your week…</Text>
+          <ActivityIndicator color={theme.colors.accent} />
+          <Text variant="label" color="accent">
+            Looking for themes across your week…
+          </Text>
         </View>
       )}
 
@@ -116,73 +147,76 @@ export default function DigestScreen() {
         <>
           {digest.synthesis.themes.length > 0 && (
             <>
-              <Text style={styles.section}>Themes</Text>
+              <Text variant="label" style={styles.section}>
+                Themes
+              </Text>
               {digest.synthesis.themes.map((t, i) => (
-                <View key={i} style={styles.card}>
-                  <Text style={styles.cardText}>{t}</Text>
-                </View>
+                <Card key={i} variant="sunken" style={styles.card}>
+                  <Text variant="body">{t}</Text>
+                </Card>
               ))}
             </>
           )}
 
           {digest.synthesis.patterns.length > 0 && (
             <>
-              <Text style={styles.section}>Patterns</Text>
+              <Text variant="label" style={styles.section}>
+                Patterns
+              </Text>
               {digest.synthesis.patterns.map((p, i) => (
-                <View key={i} style={styles.card}>
-                  <Text style={styles.cardText}>{p}</Text>
-                </View>
+                <Card key={i} variant="sunken" style={styles.card}>
+                  <Text variant="body">{p}</Text>
+                </Card>
               ))}
             </>
           )}
 
           {digest.synthesis.openQuestions.length > 0 && (
             <>
-              <Text style={styles.section}>Open questions</Text>
+              <Text variant="label" style={styles.section}>
+                Open questions
+              </Text>
               {digest.synthesis.openQuestions.map((q, i) => (
-                <View key={i} style={styles.card}>
-                  <Text style={styles.cardText}>{q}</Text>
-                </View>
+                <Card key={i} variant="sunken" style={styles.card}>
+                  <Text variant="body">{q}</Text>
+                </Card>
               ))}
             </>
           )}
 
           {digest.synthesis.flaggedClaims.length > 0 && (
-            <Text style={styles.flagged}>
+            <Text variant="caption" color="textMuted" style={styles.flagged}>
               Set aside — not enough in your entries to support: {digest.synthesis.flaggedClaims.join('; ')}
             </Text>
           )}
         </>
       )}
 
-      <Text style={styles.quote}>“{digest.quote}”</Text>
+      <Text variant="body" color="textSecondary" style={styles.quote}>
+        “{digest.quote}”
+      </Text>
 
-      <Text style={styles.back} onPress={() => router.replace('/')}>
+      <Text variant="label" color="accent" style={styles.back} onPress={() => router.replace('/')}>
         ← Home
       </Text>
-    </ScrollView>
+    </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  body: { padding: 24, paddingTop: 56 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, backgroundColor: '#fff' },
-  title: { fontSize: 30, fontWeight: '700', color: '#1a1a2e' },
-  subtitle: { fontSize: 15, color: '#999', marginTop: 4 },
-  arcCard: { backgroundColor: '#f7f7fb', borderRadius: 14, padding: 16, marginTop: 20 },
-  cardLabel: { fontSize: 13, color: '#7a7ad0', fontWeight: '600', marginBottom: 8 },
-  arcHint: { fontSize: 12, color: '#999', marginTop: 6, lineHeight: 17 },
-  section: { fontSize: 14, fontWeight: '700', color: '#1a1a2e', marginTop: 24, marginBottom: 8 },
-  card: { backgroundColor: '#f7f7fb', borderRadius: 12, padding: 14, marginBottom: 10 },
-  cardText: { fontSize: 15, color: '#333', lineHeight: 21 },
-  questionCard: { backgroundColor: '#1a1a2e', borderRadius: 14, padding: 18 },
-  questionText: { fontSize: 17, color: '#fff', lineHeight: 24, fontWeight: '600' },
-  synthLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 24 },
-  synthLoadingText: { fontSize: 14, color: '#7a7ad0', fontWeight: '600' },
-  flagged: { fontSize: 13, color: '#999', fontStyle: 'italic', marginTop: 12, lineHeight: 19 },
-  quote: { fontSize: 15, color: '#666', fontStyle: 'italic', textAlign: 'center', marginTop: 28, lineHeight: 22 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#1a1a2e', marginBottom: 8 },
-  muted: { fontSize: 15, color: '#999', textAlign: 'center', lineHeight: 22 },
-  back: { fontSize: 16, color: '#7a7ad0', fontWeight: '600', marginTop: 28, textAlign: 'center' },
-})
+const makeStyles = (t: Theme) =>
+  StyleSheet.create({
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing.sm },
+    centerText: { textAlign: 'center' },
+    subtitle: { marginTop: t.spacing.xs },
+    arcCard: { marginTop: t.spacing.lg },
+    cardLabel: { marginBottom: t.spacing.sm },
+    arcHint: { marginTop: t.spacing.sm },
+    section: { marginTop: t.spacing.xl, marginBottom: t.spacing.sm },
+    card: { marginBottom: t.spacing.sm },
+    questionCard: { backgroundColor: t.colors.primary, borderRadius: t.radii.lg, padding: t.spacing.lg },
+    synthLoading: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, marginTop: t.spacing.xl },
+    flagged: { fontStyle: 'italic', marginTop: t.spacing.md },
+    quote: { fontStyle: 'italic', textAlign: 'center', marginTop: t.spacing['2xl'] },
+    emptyTitle: { marginBottom: t.spacing.sm },
+    back: { marginTop: t.spacing.xl, textAlign: 'center' },
+  })
