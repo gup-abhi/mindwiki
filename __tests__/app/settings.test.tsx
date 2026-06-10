@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native'
 
 import Settings from '@/app/(tabs)/settings'
 import { useAuth } from '@/hooks/useAuth'
+import { useBiometricLock } from '@/hooks/useBiometricLock'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
 
@@ -11,14 +12,17 @@ jest.mock('expo-router', () => ({ useRouter: () => ({ back: mockBack, push: mock
 jest.mock('@/hooks/useSyncStatus', () => ({ useSyncStatus: jest.fn() }))
 jest.mock('@/hooks/useRecoverySetup', () => ({ useRecoverySetup: jest.fn() }))
 jest.mock('@/hooks/useAuth', () => ({ useAuth: jest.fn() }))
+jest.mock('@/hooks/useBiometricLock', () => ({ useBiometricLock: jest.fn() }))
 
 const mockSyncStatus = useSyncStatus as jest.Mock
 const mockRecovery = useRecoverySetup as jest.Mock
 const mockAuth = useAuth as jest.Mock
+const mockBiometric = useBiometricLock as jest.Mock
 
 const syncNow = jest.fn()
 const setup = jest.fn()
 const logout = jest.fn()
+const toggleLock = jest.fn()
 const recoveryBase = { needsSetup: false, phrase: null, busy: false, error: null, setup, done: jest.fn() }
 
 beforeEach(() => {
@@ -26,6 +30,7 @@ beforeEach(() => {
   mockSyncStatus.mockReturnValue({ lastPull: null, pending: 0, syncing: false, message: null, syncNow })
   mockRecovery.mockReturnValue(recoveryBase)
   mockAuth.mockReturnValue({ logout })
+  mockBiometric.mockReturnValue({ enabled: true, capable: true, toggle: toggleLock })
 })
 
 describe('Settings', () => {
@@ -79,6 +84,12 @@ describe('Settings', () => {
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-pair'))
     expect(mockPush).toHaveBeenCalledWith('/pair')
+  })
+
+  it('toggles the app lock', () => {
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-app-lock'))
+    expect(toggleLock).toHaveBeenCalled()
   })
 
   it('offers the System/Light/Dark appearance options', () => {

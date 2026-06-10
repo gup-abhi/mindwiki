@@ -5,6 +5,7 @@ import { Button, Card, Chip, Screen, Text } from '@/components/ui'
 import { type Theme, type ThemePreference, useThemePreference, useThemedStyles } from '@/theme'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
+import { useBiometricLock } from '@/hooks/useBiometricLock'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
 
@@ -31,6 +32,7 @@ export default function Settings() {
   const { lastPull, pending, syncing, message, syncNow } = useSyncStatus()
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
   const { preference, setPreference } = useThemePreference()
+  const { enabled: lockEnabled, capable: lockCapable, toggle: toggleLock } = useBiometricLock()
   const { logout } = useAuth()
 
   return (
@@ -57,6 +59,30 @@ export default function Settings() {
           />
         ))}
       </View>
+
+      <Text variant="label" color="textMuted" style={styles.section}>
+        Security
+      </Text>
+      <Card variant="sunken">
+        <View style={styles.row}>
+          <View style={styles.lockText}>
+            <Text variant="bodyStrong">Require unlock to open</Text>
+            <Text variant="caption" color="textSecondary" style={styles.hint}>
+              {lockCapable
+                ? 'Use biometrics or your device PIN to open the app and to pair a new device.'
+                : 'Set up biometrics or a device PIN to enable this.'}
+            </Text>
+          </View>
+          <Chip
+            label={lockEnabled ? 'On' : 'Off'}
+            selected={lockEnabled}
+            onPress={() => {
+              if (lockCapable) void toggleLock()
+            }}
+            testID="settings-app-lock"
+          />
+        </View>
+      </Card>
 
       <Text variant="label" color="textMuted" style={styles.section}>
         Sync
@@ -134,6 +160,7 @@ const makeStyles = (t: Theme) =>
     section: { marginTop: t.spacing['2xl'], marginBottom: t.spacing.sm, textTransform: 'uppercase' },
     appearance: { flexDirection: 'row', gap: t.spacing.sm },
     row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: t.spacing.xs },
+    lockText: { flex: 1, paddingRight: t.spacing.md },
     action: { marginTop: t.spacing.md },
     syncMessage: { textAlign: 'center', marginTop: t.spacing.md },
     error: { marginTop: t.spacing.sm },

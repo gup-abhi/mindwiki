@@ -37,3 +37,26 @@ jest.mock('@expo-google-fonts/nunito', () => ({
   Nunito_600SemiBold: 'Nunito_600SemiBold',
   Nunito_700Bold: 'Nunito_700Bold',
 }))
+
+// Biometric auth: succeed by default; report NO enrolled credential so the
+// app-lock gate stays inert in unrelated tests (tests that exercise the lock
+// override getEnrolledLevelAsync explicitly).
+jest.mock('expo-local-authentication', () => ({
+  authenticateAsync: jest.fn(async () => ({ success: true })),
+  getEnrolledLevelAsync: jest.fn(async () => 0),
+  SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC: 2 },
+}))
+
+// In-memory SecureStore so persisted preferences/tokens work in tests.
+jest.mock('expo-secure-store', () => {
+  const store = new Map()
+  return {
+    getItemAsync: jest.fn(async (k) => (store.has(k) ? store.get(k) : null)),
+    setItemAsync: jest.fn(async (k, v) => {
+      store.set(k, v)
+    }),
+    deleteItemAsync: jest.fn(async (k) => {
+      store.delete(k)
+    }),
+  }
+})

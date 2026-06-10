@@ -17,7 +17,9 @@ import { configureNotifications } from '@/services/notifications/scheduler'
 import { hydrateAuth } from '@/services/auth/auth.service'
 import { useAuthStore } from '@/store/auth.store'
 import { useSync } from '@/hooks/useSync'
+import { useAppLock } from '@/hooks/useAppLock'
 import { AuthScreen } from '@/components/auth/AuthScreen'
+import { LockScreen } from '@/components/auth/LockScreen'
 import { ThemeProvider, type Theme, useTheme, useThemedStyles } from '@/theme'
 
 // Hold the native splash until our custom fonts are ready (best-effort).
@@ -31,7 +33,14 @@ type StorageStatus = 'idle' | 'loading' | 'ready' | 'error'
  */
 function AppRoot() {
   useSync()
-  return <Stack screenOptions={{ headerShown: false }} />
+  // Overlay (not swap) the lock so navigation state survives lock/unlock.
+  const locked = useAppLock()
+  return (
+    <>
+      <Stack screenOptions={{ headerShown: false }} />
+      {locked && <LockScreen />}
+    </>
+  )
 }
 
 /** Auth + encrypted-DB gate. Rendered inside the theme + safe-area providers. */
