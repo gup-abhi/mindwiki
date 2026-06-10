@@ -64,6 +64,9 @@ export async function register(
         recovery_escrow: { encrypted_key: recoveryWrapped.data },
       }),
     })
+    if (res.status === 409) {
+      return err('EMAIL_TAKEN', 'An account with this email already exists. Sign in instead.')
+    }
     if (!res.ok) return err('REGISTER_FAILED', `Registration failed (${res.status})`)
 
     const data = (await res.json()) as AuthResponse

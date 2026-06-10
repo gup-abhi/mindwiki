@@ -76,10 +76,21 @@ describe('register', () => {
     expect(useAuthStore.getState().status).not.toBe('authenticated')
   })
 
-  it('fails on a server error', async () => {
+  it('returns a friendly EMAIL_TAKEN error when the email is already registered (409)', async () => {
     ;(global.fetch as jest.Mock).mockResolvedValue(resp(409))
     const res = await register('a@b.com', 'password')
     expect(res.success).toBe(false)
+    if (res.success) return
+    expect(res.error.code).toBe('EMAIL_TAKEN')
+    expect(res.error.message).toMatch(/already exists/i)
+  })
+
+  it('fails on a generic server error', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(500))
+    const res = await register('a@b.com', 'password')
+    expect(res.success).toBe(false)
+    if (res.success) return
+    expect(res.error.code).toBe('REGISTER_FAILED')
   })
 })
 
