@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { useFocusEffect } from 'expo-router'
 
 import { type ChatMessage } from '@/native/LLMBridge'
-import { assessMessageCrisis } from '@/services/crisis/message'
+import { hasCrisisKeyword } from '@/services/crisis/detector'
 import { areModelsReady } from '@/services/llm/model-manager'
 import {
   appendMessage,
@@ -98,22 +98,22 @@ export function useConversation(initialQuestion?: string) {
       }
       store.addMessage(userMsg)
 
-      // Crisis check runs on every message (keyword net works even if the fast
-      // model isn't downloaded). Only an explicit keyword match or very-high
-      // model confidence (tier 3) interrupts with support — the fast model's
-      // crisis score is noisy on conversational text, so the 0.30–0.60 band
-      // (tiers 1–2) would over-trigger here. The reflective reply proceeds
-      // normally for everything below.
-      const crisis = await assessMessageCrisis(message)
-      const isCrisis = crisis.tier >= 3
+      // Crisis safety net: only an explicit self-harm keyword interrupts with
+      // support. The fast model's crisis score is too noisy on conversational
+      // text to drive an interruptive UI, so it is deliberately NOT used here
+      // (the entry-save flow still runs full model-based detection on journal
+      // entries). hasCrisisKeyword is deterministic and high-precision; on a
+      // hit we surface support and skip the reply, otherwise the reflective
+      // reply proceeds normally.
+      const isCrisis = hasCrisisKeyword(message)
       await appendMessage({
         conversation_id: conversationId,
         role: 'user',
         content: message,
-        crisis_tier: isCrisis ? crisis.tier : null,
+        crisis_tier: isCrisis ? 3 : null,
       })
       if (isCrisis) {
-        store.setMessageCrisis(userMsg.id, crisis.tier)
+        store.setMessageCrisis(userMsg.id, 3)
         const reply: UIMessage = {
           id: randomUUID(),
           role: 'assistant',
