@@ -1,5 +1,6 @@
 import type { Env } from '../types'
 import { issueTokens } from './tokens'
+import { recordPairedDevice } from './devices'
 
 const PAIR_TTL_SECONDS = 300 // 5 minutes — the QR is meant to be scanned in person, now
 
@@ -26,11 +27,18 @@ export async function handlePairStart(
  * can read ciphertext but cannot decrypt without the master key (carried in the QR).
  */
 export async function handlePairRedeem(req: Request, env: Env): Promise<Response> {
-  const { code } = await req.json<{ code: string }>()
+  const { code, device_label, platform } = await req.json<{
+    code: string
+    device_label?: string
+    platform?: string
+  }>()
 
   const rec = (await env.AUTH_KV.get(`pair:${code}`, 'json')) as { account_id: string } | null
   if (!rec) return new Response('Invalid or expired pairing code', { status: 401 })
   await env.AUTH_KV.delete(`pair:${code}`) // one-time use
+
+  // Log the new device so the owner can see (and notice) what paired.
+  await recordPairedDevice(env, rec.account_id, device_label ?? 'New device', platform ?? 'unknown')
 
   const { accessToken, refreshToken } = await issueTokens(rec.account_id, env)
   return Response.json({
