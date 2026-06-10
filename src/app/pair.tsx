@@ -6,6 +6,12 @@ import QRCode from 'react-native-qrcode-svg'
 import { Button, Screen, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { startPairing } from '@/services/sync/pairing'
+import { authenticate } from '@/services/auth/biometric'
+
+// Matches the server pairing-code TTL (PAIR_TTL_SECONDS = 300). Refreshing at the
+// TTL lands just before the server code actually expires (mint latency), so the
+// code on screen is always scannable without the user tapping "Reload code".
+const PAIR_CODE_TTL_MS = 5 * 60 * 1000
 
 /**
  * Device A: show a QR that pairs a new device. The QR carries a one-time code +
@@ -25,6 +31,15 @@ export default function Pair() {
     setLoading(true)
     setError(null)
     setPayload(null)
+    // Always require a fresh identity check before exposing the QR — it carries
+    // the master key and grants full access, so an unlocked phone alone must not
+    // be enough to pair another device.
+    const allowed = await authenticate('Confirm it’s you to pair a new device')
+    if (!allowed) {
+      setLoading(false)
+      setError('Authentication required to pair a new device.')
+      return
+    }
     const res = await startPairing()
     setLoading(false)
     if (res.success) setPayload(res.data)
@@ -34,6 +49,13 @@ export default function Pair() {
   useEffect(() => {
     void generate()
   }, [generate])
+
+  // Auto-refresh the code at its 5-minute expiry while the screen is open.
+  useEffect(() => {
+    if (!payload) return
+    const id = setTimeout(() => void generate(), PAIR_CODE_TTL_MS)
+    return () => clearTimeout(id)
+  }, [payload, generate])
 
   return (
     <Screen>
