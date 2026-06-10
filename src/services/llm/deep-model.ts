@@ -1,11 +1,14 @@
 import { LLMBridge } from '@/native/LLMBridge'
 import { type Result, ok, err } from '@/types/result'
 
-import { buildAnswerQuestionPrompt, type AnswerQuestionInput } from './prompts/answer-question'
+import {
+  buildConversationMessages,
+  type BuildConversationInput,
+} from './prompts/conversation'
 import { buildDigestQuestionPrompt, type DigestQuestionInput } from './prompts/digest-question'
 import { buildDigestSynthesisPrompt, type DigestSynthesisInput } from './prompts/digest-synthesis'
 import { buildUpdatePagePrompt, type UpdatePageInput } from './prompts/update-page'
-import { AnswerSchema } from './schemas/answer.schema'
+import { ConversationReplySchema } from './schemas/conversation.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
@@ -73,24 +76,30 @@ export async function generateReflectionQuestion(
 }
 
 /**
- * Answer a question grounded ONLY in the supplied wiki pages (on-device). Never
- * throws; returns Result. Errors carry a code only, never page/question text.
+ * Multi-turn reflective reply grounded ONLY in the supplied wiki context
+ * (on-device). Streams tokens to `onToken` as they arrive; the resolved Result
+ * carries the validated final text. Never throws; errors carry a code only,
+ * never message/page text.
  */
-export async function answerFromWiki(input: AnswerQuestionInput): Promise<Result<string>> {
+export async function converseFromWiki(
+  input: BuildConversationInput,
+  onToken?: (token: string) => void
+): Promise<Result<string>> {
   let raw: string
   try {
-    const output = await LLMBridge.synthesise(buildAnswerQuestionPrompt(input), {
-      maxTokens: 220,
-      temperature: 0.3,
-    })
+    const output = await LLMBridge.converse(
+      buildConversationMessages(input),
+      { maxTokens: 220, temperature: 0.4 },
+      onToken
+    )
     raw = output.text
   } catch (e) {
-    return err('WIKI_ANSWER_INFERENCE_FAILED', 'Deep model inference failed', e)
+    return err('CONVERSE_INFERENCE_FAILED', 'Deep model inference failed', e)
   }
 
-  const parsed = AnswerSchema.safeParse(raw.trim())
+  const parsed = ConversationReplySchema.safeParse(raw.trim())
   if (!parsed.success) {
-    return err('WIKI_ANSWER_VALIDATION_FAILED', 'Answer failed validation')
+    return err('CONVERSE_VALIDATION_FAILED', 'Conversation reply failed validation')
   }
   return ok(parsed.data)
 }

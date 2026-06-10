@@ -1,13 +1,27 @@
 // Per-table conflict resolution for delta sync.
 //
-// entries + wiki_pages + entry_entities sync as encrypted blobs with
-// last-write-wins by updated_at. Graph tables are additive (ADR 006) and are
-// rebuilt locally from entries + entry_entities rather than blob-synced, so they
-// are intentionally not in this set.
+// entries + wiki_pages + entry_entities + conversations + chat_messages sync as
+// encrypted blobs with last-write-wins by updated_at. Graph tables are additive
+// (ADR 006) and are rebuilt locally from entries + entry_entities rather than
+// blob-synced, so they are intentionally not in this set.
+//
+// conversations is listed before chat_messages so a pull applies the parent rows
+// first (chat_messages references conversations).
 
-export type SyncTable = 'entries' | 'wiki_pages' | 'entry_entities'
+export type SyncTable =
+  | 'entries'
+  | 'wiki_pages'
+  | 'entry_entities'
+  | 'conversations'
+  | 'chat_messages'
 
-export const SYNCED_TABLES: SyncTable[] = ['entries', 'wiki_pages', 'entry_entities']
+export const SYNCED_TABLES: SyncTable[] = [
+  'entries',
+  'wiki_pages',
+  'entry_entities',
+  'conversations',
+  'chat_messages',
+]
 
 export interface Versioned {
   record_id: string

@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3])
-    expect(applied).toEqual([1, 2, 3])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4])
+    expect(applied).toEqual([1, 2, 3, 4])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -91,5 +91,20 @@ describe('migration 003 (entry entities)', () => {
     const nodesAt = stmts.findIndex((s) => s.includes('CREATE TABLE graph_nodes'))
     const edgesAt = stmts.findIndex((s) => s.includes('CREATE TABLE graph_edges'))
     expect(nodesAt).toBeLessThan(edgesAt)
+  })
+})
+
+describe('migration 004 (conversations)', () => {
+  it('is registered as version 4', () => {
+    expect(MIGRATIONS[3].version).toBe(4)
+    expect(MIGRATIONS[3].name).toBe('conversations')
+  })
+
+  it('creates conversations before chat_messages (FK target first)', () => {
+    const stmts = MIGRATIONS[3].statements
+    const convAt = stmts.findIndex((s) => s.includes('CREATE TABLE conversations'))
+    const msgAt = stmts.findIndex((s) => s.includes('CREATE TABLE chat_messages'))
+    expect(convAt).toBeGreaterThanOrEqual(0)
+    expect(convAt).toBeLessThan(msgAt)
   })
 })

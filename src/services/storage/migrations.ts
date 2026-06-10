@@ -1,7 +1,7 @@
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
-import { migration001, migration002, migration003 } from './schema'
+import { migration001, migration002, migration003, migration004 } from './schema'
 
 export interface Migration {
   version: number
@@ -52,7 +52,7 @@ export async function runMigrations(
 }
 
 // Migration registry — append new migrations here, in version order.
-export const MIGRATIONS: Migration[] = [migration001, migration002, migration003]
+export const MIGRATIONS: Migration[] = [migration001, migration002, migration003, migration004]
 
 export function migrate(db: SqliteDatabase = getDb()): Promise<Result<number[]>> {
   return runMigrations(db, MIGRATIONS)

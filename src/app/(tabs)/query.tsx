@@ -1,171 +1,157 @@
-import { useState } from 'react'
-import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
+import { useRef } from 'react'
+import { useLocalSearchParams } from 'expo-router'
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native'
 
-import { Button, Card, Chip, IconButton, Screen, Text, TextField } from '@/components/ui'
+import { Card, IconButton, Screen, Text } from '@/components/ui'
+import { ConversationComposer } from '@/components/wiki/ConversationComposer'
+import { MessageBubble } from '@/components/wiki/MessageBubble'
+import { useConversation } from '@/hooks/useConversation'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
-import { useWikiQuery } from '@/hooks/useWikiQuery'
 
 export default function QueryScreen() {
-  const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const { q } = useLocalSearchParams<{ q?: string }>()
   const initial = typeof q === 'string' ? q : undefined
-  const { suggestions, recentPages, answer, related, asking, ask, clear } = useWikiQuery(initial)
-  const [text, setText] = useState(initial ?? '')
-
-  const submit = (q: string) => {
-    setText(q)
-    ask(q)
-  }
-
-  // Reset the field and the answer, back to the suggestions view.
-  const clearQuestion = () => {
-    setText('')
-    clear()
-  }
-  const canClear = text.length > 0 || answer !== null
+  const { messages, streaming, sending, suggestions, history, send, newConversation, loadConversation } =
+    useConversation(initial)
+  const scrollRef = useRef<ScrollView>(null)
+  const isEmpty = messages.length === 0
 
   return (
-    <Screen scroll>
-      <Text variant="title">Ask your wiki</Text>
-      <Text variant="caption" color="textMuted" style={styles.subtitle}>
-        Answers come only from your own journal.
-      </Text>
-
-      <View style={styles.searchRow}>
-        <View style={styles.searchInput}>
-          <TextField
-            placeholder="Ask a question…"
-            value={text}
-            onChangeText={setText}
-            onSubmitEditing={() => submit(text)}
-            returnKeyType="search"
-          />
-        </View>
-        {canClear && (
+    <Screen scroll={false}>
+      <View style={styles.header}>
+        <Text variant="title">Reflect</Text>
+        {!isEmpty && (
           <IconButton
-            name="close-circle"
-            color="textMuted"
-            accessibilityLabel="Clear question"
-            onPress={clearQuestion}
-            testID="query-clear"
+            name="create-outline"
+            color="accent"
+            accessibilityLabel="New conversation"
+            onPress={newConversation}
+            testID="new-conversation"
           />
         )}
       </View>
-      {!answer && (
-        <View style={styles.askRow}>
-          <Button title="Ask" fullWidth onPress={() => submit(text)} />
-        </View>
-      )}
 
-      {asking && <ActivityIndicator style={styles.spinner} color={theme.colors.accent} />}
-
-      {answer && !asking && (
-        <Card style={styles.answerCard}>
-          <Text variant="body">{answer.answer}</Text>
-          {answer.sources.length > 0 && (
-            <>
-              <Text variant="caption" color="textMuted" style={styles.evidence}>
-                Drawn from {answer.sources.length}{' '}
-                {answer.sources.length === 1 ? 'page' : 'pages'} · {answer.evidenceCount}{' '}
-                {answer.evidenceCount === 1 ? 'entry' : 'entries'}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          ref={scrollRef}
+          style={styles.flex}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+        >
+          {isEmpty ? (
+            <View>
+              <Text variant="body" color="textSecondary" style={styles.intro}>
+                A private space to talk things through — grounded only in your own wiki.
               </Text>
-              <View style={styles.chips}>
-                {answer.sources.map((p) => (
-                  <Chip key={p.id} label={p.title} onPress={() => router.push(`/wiki/${p.id}`)} />
-                ))}
-              </View>
-              <Pressable accessibilityRole="button" onPress={() => router.push('/graph')}>
-                <Text variant="label" color="accent" style={styles.explore}>
-                  Explore in graph →
-                </Text>
-              </Pressable>
-            </>
+
+              {suggestions.length > 0 && (
+                <View style={styles.section}>
+                  <Text variant="label" color="accent" style={styles.sectionLabel}>
+                    Try starting with
+                  </Text>
+                  {suggestions.map((q) => (
+                    <Card
+                      key={q}
+                      variant="sunken"
+                      style={styles.suggestion}
+                      onPress={() => send(q)}
+                    >
+                      <Text variant="body">{q}</Text>
+                    </Card>
+                  ))}
+                </View>
+              )}
+
+              {history.length > 0 && (
+                <View style={styles.section}>
+                  <Text variant="label" color="accent" style={styles.sectionLabel}>
+                    Past conversations
+                  </Text>
+                  {history.map((c) => (
+                    <Pressable
+                      key={c.id}
+                      accessibilityRole="button"
+                      style={styles.historyRow}
+                      onPress={() => loadConversation(c.id)}
+                    >
+                      <Text variant="body" numberOfLines={1}>
+                        {c.title ?? 'Conversation'}
+                      </Text>
+                      <Text variant="caption" color="textMuted" style={styles.historyDate}>
+                        {new Date(c.updated_at).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          ) : (
+            messages.map((m) => <MessageBubble key={m.id} message={m} />)
           )}
-        </Card>
-      )}
 
-      {answer && !asking && related.length > 0 && (
-        <View style={styles.section}>
-          <Text variant="label" color="accent" style={styles.sectionLabel}>
-            Entries behind this
-          </Text>
-          {related.map((e) => (
-            <Pressable
-              key={e.id}
-              accessibilityRole="button"
-              style={styles.entryRow}
-              onPress={() => router.push(`/entries/${e.id}`)}
-            >
-              <Text variant="caption" color="accent" style={styles.entryDate}>
-                {new Date(e.created_at).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </Text>
-              <Text variant="body" style={styles.entrySnippet} numberOfLines={1}>
-                {e.situation}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+          {sending && streaming.length > 0 && (
+            <View style={styles.assistantWrap}>
+              <View style={styles.streamBubble}>
+                <Text variant="body">{streaming}</Text>
+              </View>
+            </View>
+          )}
+          {sending && streaming.length === 0 && (
+            <ActivityIndicator style={styles.spinner} color={theme.colors.accent} />
+          )}
+        </ScrollView>
 
-      {!answer && !asking && suggestions.length > 0 && (
-        <View style={styles.section}>
-          <Text variant="label" color="accent" style={styles.sectionLabel}>
-            Try asking
-          </Text>
-          {suggestions.map((q) => (
-            <Card key={q} variant="sunken" style={styles.suggestion} onPress={() => submit(q)}>
-              <Text variant="body">{q}</Text>
-            </Card>
-          ))}
-        </View>
-      )}
-
-      {!answer && !asking && recentPages.length > 0 && (
-        <View style={styles.section}>
-          <Text variant="label" color="accent" style={styles.sectionLabel}>
-            Recent pages
-          </Text>
-          <View style={styles.chips}>
-            {recentPages.map((p) => (
-              <Chip key={p.id} label={p.title} onPress={() => router.push(`/wiki/${p.id}`)} />
-            ))}
-          </View>
-        </View>
-      )}
+        <ConversationComposer sending={sending} onSend={send} />
+      </KeyboardAvoidingView>
     </Screen>
   )
 }
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    subtitle: { marginTop: t.spacing.xs, marginBottom: t.spacing.lg },
-    searchRow: { flexDirection: 'row', gap: t.spacing.sm, alignItems: 'center' },
-    searchInput: { flex: 1 },
-    askRow: { marginTop: t.spacing.md },
-    spinner: { marginTop: t.spacing['2xl'] },
-    answerCard: { marginTop: t.spacing.lg },
-    evidence: { marginTop: t.spacing.md },
-    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm, marginTop: t.spacing.sm },
-    explore: { marginTop: t.spacing.md },
-    section: { marginTop: t.spacing['2xl'] },
-    sectionLabel: { marginBottom: t.spacing.sm },
-    entryRow: {
+    flex: { flex: 1 },
+    header: {
       flexDirection: 'row',
+      justifyContent: 'space-between',
       alignItems: 'center',
-      gap: t.spacing.md,
-      paddingVertical: t.spacing.md,
-      paddingHorizontal: t.spacing.md,
-      backgroundColor: t.colors.surfaceSunken,
-      borderRadius: t.radii.md,
-      marginBottom: t.spacing.sm,
+      marginBottom: t.spacing.md,
     },
-    entryDate: { width: 48 },
-    entrySnippet: { flex: 1 },
+    scrollContent: { paddingBottom: t.spacing.lg },
+    intro: { marginBottom: t.spacing.xl },
+    section: { marginTop: t.spacing.xl },
+    sectionLabel: { marginBottom: t.spacing.sm },
     suggestion: { marginBottom: t.spacing.sm },
+    historyRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: t.spacing.md,
+    },
+    historyDate: { marginLeft: t.spacing.md },
+    assistantWrap: { alignItems: 'flex-start', marginBottom: t.spacing.md },
+    streamBubble: {
+      maxWidth: '85%',
+      paddingVertical: t.spacing.md,
+      paddingHorizontal: t.spacing.lg,
+      borderRadius: t.radii.lg,
+      backgroundColor: t.colors.surfaceAlt,
+    },
+    spinner: { marginTop: t.spacing.lg, alignSelf: 'flex-start' },
   })

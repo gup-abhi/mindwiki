@@ -27,7 +27,19 @@ describe('recordsToApply', () => {
 })
 
 describe('SYNCED_TABLES', () => {
-  it('covers entries, wiki_pages and entry_entities, excludes graph tables', () => {
-    expect(SYNCED_TABLES).toEqual(['entries', 'wiki_pages', 'entry_entities'])
+  it('covers the blob-synced tables (excludes the locally-rebuilt graph tables)', () => {
+    expect(SYNCED_TABLES).toEqual([
+      'entries',
+      'wiki_pages',
+      'entry_entities',
+      'conversations',
+      'chat_messages',
+    ])
+  })
+
+  it('orders conversations before chat_messages so the FK parent applies first', () => {
+    expect(SYNCED_TABLES.indexOf('conversations')).toBeLessThan(
+      SYNCED_TABLES.indexOf('chat_messages')
+    )
   })
 })

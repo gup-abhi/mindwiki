@@ -1,109 +1,88 @@
 import { render, screen, fireEvent } from '@testing-library/react-native'
 
 import QueryScreen from '@/app/(tabs)/query'
-import { type WikiAnswer } from '@/services/wiki/query'
+import { type UIMessage } from '@/store/chat.store'
 
 const mockUse = jest.fn()
 const mockPush = jest.fn()
-const mockAsk = jest.fn()
-const mockClear = jest.fn()
-jest.mock('@/hooks/useWikiQuery', () => ({ useWikiQuery: () => mockUse() }))
+const mockSend = jest.fn()
+const mockNew = jest.fn()
+const mockLoad = jest.fn()
+
+jest.mock('@/hooks/useConversation', () => ({ useConversation: () => mockUse() }))
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
   useLocalSearchParams: () => ({}),
 }))
 
-const page = (id: string, title: string) => ({
-  id,
-  title,
-  category: null,
-  content: '',
-  entry_count: 1,
-  version: 1,
-  version_history: [],
-  created_at: 0,
-  updated_at: 0,
-})
-
-const entry = (id: string, situation: string, created_at = 0) => ({
-  id,
-  created_at,
-  mood: 3,
-  situation,
-  thought: 't',
-  behavior: null,
-  closing_note: null,
-  emotion: null,
-  distortion: null,
-  mood_score: null,
-  tagged_at: null,
+const message = (over: Partial<UIMessage> = {}): UIMessage => ({
+  id: Math.random().toString(36),
+  role: 'assistant',
+  content: 'hello',
+  sources: [],
+  crisisTier: null,
+  ...over,
 })
 
 const base = {
+  messages: [] as UIMessage[],
+  streaming: '',
+  sending: false,
   suggestions: ['What patterns show up around Work?'],
-  recentPages: [page('p1', 'Work')],
-  answer: null as WikiAnswer | null,
-  related: [] as ReturnType<typeof entry>[],
-  asking: false,
-  ask: mockAsk,
-  clear: mockClear,
+  history: [] as { id: string; title: string | null; created_at: number; updated_at: number }[],
+  send: mockSend,
+  newConversation: mockNew,
+  loadConversation: mockLoad,
 }
 
-describe('QueryScreen', () => {
+describe('QueryScreen (reflective conversation)', () => {
   beforeEach(() => {
     mockUse.mockReset()
     mockPush.mockReset()
-    mockAsk.mockReset()
-    mockClear.mockReset()
+    mockSend.mockReset()
+    mockNew.mockReset()
+    mockLoad.mockReset()
   })
 
-  it('shows suggestions and asks when one is tapped', () => {
+  it('shows suggested starters and sends one when tapped', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
-    expect(screen.getByText('Ask')).toBeTruthy() // Ask button visible pre-answer
-    const suggestion = screen.getByText('What patterns show up around Work?')
-    fireEvent.press(suggestion)
-    expect(mockAsk).toHaveBeenCalledWith('What patterns show up around Work?')
+    const starter = screen.getByText('What patterns show up around Work?')
+    fireEvent.press(starter)
+    expect(mockSend).toHaveBeenCalledWith('What patterns show up around Work?')
   })
 
-  it('renders the answer with evidence and source chips', () => {
+  it('renders the conversation turns once a thread exists', () => {
     mockUse.mockReturnValue({
       ...base,
-      answer: {
-        answer: 'Deadlines tend to spike it.',
-        sources: [page('p1', 'Work'), page('p2', 'Sleep')],
-        evidenceCount: 6,
-      },
+      messages: [
+        message({ role: 'user', content: 'Why am I anxious?' }),
+        message({ role: 'assistant', content: 'Deadlines spike it.' }),
+      ],
     })
     render(<QueryScreen />)
-    expect(screen.getByText('Deadlines tend to spike it.')).toBeTruthy()
-    expect(screen.getByText(/Drawn from 2 pages · 6 entries/)).toBeTruthy()
-    expect(screen.getByText('Explore in graph →')).toBeTruthy()
-
-    fireEvent.press(screen.getByText('Work'))
-    expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+    expect(screen.getByText('Why am I anxious?')).toBeTruthy()
+    expect(screen.getByText('Deadlines spike it.')).toBeTruthy()
   })
 
-  it('hides the Ask button once answered and clears via the clear icon', () => {
+  it('shows the streaming text while a reply is in flight', () => {
     mockUse.mockReturnValue({
       ...base,
-      answer: { answer: 'Deadlines tend to spike it.', sources: [], evidenceCount: 0 },
+      messages: [message({ role: 'user', content: 'hi' })],
+      sending: true,
+      streaming: 'Thinking abou',
     })
     render(<QueryScreen />)
-    expect(screen.queryByText('Ask')).toBeNull() // Ask hidden after an answer
-    fireEvent.press(screen.getByTestId('query-clear'))
-    expect(mockClear).toHaveBeenCalled()
+    expect(screen.getByText('Thinking abou')).toBeTruthy()
   })
 
-  it('lists related entries and opens one for reading', () => {
+  it('opens a past conversation from history', () => {
     mockUse.mockReturnValue({
       ...base,
-      answer: { answer: 'A.', sources: [], evidenceCount: 0 },
-      related: [entry('en1', 'a tense meeting', 1)],
+      history: [{ id: 'c1', title: 'A past chat', created_at: 0, updated_at: 0 }],
     })
     render(<QueryScreen />)
-    expect(screen.getByText('Entries behind this')).toBeTruthy()
-    fireEvent.press(screen.getByText('a tense meeting'))
-    expect(mockPush).toHaveBeenCalledWith('/entries/en1')
+    fireEvent.press(screen.getByText('A past chat'))
+    expect(mockLoad).toHaveBeenCalledWith('c1')
   })
 })

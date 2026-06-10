@@ -152,3 +152,32 @@ export const migration003: Migration = {
     `CREATE INDEX idx_graph_edges_target ON graph_edges (target_id)`,
   ],
 }
+
+// Migration 004 — reflective conversations. Persists the revamped "Ask" feature:
+// a saved, resumable chat between the user and the grounded companion. Both
+// tables sync as encrypted blobs (content never leaves the device in plaintext).
+// chat_messages are append-only; conversations carry updated_at for last-write-wins.
+export const migration004: Migration = {
+  version: 4,
+  name: 'conversations',
+  statements: [
+    `CREATE TABLE conversations (
+      id         TEXT PRIMARY KEY,
+      title      TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    // role limited to the two turns we persist; sources_json holds [{id,title}]
+    // for citation chips; crisis_tier is set on user messages that tripped a tier.
+    `CREATE TABLE chat_messages (
+      id              TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id),
+      role            TEXT NOT NULL CHECK (role IN ('user','assistant')),
+      content         TEXT NOT NULL,
+      sources_json    TEXT NOT NULL DEFAULT '[]',
+      crisis_tier     INTEGER,
+      created_at      INTEGER NOT NULL
+    )`,
+    `CREATE INDEX idx_chat_messages_conversation ON chat_messages (conversation_id, created_at)`,
+  ],
+}

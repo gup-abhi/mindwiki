@@ -39,6 +39,18 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
     columns: ['id', 'entry_id', 'type', 'label', 'created_at'],
     updatedAt: (r) => Number(r.created_at) || 0,
   },
+  conversations: {
+    columns: ['id', 'title', 'created_at', 'updated_at'],
+    updatedAt: (r) => Number(r.updated_at) || 0,
+  },
+  // chat_messages are append-only (never edited), so created_at is a sufficient
+  // last-write-wins watermark.
+  chat_messages: {
+    columns: [
+      'id', 'conversation_id', 'role', 'content', 'sources_json', 'crisis_tier', 'created_at',
+    ],
+    updatedAt: (r) => Number(r.created_at) || 0,
+  },
 }
 
 function isSyncTable(t: string): t is SyncTable {

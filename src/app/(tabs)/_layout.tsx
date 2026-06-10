@@ -51,7 +51,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="query"
         options={{
-          title: 'Ask',
+          title: 'Reflect',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}

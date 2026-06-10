@@ -4,6 +4,13 @@ import { modelLoadPath } from '@/services/llm/model-manager'
 
 export type ModelKind = 'fast' | 'deep'
 
+export type ChatRole = 'system' | 'user' | 'assistant'
+
+export interface ChatMessage {
+  role: ChatRole
+  content: string
+}
+
 export interface InferenceOptions {
   maxTokens: number
   temperature: number
@@ -26,6 +33,16 @@ export interface ILLMBridge {
   loadModel(kind: ModelKind): Promise<void>
   tag(prompt: string, opts: InferenceOptions): Promise<InferenceResult>
   synthesise(prompt: string, opts: InferenceOptions): Promise<InferenceResult>
+  /**
+   * Multi-turn completion on the deep model with optional per-token streaming.
+   * `onToken` fires with each generated token's text as it arrives. Raw message
+   * text NEVER leaves the device.
+   */
+  converse(
+    messages: ChatMessage[],
+    opts: InferenceOptions,
+    onToken?: (token: string) => void
+  ): Promise<InferenceResult>
 }
 
 const contexts: Partial<Record<ModelKind, LlamaContext>> = {}
@@ -53,6 +70,15 @@ function buildChatML(prompt: string): string {
   )
 }
 
+// Multi-turn ChatML: each message becomes its own <|im_start|>{role}…<|im_end|>
+// block, ending with an open assistant turn for the model to complete.
+function buildChatMLConversation(messages: ChatMessage[]): string {
+  const turns = messages
+    .map((m) => `<|im_start|>${m.role}\n${m.content}<|im_end|>\n`)
+    .join('')
+  return turns + '<|im_start|>assistant\n'
+}
+
 async function run(
   kind: ModelKind,
   prompt: string,
@@ -77,6 +103,33 @@ async function run(
   }
 }
 
+async function runConversation(
+  messages: ChatMessage[],
+  opts: InferenceOptions,
+  onToken?: (token: string) => void
+): Promise<InferenceResult> {
+  const ctx = await ensureLoaded('deep')
+  let result
+  try {
+    result = await ctx.completion(
+      {
+        prompt: buildChatMLConversation(messages),
+        n_predict: opts.maxTokens,
+        temperature: opts.temperature,
+        stop: ['<|im_end|>', '<|endoftext|>'],
+      },
+      onToken ? (data) => onToken(data.token) : undefined
+    )
+  } catch (e) {
+    throw new Error(`Conversation completion failed for deep model: ${String(e)}`)
+  }
+  return {
+    text: result.text,
+    tokensPredicted: result.tokens_predicted,
+    tokensPerSec: result.timings.predicted_per_second,
+  }
+}
+
 export const LLMBridge: ILLMBridge = {
   async loadModel(kind) {
     await ensureLoaded(kind)
@@ -86,5 +139,8 @@ export const LLMBridge: ILLMBridge = {
   },
   synthesise(prompt, opts) {
     return run('deep', prompt, opts)
+  },
+  converse(messages, opts, onToken) {
+    return runConversation(messages, opts, onToken)
   },
 }
