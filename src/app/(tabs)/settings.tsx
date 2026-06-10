@@ -6,6 +6,7 @@ import { type Theme, type ThemePreference, useThemePreference, useThemedStyles }
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
 import { useBiometricLock } from '@/hooks/useBiometricLock'
+import { useDevices } from '@/hooks/useDevices'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
 
@@ -33,6 +34,7 @@ export default function Settings() {
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
   const { preference, setPreference } = useThemePreference()
   const { enabled: lockEnabled, capable: lockCapable, toggle: toggleLock } = useBiometricLock()
+  const { devices, loading: devicesLoading } = useDevices()
   const { logout } = useAuth()
 
   return (
@@ -148,6 +150,26 @@ export default function Settings() {
           Show a QR to sign in on another device without your password.
         </Text>
       </Card>
+      <Text variant="label" color="textMuted" style={styles.section}>
+        Paired devices
+      </Text>
+      <Card variant="sunken">
+        {devices.length === 0 ? (
+          <Text variant="body" color="textSecondary">
+            {devicesLoading ? 'Loading…' : 'No other devices have paired.'}
+          </Text>
+        ) : (
+          devices.map((d) => (
+            <View key={d.id} style={styles.row} testID="settings-device">
+              <Text variant="bodyStrong">{d.label}</Text>
+              <Text variant="caption" color="textSecondary">
+                {timeAgo(d.paired_at)}
+              </Text>
+            </View>
+          ))
+        )}
+      </Card>
+
       <View style={styles.logout}>
         <Button title="Log out" variant="destructive" fullWidth onPress={() => logout()} testID="settings-logout" />
       </View>

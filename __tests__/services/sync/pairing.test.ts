@@ -83,7 +83,9 @@ describe('redeemPairing', () => {
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
-    expect(body).toEqual({ code: 'pair-code' }) // master key NOT sent to the server
+    expect(body.code).toBe('pair-code')
+    expect(body.device_label).toBe('Test Device') // labels the owner's pairing log
+    expect(body).not.toHaveProperty('key') // master key NOT sent to the server
   })
 
   it('rejects an invalid QR without hitting the server', async () => {

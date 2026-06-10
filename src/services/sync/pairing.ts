@@ -1,9 +1,17 @@
+import { Platform } from 'react-native'
+import * as Device from 'expo-device'
+
 import { CryptoModule } from '@/native/CryptoModule'
 import { authenticatedFetch } from '@/services/auth/api-client'
 import { API_URL } from '@/services/auth/config'
 import { saveTokens } from '@/services/auth/token-store'
 import { useAuthStore } from '@/store/auth.store'
 import { type Result, ok, err } from '@/types/result'
+
+/** A human-recognizable label for this device, for the owner's pairing log. */
+function deviceLabel(): string {
+  return Device.deviceName || Device.modelName || `${Platform.OS} device`
+}
 
 interface PairingPayload {
   v: 1
@@ -63,7 +71,9 @@ export async function redeemPairing(raw: string): Promise<Result<{ accountId: st
     const res = await fetch(`${API_URL}/auth/pair/redeem`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: parsed.data.code }),
+      // Send a device label for the owner's pairing log. The master key still
+      // never touches the server — it travels only in the QR.
+      body: JSON.stringify({ code: parsed.data.code, device_label: deviceLabel(), platform: Platform.OS }),
     })
     if (!res.ok) return err('PAIR_REDEEM_FAILED', `Pairing failed (${res.status})`)
 

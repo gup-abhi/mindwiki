@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native'
 import Settings from '@/app/(tabs)/settings'
 import { useAuth } from '@/hooks/useAuth'
 import { useBiometricLock } from '@/hooks/useBiometricLock'
+import { useDevices } from '@/hooks/useDevices'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
 
@@ -13,11 +14,13 @@ jest.mock('@/hooks/useSyncStatus', () => ({ useSyncStatus: jest.fn() }))
 jest.mock('@/hooks/useRecoverySetup', () => ({ useRecoverySetup: jest.fn() }))
 jest.mock('@/hooks/useAuth', () => ({ useAuth: jest.fn() }))
 jest.mock('@/hooks/useBiometricLock', () => ({ useBiometricLock: jest.fn() }))
+jest.mock('@/hooks/useDevices', () => ({ useDevices: jest.fn() }))
 
 const mockSyncStatus = useSyncStatus as jest.Mock
 const mockRecovery = useRecoverySetup as jest.Mock
 const mockAuth = useAuth as jest.Mock
 const mockBiometric = useBiometricLock as jest.Mock
+const mockDevices = useDevices as jest.Mock
 
 const syncNow = jest.fn()
 const setup = jest.fn()
@@ -31,6 +34,7 @@ beforeEach(() => {
   mockRecovery.mockReturnValue(recoveryBase)
   mockAuth.mockReturnValue({ logout })
   mockBiometric.mockReturnValue({ enabled: true, capable: true, toggle: toggleLock })
+  mockDevices.mockReturnValue({ devices: [], loading: false, refresh: jest.fn() })
 })
 
 describe('Settings', () => {
@@ -90,6 +94,21 @@ describe('Settings', () => {
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-app-lock'))
     expect(toggleLock).toHaveBeenCalled()
+  })
+
+  it('lists paired devices', () => {
+    mockDevices.mockReturnValue({
+      devices: [{ id: 'd1', label: 'Pixel 7', platform: 'android', paired_at: Date.now() }],
+      loading: false,
+      refresh: jest.fn(),
+    })
+    render(<Settings />)
+    expect(screen.getByText('Pixel 7')).toBeTruthy()
+  })
+
+  it('shows an empty state when no other devices have paired', () => {
+    render(<Settings />)
+    expect(screen.getByText('No other devices have paired.')).toBeTruthy()
   })
 
   it('offers the System/Light/Dark appearance options', () => {

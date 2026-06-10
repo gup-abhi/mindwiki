@@ -47,6 +47,9 @@ jest.mock('expo-local-authentication', () => ({
   SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC: 2 },
 }))
 
+// Device info used to label a paired device.
+jest.mock('expo-device', () => ({ deviceName: 'Test Device', modelName: 'Test Model' }))
+
 // In-memory SecureStore so persisted preferences/tokens work in tests.
 jest.mock('expo-secure-store', () => {
   const store = new Map()
