@@ -99,15 +99,20 @@ export function useConversation(initialQuestion?: string) {
       store.addMessage(userMsg)
 
       // Crisis check runs on every message (keyword net works even if the fast
-      // model isn't downloaded). On a hit, surface support and skip the reply.
+      // model isn't downloaded). Only an explicit keyword match or very-high
+      // model confidence (tier 3) interrupts with support — the fast model's
+      // crisis score is noisy on conversational text, so the 0.30–0.60 band
+      // (tiers 1–2) would over-trigger here. The reflective reply proceeds
+      // normally for everything below.
       const crisis = await assessMessageCrisis(message)
+      const isCrisis = crisis.tier >= 3
       await appendMessage({
         conversation_id: conversationId,
         role: 'user',
         content: message,
-        crisis_tier: crisis.tier > 0 ? crisis.tier : null,
+        crisis_tier: isCrisis ? crisis.tier : null,
       })
-      if (crisis.tier > 0) {
+      if (isCrisis) {
         store.setMessageCrisis(userMsg.id, crisis.tier)
         const reply: UIMessage = {
           id: randomUUID(),
