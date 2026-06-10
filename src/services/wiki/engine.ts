@@ -76,7 +76,6 @@ export async function updateWikiForEntry(
     seen.add(t.title.toLowerCase())
     topics.push(t)
   }
-  if (__DEV__) console.log(`[wiki] topics: ${topics.map((t) => t.title).join(', ') || '(none)'}`)
 
   for (const topic of topics) {
     const existing = await getPageByTitle(topic.title)
@@ -92,7 +91,6 @@ export async function updateWikiForEntry(
       page = created.data
     }
 
-    if (__DEV__) console.log(`[wiki] synthesizing "${page.title}"…`)
     const synth = await synthesizePage({
       title: page.title,
       category: page.category,
@@ -107,7 +105,6 @@ export async function updateWikiForEntry(
 
     const applied = await updatePage(page.id, synth.data)
     if (applied.success) {
-      if (__DEV__) console.log(`[wiki] updated "${page.title}" -> v${applied.data.version}`)
       updated.push(page.title)
     } else if (__DEV__) {
       console.log(`[wiki] update failed: ${applied.error.code}`)
