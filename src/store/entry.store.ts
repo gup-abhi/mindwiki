@@ -1,64 +1,43 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
-export const TOTAL_STEPS = 5
-
-export type DraftField = 'situation' | 'thought' | 'behavior' | 'closing_note'
-
+// Free-write draft: a mood + the body the user writes. `thought` is an optional
+// CBT facet (the automatic thought) the user can choose to add; everything else
+// (emotion, distortion, people, places…) is derived from the text by the
+// fast model after save — no forced fields.
 export interface EntryDraft {
   mood: number | null
-  situation: string
+  body: string
   thought: string
-  behavior: string
-  closing_note: string
 }
 
 export interface EntryState {
-  step: number
   draft: EntryDraft
   setMood: (mood: number) => void
-  setField: (field: DraftField, value: string) => void
-  goNext: () => void
-  goBack: () => void
-  goToStep: (step: number) => void
+  setBody: (value: string) => void
+  setThought: (value: string) => void
   reset: () => void
 }
 
-const initialDraft = (): EntryDraft => ({
-  mood: null,
-  situation: '',
-  thought: '',
-  behavior: '',
-  closing_note: '',
-})
+const initialDraft = (): EntryDraft => ({ mood: null, body: '', thought: '' })
 
 export const useEntryStore = create<EntryState>()(
   immer((set) => ({
-    step: 1,
     draft: initialDraft(),
     setMood: (mood) =>
       set((s) => {
         s.draft.mood = mood
       }),
-    setField: (field, value) =>
+    setBody: (value) =>
       set((s) => {
-        s.draft[field] = value
+        s.draft.body = value
       }),
-    goNext: () =>
+    setThought: (value) =>
       set((s) => {
-        if (s.step < TOTAL_STEPS) s.step += 1
-      }),
-    goBack: () =>
-      set((s) => {
-        if (s.step > 1) s.step -= 1
-      }),
-    goToStep: (step) =>
-      set((s) => {
-        if (step >= 1 && step <= TOTAL_STEPS) s.step = step
+        s.draft.thought = value
       }),
     reset: () =>
       set((s) => {
-        s.step = 1
         s.draft = initialDraft()
       }),
   }))

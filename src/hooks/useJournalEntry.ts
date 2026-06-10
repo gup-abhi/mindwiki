@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { type CrisisAssessment } from '@/services/crisis/detector'
 import { onEntrySaved } from '@/services/notifications/scheduler'
@@ -6,7 +6,7 @@ import { processEntry } from '@/services/pipeline'
 import { createEntry, type Entry } from '@/services/storage/entries'
 import { sync } from '@/services/sync/engine'
 import { useAuthStore } from '@/store/auth.store'
-import { useEntryStore, TOTAL_STEPS } from '@/store/entry.store'
+import { useEntryStore } from '@/store/entry.store'
 import { type Result, ok, err } from '@/types/result'
 
 export interface SubmitOutcome {
@@ -15,56 +15,34 @@ export interface SubmitOutcome {
 }
 
 /**
- * Drives the CBT 5-step entry flow: exposes the draft + step, validates required
- * steps (1 mood, 2 situation, 3 thought), allows skipping optional steps (4, 5),
- * and submits to the storage layer. A failed submit never throws — returns Result.
+ * Drives the free-write entry: a mood + the body the user writes, with an
+ * optional automatic-thought facet. The body is the entry text (stored as
+ * `situation`); the fast model derives the rest after save. A failed submit
+ * never throws — returns Result.
  */
 export function useJournalEntry() {
-  const step = useEntryStore((s) => s.step)
   const draft = useEntryStore((s) => s.draft)
   const setMood = useEntryStore((s) => s.setMood)
-  const setField = useEntryStore((s) => s.setField)
-  const goNext = useEntryStore((s) => s.goNext)
-  const goBack = useEntryStore((s) => s.goBack)
+  const setBody = useEntryStore((s) => s.setBody)
+  const setThought = useEntryStore((s) => s.setThought)
   const reset = useEntryStore((s) => s.reset)
 
   const [submitting, setSubmitting] = useState(false)
 
-  const canAdvance = useMemo(() => {
-    switch (step) {
-      case 1:
-        return draft.mood != null
-      case 2:
-        return draft.situation.trim().length > 0
-      case 3:
-        return draft.thought.trim().length > 0
-      default:
-        return true // steps 4 (behavior) & 5 (closing_note) are optional
-    }
-  }, [step, draft])
-
-  const isLastStep = step === TOTAL_STEPS
-
-  const next = useCallback(() => {
-    if (canAdvance) goNext()
-  }, [canAdvance, goNext])
-
-  const skip = useCallback(() => {
-    goNext()
-  }, [goNext])
+  const canSave = draft.mood != null && draft.body.trim().length > 0
 
   const submit = useCallback(async (): Promise<Result<SubmitOutcome>> => {
-    if (draft.mood == null) {
-      return err('ENTRY_INVALID', 'Mood is required before submitting')
-    }
+    if (draft.mood == null) return err('ENTRY_INVALID', 'Choose how you’re feeling first')
+    if (draft.body.trim().length === 0) return err('ENTRY_INVALID', 'Write something first')
+
     setSubmitting(true)
     try {
       const result = await createEntry({
         mood: draft.mood,
-        situation: draft.situation,
-        thought: draft.thought,
-        behavior: draft.behavior.trim() || null,
-        closing_note: draft.closing_note.trim() || null,
+        situation: draft.body.trim(), // the free-write body is the entry text
+        thought: draft.thought.trim(), // optional CBT facet ('' if not added)
+        behavior: null,
+        closing_note: null,
       })
       if (!result.success) return result
 
@@ -86,17 +64,12 @@ export function useJournalEntry() {
   }, [draft, reset])
 
   return {
-    step,
-    totalSteps: TOTAL_STEPS,
     draft,
     setMood,
-    setField,
-    next,
-    back: goBack,
-    skip,
+    setBody,
+    setThought,
     submit,
-    canAdvance,
-    isLastStep,
+    canSave,
     submitting,
   }
 }

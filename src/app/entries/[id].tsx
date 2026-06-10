@@ -73,8 +73,10 @@ export default function EntryDetailScreen() {
         Mood: {entry.mood}/5 · {MOOD_LABELS[entry.mood] ?? ''}
       </Text>
 
-      <Field label="Situation" value={entry.situation} />
-      <Field label="Thought" value={entry.thought} />
+      <Text variant="body" style={styles.bodyText}>
+        {entry.situation}
+      </Text>
+      {entry.thought ? <Field label="The thought behind this" value={entry.thought} /> : null}
       {entry.behavior ? <Field label="Behaviour" value={entry.behavior} /> : null}
       {entry.closing_note ? <Field label="Closing note" value={entry.closing_note} /> : null}
 
@@ -99,6 +101,7 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing.md },
     mood: { marginTop: t.spacing.xs },
+    bodyText: { marginTop: t.spacing.xl, lineHeight: 25 },
     field: { marginTop: t.spacing.xl },
     fieldLabel: { marginBottom: t.spacing.xs },
     fieldValue: { lineHeight: 25 },

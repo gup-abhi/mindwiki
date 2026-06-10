@@ -14,10 +14,9 @@ jest.mock('@/services/pipeline', () => ({ processEntry: jest.fn() }))
 jest.mock('@/services/notifications/scheduler', () => ({ onEntrySaved: jest.fn() }))
 
 const mockCreateEntry = createEntry as jest.Mock
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const mockProcessEntry = require('@/services/pipeline').processEntry as jest.Mock
 
-describe('EntryScreen (5-step flow)', () => {
+describe('EntryScreen (free-write)', () => {
   beforeEach(() => {
     useEntryStore.getState().reset()
     mockReplace.mockReset()
@@ -30,37 +29,17 @@ describe('EntryScreen (5-step flow)', () => {
     })
   })
 
-  function fillAndSave() {
-    fireEvent.press(screen.getByText('4'))
-    fireEvent.press(screen.getByText('Next'))
-    fireEvent.changeText(screen.getByPlaceholderText('Describe the situation…'), 'a meeting')
-    fireEvent.press(screen.getByText('Next'))
-    fireEvent.changeText(screen.getByPlaceholderText('The automatic thought…'), 'I will fail')
-    fireEvent.press(screen.getByText('Next'))
-    fireEvent.press(screen.getByText('Skip'))
-    fireEvent.press(screen.getByText('Save entry'))
-  }
-
-  it('walks all 5 steps (with a skip) and submits the built entry', async () => {
+  it('saves a free-write entry, mapping the body to situation', async () => {
     render(<EntryScreen />)
-
-    fireEvent.press(screen.getByText('4')) // mood
-    fireEvent.press(screen.getByText('Next')) // -> step 2
-
-    fireEvent.changeText(screen.getByPlaceholderText('Describe the situation…'), 'a meeting')
-    fireEvent.press(screen.getByText('Next')) // -> step 3
-
-    fireEvent.changeText(screen.getByPlaceholderText('The automatic thought…'), 'I will fail')
-    fireEvent.press(screen.getByText('Next')) // -> step 4
-
-    fireEvent.press(screen.getByText('Skip')) // -> step 5 (behavior skipped)
-    fireEvent.press(screen.getByText('Save entry'))
+    fireEvent.press(screen.getByTestId('mood-4'))
+    fireEvent.changeText(screen.getByTestId('entry-body'), 'a rough day at work')
+    fireEvent.press(screen.getByTestId('entry-save'))
 
     await waitFor(() =>
       expect(mockCreateEntry).toHaveBeenCalledWith({
         mood: 4,
-        situation: 'a meeting',
-        thought: 'I will fail',
+        situation: 'a rough day at work',
+        thought: '',
         behavior: null,
         closing_note: null,
       })
@@ -68,20 +47,29 @@ describe('EntryScreen (5-step flow)', () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/saved'))
   })
 
-  it('does not advance from step 1 until a mood is chosen', () => {
+  it('does not save without a mood and body', () => {
     render(<EntryScreen />)
-    fireEvent.press(screen.getByText('Next'))
-    // still on step 1 — the situation field has not appeared
-    expect(screen.queryByPlaceholderText('Describe the situation…')).toBeNull()
+    fireEvent.press(screen.getByTestId('entry-save')) // disabled — no-op
+    expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
-  it('goes back to a previous step', () => {
+  it('reveals the optional thought field and includes it on save', async () => {
     render(<EntryScreen />)
-    fireEvent.press(screen.getByText('3'))
-    fireEvent.press(screen.getByText('Next')) // -> step 2
-    expect(screen.getByPlaceholderText('Describe the situation…')).toBeTruthy()
-    fireEvent.press(screen.getByText('Back')) // -> step 1
-    expect(screen.getByText('Awful')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('mood-3'))
+    fireEvent.changeText(screen.getByTestId('entry-body'), 'snapped at Sarah')
+    fireEvent.press(screen.getByTestId('entry-add-thought'))
+    fireEvent.changeText(screen.getByTestId('entry-thought'), 'I ruin everything')
+    fireEvent.press(screen.getByTestId('entry-save'))
+
+    await waitFor(() =>
+      expect(mockCreateEntry).toHaveBeenCalledWith({
+        mood: 3,
+        situation: 'snapped at Sarah',
+        thought: 'I ruin everything',
+        behavior: null,
+        closing_note: null,
+      })
+    )
   })
 
   it('routes to the crisis screen when a crisis tier is detected', async () => {
@@ -90,7 +78,10 @@ describe('EntryScreen (5-step flow)', () => {
       crisis: { tier: 3, confidence: 0.9, keywordMatch: true },
     })
     render(<EntryScreen />)
-    fillAndSave()
+    fireEvent.press(screen.getByTestId('mood-1'))
+    fireEvent.changeText(screen.getByTestId('entry-body'), 'i give up')
+    fireEvent.press(screen.getByTestId('entry-save'))
+
     await waitFor(() =>
       expect(mockReplace).toHaveBeenCalledWith({ pathname: '/crisis', params: { tier: '3' } })
     )

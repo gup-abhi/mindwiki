@@ -1,54 +1,25 @@
-import { useEntryStore, TOTAL_STEPS } from '@/store/entry.store'
+import { useEntryStore } from '@/store/entry.store'
 
 const store = () => useEntryStore.getState()
 
 describe('entry.store', () => {
-  beforeEach(() => {
-    store().reset()
+  beforeEach(() => store().reset())
+
+  it('starts with an empty draft', () => {
+    expect(store().draft).toEqual({ mood: null, body: '', thought: '' })
   })
 
-  it('starts at step 1 with an empty draft', () => {
-    expect(store().step).toBe(1)
-    expect(store().draft.mood).toBeNull()
-    expect(store().draft.situation).toBe('')
-  })
-
-  it('sets mood and draft fields', () => {
+  it('sets mood, body, and the optional thought', () => {
     store().setMood(4)
-    store().setField('situation', 'a meeting')
-    expect(store().draft.mood).toBe(4)
-    expect(store().draft.situation).toBe('a meeting')
+    store().setBody('a rough day')
+    store().setThought('I always fail')
+    expect(store().draft).toEqual({ mood: 4, body: 'a rough day', thought: 'I always fail' })
   })
 
-  it('advances and goes back without exceeding bounds', () => {
-    store().goBack()
-    expect(store().step).toBe(1) // clamped at 1
-
-    for (let i = 0; i < TOTAL_STEPS + 2; i++) store().goNext()
-    expect(store().step).toBe(TOTAL_STEPS) // clamped at TOTAL_STEPS
-
-    store().goBack()
-    expect(store().step).toBe(TOTAL_STEPS - 1)
-  })
-
-  it('goToStep ignores out-of-range values', () => {
-    store().goToStep(3)
-    expect(store().step).toBe(3)
-    store().goToStep(99)
-    expect(store().step).toBe(3)
-    store().goToStep(0)
-    expect(store().step).toBe(3)
-  })
-
-  it('reset clears the draft and returns to step 1', () => {
+  it('reset clears the draft', () => {
     store().setMood(2)
-    store().setField('thought', 'x')
-    store().goToStep(4)
-
+    store().setBody('x')
     store().reset()
-
-    expect(store().step).toBe(1)
-    expect(store().draft.mood).toBeNull()
-    expect(store().draft.thought).toBe('')
+    expect(store().draft).toEqual({ mood: null, body: '', thought: '' })
   })
 })

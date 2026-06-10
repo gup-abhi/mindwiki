@@ -6,9 +6,7 @@ import { createEntry } from '@/services/storage/entries'
 import { processEntry } from '@/services/pipeline'
 import { ok } from '@/types/result'
 
-jest.mock('@/services/storage/entries', () => ({
-  createEntry: jest.fn(),
-}))
+jest.mock('@/services/storage/entries', () => ({ createEntry: jest.fn() }))
 jest.mock('@/services/pipeline', () => ({ processEntry: jest.fn() }))
 jest.mock('@/services/notifications/scheduler', () => ({ onEntrySaved: jest.fn() }))
 
@@ -26,38 +24,20 @@ describe('useJournalEntry', () => {
     })
   })
 
-  it('blocks advancing past required steps until they are filled', () => {
+  it('canSave only once a mood and a non-empty body are present', () => {
     const { result } = renderHook(() => useJournalEntry())
-
-    expect(result.current.canAdvance).toBe(false) // step 1 needs mood
-    act(() => result.current.next())
-    expect(result.current.step).toBe(1) // did not advance
-
+    expect(result.current.canSave).toBe(false)
     act(() => result.current.setMood(4))
-    expect(result.current.canAdvance).toBe(true)
-    act(() => result.current.next())
-    expect(result.current.step).toBe(2)
-  })
-
-  it('allows skipping the optional steps (4 and 5)', () => {
-    const { result } = renderHook(() => useJournalEntry())
-
-    act(() => {
-      result.current.setMood(3)
-      result.current.setField('situation', 's')
-      result.current.setField('thought', 't')
-    })
-    act(() => result.current.next()) // 1->2
-    act(() => result.current.next()) // 2->3
-    act(() => result.current.next()) // 3->4
-    expect(result.current.step).toBe(4)
-    act(() => result.current.skip()) // 4->5 (optional)
-    expect(result.current.step).toBe(5)
-    expect(result.current.isLastStep).toBe(true)
+    expect(result.current.canSave).toBe(false) // body still empty
+    act(() => result.current.setBody('   '))
+    expect(result.current.canSave).toBe(false) // whitespace only
+    act(() => result.current.setBody('a rough day'))
+    expect(result.current.canSave).toBe(true)
   })
 
   it('submit returns an error when mood is missing', async () => {
     const { result } = renderHook(() => useJournalEntry())
+    act(() => result.current.setBody('something happened'))
 
     let res
     await act(async () => {
@@ -68,16 +48,15 @@ describe('useJournalEntry', () => {
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
-  it('submit builds the entry from the draft, calls createEntry, and resets on success', async () => {
+  it('maps the trimmed body to situation, includes the optional thought, and resets', async () => {
     const saved = { id: 'e1', mood: 4 }
     mockCreateEntry.mockResolvedValue(ok(saved))
 
     const { result } = renderHook(() => useJournalEntry())
     act(() => {
       result.current.setMood(4)
-      result.current.setField('situation', 'a meeting')
-      result.current.setField('thought', 'I will fail')
-      result.current.setField('behavior', '  ') // whitespace -> null
+      result.current.setBody('  a long rough day  ')
+      result.current.setThought('I will fail')
     })
 
     let res
@@ -87,7 +66,7 @@ describe('useJournalEntry', () => {
 
     expect(mockCreateEntry).toHaveBeenCalledWith({
       mood: 4,
-      situation: 'a meeting',
+      situation: 'a long rough day',
       thought: 'I will fail',
       behavior: null,
       closing_note: null,
@@ -98,7 +77,6 @@ describe('useJournalEntry', () => {
       expect(res!.data.crisis.tier).toBe(0)
     }
     expect(mockProcessEntry).toHaveBeenCalledWith(saved) // tag + crisis
-    expect(result.current.step).toBe(1) // reset
-    expect(result.current.draft.mood).toBeNull()
+    expect(result.current.draft.mood).toBeNull() // reset
   })
 })
