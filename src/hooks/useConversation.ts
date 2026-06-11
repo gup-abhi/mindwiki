@@ -5,6 +5,7 @@ import { useFocusEffect } from 'expo-router'
 import { type ChatMessage } from '@/native/LLMBridge'
 import { hasCrisisKeyword } from '@/services/crisis/detector'
 import { areModelsReady } from '@/services/llm/model-manager'
+import { captureReflectMessage } from '@/services/pipeline'
 import {
   appendMessage,
   createConversation,
@@ -171,6 +172,12 @@ export function useConversation(initialQuestion?: string) {
       }
       store.clearStreaming()
       store.setSending(false)
+
+      // Compounding knowledge: capture anything durable the user shared (people,
+      // places, themes the wiki hasn't recorded) into the wiki/graph. Background,
+      // best-effort — runs after the reply so it never contends with streaming or
+      // blocks the UI. Crisis messages returned earlier and are never indexed.
+      void captureReflectMessage(message)
     },
     [pages, nodes, edges]
   )

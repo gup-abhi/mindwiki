@@ -1,10 +1,10 @@
-import { processEntry } from '@/services/pipeline'
+import { processEntry, captureReflectMessage } from '@/services/pipeline'
 import { tagEntry } from '@/services/llm/fast-model'
-import { applyTags, type Entry } from '@/services/storage/entries'
+import { applyTags, createEntry, type Entry } from '@/services/storage/entries'
 import { ok, err } from '@/types/result'
 
 jest.mock('@/services/llm/fast-model', () => ({ tagEntry: jest.fn() }))
-jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn() }))
+jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn(), createEntry: jest.fn() }))
 jest.mock('@/services/storage/entities', () => ({ setEntitiesForEntry: jest.fn() }))
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
 jest.mock('@/services/graph/engine', () => ({ updateGraphForEntry: jest.fn() }))
@@ -21,6 +21,7 @@ import { setEntitiesForEntry } from '@/services/storage/entities'
 
 const mockTagEntry = tagEntry as jest.Mock
 const mockApplyTags = applyTags as jest.Mock
+const mockCreateEntry = createEntry as jest.Mock
 const mockUpdateWiki = updateWikiForEntry as jest.Mock
 const mockUpdateGraph = updateGraphForEntry as jest.Mock
 const mockSetEntities = setEntitiesForEntry as jest.Mock
@@ -51,6 +52,7 @@ const entry = (overrides: Partial<Entry> = {}): Entry => ({
   mood_score: null,
   topic: null,
   tagged_at: null,
+  source: 'journal',
   ...overrides,
 })
 
@@ -124,5 +126,70 @@ describe('processEntry', () => {
 
     expect(result.crisis.tier).toBe(0)
     expect(result.tagged).toBe(true)
+  })
+})
+
+describe('captureReflectMessage', () => {
+  beforeEach(() => {
+    mockTagEntry.mockReset()
+    mockApplyTags.mockReset()
+    mockCreateEntry.mockReset()
+    mockSetEntities.mockReset()
+    mockUpdateWiki.mockReset()
+    mockUpdateGraph.mockReset()
+    mockBegin.mockReset()
+    mockEnd.mockReset()
+    mockApplyTags.mockResolvedValue(ok(undefined))
+    mockSetEntities.mockResolvedValue(ok(undefined))
+    mockUpdateWiki.mockResolvedValue(ok([]))
+    mockUpdateGraph.mockResolvedValue(ok(undefined))
+    mockCreateEntry.mockResolvedValue(ok(entry({ id: 'r1', source: 'reflect' })))
+  })
+
+  it('captures a message with a new entity as a reflect entry and indexes it', async () => {
+    mockTagEntry.mockResolvedValue(ok(tags({ people: ['Sarah'], topic: 'none' })))
+
+    await captureReflectMessage('I had coffee with Sarah today')
+
+    // stored as a reflect-sourced entry, never a journal one
+    expect(mockCreateEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        situation: 'I had coffee with Sarah today',
+        thought: '',
+        source: 'reflect',
+      })
+    )
+    // fanned out to entities + wiki/graph, keyed to the new entry id
+    expect(mockSetEntities).toHaveBeenCalledWith('r1', [{ type: 'person', label: 'Sarah' }])
+    expect(mockUpdateWiki).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'r1' }),
+      'none'
+    )
+  })
+
+  it('captures a message that only carries a theme (no entities)', async () => {
+    mockTagEntry.mockResolvedValue(ok(tags({ topic: 'Boundaries' })))
+
+    await captureReflectMessage('I think I need firmer boundaries')
+
+    expect(mockCreateEntry).toHaveBeenCalledTimes(1)
+    expect(mockUpdateWiki).toHaveBeenCalled()
+  })
+
+  it('skips chit-chat with no entities and no real theme', async () => {
+    mockTagEntry.mockResolvedValue(ok(tags({ topic: 'none' })))
+
+    await captureReflectMessage('thanks, that helps')
+
+    expect(mockCreateEntry).not.toHaveBeenCalled()
+    expect(mockApplyTags).not.toHaveBeenCalled()
+    expect(mockUpdateWiki).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when tagging fails (never throws)', async () => {
+    mockTagEntry.mockResolvedValue(err('TAG_INFERENCE_FAILED', 'model down'))
+
+    await expect(captureReflectMessage('anything')).resolves.toBeUndefined()
+    expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 })

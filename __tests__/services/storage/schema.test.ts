@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4])
-    expect(applied).toEqual([1, 2, 3, 4])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5])
+    expect(applied).toEqual([1, 2, 3, 4, 5])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -106,5 +106,15 @@ describe('migration 004 (conversations)', () => {
     const msgAt = stmts.findIndex((s) => s.includes('CREATE TABLE chat_messages'))
     expect(convAt).toBeGreaterThanOrEqual(0)
     expect(convAt).toBeLessThan(msgAt)
+  })
+})
+
+describe('migration 005 (entry source)', () => {
+  it('is registered as version 5 and adds a source column defaulting to journal', () => {
+    expect(MIGRATIONS[4].version).toBe(5)
+    expect(MIGRATIONS[4].name).toBe('entry_source')
+    expect(MIGRATIONS[4].statements).toEqual([
+      "ALTER TABLE entries ADD COLUMN source TEXT NOT NULL DEFAULT 'journal'",
+    ])
   })
 })

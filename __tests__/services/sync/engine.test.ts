@@ -18,7 +18,7 @@ const mockGetTokens = getTokens as jest.Mock
 
 const ENTRY_COLS = [
   'id', 'created_at', 'mood', 'situation', 'thought', 'behavior',
-  'closing_note', 'emotion', 'distortion', 'mood_score', 'topic', 'tagged_at',
+  'closing_note', 'emotion', 'distortion', 'mood_score', 'topic', 'tagged_at', 'source',
 ]
 
 const entryRow = (id: string, over: Record<string, unknown> = {}) => ({

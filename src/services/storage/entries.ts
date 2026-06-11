@@ -5,6 +5,9 @@ import { type Result, ok, err } from '@/types/result'
 import { type SqliteDatabase, getDb } from './db'
 import { enqueueUpsert } from './sync-queue'
 
+/** Where an entry came from: the CBT journal flow, or a Reflect-chat message. */
+export type EntrySource = 'journal' | 'reflect'
+
 export interface Entry {
   id: string
   created_at: number
@@ -19,6 +22,7 @@ export interface Entry {
   /** Fast-model theme (1–3 words) — persisted so the graph rebuilds across devices. */
   topic: string | null
   tagged_at: number | null
+  source: EntrySource
 }
 
 /** The CBT 5-step input. Steps 4 (behavior) and 5 (closing_note) are optional. */
@@ -28,6 +32,8 @@ export interface NewEntry {
   thought: string
   behavior?: string | null
   closing_note?: string | null
+  /** Defaults to 'journal'. Reflect-chat captures pass 'reflect'. */
+  source?: EntrySource
 }
 
 /** Fast-model output applied after the entry is saved. */
@@ -54,6 +60,7 @@ function rowToEntry(row: Record<string, unknown>): Entry {
     mood_score: num(row.mood_score),
     topic: str(row.topic),
     tagged_at: num(row.tagged_at),
+    source: (row.source == null ? 'journal' : String(row.source)) as EntrySource,
   }
 }
 
@@ -74,11 +81,12 @@ export async function createEntry(
     mood_score: null,
     topic: null,
     tagged_at: null,
+    source: input.source ?? 'journal',
   }
   try {
     await db.execute(
-      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.id,
         entry.created_at,
@@ -87,6 +95,7 @@ export async function createEntry(
         entry.thought,
         entry.behavior,
         entry.closing_note,
+        entry.source,
       ]
     )
     await enqueueUpsert('entries', entry.id, db) // best-effort; never blocks the save
@@ -114,8 +123,10 @@ export async function listEntries(
   db: SqliteDatabase = getDb()
 ): Promise<Result<Entry[]>> {
   try {
+    // Journal timeline only — chat-derived ('reflect') entries feed the wiki/graph
+    // but must never surface as journal entries.
     const res = await db.execute(
-      'SELECT * FROM entries ORDER BY created_at DESC LIMIT ?',
+      "SELECT * FROM entries WHERE source = 'journal' ORDER BY created_at DESC LIMIT ?",
       [limit]
     )
     return ok(res.rows.map(rowToEntry))

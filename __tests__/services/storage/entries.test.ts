@@ -19,7 +19,7 @@ function createFakeDb() {
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
       if (/^INSERT INTO entries/.test(sql)) {
-        const [id, created_at, mood, situation, thought, behavior, closing_note] = params
+        const [id, created_at, mood, situation, thought, behavior, closing_note, source] = params
         rows.set(String(id), {
           id,
           created_at,
@@ -32,6 +32,7 @@ function createFakeDb() {
           distortion: null,
           mood_score: null,
           tagged_at: null,
+          source,
         })
         return { rows: [], rowsAffected: 1 }
       }
@@ -39,11 +40,11 @@ function createFakeDb() {
         const row = rows.get(String(params[0]))
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
-      if (/^SELECT \* FROM entries ORDER BY created_at DESC/.test(sql)) {
+      if (/^SELECT \* FROM entries WHERE source = 'journal' ORDER BY created_at DESC/.test(sql)) {
         const limit = Number(params[0])
-        const all = [...rows.values()].sort(
-          (a, b) => Number(b.created_at) - Number(a.created_at)
-        )
+        const all = [...rows.values()]
+          .filter((r) => r.source === 'journal')
+          .sort((a, b) => Number(b.created_at) - Number(a.created_at))
         return { rows: all.slice(0, limit), rowsAffected: 0 }
       }
       if (/^UPDATE entries SET/.test(sql)) {
@@ -84,7 +85,33 @@ describe('storage/entries CRUD', () => {
       expect(result.data.mood).toBe(3)
       expect(result.data.behavior).toBeNull()
       expect(result.data.emotion).toBeNull()
+      expect(result.data.source).toBe('journal') // default
       expect(typeof result.data.created_at).toBe('number')
+    }
+  })
+
+  it("creates a 'reflect'-sourced entry when asked", async () => {
+    const { db } = createFakeDb()
+    const result = await createEntry(
+      { mood: 3, situation: 'my sister called', thought: '', source: 'reflect' },
+      db
+    )
+    expect(result.success && result.data.source).toBe('reflect')
+  })
+
+  it('lists only journal entries — chat-derived (reflect) entries are excluded', async () => {
+    const { db } = createFakeDb()
+    await createEntry({ mood: 3, situation: 'journaled', thought: 't' }, db)
+    await createEntry(
+      { mood: 3, situation: 'said in chat', thought: '', source: 'reflect' },
+      db
+    )
+
+    const result = await listEntries(10, db)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0].situation).toBe('journaled')
     }
   })
 

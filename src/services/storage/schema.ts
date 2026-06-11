@@ -181,3 +181,15 @@ export const migration004: Migration = {
     `CREATE INDEX idx_chat_messages_conversation ON chat_messages (conversation_id, created_at)`,
   ],
 }
+
+// Migration 005 — entry provenance. Reflect-chat messages that surface durable
+// new info (a person/place/activity or theme the journal hasn't recorded) are
+// captured as entries so they feed entity recurrence + the graph + the wiki,
+// like journal entries. `source` distinguishes them: 'journal' (the CBT flow,
+// shown in the timeline) vs 'reflect' (chat-derived, filtered out of it).
+// Pre-existing rows default to 'journal'.
+export const migration005: Migration = {
+  version: 5,
+  name: 'entry_source',
+  statements: [`ALTER TABLE entries ADD COLUMN source TEXT NOT NULL DEFAULT 'journal'`],
+}

@@ -76,6 +76,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   mood_score: null,
   topic: null,
   tagged_at: null,
+  source: 'journal',
   ...over,
 })
 
