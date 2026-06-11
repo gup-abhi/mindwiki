@@ -10,10 +10,19 @@ const mockRetry = jest.fn()
 const mockNew = jest.fn()
 const mockLoad = jest.fn()
 
+// Holder so the mock factory can expose the registered tabPress handler.
+const mockNav: { tabPress?: () => void } = {}
+
 jest.mock('@/hooks/useConversation', () => ({ useConversation: () => mockUse() }))
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
   useLocalSearchParams: () => ({}),
+  useNavigation: () => ({
+    addListener: (event: string, cb: () => void) => {
+      if (event === 'tabPress') mockNav.tabPress = cb
+      return () => {}
+    },
+  }),
 }))
 
 const message = (over: Partial<UIMessage> = {}): UIMessage => ({
@@ -45,6 +54,7 @@ describe('QueryScreen (reflective conversation)', () => {
     mockRetry.mockReset()
     mockNew.mockReset()
     mockLoad.mockReset()
+    mockNav.tabPress = undefined
   })
 
   it('shows suggested starters and sends one when tapped', () => {
@@ -90,6 +100,17 @@ describe('QueryScreen (reflective conversation)', () => {
     render(<QueryScreen />)
     fireEvent.press(screen.getByTestId('retry'))
     expect(mockRetry).toHaveBeenCalled()
+  })
+
+  it('resets to the start screen when the Reflect tab is pressed', () => {
+    mockUse.mockReturnValue({
+      ...base,
+      messages: [message({ role: 'user', content: 'mid conversation' })],
+    })
+    render(<QueryScreen />)
+    expect(typeof mockNav.tabPress).toBe('function')
+    mockNav.tabPress?.()
+    expect(mockNew).toHaveBeenCalled()
   })
 
   it('opens a past conversation from history', () => {

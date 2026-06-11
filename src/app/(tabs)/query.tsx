@@ -1,5 +1,5 @@
-import { useRef } from 'react'
-import { useLocalSearchParams } from 'expo-router'
+import { useEffect, useRef } from 'react'
+import { useLocalSearchParams, useNavigation } from 'expo-router'
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -26,6 +26,18 @@ export default function QueryScreen() {
   const scrollRef = useRef<ScrollView>(null)
   const isEmpty = messages.length === 0
 
+  // Tapping the Reflect tab always returns to the start screen (suggestions +
+  // past conversations) — but returning from a pushed page (e.g. a source chip
+  // → wiki page) does NOT, so an open conversation is preserved in that flow.
+  // `tabPress` is a bottom-tabs event not in the default navigation type.
+  const navigation = useNavigation() as unknown as {
+    addListener: (event: 'tabPress', callback: () => void) => () => void
+  }
+  useEffect(() => {
+    const unsub = navigation.addListener('tabPress', () => newConversation())
+    return unsub
+  }, [navigation, newConversation])
+
   return (
     <Screen scroll={false}>
       <View style={styles.header}>
@@ -50,7 +62,10 @@ export default function QueryScreen() {
           style={styles.flex}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+          // Non-animated so it lands exactly at the bottom — an animated scroll
+          // chases the growing content height and can stall mid-thread when a
+          // long conversation is opened.
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
         >
           {isEmpty ? (
             <View>
@@ -138,13 +153,8 @@ const makeStyles = (t: Theme) =>
     section: { marginTop: t.spacing.xl },
     sectionLabel: { marginBottom: t.spacing.sm },
     suggestion: { marginBottom: t.spacing.sm },
-    historyRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingVertical: t.spacing.md,
-    },
-    historyDate: { marginLeft: t.spacing.md },
+    historyRow: { paddingVertical: t.spacing.md },
+    historyDate: { marginTop: t.spacing.xs },
     assistantWrap: { alignItems: 'flex-start', marginBottom: t.spacing.md },
     streamBubble: {
       maxWidth: '85%',
