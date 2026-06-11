@@ -40,6 +40,20 @@ export default function QueryScreen() {
     return unsub
   }, [navigation, newConversation])
 
+  // Pin the thread to the bottom. Deferred past layout/paint with rAF — a
+  // synchronous scroll runs before freshly rendered content is measured, so it
+  // lands short on a long, just-opened conversation.
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }))
+    )
+  }, [])
+
+  // Re-pin when a conversation loads, a turn is added, or a reply streams in.
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages, streaming, scrollToBottom])
+
   // Android hardware back: when a conversation is open, return to the Reflect
   // start screen instead of leaving to Home. On the start screen, let the
   // default navigation happen.
@@ -81,10 +95,7 @@ export default function QueryScreen() {
           style={styles.flex}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          // Non-animated so it lands exactly at the bottom — an animated scroll
-          // chases the growing content height and can stall mid-thread when a
-          // long conversation is opened.
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+          onContentSizeChange={scrollToBottom}
         >
           {isEmpty ? (
             <View>
