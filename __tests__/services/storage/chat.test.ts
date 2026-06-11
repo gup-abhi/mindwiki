@@ -2,8 +2,10 @@ import { type SqliteDatabase } from '@/services/storage/db'
 import {
   appendMessage,
   createConversation,
+  getConversation,
   listConversations,
   listMessages,
+  setConversationSummary,
 } from '@/services/storage/chat'
 
 let mockUuidCounter = 0
@@ -28,6 +30,19 @@ function createFakeDb() {
           (a, b) => Number(b.updated_at) - Number(a.updated_at)
         )
         return { rows, rowsAffected: 0 }
+      }
+      if (/^SELECT \* FROM conversations WHERE id/.test(sql)) {
+        const row = conversations.get(String(params[0]))
+        return { rows: row ? [row] : [], rowsAffected: 0 }
+      }
+      if (/^UPDATE conversations SET summary/.test(sql)) {
+        const [summary, summary_count, id] = params
+        const row = conversations.get(String(id))
+        if (row) {
+          row.summary = summary
+          row.summary_count = summary_count
+        }
+        return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^INSERT INTO chat_messages/.test(sql)) {
         const [id, conversation_id, role, content, sources_json, crisis_tier, created_at] = params
@@ -123,5 +138,31 @@ describe('storage/chat CRUD', () => {
 
     const msgs = await listMessages(convId, db)
     expect(msgs.success && msgs.data[0].crisis_tier).toBe(3)
+  })
+
+  it('starts a conversation with an empty summary and reads it back via getConversation', async () => {
+    const { db } = createFakeDb()
+    const conv = await createConversation(db)
+    expect(conv.success && conv.data.summary).toBe('')
+    expect(conv.success && conv.data.summary_count).toBe(0)
+    const convId = conv.success ? conv.data.id : ''
+
+    const got = await getConversation(convId, db)
+    expect(got.success && got.data?.summary).toBe('')
+    const missing = await getConversation('nope', db)
+    expect(missing.success && missing.data).toBeNull()
+  })
+
+  it('saves and reloads the rolling summary + coverage count', async () => {
+    const { db } = createFakeDb()
+    const conv = await createConversation(db)
+    const convId = conv.success ? conv.data.id : ''
+
+    const saved = await setConversationSummary(convId, 'They felt anxious about work.', 4, db)
+    expect(saved.success).toBe(true)
+
+    const got = await getConversation(convId, db)
+    expect(got.success && got.data?.summary).toBe('They felt anxious about work.')
+    expect(got.success && got.data?.summary_count).toBe(4)
   })
 })

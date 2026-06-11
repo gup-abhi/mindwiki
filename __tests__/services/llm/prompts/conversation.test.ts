@@ -1,5 +1,6 @@
 import {
   buildConversationMessages,
+  buildSummaryMessages,
   type ConversationContext,
 } from '@/services/llm/prompts/conversation'
 
@@ -56,5 +57,46 @@ describe('buildConversationMessages', () => {
     ]
     const msgs = buildConversationMessages({ history, message: 'now', context: empty })
     expect(msgs.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user'])
+  })
+
+  it('prepends a recap of earlier turns to the system message when a summary exists', () => {
+    const [system] = buildConversationMessages({
+      history: [],
+      message: 'hi',
+      context: empty,
+      summary: 'They have been worried about a work deadline.',
+    })
+    expect(system.content).toMatch(/recap/i)
+    expect(system.content).toMatch(/worried about a work deadline/)
+  })
+
+  it('adds no recap when there is no summary', () => {
+    const [system] = buildConversationMessages({ history: [], message: 'hi', context: empty })
+    expect(system.content).not.toMatch(/recap/i)
+  })
+})
+
+describe('buildSummaryMessages', () => {
+  it('asks the model to fold new turns into the prior recap', () => {
+    const [system, user] = buildSummaryMessages({
+      previousSummary: 'They felt anxious.',
+      turns: [
+        { role: 'user', content: 'work is rough' },
+        { role: 'assistant', content: 'that sounds heavy' },
+      ],
+    })
+    expect(system.role).toBe('system')
+    expect(system.content).toMatch(/recap/i)
+    expect(user.content).toMatch(/They felt anxious\./)
+    expect(user.content).toMatch(/User: work is rough/)
+    expect(user.content).toMatch(/Companion: that sounds heavy/)
+  })
+
+  it('notes when there is no prior recap yet', () => {
+    const [, user] = buildSummaryMessages({
+      previousSummary: '',
+      turns: [{ role: 'user', content: 'hello' }],
+    })
+    expect(user.content).toMatch(/no recap yet/i)
   })
 })

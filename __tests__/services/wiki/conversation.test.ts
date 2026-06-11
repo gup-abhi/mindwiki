@@ -1,11 +1,19 @@
-import { buildContext, respond } from '@/services/wiki/conversation'
-import { converseFromWiki } from '@/services/llm/deep-model'
+import { buildContext, respond, updateRunningSummary } from '@/services/wiki/conversation'
+import { converseFromWiki, summarizeConversation } from '@/services/llm/deep-model'
+import { setConversationSummary } from '@/services/storage/chat'
+import { type ChatMessage } from '@/native/LLMBridge'
 import { type GraphEdge, type GraphNode } from '@/services/storage/graph'
 import { type WikiPage } from '@/services/storage/wiki'
 import { ok, err } from '@/types/result'
 
-jest.mock('@/services/llm/deep-model', () => ({ converseFromWiki: jest.fn() }))
+jest.mock('@/services/llm/deep-model', () => ({
+  converseFromWiki: jest.fn(),
+  summarizeConversation: jest.fn(),
+}))
+jest.mock('@/services/storage/chat', () => ({ setConversationSummary: jest.fn() }))
 const mockConverse = converseFromWiki as jest.Mock
+const mockSummarize = summarizeConversation as jest.Mock
+const mockSetSummary = setConversationSummary as jest.Mock
 
 const page = (over: Partial<WikiPage> = {}): WikiPage => ({
   id: Math.random().toString(36),
@@ -111,9 +119,65 @@ describe('respond', () => {
     expect(mockConverse.mock.calls[0][1]).toBe(onToken)
   })
 
+  it('forwards the rolling summary to the model', async () => {
+    mockConverse.mockResolvedValue(ok('ok'))
+    await respond({ history: [], message: 'hi', pages: [], nodes: [], edges: [], summary: 'recap' })
+    expect(mockConverse.mock.calls[0][0].summary).toBe('recap')
+  })
+
   it('propagates a model failure', async () => {
     mockConverse.mockResolvedValue(err('CONVERSE_INFERENCE_FAILED', 'down'))
     const res = await respond({ history: [], message: 'hi', pages: [], nodes: [], edges: [] })
     expect(res.success).toBe(false)
+  })
+})
+
+describe('updateRunningSummary', () => {
+  const msg = (i: number): ChatMessage => ({
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `m${i}`,
+  })
+
+  beforeEach(() => {
+    mockSummarize.mockReset()
+    mockSetSummary.mockReset()
+    mockSetSummary.mockResolvedValue(ok(undefined))
+  })
+
+  it('does nothing while the recent window still covers the whole thread', async () => {
+    const messages = Array.from({ length: 8 }, (_, i) => msg(i)) // 8 - 8 = 0 older
+    const res = await updateRunningSummary('c1', messages, { summary: '', summaryCount: 0 })
+    expect(res.success && res.data).toBeNull()
+    expect(mockSummarize).not.toHaveBeenCalled()
+    expect(mockSetSummary).not.toHaveBeenCalled()
+  })
+
+  it('folds the newly-evicted turns into the recap and persists it', async () => {
+    mockSummarize.mockResolvedValue(ok('Updated recap.'))
+    const messages = Array.from({ length: 12 }, (_, i) => msg(i)) // 12 - 8 = 4 older
+    const res = await updateRunningSummary('c1', messages, { summary: 'prev', summaryCount: 0 })
+
+    expect(res.success && res.data).toEqual({ summary: 'Updated recap.', summaryCount: 4 })
+    // only the four oldest were folded in, with the prior recap as the base
+    expect(mockSummarize).toHaveBeenCalledWith('prev', messages.slice(0, 4))
+    expect(mockSetSummary).toHaveBeenCalledWith('c1', 'Updated recap.', 4)
+  })
+
+  it('only folds turns not already covered by the existing summary', async () => {
+    mockSummarize.mockResolvedValue(ok('More recap.'))
+    const messages = Array.from({ length: 14 }, (_, i) => msg(i)) // target = 6, already covered 4
+    const res = await updateRunningSummary('c1', messages, { summary: 'old', summaryCount: 4 })
+
+    expect(res.success && res.data).toEqual({ summary: 'More recap.', summaryCount: 6 })
+    expect(mockSummarize).toHaveBeenCalledWith('old', messages.slice(4, 6))
+  })
+
+  it('propagates a summarization failure without persisting', async () => {
+    mockSummarize.mockResolvedValue(err('SUMMARY_INFERENCE_FAILED', 'down'))
+    const messages = Array.from({ length: 12 }, (_, i) => msg(i))
+    const res = await updateRunningSummary('c1', messages, { summary: '', summaryCount: 0 })
+
+    expect(res.success).toBe(false)
+    expect(mockSetSummary).not.toHaveBeenCalled()
   })
 })

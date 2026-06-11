@@ -20,12 +20,16 @@ export interface ChatState {
   /** The assistant reply being streamed in (empty when idle). */
   streaming: string
   sending: boolean
+  /** Rolling recap of earlier turns + how many messages it covers. */
+  summary: string
+  summaryCount: number
   reset: () => void
-  load: (conversationId: string, messages: UIMessage[]) => void
+  load: (conversationId: string, messages: UIMessage[], summary: string, summaryCount: number) => void
   setConversationId: (id: string) => void
   addMessage: (message: UIMessage) => void
   setMessageCrisis: (id: string, tier: number) => void
   setSending: (sending: boolean) => void
+  setSummary: (summary: string, summaryCount: number) => void
   appendToken: (token: string) => void
   clearStreaming: () => void
 }
@@ -36,19 +40,25 @@ export const useChatStore = create<ChatState>()(
     messages: [],
     streaming: '',
     sending: false,
+    summary: '',
+    summaryCount: 0,
     reset: () =>
       set((s) => {
         s.conversationId = null
         s.messages = []
         s.streaming = ''
         s.sending = false
+        s.summary = ''
+        s.summaryCount = 0
       }),
-    load: (conversationId, messages) =>
+    load: (conversationId, messages, summary, summaryCount) =>
       set((s) => {
         s.conversationId = conversationId
         s.messages = messages
         s.streaming = ''
         s.sending = false
+        s.summary = summary
+        s.summaryCount = summaryCount
       }),
     setConversationId: (id) =>
       set((s) => {
@@ -66,6 +76,11 @@ export const useChatStore = create<ChatState>()(
     setSending: (sending) =>
       set((s) => {
         s.sending = sending
+      }),
+    setSummary: (summary, summaryCount) =>
+      set((s) => {
+        s.summary = summary
+        s.summaryCount = summaryCount
       }),
     appendToken: (token) =>
       set((s) => {

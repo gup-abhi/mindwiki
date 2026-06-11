@@ -13,6 +13,8 @@ export interface BuildConversationInput {
   /** The newest user message. */
   message: string
   context: ConversationContext
+  /** Rolling recap of earlier turns that fell out of the recent window. */
+  summary?: string
 }
 
 // Reflective companion. Therapist-*style* interaction: it engages with whatever
@@ -74,7 +76,45 @@ export function buildConversationMessages({
   history,
   message,
   context,
+  summary,
 }: BuildConversationInput): ChatMessage[] {
+  // A long thread is trimmed to the recent turns; the recap stands in for the
+  // earlier ones so the companion keeps continuity without blowing the context.
+  const recap = summary && summary.trim()
+    ? `${SYSTEM}\n\n— Earlier in this conversation (recap of what came before the messages below) —\n${summary.trim()}`
+    : SYSTEM
   const userTurn = `${message}${backgroundBlock(context)}`
-  return [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: userTurn }]
+  return [{ role: 'system', content: recap }, ...history, { role: 'user', content: userTurn }]
+}
+
+const SUMMARY_SYSTEM = [
+  'You maintain a running recap of a reflective conversation so it can continue',
+  'after older messages scroll out of view. Update the recap to include the new',
+  'messages, merging them with the summary so far.',
+  '',
+  'Keep it under 120 words. Write plain, factual notes about the user: what they',
+  'shared, how they felt, the topics covered, and anything left unresolved. Third',
+  'person ("They..."). No advice, no questions, no preamble — output only the',
+  'updated recap.',
+].join('\n')
+
+export interface BuildSummaryInput {
+  /** The recap so far (empty on first summarization). */
+  previousSummary: string
+  /** The newly-evicted turns to fold into the recap, oldest first. */
+  turns: ChatMessage[]
+}
+
+/** Build the message array that asks the model to extend the rolling recap. */
+export function buildSummaryMessages({ previousSummary, turns }: BuildSummaryInput): ChatMessage[] {
+  const body = [
+    previousSummary.trim() ? `Recap so far:\n${previousSummary.trim()}` : 'No recap yet.',
+    '',
+    'New messages to fold in:',
+    turns.map((t) => `${t.role === 'user' ? 'User' : 'Companion'}: ${t.content}`).join('\n'),
+  ].join('\n')
+  return [
+    { role: 'system', content: SUMMARY_SYSTEM },
+    { role: 'user', content: body },
+  ]
 }

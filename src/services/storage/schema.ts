@@ -193,3 +193,17 @@ export const migration005: Migration = {
   name: 'entry_source',
   statements: [`ALTER TABLE entries ADD COLUMN source TEXT NOT NULL DEFAULT 'journal'`],
 }
+
+// Migration 006 — conversation memory. A resumed chat can run past the model's
+// context window, so it keeps a rolling `summary` of the turns that fall out of
+// the recent window; `summary_count` records how many messages that summary
+// already covers (so each turn only folds in the newly-evicted ones). Synced as
+// ciphertext like the rest of the conversation.
+export const migration006: Migration = {
+  version: 6,
+  name: 'conversation_summary',
+  statements: [
+    `ALTER TABLE conversations ADD COLUMN summary TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE conversations ADD COLUMN summary_count INTEGER NOT NULL DEFAULT 0`,
+  ],
+}

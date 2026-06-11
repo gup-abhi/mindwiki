@@ -1,14 +1,15 @@
-import { LLMBridge } from '@/native/LLMBridge'
+import { LLMBridge, type ChatMessage } from '@/native/LLMBridge'
 import { type Result, ok, err } from '@/types/result'
 
 import {
   buildConversationMessages,
+  buildSummaryMessages,
   type BuildConversationInput,
 } from './prompts/conversation'
 import { buildDigestQuestionPrompt, type DigestQuestionInput } from './prompts/digest-question'
 import { buildDigestSynthesisPrompt, type DigestSynthesisInput } from './prompts/digest-synthesis'
 import { buildUpdatePagePrompt, type UpdatePageInput } from './prompts/update-page'
-import { ConversationReplySchema } from './schemas/conversation.schema'
+import { ConversationReplySchema, ConversationSummarySchema } from './schemas/conversation.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
@@ -100,6 +101,33 @@ export async function converseFromWiki(
   const parsed = ConversationReplySchema.safeParse(raw.trim())
   if (!parsed.success) {
     return err('CONVERSE_VALIDATION_FAILED', 'Conversation reply failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Extend a conversation's rolling recap with the turns that just fell out of the
+ * recent window (on-device, background). Folds `previousSummary` + `turns` into
+ * an updated recap. Never throws; errors carry a code only, never message text.
+ */
+export async function summarizeConversation(
+  previousSummary: string,
+  turns: ChatMessage[]
+): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.converse(buildSummaryMessages({ previousSummary, turns }), {
+      maxTokens: 200,
+      temperature: 0.3,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('SUMMARY_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  const parsed = ConversationSummarySchema.safeParse(raw.trim())
+  if (!parsed.success) {
+    return err('SUMMARY_VALIDATION_FAILED', 'Conversation summary failed validation')
   }
   return ok(parsed.data)
 }

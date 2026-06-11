@@ -18,6 +18,10 @@ export interface Conversation {
   title: string | null
   created_at: number
   updated_at: number
+  /** Rolling recap of turns that have scrolled out of the model's context window. */
+  summary: string
+  /** How many messages (oldest-first) the summary already covers. */
+  summary_count: number
 }
 
 export interface ConversationMessage {
@@ -44,6 +48,8 @@ function rowToConversation(row: Record<string, unknown>): Conversation {
     title: row.title == null ? null : String(row.title),
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
+    summary: row.summary == null ? '' : String(row.summary),
+    summary_count: row.summary_count == null ? 0 : Number(row.summary_count),
   }
 }
 
@@ -70,7 +76,14 @@ export async function createConversation(
   db: SqliteDatabase = getDb()
 ): Promise<Result<Conversation>> {
   const now = Date.now()
-  const conversation: Conversation = { id: randomUUID(), title: null, created_at: now, updated_at: now }
+  const conversation: Conversation = {
+    id: randomUUID(),
+    title: null,
+    created_at: now,
+    updated_at: now,
+    summary: '',
+    summary_count: 0,
+  }
   try {
     await db.execute(
       'INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)',
@@ -92,6 +105,40 @@ export async function listConversations(
     return ok(res.rows.map(rowToConversation))
   } catch (e) {
     return err('CHAT_LIST_FAILED', 'Failed to list conversations', e)
+  }
+}
+
+/** A single conversation by id (null if it doesn't exist). */
+export async function getConversation(
+  id: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<Conversation | null>> {
+  try {
+    const res = await db.execute('SELECT * FROM conversations WHERE id = ?', [id])
+    const row = res.rows[0]
+    return ok(row ? rowToConversation(row) : null)
+  } catch (e) {
+    return err('CHAT_GET_FAILED', 'Failed to read conversation', e)
+  }
+}
+
+/** Persist the rolling summary and the count of messages it now covers. */
+export async function setConversationSummary(
+  id: string,
+  summary: string,
+  summaryCount: number,
+  db: SqliteDatabase = getDb()
+): Promise<Result<void>> {
+  try {
+    await db.execute('UPDATE conversations SET summary = ?, summary_count = ? WHERE id = ?', [
+      summary,
+      summaryCount,
+      id,
+    ])
+    await enqueueUpsert('conversations', id, db) // summary changed → re-sync
+    return ok(undefined)
+  } catch (e) {
+    return err('CHAT_SUMMARY_FAILED', 'Failed to save conversation summary', e)
   }
 }
 

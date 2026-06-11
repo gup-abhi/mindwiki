@@ -9,13 +9,14 @@ import { captureReflectMessage } from '@/services/pipeline'
 import {
   appendMessage,
   createConversation,
+  getConversation,
   listConversations,
   listMessages,
   type Conversation,
 } from '@/services/storage/chat'
 import { listEdges, listNodes, type GraphEdge, type GraphNode } from '@/services/storage/graph'
 import { listPages, type WikiPage } from '@/services/storage/wiki'
-import { respond } from '@/services/wiki/conversation'
+import { respond, updateRunningSummary } from '@/services/wiki/conversation'
 import { suggestedQuestions } from '@/services/wiki/query'
 import { useChatStore, type UIMessage } from '@/store/chat.store'
 
@@ -31,6 +32,26 @@ const REPLY_FAILED = 'Something went wrong — please try again.'
  */
 const CRISIS_REPLY =
   'It sounds like you’re going through something really painful. You deserve support from someone who can be there with you right now — please reach out to one of the resources below.'
+
+/**
+ * Fold any turns that fell out of the model's recent window into the
+ * conversation's rolling recap. Works off the persisted thread so the recap
+ * (and its coverage count) stay aligned with what a later resume reloads.
+ * Background, best-effort.
+ */
+async function refreshSummary(conversationId: string): Promise<void> {
+  const msgs = await listMessages(conversationId)
+  if (!msgs.success) return
+  const thread: ChatMessage[] = msgs.data.map((m) => ({ role: m.role, content: m.content }))
+  const st = useChatStore.getState()
+  const upd = await updateRunningSummary(conversationId, thread, {
+    summary: st.summary,
+    summaryCount: st.summaryCount,
+  })
+  if (upd.success && upd.data) {
+    useChatStore.getState().setSummary(upd.data.summary, upd.data.summaryCount)
+  }
+}
 
 /**
  * Reflective conversation: loads wiki + graph context on focus, drives the
@@ -141,8 +162,9 @@ export function useConversation(initialQuestion?: string) {
         return
       }
 
-      const res = await respond({ history: priorHistory, message, pages, nodes, edges }, (t) =>
-        useChatStore.getState().appendToken(t)
+      const res = await respond(
+        { history: priorHistory, message, pages, nodes, edges, summary: store.summary },
+        (t) => useChatStore.getState().appendToken(t)
       )
 
       if (res.success) {
@@ -161,6 +183,11 @@ export function useConversation(initialQuestion?: string) {
           content: res.data.text,
           sources,
         })
+        // Keep the rolling recap current so a long, resumed thread doesn't lose
+        // its earlier context to the model's window. Background, best-effort;
+        // runs off the persisted thread so it stays aligned with what resume
+        // reloads. Never blocks the UI.
+        void refreshSummary(conversationId)
       } else {
         store.addMessage({
           id: randomUUID(),
@@ -195,7 +222,7 @@ export function useConversation(initialQuestion?: string) {
   const newConversation = useCallback(() => useChatStore.getState().reset(), [])
 
   const loadConversation = useCallback(async (id: string) => {
-    const res = await listMessages(id)
+    const [res, conv] = await Promise.all([listMessages(id), getConversation(id)])
     if (!res.success) return
     const ui: UIMessage[] = res.data.map((m) => ({
       id: m.id,
@@ -204,7 +231,8 @@ export function useConversation(initialQuestion?: string) {
       sources: m.sources,
       crisisTier: m.crisis_tier,
     }))
-    useChatStore.getState().load(id, ui)
+    const row = conv.success ? conv.data : null
+    useChatStore.getState().load(id, ui, row?.summary ?? '', row?.summary_count ?? 0)
   }, [])
 
   const suggestions = useMemo(() => suggestedQuestions(pages), [pages])

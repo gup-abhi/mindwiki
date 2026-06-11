@@ -40,7 +40,7 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
     updatedAt: (r) => Number(r.created_at) || 0,
   },
   conversations: {
-    columns: ['id', 'title', 'created_at', 'updated_at'],
+    columns: ['id', 'title', 'created_at', 'updated_at', 'summary', 'summary_count'],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
   // chat_messages are append-only (never edited), so created_at is a sufficient

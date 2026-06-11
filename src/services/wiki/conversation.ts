@@ -1,6 +1,7 @@
-import { converseFromWiki } from '@/services/llm/deep-model'
+import { converseFromWiki, summarizeConversation } from '@/services/llm/deep-model'
 import { type ConversationContext } from '@/services/llm/prompts/conversation'
 import { graphNeighborhood } from '@/services/graph/neighborhood'
+import { setConversationSummary } from '@/services/storage/chat'
 import { type GraphNode, type GraphEdge } from '@/services/storage/graph'
 import { type WikiPage } from '@/services/storage/wiki'
 import { type ChatMessage } from '@/native/LLMBridge'
@@ -22,6 +23,8 @@ export interface RespondInput {
   pages: WikiPage[]
   nodes: GraphNode[]
   edges: GraphEdge[]
+  /** Rolling recap of earlier turns that fell out of the recent window. */
+  summary?: string
 }
 
 // Keep the prompt inside the deep model's n_ctx (2048): cap retrieved pages,
@@ -87,14 +90,43 @@ export function buildContext(
  * validated reply text and the pages it was grounded in.
  */
 export async function respond(
-  { history, message, pages, nodes, edges }: RespondInput,
+  { history, message, pages, nodes, edges, summary }: RespondInput,
   onToken?: (token: string) => void
 ): Promise<Result<ConversationReply>> {
   const { context, sources } = buildContext(message, pages, nodes, edges)
   const trimmed = history.slice(-MAX_HISTORY_MESSAGES)
 
-  const res = await converseFromWiki({ history: trimmed, message, context }, onToken)
+  const res = await converseFromWiki({ history: trimmed, message, context, summary }, onToken)
   if (!res.success) return res
 
   return ok({ text: res.data, sources })
+}
+
+export interface SummaryState {
+  summary: string
+  summaryCount: number
+}
+
+/**
+ * Fold the turns that have just fallen out of the recent window into the
+ * conversation's rolling recap, and persist it. `messages` is the full thread
+ * (oldest first); only messages past the last MAX_HISTORY_MESSAGES that aren't
+ * yet covered get summarized. Returns the new state, or null when nothing new
+ * fell out. Background, best-effort — errors carry a code only, never text.
+ */
+export async function updateRunningSummary(
+  conversationId: string,
+  messages: ChatMessage[],
+  current: SummaryState
+): Promise<Result<SummaryState | null>> {
+  const target = messages.length - MAX_HISTORY_MESSAGES
+  if (target <= current.summaryCount) return ok(null) // recent window still covers everything older
+
+  const evicted = messages.slice(current.summaryCount, target)
+  const res = await summarizeConversation(current.summary, evicted)
+  if (!res.success) return res
+
+  const next: SummaryState = { summary: res.data, summaryCount: target }
+  await setConversationSummary(conversationId, next.summary, next.summaryCount)
+  return ok(next)
 }

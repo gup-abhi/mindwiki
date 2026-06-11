@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5])
-    expect(applied).toEqual([1, 2, 3, 4, 5])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -115,6 +115,17 @@ describe('migration 005 (entry source)', () => {
     expect(MIGRATIONS[4].name).toBe('entry_source')
     expect(MIGRATIONS[4].statements).toEqual([
       "ALTER TABLE entries ADD COLUMN source TEXT NOT NULL DEFAULT 'journal'",
+    ])
+  })
+})
+
+describe('migration 006 (conversation summary)', () => {
+  it('is registered as version 6 and adds summary + summary_count columns', () => {
+    expect(MIGRATIONS[5].version).toBe(6)
+    expect(MIGRATIONS[5].name).toBe('conversation_summary')
+    expect(MIGRATIONS[5].statements).toEqual([
+      "ALTER TABLE conversations ADD COLUMN summary TEXT NOT NULL DEFAULT ''",
+      'ALTER TABLE conversations ADD COLUMN summary_count INTEGER NOT NULL DEFAULT 0',
     ])
   })
 })
