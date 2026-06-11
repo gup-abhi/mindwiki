@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react-native'
+import { act, render, screen } from '@testing-library/react-native'
 
 import Home from '@/app/(tabs)/index'
 
@@ -11,8 +11,11 @@ jest.mock('@/services/storage/entries', () => ({
 }))
 
 describe('Home screen', () => {
-  it('renders the app name', () => {
+  it('renders the app name', async () => {
     render(<Home />)
     expect(screen.getByText('MindWiki')).toBeTruthy()
+    // Home mounts ModelDownloadCard, whose async readiness check setStates after
+    // render — flush it inside act() so it doesn't leak into the next suite.
+    await act(async () => {})
   })
 })

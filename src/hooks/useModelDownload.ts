@@ -16,13 +16,16 @@ export function useModelDownload() {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
-  const check = useCallback(async () => {
-    setReady(await areModelsReady())
-  }, [])
-
+  // Guard against setState after unmount (the readiness check is async).
   useEffect(() => {
-    void check()
-  }, [check])
+    let cancelled = false
+    void areModelsReady().then((r) => {
+      if (!cancelled) setReady(r)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const download = useCallback(async () => {
     setDownloading(true)
