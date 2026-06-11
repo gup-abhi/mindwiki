@@ -31,6 +31,12 @@ const MAX_PAGE_CHARS = 600
 const MAX_HISTORY_MESSAGES = 8 // ~4 user/assistant turns
 const MAX_CONNECTION_PAGES = 2
 const MAX_NEIGHBORS = 3
+// Only ground in a page the message genuinely points to. rankPages scores a
+// title-term match at 5 and each content hit at 1 (+≤1 richness), so an
+// incidental single word (~1) falls below this floor while a title match or
+// real content overlap clears it. Without it the model force-links every
+// message to whatever page shares one common word.
+const MIN_RELEVANCE = 3
 
 function connectionLine(title: string, nodes: GraphNode[], edges: GraphEdge[]): string | null {
   const hood = graphNeighborhood(title, nodes, edges, 1)
@@ -54,7 +60,9 @@ export function buildContext(
   nodes: GraphNode[],
   edges: GraphEdge[]
 ): { context: ConversationContext; sources: WikiPage[] } {
-  const sources = rankPages(message, pages, MAX_PAGES).map((r) => r.page)
+  const sources = rankPages(message, pages, MAX_PAGES)
+    .filter((r) => r.score >= MIN_RELEVANCE)
+    .map((r) => r.page)
 
   const connections: string[] = []
   for (const page of sources.slice(0, MAX_CONNECTION_PAGES)) {

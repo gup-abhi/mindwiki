@@ -42,15 +42,22 @@ describe('buildContext', () => {
   it('ranks pages, caps to three, and truncates page content', () => {
     const long = 'anxiety '.repeat(200) // > 600 chars
     const pages = [
-      page({ title: 'Work', content: 'anxiety deadlines', entry_count: 4 }),
-      page({ title: 'Sleep', content: 'anxiety night' }),
-      page({ title: 'Food', content: 'anxiety lunch' }),
+      page({ title: 'Work', content: 'anxiety anxiety anxiety deadlines', entry_count: 4 }),
+      page({ title: 'Sleep', content: 'anxiety anxiety anxiety night' }),
+      page({ title: 'Food', content: 'anxiety anxiety anxiety lunch' }),
       page({ title: 'Anxiety', content: long }),
     ]
     const { context, sources } = buildContext('anxiety', pages, [], [])
     expect(sources.length).toBe(3)
     expect(context.sources.length).toBe(3)
     for (const s of context.sources) expect(s.content.length).toBeLessThanOrEqual(600)
+  })
+
+  it('drops a page the message only incidentally mentions (one common word)', () => {
+    const pages = [page({ title: 'Work', content: 'deadlines and a bit of anxiety today' })]
+    const { context, sources } = buildContext('anxiety', pages, [], [])
+    expect(sources).toEqual([])
+    expect(context.sources).toEqual([])
   })
 
   it('adds a connection line for a source page found in the graph', () => {
@@ -82,7 +89,7 @@ describe('respond', () => {
       role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
       content: `m${i}`,
     }))
-    const pages = [page({ title: 'Work', content: 'anxiety deadlines', entry_count: 3 })]
+    const pages = [page({ title: 'Work', content: 'anxiety anxiety anxiety deadlines', entry_count: 3 })]
 
     const res = await respond({ history, message: 'anxiety', pages, nodes: [], edges: [] })
 
