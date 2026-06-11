@@ -112,6 +112,21 @@ describe('updateWikiForEntry', () => {
     expect(result.success && result.data).toEqual([])
   })
 
+  it('does not create a new page when synthesis fails (no blank shell)', async () => {
+    mockGetByTitle.mockResolvedValue(ok(null)) // page does not exist yet
+    mockSynth.mockResolvedValue(err('SYNTH_INFERENCE_FAILED', 'down'))
+    mockCreate.mockImplementation(async (input) =>
+      ok({ id: 'p', title: input.title, category: input.category, content: '' })
+    )
+
+    const result = await updateWikiForEntry(entry({ distortion: 'none' }))
+
+    // synthesis is attempted before any page is created, so a failure leaves nothing
+    expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(result.success && result.data).toEqual([])
+  })
+
   it('only makes an entity page once the entity recurs (≥2 entries)', async () => {
     mockGetByTitle.mockResolvedValue(ok(null))
     mockCreate.mockImplementation(async (input) =>

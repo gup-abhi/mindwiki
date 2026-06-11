@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
-import { listPages, getPage, type WikiPage } from '@/services/storage/wiki'
+import { deleteEmptyPages, listPages, getPage, type WikiPage } from '@/services/storage/wiki'
 import { useSyncStore } from '@/store/sync.store'
 
 /** All wiki pages; refreshed on focus and after a sync pull. */
@@ -11,6 +11,8 @@ export function useWikiPages() {
   const revision = useSyncStore((s) => s.revision)
 
   const refresh = useCallback(async () => {
+    // Self-heal any legacy blank shells before listing (best-effort).
+    await deleteEmptyPages()
     const result = await listPages()
     if (result.success) setPages(result.data)
     setLoading(false)

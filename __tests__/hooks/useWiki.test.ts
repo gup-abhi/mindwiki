@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react-native'
 
 import { useWikiPages, useWikiPage } from '@/hooks/useWiki'
-import { listPages, getPage } from '@/services/storage/wiki'
+import { listPages, getPage, deleteEmptyPages } from '@/services/storage/wiki'
 import { ok } from '@/types/result'
 
 jest.mock('expo-router', () => ({
@@ -12,15 +12,19 @@ jest.mock('expo-router', () => ({
 jest.mock('@/services/storage/wiki', () => ({
   listPages: jest.fn(),
   getPage: jest.fn(),
+  deleteEmptyPages: jest.fn(),
 }))
 
 const mockList = listPages as jest.Mock
 const mockGet = getPage as jest.Mock
+const mockDeleteEmpty = deleteEmptyPages as jest.Mock
 
 describe('useWiki', () => {
   beforeEach(() => {
     mockList.mockReset()
     mockGet.mockReset()
+    mockDeleteEmpty.mockReset()
+    mockDeleteEmpty.mockResolvedValue(ok(0))
   })
 
   it('useWikiPages loads pages on focus', async () => {

@@ -106,6 +106,22 @@ export async function getPageByTitle(
   }
 }
 
+/**
+ * Remove blank, never-synthesized pages (no content, 0 entries). These are
+ * legacy shells from a failed background synthesis; new ones are no longer
+ * created (the engine synthesizes before creating). Returns the count removed.
+ */
+export async function deleteEmptyPages(db: SqliteDatabase = getDb()): Promise<Result<number>> {
+  try {
+    const res = await db.execute(
+      "DELETE FROM wiki_pages WHERE entry_count = 0 AND content = ''"
+    )
+    return ok(res.rowsAffected ?? 0)
+  } catch (e) {
+    return err('WIKI_PURGE_FAILED', 'Failed to remove empty wiki pages', e)
+  }
+}
+
 export async function listPages(db: SqliteDatabase = getDb()): Promise<Result<WikiPage[]>> {
   try {
     const res = await db.execute('SELECT * FROM wiki_pages ORDER BY updated_at DESC')

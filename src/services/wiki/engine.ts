@@ -80,21 +80,15 @@ export async function updateWikiForEntry(
   for (const topic of topics) {
     const existing = await getPageByTitle(topic.title)
     if (!existing.success) continue
+    const page = existing.data
 
-    let page = existing.data
-    if (page == null) {
-      const created = await createPage({ title: topic.title, category: topic.category })
-      if (!created.success) {
-        if (__DEV__) console.log(`[wiki] create failed: ${created.error.code}`)
-        continue
-      }
-      page = created.data
-    }
-
+    // Synthesize first. A failed synthesis must never leave a blank, 0-entry
+    // page behind (it would surface as an empty wiki page), so a brand-new page
+    // is only created once we actually have content for it.
     const synth = await synthesizePage({
-      title: page.title,
-      category: page.category,
-      existingContent: page.content,
+      title: topic.title,
+      category: page?.category ?? topic.category,
+      existingContent: page?.content ?? '',
       situation: entry.situation,
       thought: entry.thought,
     })
@@ -103,9 +97,19 @@ export async function updateWikiForEntry(
       continue
     }
 
-    const applied = await updatePage(page.id, synth.data)
+    let pageId = page?.id
+    if (pageId == null) {
+      const created = await createPage({ title: topic.title, category: topic.category })
+      if (!created.success) {
+        if (__DEV__) console.log(`[wiki] create failed: ${created.error.code}`)
+        continue
+      }
+      pageId = created.data.id
+    }
+
+    const applied = await updatePage(pageId, synth.data)
     if (applied.success) {
-      updated.push(page.title)
+      updated.push(topic.title)
     } else if (__DEV__) {
       console.log(`[wiki] update failed: ${applied.error.code}`)
     }

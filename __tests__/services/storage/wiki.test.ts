@@ -1,6 +1,7 @@
 import { type SqliteDatabase } from '@/services/storage/db'
 import {
   createPage,
+  deleteEmptyPages,
   getPage,
   getPageByTitle,
   listPages,
@@ -49,6 +50,16 @@ function createFakeDb() {
         const row = rows.get(String(id))
         if (row) Object.assign(row, { content, version, version_history, entry_count, updated_at })
         return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^DELETE FROM wiki_pages/.test(sql)) {
+        let removed = 0
+        for (const [id, r] of [...rows.entries()]) {
+          if (Number(r.entry_count) === 0 && String(r.content) === '') {
+            rows.delete(id)
+            removed++
+          }
+        }
+        return { rows: [], rowsAffected: removed }
       }
       throw new Error(`unhandled SQL: ${sql}`)
     },
@@ -120,5 +131,18 @@ describe('storage/wiki CRUD', () => {
     await createPage({ title: 'B' }, db)
     const result = await listPages(db)
     expect(result.success && result.data).toHaveLength(2)
+  })
+
+  it('deleteEmptyPages removes blank 0-entry shells but keeps synthesized pages', async () => {
+    const { db } = createFakeDb()
+    const real = await createPage({ title: 'Anxiety', category: 'emotion' }, db)
+    if (real.success) await updatePage(real.data.id, 'real content', db) // now has content + 1 entry
+    await createPage({ title: 'Empty', category: 'theme' }, db) // blank shell, never synthesized
+
+    const removed = await deleteEmptyPages(db)
+    expect(removed.success && removed.data).toBe(1)
+
+    const pages = await listPages(db)
+    expect(pages.success && pages.data.map((p) => p.title)).toEqual(['Anxiety'])
   })
 })

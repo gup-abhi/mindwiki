@@ -47,6 +47,23 @@ export interface ILLMBridge {
 
 const contexts: Partial<Record<ModelKind, LlamaContext>> = {}
 
+// One completion at a time per model context. llama.cpp can't run two
+// completions on a single context concurrently, and we now fire overlapping
+// deep-model work (a streamed reply, the rolling summary, and chat→wiki
+// synthesis). Without this, the second concurrent call fails — which left blank
+// wiki pages behind. Each kind has its own context, so they lock independently.
+const locks: Partial<Record<ModelKind, Promise<unknown>>> = {}
+
+function withModelLock<T>(kind: ModelKind, fn: () => Promise<T>): Promise<T> {
+  const prev = locks[kind] ?? Promise.resolve()
+  const next = prev.then(fn, fn) // run regardless of how the previous call settled
+  locks[kind] = next.then(
+    () => undefined,
+    () => undefined
+  )
+  return next
+}
+
 async function ensureLoaded(kind: ModelKind): Promise<LlamaContext> {
   const existing = contexts[kind]
   if (existing) return existing
@@ -87,12 +104,14 @@ async function run(
   const ctx = await ensureLoaded(kind)
   let result
   try {
-    result = await ctx.completion({
-      prompt: buildChatML(prompt),
-      n_predict: opts.maxTokens,
-      temperature: opts.temperature,
-      stop: ['<|im_end|>', '<|endoftext|>'],
-    })
+    result = await withModelLock(kind, () =>
+      ctx.completion({
+        prompt: buildChatML(prompt),
+        n_predict: opts.maxTokens,
+        temperature: opts.temperature,
+        stop: ['<|im_end|>', '<|endoftext|>'],
+      })
+    )
   } catch (e) {
     throw new Error(`Completion failed for ${kind} model: ${String(e)}`)
   }
@@ -111,14 +130,16 @@ async function runConversation(
   const ctx = await ensureLoaded('deep')
   let result
   try {
-    result = await ctx.completion(
-      {
-        prompt: buildChatMLConversation(messages),
-        n_predict: opts.maxTokens,
-        temperature: opts.temperature,
-        stop: ['<|im_end|>', '<|endoftext|>'],
-      },
-      onToken ? (data) => onToken(data.token) : undefined
+    result = await withModelLock('deep', () =>
+      ctx.completion(
+        {
+          prompt: buildChatMLConversation(messages),
+          n_predict: opts.maxTokens,
+          temperature: opts.temperature,
+          stop: ['<|im_end|>', '<|endoftext|>'],
+        },
+        onToken ? (data) => onToken(data.token) : undefined
+      )
     )
   } catch (e) {
     throw new Error(`Conversation completion failed for deep model: ${String(e)}`)

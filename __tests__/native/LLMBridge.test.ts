@@ -47,6 +47,30 @@ describe('LLMBridge (llama.rn)', () => {
     expect(initLlama).toHaveBeenCalledTimes(1)
   })
 
+  it('serializes concurrent deep-model completions (never two at once)', async () => {
+    let active = 0
+    let maxActive = 0
+    const completion = jest.fn().mockImplementation(async () => {
+      active++
+      maxActive = Math.max(maxActive, active)
+      await new Promise((r) => setTimeout(r, 10))
+      active--
+      return { text: 'ok', tokens_predicted: 1, timings: { predicted_per_second: 10 } }
+    })
+    const initLlama = jest.fn().mockResolvedValue({ completion, release: jest.fn() })
+    jest.doMock('llama.rn', () => ({ initLlama }))
+
+    const { LLMBridge } = require('@/native/LLMBridge')
+    // A reply and a background synthesis firing at the same time, both on the deep ctx.
+    await Promise.all([
+      LLMBridge.synthesise('a', { maxTokens: 10, temperature: 0.1 }),
+      LLMBridge.converse([{ role: 'user', content: 'b' }], { maxTokens: 10, temperature: 0.1 }),
+    ])
+
+    expect(completion).toHaveBeenCalledTimes(2)
+    expect(maxActive).toBe(1) // the lock kept them from overlapping
+  })
+
   it('throws a helpful error when the model fails to load', async () => {
     const initLlama = jest.fn().mockRejectedValue(new Error('file not found'))
     jest.doMock('llama.rn', () => ({ initLlama }))
