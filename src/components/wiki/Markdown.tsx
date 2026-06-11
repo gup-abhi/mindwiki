@@ -18,24 +18,17 @@ export function Markdown({ content }: { content: string }) {
       {lines.map((line, i) => {
         const t = line.trim()
         if (t === '') return <View key={i} style={styles.gap} />
-        if (t.startsWith('### '))
+        // Any heading level (# … ######) — never leave the # markers as raw text.
+        const heading = t.match(/^(#{1,6})\s+(.*)$/)
+        if (heading) {
+          const level = heading[1].length
+          const variant = level === 1 ? 'heading' : level === 2 ? 'subtitle' : 'bodyStrong'
           return (
-            <Text key={i} variant="bodyStrong" style={styles.heading}>
-              {stripInline(t.slice(4))}
+            <Text key={i} variant={variant} style={styles.heading}>
+              {stripInline(heading[2])}
             </Text>
           )
-        if (t.startsWith('## '))
-          return (
-            <Text key={i} variant="subtitle" style={styles.heading}>
-              {stripInline(t.slice(3))}
-            </Text>
-          )
-        if (t.startsWith('# '))
-          return (
-            <Text key={i} variant="heading" style={styles.heading}>
-              {stripInline(t.slice(2))}
-            </Text>
-          )
+        }
         if (/^[-*]\s/.test(t)) {
           return (
             <Text key={i} variant="body" style={styles.bullet}>

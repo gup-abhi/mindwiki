@@ -12,4 +12,10 @@ describe('Markdown', () => {
     expect(screen.getByText(/bullet one/)).toBeTruthy()
     expect(screen.getByText(/bullet two/)).toBeTruthy()
   })
+
+  it('renders deeper headings (####) without leaving the # markers as text', () => {
+    render(<Markdown content={'#### Situation'} />)
+    expect(screen.getByText('Situation')).toBeTruthy()
+    expect(screen.queryByText(/#### Situation/)).toBeNull()
+  })
 })

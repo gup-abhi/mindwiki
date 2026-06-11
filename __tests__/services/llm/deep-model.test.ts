@@ -35,6 +35,16 @@ describe('buildUpdatePagePrompt', () => {
     expect(p).toContain('Current page:')
     expect(p).toContain('prior text')
   })
+
+  it('does not feed parrotable Situation/Thought labels and forbids headings', () => {
+    const p = buildUpdatePagePrompt(input)
+    expect(p).not.toMatch(/-\s*Situation:/)
+    expect(p).not.toMatch(/-\s*Thought:/)
+    expect(p).toMatch(/do NOT add section headings/i)
+    // both pieces of the reflection are still present for the model to synthesize
+    expect(p).toContain('a meeting')
+    expect(p).toContain('I will fail')
+  })
 })
 
 describe('synthesizePage', () => {
