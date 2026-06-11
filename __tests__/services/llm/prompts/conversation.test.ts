@@ -20,6 +20,11 @@ describe('buildConversationMessages', () => {
     expect(system.content).not.toMatch(/don't have enough in (their|your) wiki/i)
   })
 
+  it('discourages ending every reply with a question', () => {
+    const [system] = buildConversationMessages({ history: [], message: 'hi', context: empty })
+    expect(system.content).toMatch(/don’t end every reply with a question/i)
+  })
+
   it('a new topic with no wiki match becomes a bare message — no background block', () => {
     const msgs = buildConversationMessages({
       history: [],
