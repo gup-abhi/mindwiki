@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { useLocalSearchParams, useNavigation } from 'expo-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router'
 import {
   ActivityIndicator,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -38,6 +39,23 @@ export default function QueryScreen() {
     const unsub = navigation.addListener('tabPress', () => newConversation())
     return unsub
   }, [navigation, newConversation])
+
+  // Android hardware back: when a conversation is open, return to the Reflect
+  // start screen instead of leaving to Home. On the start screen, let the
+  // default navigation happen.
+  useFocusEffect(
+    useCallback(() => {
+      const onBack = () => {
+        if (!isEmpty) {
+          newConversation()
+          return true // handled — stay on the Reflect tab
+        }
+        return false // start screen — default back (to Home)
+      }
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBack)
+      return () => sub.remove()
+    }, [isEmpty, newConversation])
+  )
 
   return (
     <Screen scroll={false}>
