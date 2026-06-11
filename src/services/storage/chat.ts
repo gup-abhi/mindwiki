@@ -42,6 +42,27 @@ export interface NewMessage {
   crisis_tier?: number | null
 }
 
+// A conversation's title is seeded from its first user message, truncated here.
+export const CONVERSATION_TITLE_MAX = 60
+
+/** The title a message would seed (trim + truncate). */
+export function conversationTitle(content: string): string {
+  return content.trim().slice(0, CONVERSATION_TITLE_MAX)
+}
+
+/**
+ * The existing conversation a starter question would have created, if any — i.e.
+ * one whose title matches the question's seeded title. Lets a tapped starter
+ * reopen its conversation instead of spawning a duplicate. Pure.
+ */
+export function findConversationByStarter(
+  history: Conversation[],
+  question: string
+): Conversation | null {
+  const title = conversationTitle(question)
+  return history.find((c) => c.title === title) ?? null
+}
+
 function rowToConversation(row: Record<string, unknown>): Conversation {
   return {
     id: String(row.id),
@@ -181,7 +202,7 @@ export async function appendMessage(
            SET updated_at = ?,
                title = COALESCE(title, CASE WHEN ? = 'user' THEN ? ELSE title END)
          WHERE id = ?`,
-        [now, message.role, message.content.slice(0, 60), message.conversation_id]
+        [now, message.role, conversationTitle(message.content), message.conversation_id]
       )
     })
     await enqueueUpsert('chat_messages', message.id, db)

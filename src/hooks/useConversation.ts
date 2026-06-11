@@ -9,6 +9,7 @@ import { captureReflectMessage } from '@/services/pipeline'
 import {
   appendMessage,
   createConversation,
+  findConversationByStarter,
   getConversation,
   listConversations,
   listMessages,
@@ -266,6 +267,17 @@ export function useConversation(initialQuestion?: string) {
     useChatStore.getState().load(id, ui, row?.summary ?? '', row?.summary_count ?? 0)
   }, [])
 
+  // Tapping a starter reopens its conversation if one already exists (matched by
+  // the title it seeded), otherwise it begins a new one.
+  const openStarter = useCallback(
+    (question: string) => {
+      const existing = findConversationByStarter(history, question)
+      if (existing) loadConversation(existing.id)
+      else send(question)
+    },
+    [history, loadConversation, send]
+  )
+
   const suggestions = useMemo(() => suggestedQuestions(pages), [pages])
 
   return {
@@ -276,6 +288,7 @@ export function useConversation(initialQuestion?: string) {
     history,
     send,
     retry,
+    openStarter,
     newConversation,
     loadConversation,
   }

@@ -8,6 +8,7 @@ const mockUse = jest.fn()
 const mockPush = jest.fn()
 const mockSend = jest.fn()
 const mockRetry = jest.fn()
+const mockOpenStarter = jest.fn()
 const mockNew = jest.fn()
 const mockLoad = jest.fn()
 
@@ -48,6 +49,7 @@ const base = {
   history: [] as { id: string; title: string | null; created_at: number; updated_at: number }[],
   send: mockSend,
   retry: mockRetry,
+  openStarter: mockOpenStarter,
   newConversation: mockNew,
   loadConversation: mockLoad,
 }
@@ -58,6 +60,7 @@ describe('QueryScreen (reflective conversation)', () => {
     mockPush.mockReset()
     mockSend.mockReset()
     mockRetry.mockReset()
+    mockOpenStarter.mockReset()
     mockNew.mockReset()
     mockLoad.mockReset()
     mockNav.tabPress = undefined
@@ -72,12 +75,12 @@ describe('QueryScreen (reflective conversation)', () => {
 
   afterEach(() => jest.restoreAllMocks())
 
-  it('shows suggested starters and sends one when tapped', () => {
+  it('opens a starter via openStarter when tapped (reuses an existing conversation)', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
     const starter = screen.getByText('What patterns show up around Work?')
     fireEvent.press(starter)
-    expect(mockSend).toHaveBeenCalledWith('What patterns show up around Work?')
+    expect(mockOpenStarter).toHaveBeenCalledWith('What patterns show up around Work?')
   })
 
   it('renders the conversation turns once a thread exists', () => {

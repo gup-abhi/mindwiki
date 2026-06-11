@@ -22,7 +22,7 @@ export default function QueryScreen() {
   const theme = useTheme()
   const { q } = useLocalSearchParams<{ q?: string }>()
   const initial = typeof q === 'string' ? q : undefined
-  const { messages, streaming, sending, suggestions, history, send, retry, newConversation, loadConversation } =
+  const { messages, streaming, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
     useConversation(initial)
   const scrollRef = useRef<ScrollView>(null)
   const isEmpty = messages.length === 0
@@ -137,7 +137,7 @@ export default function QueryScreen() {
                         key={q}
                         variant="sunken"
                         style={styles.suggestion}
-                        onPress={() => send(q)}
+                        onPress={() => openStarter(q)}
                       >
                         <Text variant="body">{q}</Text>
                       </Card>

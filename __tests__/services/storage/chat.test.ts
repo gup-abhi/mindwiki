@@ -1,11 +1,14 @@
 import { type SqliteDatabase } from '@/services/storage/db'
 import {
   appendMessage,
+  conversationTitle,
   createConversation,
+  findConversationByStarter,
   getConversation,
   listConversations,
   listMessages,
   setConversationSummary,
+  type Conversation,
 } from '@/services/storage/chat'
 
 let mockUuidCounter = 0
@@ -164,5 +167,37 @@ describe('storage/chat CRUD', () => {
     const got = await getConversation(convId, db)
     expect(got.success && got.data?.summary).toBe('They felt anxious about work.')
     expect(got.success && got.data?.summary_count).toBe(4)
+  })
+})
+
+describe('conversationTitle + findConversationByStarter', () => {
+  const conv = (over: Partial<Conversation>): Conversation => ({
+    id: 'c',
+    title: null,
+    created_at: 0,
+    updated_at: 0,
+    summary: '',
+    summary_count: 0,
+    ...over,
+  })
+
+  it('derives a title by trimming and truncating to the max length', () => {
+    expect(conversationTitle('  Why am I anxious?  ')).toBe('Why am I anxious?')
+    const long = 'a'.repeat(80)
+    expect(conversationTitle(long)).toHaveLength(60)
+  })
+
+  it('finds the conversation a starter already created (by seeded title)', () => {
+    const history = [
+      conv({ id: 'c1', title: 'What patterns show up around Work?' }),
+      conv({ id: 'c2', title: 'Something else' }),
+    ]
+    const match = findConversationByStarter(history, 'What patterns show up around Work?')
+    expect(match?.id).toBe('c1')
+  })
+
+  it('returns null when no conversation matches the starter', () => {
+    const history = [conv({ id: 'c1', title: 'Unrelated chat' })]
+    expect(findConversationByStarter(history, 'A brand new question?')).toBeNull()
   })
 })
