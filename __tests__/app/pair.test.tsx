@@ -77,9 +77,10 @@ describe('Pair (device A QR)', () => {
 
   it('auto-refreshes the code at the 5-minute expiry', async () => {
     jest.useFakeTimers()
+    let unmount = () => {}
     try {
       mockStart.mockResolvedValue({ success: true, data: 'PAYLOAD' })
-      render(<Pair />)
+      ;({ unmount } = render(<Pair />))
       await act(async () => {
         await jest.advanceTimersByTimeAsync(0) // flush the initial generate
       })
@@ -90,6 +91,10 @@ describe('Pair (device A QR)', () => {
       })
       expect(mockStart).toHaveBeenCalledTimes(2) // refreshed without a tap
     } finally {
+      // Unmount (runs the effect's clearTimeout) and drop any pending fake timer
+      // BEFORE restoring real timers, so nothing leaks into the next suite.
+      unmount()
+      jest.clearAllTimers()
       jest.useRealTimers()
     }
   })
