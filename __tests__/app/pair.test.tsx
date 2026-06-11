@@ -39,6 +39,9 @@ describe('Pair (device A QR)', () => {
   it('navigates back', async () => {
     mockStart.mockResolvedValue({ success: true, data: 'PAYLOAD' })
     render(<Pair />)
+    // Let the mount-effect generate() settle inside act() before the test ends,
+    // otherwise its async setState fires unwrapped and leaks into the next suite.
+    await waitFor(() => expect(screen.getByTestId('qr')).toBeTruthy())
     fireEvent.press(screen.getByTestId('pair-back'))
     expect(mockBack).toHaveBeenCalled()
   })

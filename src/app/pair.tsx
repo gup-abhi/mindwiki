@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
 import QRCode from 'react-native-qrcode-svg'
@@ -26,6 +26,10 @@ export default function Pair() {
   const [payload, setPayload] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // generate() awaits biometric auth + a network round-trip; guard against
+  // setState after the screen is unmounted (e.g. the user navigates away mid-flow).
+  const mounted = useRef(true)
+  useEffect(() => () => void (mounted.current = false), [])
 
   const generate = useCallback(async () => {
     setLoading(true)
@@ -35,12 +39,14 @@ export default function Pair() {
     // the master key and grants full access, so an unlocked phone alone must not
     // be enough to pair another device.
     const allowed = await authenticate('Confirm it’s you to pair a new device')
+    if (!mounted.current) return
     if (!allowed) {
       setLoading(false)
       setError('Authentication required to pair a new device.')
       return
     }
     const res = await startPairing()
+    if (!mounted.current) return
     setLoading(false)
     if (res.success) setPayload(res.data)
     else setError('Couldn’t start pairing. Check your connection and try again.')
