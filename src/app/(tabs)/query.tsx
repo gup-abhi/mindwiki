@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocalSearchParams, useNavigation } from 'expo-router'
 import {
   ActivityIndicator,
@@ -25,6 +25,7 @@ export default function QueryScreen() {
     useConversation(initial)
   const scrollRef = useRef<ScrollView>(null)
   const isEmpty = messages.length === 0
+  const [tab, setTab] = useState<'start' | 'history'>('start')
 
   // Tapping the Reflect tab always returns to the start screen (suggestions +
   // past conversations) — but returning from a pushed page (e.g. a source chip
@@ -73,48 +74,74 @@ export default function QueryScreen() {
                 A private space to talk things through — grounded only in your own wiki.
               </Text>
 
-              {suggestions.length > 0 && (
-                <View style={styles.section}>
-                  <Text variant="label" color="accent" style={styles.sectionLabel}>
-                    Try starting with
+              <View style={styles.segments}>
+                <Pressable
+                  accessibilityRole="button"
+                  style={[styles.segment, tab === 'start' && styles.segmentActive]}
+                  onPress={() => setTab('start')}
+                  testID="tab-start"
+                >
+                  <Text variant="label" color={tab === 'start' ? 'primaryText' : 'textSecondary'}>
+                    Start
                   </Text>
-                  {suggestions.map((q) => (
-                    <Card
-                      key={q}
-                      variant="sunken"
-                      style={styles.suggestion}
-                      onPress={() => send(q)}
-                    >
-                      <Text variant="body">{q}</Text>
-                    </Card>
-                  ))}
-                </View>
-              )}
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  style={[styles.segment, tab === 'history' && styles.segmentActive]}
+                  onPress={() => setTab('history')}
+                  testID="tab-history"
+                >
+                  <Text variant="label" color={tab === 'history' ? 'primaryText' : 'textSecondary'}>
+                    History
+                  </Text>
+                </Pressable>
+              </View>
 
-              {history.length > 0 && (
-                <View style={styles.section}>
-                  <Text variant="label" color="accent" style={styles.sectionLabel}>
-                    Past conversations
+              {tab === 'start' ? (
+                suggestions.length > 0 ? (
+                  <View>
+                    <Text variant="label" color="accent" style={styles.sectionLabel}>
+                      Try starting with
+                    </Text>
+                    {suggestions.map((q) => (
+                      <Card
+                        key={q}
+                        variant="sunken"
+                        style={styles.suggestion}
+                        onPress={() => send(q)}
+                      >
+                        <Text variant="body">{q}</Text>
+                      </Card>
+                    ))}
+                  </View>
+                ) : (
+                  <Text variant="body" color="textMuted">
+                    Type a message below to start reflecting.
                   </Text>
-                  {history.map((c) => (
-                    <Pressable
-                      key={c.id}
-                      accessibilityRole="button"
-                      style={styles.historyRow}
-                      onPress={() => loadConversation(c.id)}
-                    >
-                      <Text variant="body" numberOfLines={1}>
-                        {c.title ?? 'Conversation'}
-                      </Text>
-                      <Text variant="caption" color="textMuted" style={styles.historyDate}>
-                        {new Date(c.updated_at).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                        })}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                )
+              ) : history.length > 0 ? (
+                history.map((c) => (
+                  <Pressable
+                    key={c.id}
+                    accessibilityRole="button"
+                    style={styles.historyRow}
+                    onPress={() => loadConversation(c.id)}
+                  >
+                    <Text variant="body" numberOfLines={1}>
+                      {c.title ?? 'Conversation'}
+                    </Text>
+                    <Text variant="caption" color="textMuted" style={styles.historyDate}>
+                      {new Date(c.updated_at).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </Text>
+                  </Pressable>
+                ))
+              ) : (
+                <Text variant="body" color="textMuted">
+                  No past conversations yet.
+                </Text>
               )}
             </View>
           ) : (
@@ -149,8 +176,21 @@ const makeStyles = (t: Theme) =>
       marginBottom: t.spacing.md,
     },
     scrollContent: { paddingBottom: t.spacing.lg },
-    intro: { marginBottom: t.spacing.xl },
-    section: { marginTop: t.spacing.xl },
+    intro: { marginBottom: t.spacing.lg },
+    segments: {
+      flexDirection: 'row',
+      backgroundColor: t.colors.surfaceAlt,
+      borderRadius: t.radii.lg,
+      padding: t.spacing.xs,
+      marginBottom: t.spacing.xl,
+    },
+    segment: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: t.spacing.sm,
+      borderRadius: t.radii.md,
+    },
+    segmentActive: { backgroundColor: t.colors.accent },
     sectionLabel: { marginBottom: t.spacing.sm },
     suggestion: { marginBottom: t.spacing.sm },
     historyRow: { paddingVertical: t.spacing.md },

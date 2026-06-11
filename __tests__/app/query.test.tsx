@@ -113,12 +113,24 @@ describe('QueryScreen (reflective conversation)', () => {
     expect(mockNew).toHaveBeenCalled()
   })
 
-  it('opens a past conversation from history', () => {
+  it('keeps suggestions and history on separate tabs (history hidden until selected)', () => {
     mockUse.mockReturnValue({
       ...base,
       history: [{ id: 'c1', title: 'A past chat', created_at: 0, updated_at: 0 }],
     })
     render(<QueryScreen />)
+    // Start tab is default: suggestions show, history is hidden
+    expect(screen.getByText('What patterns show up around Work?')).toBeTruthy()
+    expect(screen.queryByText('A past chat')).toBeNull()
+  })
+
+  it('opens a past conversation from the History tab', () => {
+    mockUse.mockReturnValue({
+      ...base,
+      history: [{ id: 'c1', title: 'A past chat', created_at: 0, updated_at: 0 }],
+    })
+    render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('tab-history'))
     fireEvent.press(screen.getByText('A past chat'))
     expect(mockLoad).toHaveBeenCalledWith('c1')
   })
