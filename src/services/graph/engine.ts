@@ -1,50 +1,58 @@
 import { getDb } from '@/services/storage/db'
-import { upsertNode, upsertEdge, type NodeType } from '@/services/storage/graph'
+import { upsertNode, upsertEdge, findNodeByLabel, type NodeType } from '@/services/storage/graph'
 import { listEntries, type Entry } from '@/services/storage/entries'
 import { listEntitiesForEntry } from '@/services/storage/entities'
 import { type Result, ok, err } from '@/types/result'
 
 /**
  * Build graph nodes + co-occurrence edges from a tagged entry: a node per
- * emotion / distortion / theme(topic) and per extracted entity (person / place /
- * activity), and an edge between every pair that co-occurred in this entry
- * (additive weight). Best-effort, never throws.
+ * concrete signal (emotion / distortion / extracted person / place / activity)
+ * plus the theme(topic), with an edge between every pair that co-occurred in
+ * this entry (additive weight). Best-effort, never throws.
+ *
+ * The theme is a loose signal, so it never spawns a duplicate of a concrete
+ * node: if its label already exists (this entry's tags/entities, or any prior
+ * node of any type) it attaches to that node instead of creating a second
+ * same-named "situation" node. Only a genuinely new concept becomes its own.
  */
 export async function updateGraphForEntry(
   entry: Entry,
   topic?: string | null
 ): Promise<Result<void>> {
   try {
-    const specs: { type: NodeType; label: string }[] = []
+    const concrete: { type: NodeType; label: string }[] = []
     const emotion = entry.emotion?.trim()
     const distortion = entry.distortion?.trim()
     if (emotion) {
-      specs.push({ type: 'emotion', label: emotion })
+      concrete.push({ type: 'emotion', label: emotion })
     }
     if (distortion && distortion.toLowerCase() !== 'none') {
-      specs.push({ type: 'distortion', label: distortion })
+      concrete.push({ type: 'distortion', label: distortion })
     }
-    const theme = topic?.trim()
-    if (theme) {
-      // Skip the theme node when it just repeats this entry's emotion or
-      // distortion (e.g. emotion "loneliness" + topic "Loneliness") so the
-      // same concept doesn't appear as two nodes.
-      const duplicatesTag = [emotion, distortion].some(
-        (l) => l != null && l.toLowerCase() === theme.toLowerCase()
-      )
-      if (!duplicatesTag) specs.push({ type: 'situation', label: theme })
-    }
-
     // Extracted entities (person/place/activity) co-occur with the tags above.
     const entities = await listEntitiesForEntry(entry.id)
     if (entities.success) {
-      for (const e of entities.data) specs.push({ type: e.type, label: e.label })
+      for (const e of entities.data) concrete.push({ type: e.type, label: e.label })
     }
 
     const ids: string[] = []
-    for (const spec of specs) {
+    const labels = new Set<string>()
+    for (const spec of concrete) {
       const node = await upsertNode(spec.type, spec.label)
-      if (node.success) ids.push(node.data.id)
+      if (node.success) {
+        ids.push(node.data.id)
+        labels.add(spec.label.toLowerCase())
+      }
+    }
+
+    const theme = topic?.trim()
+    if (theme && !labels.has(theme.toLowerCase())) {
+      // Reuse an existing same-label node (any type) so "Work" the theme and
+      // "Work" the place stay one node; otherwise it's a new theme node.
+      const existing = await findNodeByLabel(theme)
+      const matched = existing.success ? existing.data : null
+      const node = await upsertNode(matched ? matched.type : 'situation', theme)
+      if (node.success && !ids.includes(node.data.id)) ids.push(node.data.id)
     }
 
     // Edge between every co-occurring pair.

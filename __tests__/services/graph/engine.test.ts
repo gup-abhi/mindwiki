@@ -1,6 +1,6 @@
 import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { type SqliteDatabase, setDb } from '@/services/storage/db'
-import { upsertNode, upsertEdge } from '@/services/storage/graph'
+import { upsertNode, upsertEdge, findNodeByLabel } from '@/services/storage/graph'
 import { listEntitiesForEntry } from '@/services/storage/entities'
 import { type Entry } from '@/services/storage/entries'
 import { ok } from '@/types/result'
@@ -8,11 +8,13 @@ import { ok } from '@/types/result'
 jest.mock('@/services/storage/graph', () => ({
   upsertNode: jest.fn(),
   upsertEdge: jest.fn(),
+  findNodeByLabel: jest.fn(),
 }))
 jest.mock('@/services/storage/entities', () => ({ listEntitiesForEntry: jest.fn() }))
 
 const mockUpsertNode = upsertNode as jest.Mock
 const mockUpsertEdge = upsertEdge as jest.Mock
+const mockFindNode = findNodeByLabel as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
@@ -38,6 +40,8 @@ describe('updateGraphForEntry', () => {
     mockUpsertEdge.mockReset()
     mockListEntities.mockReset()
     mockListEntities.mockResolvedValue(ok([]))
+    mockFindNode.mockReset()
+    mockFindNode.mockResolvedValue(ok(null)) // no pre-existing same-label node by default
     let n = 0
     mockUpsertNode.mockImplementation(async (type, label) =>
       ok({ id: `id-${++n}`, type, label, frequency: 1 })
@@ -77,6 +81,27 @@ describe('updateGraphForEntry', () => {
     expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Loneliness')
   })
 
+  it('attaches a theme to an existing same-label node instead of duplicating it', async () => {
+    // A "Work" place node already exists from a prior entry.
+    mockFindNode.mockResolvedValue(ok({ id: 'wk', type: 'place', label: 'Work', frequency: 3 }))
+    await updateGraphForEntry(entry({ distortion: 'none' }), 'Work') // emotion + theme "Work"
+
+    // the theme reuses the existing place node — no second "situation" node
+    expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Work')
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Work')
+  })
+
+  it('skips a theme that repeats one of this entry\'s own entities', async () => {
+    mockListEntities.mockResolvedValue(
+      ok([{ id: 'x1', entry_id: 'e1', type: 'place', label: 'Gym', created_at: 0 }])
+    )
+    await updateGraphForEntry(entry({ distortion: 'none' }), 'gym') // theme echoes the place
+
+    expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Gym')
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'gym')
+    expect(mockFindNode).not.toHaveBeenCalled() // resolved in-entry, no DB lookup needed
+  })
+
   it('adds person/place/activity nodes from the entry entities', async () => {
     mockListEntities.mockResolvedValue(
       ok([
@@ -99,6 +124,8 @@ describe('rebuildGraph', () => {
     mockUpsertEdge.mockReset()
     mockListEntities.mockReset()
     mockListEntities.mockResolvedValue(ok([]))
+    mockFindNode.mockReset()
+    mockFindNode.mockResolvedValue(ok(null)) // no pre-existing same-label node by default
     let n = 0
     mockUpsertNode.mockImplementation(async (type, label) =>
       ok({ id: `id-${++n}`, type, label, frequency: 1 })

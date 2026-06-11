@@ -1,5 +1,5 @@
 import { type SqliteDatabase } from '@/services/storage/db'
-import { upsertNode, upsertEdge, listNodes, listEdges } from '@/services/storage/graph'
+import { upsertNode, upsertEdge, listNodes, listEdges, findNodeByLabel } from '@/services/storage/graph'
 
 let mockUuidCounter = 0
 jest.mock('expo-crypto', () => ({
@@ -30,6 +30,12 @@ function createFakeDb() {
         const row = nodes.get(String(id))
         if (row) Object.assign(row, { frequency, updated_at })
         return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT \* FROM graph_nodes WHERE label/.test(sql)) {
+        const matches = [...nodes.values()]
+          .filter((n) => String(n.label).toLowerCase() === String(params[0]).toLowerCase())
+          .sort((a, b) => Number(b.frequency) - Number(a.frequency))
+        return { rows: matches.length ? [matches[0]] : [], rowsAffected: 0 }
       }
       if (/^SELECT \* FROM graph_nodes ORDER BY/.test(sql)) {
         return { rows: [...nodes.values()], rowsAffected: 0 }
@@ -96,6 +102,23 @@ describe('storage/graph', () => {
     expect(second.success && second.data.frequency).toBe(2)
     const nodes = await listNodes(db)
     expect(nodes.success && nodes.data).toHaveLength(1)
+  })
+
+  it('finds the most frequent same-label node regardless of type (case-insensitive)', async () => {
+    const { db } = createFakeDb()
+    await upsertNode('place', 'Work', db)
+    await upsertNode('place', 'Work', db) // place "Work" -> frequency 2
+    await upsertNode('situation', 'Work', db) // theme "Work" -> frequency 1
+
+    const found = await findNodeByLabel('work', db)
+    expect(found.success && found.data?.type).toBe('place')
+    expect(found.success && found.data?.frequency).toBe(2)
+  })
+
+  it('returns null from findNodeByLabel when nothing matches', async () => {
+    const { db } = createFakeDb()
+    const found = await findNodeByLabel('nope', db)
+    expect(found.success && found.data).toBeNull()
   })
 
   it('upserts an undirected edge (A,B) == (B,A) and increments weight', async () => {

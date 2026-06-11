@@ -141,6 +141,27 @@ export async function upsertEdge(
   }
 }
 
+/**
+ * First node whose label matches (any type, case-insensitive), most frequent
+ * first — or null. Lets a loose theme attach to an existing concrete node
+ * (person/place/activity/emotion) instead of spawning a duplicate same-named node.
+ */
+export async function findNodeByLabel(
+  label: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<GraphNode | null>> {
+  try {
+    const res = await db.execute(
+      'SELECT * FROM graph_nodes WHERE label = ? COLLATE NOCASE ORDER BY frequency DESC LIMIT 1',
+      [label]
+    )
+    const row = res.rows[0]
+    return ok(row ? rowToNode(row) : null)
+  } catch (e) {
+    return err('GRAPH_NODE_FIND_FAILED', 'Failed to find graph node', e)
+  }
+}
+
 export async function listNodes(db: SqliteDatabase = getDb()): Promise<Result<GraphNode[]>> {
   try {
     const res = await db.execute('SELECT * FROM graph_nodes ORDER BY frequency DESC')
