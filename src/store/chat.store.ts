@@ -9,6 +9,8 @@ export interface UIMessage {
   content: string
   sources: MessageSource[]
   crisisTier: number | null
+  /** A reply that failed to generate — renders a "Try again" affordance. */
+  failed?: boolean
 }
 
 // In-flight conversation UI state. Persistence lives in SQLite (services/storage/
@@ -27,6 +29,8 @@ export interface ChatState {
   load: (conversationId: string, messages: UIMessage[], summary: string, summaryCount: number) => void
   setConversationId: (id: string) => void
   addMessage: (message: UIMessage) => void
+  /** Drop any failed-reply placeholders (before a retry re-runs the turn). */
+  dropFailed: () => void
   setMessageCrisis: (id: string, tier: number) => void
   setSending: (sending: boolean) => void
   setSummary: (summary: string, summaryCount: number) => void
@@ -67,6 +71,10 @@ export const useChatStore = create<ChatState>()(
     addMessage: (message) =>
       set((s) => {
         s.messages.push(message)
+      }),
+    dropFailed: () =>
+      set((s) => {
+        s.messages = s.messages.filter((m) => !m.failed)
       }),
     setMessageCrisis: (id, tier) =>
       set((s) => {

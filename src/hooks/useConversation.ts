@@ -84,6 +84,73 @@ export function useConversation(initialQuestion?: string) {
     }, [])
   )
 
+  // The model-reply half of a turn, shared by send and retry: stream the
+  // grounded reply and persist it (refreshing the recap), or drop a retryable
+  // failure placeholder. Assumes sending is already true and the user message
+  // is in the thread.
+  const retryRef = useRef<{
+    conversationId: string
+    message: string
+    priorHistory: ChatMessage[]
+  } | null>(null)
+
+  const generateReply = useCallback(
+    async (conversationId: string, message: string, priorHistory: ChatMessage[]) => {
+      const store = useChatStore.getState()
+      const res = await respond(
+        { history: priorHistory, message, pages, nodes, edges, summary: store.summary },
+        (t) => useChatStore.getState().appendToken(t)
+      )
+
+      if (res.success) {
+        const sources = res.data.sources.map((p) => ({ id: p.id, title: p.title }))
+        store.addMessage({
+          id: randomUUID(),
+          role: 'assistant',
+          content: res.data.text,
+          sources,
+          crisisTier: null,
+        })
+        await appendMessage({
+          conversation_id: conversationId,
+          role: 'assistant',
+          content: res.data.text,
+          sources,
+        })
+        // Keep the rolling recap current so a long, resumed thread doesn't lose
+        // earlier context to the model's window. Background, best-effort.
+        void refreshSummary(conversationId)
+        retryRef.current = null
+      } else {
+        store.addMessage({
+          id: randomUUID(),
+          role: 'assistant',
+          content: REPLY_FAILED,
+          sources: [],
+          crisisTier: null,
+          failed: true,
+        })
+        retryRef.current = { conversationId, message, priorHistory }
+      }
+      useChatStore.getState().clearStreaming()
+      useChatStore.getState().setSending(false)
+    },
+    [pages, nodes, edges]
+  )
+
+  // Re-run the last turn whose reply failed, without re-adding or re-persisting
+  // the user message (the failure placeholder is dropped first).
+  const retry = useCallback(async () => {
+    const pending = retryRef.current
+    const store = useChatStore.getState()
+    if (!pending || store.sending) return
+    store.dropFailed()
+    retryRef.current = null
+    store.setSending(true)
+    store.clearStreaming()
+    await generateReply(pending.conversationId, pending.message, pending.priorHistory)
+  }, [generateReply])
+
   const send = useCallback(
     async (text: string) => {
       const message = text.trim()
@@ -162,43 +229,7 @@ export function useConversation(initialQuestion?: string) {
         return
       }
 
-      const res = await respond(
-        { history: priorHistory, message, pages, nodes, edges, summary: store.summary },
-        (t) => useChatStore.getState().appendToken(t)
-      )
-
-      if (res.success) {
-        const sources = res.data.sources.map((p) => ({ id: p.id, title: p.title }))
-        const reply: UIMessage = {
-          id: randomUUID(),
-          role: 'assistant',
-          content: res.data.text,
-          sources,
-          crisisTier: null,
-        }
-        store.addMessage(reply)
-        await appendMessage({
-          conversation_id: conversationId,
-          role: 'assistant',
-          content: res.data.text,
-          sources,
-        })
-        // Keep the rolling recap current so a long, resumed thread doesn't lose
-        // its earlier context to the model's window. Background, best-effort;
-        // runs off the persisted thread so it stays aligned with what resume
-        // reloads. Never blocks the UI.
-        void refreshSummary(conversationId)
-      } else {
-        store.addMessage({
-          id: randomUUID(),
-          role: 'assistant',
-          content: REPLY_FAILED,
-          sources: [],
-          crisisTier: null,
-        })
-      }
-      store.clearStreaming()
-      store.setSending(false)
+      await generateReply(conversationId, message, priorHistory)
 
       // Compounding knowledge: capture anything durable the user shared (people,
       // places, themes the wiki hasn't recorded) into the wiki/graph. Background,
@@ -206,7 +237,7 @@ export function useConversation(initialQuestion?: string) {
       // blocks the UI. Crisis messages returned earlier and are never indexed.
       void captureReflectMessage(message)
     },
-    [pages, nodes, edges]
+    [generateReply]
   )
 
   // Auto-send a question routed in from elsewhere (e.g. the Home "Curious?"
@@ -237,5 +268,15 @@ export function useConversation(initialQuestion?: string) {
 
   const suggestions = useMemo(() => suggestedQuestions(pages), [pages])
 
-  return { messages, streaming, sending, suggestions, history, send, newConversation, loadConversation }
+  return {
+    messages,
+    streaming,
+    sending,
+    suggestions,
+    history,
+    send,
+    retry,
+    newConversation,
+    loadConversation,
+  }
 }

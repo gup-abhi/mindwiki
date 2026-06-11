@@ -6,6 +6,7 @@ import { type UIMessage } from '@/store/chat.store'
 const mockUse = jest.fn()
 const mockPush = jest.fn()
 const mockSend = jest.fn()
+const mockRetry = jest.fn()
 const mockNew = jest.fn()
 const mockLoad = jest.fn()
 
@@ -31,6 +32,7 @@ const base = {
   suggestions: ['What patterns show up around Work?'],
   history: [] as { id: string; title: string | null; created_at: number; updated_at: number }[],
   send: mockSend,
+  retry: mockRetry,
   newConversation: mockNew,
   loadConversation: mockLoad,
 }
@@ -40,6 +42,7 @@ describe('QueryScreen (reflective conversation)', () => {
     mockUse.mockReset()
     mockPush.mockReset()
     mockSend.mockReset()
+    mockRetry.mockReset()
     mockNew.mockReset()
     mockLoad.mockReset()
   })
@@ -74,6 +77,19 @@ describe('QueryScreen (reflective conversation)', () => {
     })
     render(<QueryScreen />)
     expect(screen.getByText('Thinking abou')).toBeTruthy()
+  })
+
+  it('shows a Try again button on a failed reply and retries when tapped', () => {
+    mockUse.mockReturnValue({
+      ...base,
+      messages: [
+        message({ role: 'user', content: 'tell me a lot' }),
+        message({ role: 'assistant', content: 'Something went wrong — please try again.', failed: true }),
+      ],
+    })
+    render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('retry'))
+    expect(mockRetry).toHaveBeenCalled()
   })
 
   it('opens a past conversation from history', () => {

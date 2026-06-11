@@ -21,7 +21,7 @@ export default function QueryScreen() {
   const theme = useTheme()
   const { q } = useLocalSearchParams<{ q?: string }>()
   const initial = typeof q === 'string' ? q : undefined
-  const { messages, streaming, sending, suggestions, history, send, newConversation, loadConversation } =
+  const { messages, streaming, sending, suggestions, history, send, retry, newConversation, loadConversation } =
     useConversation(initial)
   const scrollRef = useRef<ScrollView>(null)
   const isEmpty = messages.length === 0
@@ -103,7 +103,7 @@ export default function QueryScreen() {
               )}
             </View>
           ) : (
-            messages.map((m) => <MessageBubble key={m.id} message={m} />)
+            messages.map((m) => <MessageBubble key={m.id} message={m} onRetry={retry} />)
           )}
 
           {sending && streaming.length > 0 && (

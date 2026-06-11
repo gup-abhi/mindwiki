@@ -1,11 +1,18 @@
-import { synthesizePage, generateReflectionQuestion } from '@/services/llm/deep-model'
+import {
+  synthesizePage,
+  generateReflectionQuestion,
+  converseFromWiki,
+} from '@/services/llm/deep-model'
 import { buildUpdatePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildDigestQuestionPrompt } from '@/services/llm/prompts/digest-question'
 import { LLMBridge } from '@/native/LLMBridge'
 
-jest.mock('@/native/LLMBridge', () => ({ LLMBridge: { synthesise: jest.fn() } }))
+jest.mock('@/native/LLMBridge', () => ({
+  LLMBridge: { synthesise: jest.fn(), converse: jest.fn() },
+}))
 
 const mockSynthesise = LLMBridge.synthesise as jest.Mock
+const mockConverse = LLMBridge.converse as jest.Mock
 
 const input = {
   title: 'Anxiety',
@@ -52,6 +59,33 @@ describe('synthesizePage', () => {
     const result = await synthesizePage(input)
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('SYNTH_VALIDATION_FAILED')
+  })
+})
+
+describe('converseFromWiki', () => {
+  beforeEach(() => mockConverse.mockReset())
+  const cInput = { history: [], message: 'hi', context: { sources: [], connections: [] } }
+
+  it('accepts a long multi-paragraph reply (regression: the 800-char cap rejected valid replies)', async () => {
+    const long = 'a'.repeat(1000) // well over the old 800 cap, within the 220-token budget
+    mockConverse.mockResolvedValue({ text: long })
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data.length).toBe(1000)
+  })
+
+  it('fails with CONVERSE_INFERENCE_FAILED when the model throws', async () => {
+    mockConverse.mockRejectedValue(new Error('OOM'))
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('CONVERSE_INFERENCE_FAILED')
+  })
+
+  it('fails with CONVERSE_VALIDATION_FAILED on empty output', async () => {
+    mockConverse.mockResolvedValue({ text: '   ' })
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('CONVERSE_VALIDATION_FAILED')
   })
 })
 
