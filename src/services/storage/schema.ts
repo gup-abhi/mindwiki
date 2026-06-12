@@ -207,3 +207,30 @@ export const migration006: Migration = {
     `ALTER TABLE conversations ADD COLUMN summary_count INTEGER NOT NULL DEFAULT 0`,
   ],
 }
+
+// Migration 007 — pursuits. Things the user is actively working on (a goal /
+// project / effort), extracted from entries + Reflect chats. Unlike graph nodes
+// (frequency-based, additive) or wiki pages (timeless), a pursuit is temporal:
+// `status` tracks its lifecycle and the *_at timestamps drive periodic check-ins
+// ("how's X going?"). `details` is a deep-model summary; `checkin_question` is
+// the pre-generated prompt the Home card surfaces. Synced as ciphertext.
+export const migration007: Migration = {
+  version: 7,
+  name: 'pursuits',
+  statements: [
+    `CREATE TABLE pursuits (
+      id                TEXT PRIMARY KEY,
+      title             TEXT NOT NULL,
+      details           TEXT NOT NULL DEFAULT '',
+      status            TEXT NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active','done','abandoned','dormant')),
+      checkin_question  TEXT NOT NULL DEFAULT '',
+      wiki_page_id      TEXT REFERENCES wiki_pages(id),
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL,
+      last_mentioned_at INTEGER NOT NULL,
+      last_checkin_at   INTEGER
+    )`,
+    `CREATE INDEX idx_pursuits_status ON pursuits (status, last_mentioned_at)`,
+  ],
+}

@@ -34,6 +34,7 @@ describe('SYNCED_TABLES', () => {
       'entry_entities',
       'conversations',
       'chat_messages',
+      'pursuits',
     ])
   })
 
@@ -41,5 +42,9 @@ describe('SYNCED_TABLES', () => {
     expect(SYNCED_TABLES.indexOf('conversations')).toBeLessThan(
       SYNCED_TABLES.indexOf('chat_messages')
     )
+  })
+
+  it('orders wiki_pages before pursuits so the FK parent applies first', () => {
+    expect(SYNCED_TABLES.indexOf('wiki_pages')).toBeLessThan(SYNCED_TABLES.indexOf('pursuits'))
   })
 })

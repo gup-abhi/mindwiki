@@ -14,6 +14,7 @@ export type SyncTable =
   | 'entry_entities'
   | 'conversations'
   | 'chat_messages'
+  | 'pursuits'
 
 export const SYNCED_TABLES: SyncTable[] = [
   'entries',
@@ -21,6 +22,8 @@ export const SYNCED_TABLES: SyncTable[] = [
   'entry_entities',
   'conversations',
   'chat_messages',
+  // After wiki_pages so the FK parent (wiki_page_id) applies first on a pull.
+  'pursuits',
 ]
 
 export interface Versioned {

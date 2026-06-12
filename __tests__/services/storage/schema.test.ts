@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -127,5 +127,21 @@ describe('migration 006 (conversation summary)', () => {
       "ALTER TABLE conversations ADD COLUMN summary TEXT NOT NULL DEFAULT ''",
       'ALTER TABLE conversations ADD COLUMN summary_count INTEGER NOT NULL DEFAULT 0',
     ])
+  })
+})
+
+describe('migration 007 (pursuits)', () => {
+  it('is registered as version 7', () => {
+    expect(MIGRATIONS[6].version).toBe(7)
+    expect(MIGRATIONS[6].name).toBe('pursuits')
+  })
+
+  it('creates the pursuits table with a lifecycle status and an index', () => {
+    const stmts = MIGRATIONS[6].statements
+    expect(stmts.some((s) => s.includes('CREATE TABLE pursuits'))).toBe(true)
+    expect(
+      stmts.some((s) => s.includes("CHECK (status IN ('active','done','abandoned','dormant'))"))
+    ).toBe(true)
+    expect(stmts.some((s) => s.includes('CREATE INDEX idx_pursuits_status'))).toBe(true)
   })
 })
