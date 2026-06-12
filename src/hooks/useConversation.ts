@@ -241,16 +241,6 @@ export function useConversation(initialQuestion?: string) {
     [generateReply]
   )
 
-  // Auto-send a question routed in from elsewhere (e.g. the Home "Curious?"
-  // card), once, after the wiki/graph context has loaded.
-  const askedInitial = useRef(false)
-  useEffect(() => {
-    if (initialQuestion && loaded && !askedInitial.current) {
-      askedInitial.current = true
-      send(initialQuestion)
-    }
-  }, [initialQuestion, loaded, send])
-
   const newConversation = useCallback(() => useChatStore.getState().reset(), [])
 
   const loadConversation = useCallback(async (id: string) => {
@@ -277,6 +267,17 @@ export function useConversation(initialQuestion?: string) {
     },
     [history, loadConversation, send]
   )
+
+  // Auto-open a question routed in from elsewhere (e.g. the Home "Curious?"
+  // card), once, after the wiki/graph context has loaded. Routed through
+  // openStarter so it reopens the existing conversation instead of duplicating.
+  const askedInitial = useRef(false)
+  useEffect(() => {
+    if (initialQuestion && loaded && !askedInitial.current) {
+      askedInitial.current = true
+      openStarter(initialQuestion)
+    }
+  }, [initialQuestion, loaded, openStarter])
 
   const suggestions = useMemo(() => suggestedQuestions(pages), [pages])
 
