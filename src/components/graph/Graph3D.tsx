@@ -75,6 +75,12 @@ export function buildGraphHtml(
     "  .onBackgroundClick(function(){ post({ type: 'bg' }); });",
     'function size(){ G.width(window.innerWidth).height(window.innerHeight); }',
     "size(); window.addEventListener('resize', size);",
+    // Gesture mapping (Maps-style): one finger pans/moves the graph in the screen
+    // plane, two fingers rotate + pinch-zoom. THREE.TOUCH enum: PAN=1,
+    // DOLLY_ROTATE=3 (inlined since the bundle exposes no THREE global).
+    'var ctrl = G.controls();',
+    'ctrl.enablePan = true; ctrl.screenSpacePanning = true;',
+    'ctrl.touches.ONE = 1; ctrl.touches.TWO = 3;',
     // Always-on labels: an HTML overlay (one element per node) projected onto the
     // canvas each frame via graph2ScreenCoords. Crisp text, themeable, and no
     // extra library — sprites would need a second three.js instance.

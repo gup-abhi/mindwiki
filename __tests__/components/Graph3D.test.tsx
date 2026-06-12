@@ -53,6 +53,9 @@ describe('buildGraphHtml', () => {
     // always-on labels, themed with the supplied label color
     expect(html).toContain('buildLabels')
     expect(html).toContain('graph2ScreenCoords')
+    // one-finger pan enabled (ctrl.touches.ONE = 1)
+    expect(html).toContain('screenSpacePanning')
+    expect(html).toContain('ctrl.touches.ONE = 1')
     expect(html).toContain('#445544')
     // labels get a readable background pill derived from the bg color
     expect(html).toContain('rgba(255, 255, 255, 0.82)')
