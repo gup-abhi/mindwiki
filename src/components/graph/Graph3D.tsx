@@ -31,6 +31,14 @@ interface GraphData {
   links: { source: string; target: string; weight: number }[]
 }
 
+/** `#RRGGBB` → `rgba(r,g,b,alpha)`; passes through anything it can't parse. */
+function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
+}
+
 /**
  * Build the self-contained HTML document for the WebView: the inlined library,
  * the graph data, and a small init script that wires ForceGraph3D with orbit
@@ -115,7 +123,10 @@ export function buildGraphHtml(
     '#graph{width:100vw;height:100vh;}canvas{touch-action:none;display:block;}',
     '#labels{position:absolute;top:0;left:0;width:100%;height:100%;overflow:hidden;pointer-events:none;}',
     '.lbl{position:absolute;top:0;left:0;white-space:nowrap;font-family:-apple-system,Roboto,system-ui,sans-serif;',
-    'font-size:11px;font-weight:600;color:' + labelColor + ';text-shadow:0 1px 3px ' + backgroundColor + ';will-change:transform;}',
+    'font-size:11px;font-weight:600;color:' + labelColor + ';',
+    // A background pill keeps labels readable over any node color — a text
+    // shadow in the bg color does nothing once the label sits on a node.
+    'background:' + hexToRgba(backgroundColor, 0.82) + ';padding:1px 5px;border-radius:7px;will-change:transform;}',
     '</style>',
     '</head><body>',
     '<div id="graph"></div>',

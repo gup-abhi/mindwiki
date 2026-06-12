@@ -54,6 +54,9 @@ describe('buildGraphHtml', () => {
     expect(html).toContain('buildLabels')
     expect(html).toContain('graph2ScreenCoords')
     expect(html).toContain('#445544')
+    // labels get a readable background pill derived from the bg color
+    expect(html).toContain('rgba(255, 255, 255, 0.82)')
+    expect(html).toContain('border-radius')
     // never points at a remote origin
     expect(html).not.toMatch(/https?:\/\//)
   })
