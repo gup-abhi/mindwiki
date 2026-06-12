@@ -17,6 +17,9 @@
     "setupFiles": [
       "<rootDir>/jest.setup.js"
     ],
+    "moduleNameMapper": {
+      "\\.txt$": "<rootDir>/__mocks__/txtMock.js"
+    },
     "forceExit": true,
     "transformIgnorePatterns": [
       "/node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|zustand|immer|@scure/.*|@noble/.*)",
@@ -61,10 +64,12 @@
     "react-native-safe-area-context": "4.12.0",
     "react-native-screens": "~4.4.0",
     "react-native-svg": "15.8.0",
+    "react-native-webview": "13.12.5",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "3d-force-graph": "^1.80.0",
     "@babel/core": "^7.25.2",
     "@testing-library/react-native": "^12.9.0",
     "@types/jest": "^29.5.14",
