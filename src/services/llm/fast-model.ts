@@ -52,8 +52,9 @@ export function normalizeEntities(raw: string[]): string[] {
 export async function tagEntry(input: TagPromptInput): Promise<Result<EntryTag>> {
   let raw: string
   try {
-    // 150 tokens leaves room for the three entity lists on top of the scalars.
-    const output = await LLMBridge.tag(buildTagPrompt(input), { maxTokens: 150, temperature: 0.2 })
+    // 180 tokens leaves room for the three entity lists + working_on on top of
+    // the scalars.
+    const output = await LLMBridge.tag(buildTagPrompt(input), { maxTokens: 180, temperature: 0.2 })
     raw = output.text
   } catch (e) {
     return err('TAG_INFERENCE_FAILED', 'Fast model inference failed', e)

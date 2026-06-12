@@ -18,6 +18,11 @@ describe('buildTagPrompt', () => {
     expect(p).toContain('I will fail')
     expect(p).toContain('ONLY a JSON object')
   })
+
+  it('asks for the working_on pursuit field', () => {
+    const p = buildTagPrompt({ situation: 's', thought: 't' })
+    expect(p).toContain('working_on')
+  })
 })
 
 describe('tagEntry', () => {
@@ -36,7 +41,16 @@ describe('tagEntry', () => {
       expect(result.data.mood_score).toBe(0.2)
       expect(result.data.crisis_confidence).toBe(0.1)
       expect(result.data.topic).toBe('Work')
+      expect(result.data.working_on).toBe('') // defaults when the model omits it
     }
+  })
+
+  it('passes through the working_on phrase when present', async () => {
+    modelReturns(
+      '{"emotion":"hope","distortion":"none","mood_score":0.7,"crisis_confidence":0.0,"topic":"Fitness","working_on":"Marathon training"}'
+    )
+    const result = await tagEntry({ situation: 's', thought: 't' })
+    expect(result.success && result.data.working_on).toBe('Marathon training')
   })
 
   it('fails with TAG_INFERENCE_FAILED when the model throws', async () => {

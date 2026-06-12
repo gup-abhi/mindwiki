@@ -8,6 +8,7 @@ jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn(), createEnt
 jest.mock('@/services/storage/entities', () => ({ setEntitiesForEntry: jest.fn() }))
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
 jest.mock('@/services/graph/engine', () => ({ updateGraphForEntry: jest.fn() }))
+jest.mock('@/services/pursuits/extractor', () => ({ extractPursuit: jest.fn() }))
 
 const mockBegin = jest.fn()
 const mockEnd = jest.fn()
@@ -17,6 +18,7 @@ jest.mock('@/store/wiki.store', () => ({
 
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { updateGraphForEntry } from '@/services/graph/engine'
+import { extractPursuit } from '@/services/pursuits/extractor'
 import { setEntitiesForEntry } from '@/services/storage/entities'
 
 const mockTagEntry = tagEntry as jest.Mock
@@ -24,6 +26,7 @@ const mockApplyTags = applyTags as jest.Mock
 const mockCreateEntry = createEntry as jest.Mock
 const mockUpdateWiki = updateWikiForEntry as jest.Mock
 const mockUpdateGraph = updateGraphForEntry as jest.Mock
+const mockExtractPursuit = extractPursuit as jest.Mock
 const mockSetEntities = setEntitiesForEntry as jest.Mock
 
 // Tag output always carries the three entity lists (normalized in fast-model).
@@ -36,6 +39,7 @@ const tags = (over: Record<string, unknown> = {}) => ({
   people: [],
   places: [],
   activities: [],
+  working_on: '',
   ...over,
 })
 
@@ -69,6 +73,8 @@ describe('processEntry', () => {
     mockUpdateGraph.mockResolvedValue(ok(undefined))
     mockSetEntities.mockReset()
     mockSetEntities.mockResolvedValue(ok(undefined))
+    mockExtractPursuit.mockReset()
+    mockExtractPursuit.mockResolvedValue(undefined)
   })
 
   it('applies the model tags and assesses crisis from crisis_confidence', async () => {
@@ -104,6 +110,16 @@ describe('processEntry', () => {
     expect(mockBegin).toHaveBeenCalledTimes(1)
     await Promise.resolve()
     expect(mockEnd).toHaveBeenCalledTimes(1)
+    // no working_on -> no pursuit extraction
+    expect(mockExtractPursuit).not.toHaveBeenCalled()
+  })
+
+  it('extracts a pursuit when the entry names something being worked on', async () => {
+    mockTagEntry.mockResolvedValue(ok(tags({ working_on: 'Marathon training' })))
+
+    await processEntry(entry({ situation: 'ran today', thought: 'felt strong' }))
+
+    expect(mockExtractPursuit).toHaveBeenCalledWith('Marathon training', 'ran today\nfelt strong')
   })
 
   it('still catches an explicit crisis via the keyword net when tagging fails', async () => {

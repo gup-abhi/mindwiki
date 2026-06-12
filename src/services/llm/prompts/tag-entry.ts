@@ -16,7 +16,7 @@ export interface TagPromptInput {
 export function buildTagPrompt({ situation, thought, behavior, closing_note }: TagPromptInput): string {
   const lines = [
     'You analyze a journal entry and output ONLY a JSON object — no prose, no markdown.',
-    'Schema: {"emotion": string, "distortion": string, "mood_score": number, "crisis_confidence": number, "topic": string, "people": string[], "places": string[], "activities": string[]}',
+    'Schema: {"emotion": string, "distortion": string, "mood_score": number, "crisis_confidence": number, "topic": string, "people": string[], "places": string[], "activities": string[], "working_on": string}',
     `- emotion: choose the single closest from this list ONLY: ${EMOTIONS.join(', ')}.`,
     `- distortion: choose the single closest from this list ONLY, or "none": ${DISTORTIONS.join(', ')}.`,
     '- mood_score: 0.0 (very negative) to 1.0 (very positive).',
@@ -26,6 +26,7 @@ export function buildTagPrompt({ situation, thought, behavior, closing_note }: T
     '- places: specific places mentioned, as short labels (e.g. "Office", "Home", "Gym"). [] if none.',
     '- activities: specific activities or events mentioned, as short labels (e.g. "Standup", "Therapy", "Running"). [] if none.',
     'For people/places/activities: concrete nouns only, at most 3 each, no duplicates, no full sentences.',
+    '- working_on: a short phrase (2-5 words) naming something the writer is actively working on or pursuing — an ongoing goal, project, or effort (e.g. "Marathon training", "Job hunting", "Fixing my sleep"). "" if the entry names no such thing.',
     '',
     `Situation: ${situation}`,
     `Thought: ${thought}`,

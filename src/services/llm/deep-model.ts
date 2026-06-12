@@ -8,8 +8,10 @@ import {
 } from './prompts/conversation'
 import { buildDigestQuestionPrompt, type DigestQuestionInput } from './prompts/digest-question'
 import { buildDigestSynthesisPrompt, type DigestSynthesisInput } from './prompts/digest-synthesis'
+import { buildPursuitDetailsPrompt, type PursuitDetailsInput } from './prompts/pursuit-details'
 import { buildUpdatePagePrompt, type UpdatePageInput } from './prompts/update-page'
 import { ConversationReplySchema, ConversationSummarySchema } from './schemas/conversation.schema'
+import { PursuitDetailsSchema } from './schemas/pursuit.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
@@ -46,6 +48,32 @@ export async function synthesizePage(input: UpdatePageInput): Promise<Result<str
   const parsed = WikiContentSchema.safeParse(raw)
   if (!parsed.success) {
     return err('SYNTH_VALIDATION_FAILED', 'Synthesized content failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Synthesize/refresh a pursuit's short running note with the deep model
+ * (background, ~18 tok/s). Folds the new reflection into the existing note.
+ * Never throws; errors carry a code only, never entry text.
+ */
+export async function synthesizePursuitDetails(
+  input: PursuitDetailsInput
+): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildPursuitDetailsPrompt(input), {
+      maxTokens: 200,
+      temperature: 0.5,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('PURSUIT_SYNTH_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  const parsed = PursuitDetailsSchema.safeParse(raw.trim())
+  if (!parsed.success) {
+    return err('PURSUIT_SYNTH_VALIDATION_FAILED', 'Pursuit details failed validation')
   }
   return ok(parsed.data)
 }
