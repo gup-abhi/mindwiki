@@ -61,7 +61,8 @@ export default function GraphScreen() {
             nodes={nodes}
             edges={edges}
             colors={colors}
-            edgeColor={theme.colors.border}
+            edgeColor={theme.colors.graphEdge}
+            labelColor={theme.colors.textSecondary}
             backgroundColor={theme.colors.bg}
             filter={filter}
             onSelect={setSelected}

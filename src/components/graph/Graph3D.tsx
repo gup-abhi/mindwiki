@@ -20,6 +20,7 @@ interface Props {
   edges: GraphEdge[]
   colors: Record<NodeType, string>
   edgeColor: string
+  labelColor: string
   backgroundColor: string
   filter: Filter
   onSelect: (node: GraphNode | null) => void
@@ -41,6 +42,7 @@ export function buildGraphHtml(
   data: GraphData,
   colors: Record<NodeType, string>,
   edgeColor: string,
+  labelColor: string,
   backgroundColor: string
 ): string {
   const init = [
@@ -53,7 +55,6 @@ export function buildGraphHtml(
     "const G = ForceGraph3D({ controlType: 'orbit' })(el)",
     '  .backgroundColor(BG)',
     '  .graphData(DATA)',
-    "  .nodeLabel('label')",
     "  .nodeVal('val')",
     "  .nodeColor(function(n){ return COLORS[n.type] || '#888888'; })",
     '  .nodeOpacity(0.95)',
@@ -66,6 +67,31 @@ export function buildGraphHtml(
     "  .onBackgroundClick(function(){ post({ type: 'bg' }); });",
     'function size(){ G.width(window.innerWidth).height(window.innerHeight); }',
     "size(); window.addEventListener('resize', size);",
+    // Always-on labels: an HTML overlay (one element per node) projected onto the
+    // canvas each frame via graph2ScreenCoords. Crisp text, themeable, and no
+    // extra library — sprites would need a second three.js instance.
+    "const labelsEl = document.getElementById('labels');",
+    'var CURRENT = DATA.nodes;',
+    'var labelMap = {};',
+    'function buildLabels(ns){',
+    "  labelsEl.textContent = '';",
+    '  labelMap = {};',
+    '  ns.forEach(function(n){',
+    "    var d = document.createElement('div'); d.className = 'lbl'; d.textContent = n.label;",
+    '    labelsEl.appendChild(d); labelMap[n.id] = d;',
+    '  });',
+    '}',
+    'function updateLabels(){',
+    '  for (var i = 0; i < CURRENT.length; i++){',
+    '    var n = CURRENT[i]; var el2 = labelMap[n.id]; if(!el2) continue;',
+    "    if(n.x === undefined){ el2.style.opacity = '0'; continue; }",
+    '    var c = G.graph2ScreenCoords(n.x, n.y, n.z);',
+    "    el2.style.opacity = '1';",
+    "    el2.style.transform = 'translate(-50%,-50%) translate(' + c.x + 'px,' + (c.y - 14) + 'px)';",
+    '  }',
+    '  requestAnimationFrame(updateLabels);',
+    '}',
+    'buildLabels(CURRENT); requestAnimationFrame(updateLabels);',
     // Filtering happens here (driven from RN via injectJavaScript) so changing a
     // filter pill never reloads the WebView — it just swaps the graph data.
     'window.applyFilter = function(type){',
@@ -75,6 +101,7 @@ export function buildGraphHtml(
     '    var s = (l.source && l.source.id) || l.source; var t = (l.target && l.target.id) || l.target;',
     '    return ids[s] && ids[t];',
     '  });',
+    '  CURRENT = ns; buildLabels(ns);',
     '  G.graphData({ nodes: ns, links: ls });',
     '};',
     "post({ type: 'ready' });",
@@ -85,9 +112,14 @@ export function buildGraphHtml(
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">',
     '<style>html,body{margin:0;padding:0;height:100%;overflow:hidden;background:' + backgroundColor + ';}',
-    '#graph{width:100vw;height:100vh;}canvas{touch-action:none;display:block;}</style>',
+    '#graph{width:100vw;height:100vh;}canvas{touch-action:none;display:block;}',
+    '#labels{position:absolute;top:0;left:0;width:100%;height:100%;overflow:hidden;pointer-events:none;}',
+    '.lbl{position:absolute;top:0;left:0;white-space:nowrap;font-family:-apple-system,Roboto,system-ui,sans-serif;',
+    'font-size:11px;font-weight:600;color:' + labelColor + ';text-shadow:0 1px 3px ' + backgroundColor + ';will-change:transform;}',
+    '</style>',
     '</head><body>',
     '<div id="graph"></div>',
+    '<div id="labels"></div>',
     '<script>' + lib + '</script>',
     '<script>' + init + '</script>',
     '</body></html>',
@@ -100,7 +132,7 @@ export function buildGraphHtml(
  * library. Node taps surface back through `onSelect`; filtering is applied live
  * without reloading. The whole thing runs offline — see the bundle note above.
  */
-export function Graph3D({ nodes, edges, colors, edgeColor, backgroundColor, filter, onSelect }: Props) {
+export function Graph3D({ nodes, edges, colors, edgeColor, labelColor, backgroundColor, filter, onSelect }: Props) {
   const theme = useTheme()
   const webRef = useRef<WebView>(null)
   const [lib, setLib] = useState<string | null>(null)
@@ -127,8 +159,8 @@ export function Graph3D({ nodes, edges, colors, edgeColor, backgroundColor, filt
       nodes: nodes.map((n) => ({ id: n.id, type: n.type, label: n.label, val: Math.max(1, n.frequency) })),
       links: edges.map((e) => ({ source: e.source_id, target: e.target_id, weight: e.weight })),
     }
-    return buildGraphHtml(lib, data, colors, edgeColor, backgroundColor)
-  }, [lib, nodes, edges, colors, edgeColor, backgroundColor])
+    return buildGraphHtml(lib, data, colors, edgeColor, labelColor, backgroundColor)
+  }, [lib, nodes, edges, colors, edgeColor, labelColor, backgroundColor])
 
   // Push filter changes into the live graph (no reload). Re-runs on load so the
   // current filter is reapplied if the data (and thus the WebView) reloaded.

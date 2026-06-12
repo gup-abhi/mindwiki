@@ -42,6 +42,7 @@ describe('buildGraphHtml', () => {
       { nodes: [{ id: 'n1', type: 'emotion', label: 'Anxiety', val: 3 }], links: [{ source: 'n1', target: 'n2', weight: 2 }] },
       colors,
       '#cccccc',
+      '#445544',
       '#ffffff'
     )
     expect(html).toContain('LIBCONTENT')
@@ -49,6 +50,10 @@ describe('buildGraphHtml', () => {
     expect(html).toContain("controlType: 'orbit'")
     expect(html).toContain('Anxiety')
     expect(html).toContain('applyFilter')
+    // always-on labels, themed with the supplied label color
+    expect(html).toContain('buildLabels')
+    expect(html).toContain('graph2ScreenCoords')
+    expect(html).toContain('#445544')
     // never points at a remote origin
     expect(html).not.toMatch(/https?:\/\//)
   })
@@ -62,7 +67,7 @@ describe('Graph3D', () => {
 
   it('shows a loader, then renders a WebView with the inlined library + data', async () => {
     render(
-      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" backgroundColor="#fff" filter="all" onSelect={jest.fn()} />
+      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="all" onSelect={jest.fn()} />
     )
     expect(screen.getByTestId('graph-loading')).toBeTruthy()
     await screen.findByTestId('graph-webview')
@@ -73,7 +78,7 @@ describe('Graph3D', () => {
   it('routes a node-tap message to onSelect and a background tap to null', async () => {
     const onSelect = jest.fn()
     render(
-      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" backgroundColor="#fff" filter="all" onSelect={onSelect} />
+      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="all" onSelect={onSelect} />
     )
     await screen.findByTestId('graph-webview')
 
@@ -86,7 +91,7 @@ describe('Graph3D', () => {
 
   it('pushes the active filter into the graph once loaded', async () => {
     render(
-      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" backgroundColor="#fff" filter="emotion" onSelect={jest.fn()} />
+      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="emotion" onSelect={jest.fn()} />
     )
     await screen.findByTestId('graph-webview')
     act(() => mockWebProps.onLoadEnd())

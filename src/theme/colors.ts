@@ -34,6 +34,8 @@ export interface ColorTokens {
   graphDistortion: string
   graphPlace: string
   graphActivity: string
+  // Edge/link color for the knowledge graph (lighter on dark so links read).
+  graphEdge: string
 }
 
 export const lightColors: ColorTokens = {
@@ -64,6 +66,7 @@ export const lightColors: ColorTokens = {
   graphDistortion: '#6FC2C9',
   graphPlace: '#D69A6F',
   graphActivity: '#9AA86F',
+  graphEdge: '#C4D0C6',
 }
 
 export const darkColors: ColorTokens = {
@@ -94,4 +97,5 @@ export const darkColors: ColorTokens = {
   graphDistortion: '#6FC2C9',
   graphPlace: '#D69A6F',
   graphActivity: '#9AA86F',
+  graphEdge: '#6E7A70',
 }
