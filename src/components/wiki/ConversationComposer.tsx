@@ -67,6 +67,7 @@ const makeStyles = (t: Theme) =>
       alignItems: 'flex-end', // send button sits at the bottom as the input grows
       gap: t.spacing.sm,
       paddingTop: t.spacing.sm,
+      paddingBottom: t.spacing.md,
     },
     input: {
       flex: 1,
