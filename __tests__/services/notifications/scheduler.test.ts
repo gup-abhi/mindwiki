@@ -2,12 +2,19 @@ import * as Notifications from 'expo-notifications'
 
 import { type SqliteDatabase } from '@/services/storage/db'
 import {
+  cancelChallengeReminders,
   ensurePermission,
   onEntrySaved,
   recordActivity,
   rescheduleDailyReminder,
+  scheduleChallengeReminders,
   scheduleWeeklyDigest,
 } from '@/services/notifications/scheduler'
+
+// jest-expo's expo-notifications mock exposes only { DAILY, WEEKLY } on the
+// trigger-type enum; add DATE (real value 'date') so the one-shot challenge
+// reminders schedule with the right trigger type under test.
+;(Notifications.SchedulableTriggerInputTypes as { DATE?: string }).DATE = 'date'
 
 const mockSchedule = Notifications.scheduleNotificationAsync as jest.Mock
 const mockCancel = Notifications.cancelScheduledNotificationAsync as jest.Mock
@@ -116,6 +123,52 @@ describe('scheduleWeeklyDigest', () => {
     const arg = mockSchedule.mock.calls[0][0]
     expect(arg.identifier).toBe('mindwiki-weekly-digest')
     expect(arg.trigger).toMatchObject({ type: 'weekly', weekday: 1, hour: 9, minute: 0 })
+  })
+})
+
+describe('scheduleChallengeReminders', () => {
+  const challenge = { id: 'ch1', status: 'active' as const }
+
+  it('arms morning (9am) one-shot nudges, skipping today when already done', async () => {
+    // 8am, already checked in today → today skipped, the rest of the window armed.
+    const res = await scheduleChallengeReminders(challenge, at(8), true)
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data).toBe(13) // 14-day buffer minus today
+
+    const calls = mockSchedule.mock.calls.map((c) => c[0])
+    expect(calls).toHaveLength(13)
+    for (const arg of calls) {
+      expect(arg.identifier.startsWith('mindwiki-challenge-ch1-')).toBe(true)
+      expect(arg.trigger.type).toBe('date')
+      expect(new Date(arg.trigger.date).getHours()).toBe(9)
+      expect(new Date(arg.trigger.date).getTime()).toBeGreaterThan(at(8))
+      expect(arg.content.body.length).toBeGreaterThan(0)
+    }
+    // first nudge is tomorrow (today was skipped)
+    expect(new Date(calls[0].trigger.date).getDate()).toBe(new Date(at(8)).getDate() + 1)
+  })
+
+  it('arms today when not yet done and 9am has not passed', async () => {
+    const res = await scheduleChallengeReminders(challenge, at(8), false)
+    expect(res.success && res.data).toBe(14) // full buffer, today included
+    const first = mockSchedule.mock.calls[0][0]
+    expect(new Date(first.trigger.date).getDate()).toBe(new Date(at(8)).getDate()) // today
+    expect(new Date(first.trigger.date).getHours()).toBe(9)
+  })
+
+  it('cancels and schedules nothing for a completed challenge', async () => {
+    const res = await scheduleChallengeReminders({ id: 'ch1', status: 'completed' }, at(8), false)
+    expect(res.success && res.data).toBe(0)
+    expect(mockSchedule).not.toHaveBeenCalled()
+    expect(mockCancel).toHaveBeenCalledWith('mindwiki-challenge-ch1-0')
+  })
+
+  it('cancelChallengeReminders clears the namespaced ids', async () => {
+    const res = await cancelChallengeReminders('ch1')
+    expect(res.success).toBe(true)
+    expect(mockCancel).toHaveBeenCalledWith('mindwiki-challenge-ch1-0')
+    expect(mockCancel).toHaveBeenCalledWith('mindwiki-challenge-ch1-13')
   })
 })
 
