@@ -90,6 +90,12 @@ describe('Settings', () => {
     expect(mockPush).toHaveBeenCalledWith('/pair')
   })
 
+  it('opens the pursuits manage screen', () => {
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-pursuits'))
+    expect(mockPush).toHaveBeenCalledWith('/pursuits')
+  })
+
   it('toggles the app lock', () => {
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-app-lock'))

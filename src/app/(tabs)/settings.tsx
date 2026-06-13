@@ -63,6 +63,16 @@ export default function Settings() {
       </View>
 
       <Text variant="label" color="textMuted" style={styles.section}>
+        Pursuits
+      </Text>
+      <Card variant="sunken" onPress={() => router.push('/pursuits')} testID="settings-pursuits">
+        <Text variant="bodyStrong">Things you’re working on</Text>
+        <Text variant="caption" color="textSecondary" style={styles.hint}>
+          Review what you’re tracking, mark something done, or remove it.
+        </Text>
+      </Card>
+
+      <Text variant="label" color="textMuted" style={styles.section}>
         Security
       </Text>
       <Card variant="sunken">

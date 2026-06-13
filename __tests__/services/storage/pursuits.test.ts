@@ -1,6 +1,7 @@
 import { type SqliteDatabase } from '@/services/storage/db'
 import {
   createPursuit,
+  deletePursuit,
   getPursuit,
   listPursuits,
   updatePursuit,
@@ -35,6 +36,10 @@ function createFakeDb() {
           (a, b) => Number(b.last_mentioned_at) - Number(a.last_mentioned_at)
         )
         return { rows, rowsAffected: 0 }
+      }
+      if (/^DELETE FROM pursuits WHERE id/.test(sql)) {
+        const existed = pursuits.delete(String(params[0]))
+        return { rows: [], rowsAffected: existed ? 1 : 0 }
       }
       if (/^UPDATE pursuits SET /.test(sql)) {
         // Dynamic SET: zip the "col = ?" names with params; last param is the id.
@@ -120,5 +125,17 @@ describe('storage/pursuits CRUD', () => {
     const res = await updatePursuit('ghost', { status: 'dormant' }, db)
     expect(res.success).toBe(false)
     if (!res.success) expect(res.error.code).toBe('PURSUIT_NOT_FOUND')
+  })
+
+  it('deletes a pursuit', async () => {
+    const { db } = createFakeDb()
+    const created = await createPursuit({ title: 'Temp' }, db)
+    if (!created.success) throw new Error('setup failed')
+
+    const del = await deletePursuit(created.data.id, db)
+    expect(del.success).toBe(true)
+
+    const got = await getPursuit(created.data.id, db)
+    expect(got.success && got.data).toBeNull()
   })
 })

@@ -112,6 +112,19 @@ export async function getPursuit(
   }
 }
 
+/** Permanently remove a pursuit (local-only, mirrors deleteEntry). */
+export async function deletePursuit(
+  id: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<void>> {
+  try {
+    await db.execute('DELETE FROM pursuits WHERE id = ?', [id])
+    return ok(undefined)
+  } catch (e) {
+    return err('PURSUIT_DELETE_FAILED', 'Failed to delete pursuit', e)
+  }
+}
+
 /** All pursuits, most-recently-mentioned first. */
 export async function listPursuits(db: SqliteDatabase = getDb()): Promise<Result<Pursuit[]>> {
   try {
