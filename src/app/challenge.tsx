@@ -5,13 +5,17 @@ import { ScrollView, StyleSheet, View } from 'react-native'
 import { Button, Card, IconButton, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { useChallenge } from '@/hooks/useChallenge'
-import { type Challenge } from '@/services/storage/challenges'
+import { type Challenge, updateChallenge } from '@/services/storage/challenges'
+import { toLocalDate } from '@/services/challenges/checkin'
 import { setCoverAffirmation } from '@/services/challenges/cover'
+
+const DAY_MS = 86_400_000
 
 export default function ChallengeScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { challenge, loading, busy, streak, doneToday, create, checkIn, remove } = useChallenge()
+  const { challenge, loading, busy, streak, doneToday, create, checkIn, remove, refresh } =
+    useChallenge()
 
   const [title, setTitle] = useState('')
   const [details, setDetails] = useState('')
@@ -34,6 +38,19 @@ export default function ChallengeScreen() {
     if (!completed) return
     await setCoverAffirmation(completed.affirmation)
     setCoverSet(true)
+  }
+
+  // Dev-only time travel so the day-by-day flow can be tested without changing
+  // the device clock. Backdates last_checkin_date (and optionally the streak) so
+  // the next real "I did it" behaves as if days had passed. Stripped from
+  // production builds by the __DEV__ guard on the panel below.
+  const devBackdate = async (daysAgo: number, streak?: number) => {
+    if (!challenge) return
+    await updateChallenge(challenge.id, {
+      last_checkin_date: toLocalDate(Date.now() - daysAgo * DAY_MS),
+      ...(streak !== undefined ? { current_streak: streak } : {}),
+    })
+    await refresh()
   }
 
   return (
@@ -113,6 +130,34 @@ export default function ChallengeScreen() {
               )}
             </View>
 
+            {__DEV__ ? (
+              <Card variant="sunken" style={styles.devPanel} testID="challenge-dev">
+                <Text variant="caption" color="textMuted">
+                  DEV · simulate days (no clock change)
+                </Text>
+                <View style={styles.devActions}>
+                  <Button
+                    title="+1 day"
+                    size="sm"
+                    variant="secondary"
+                    onPress={() => void devBackdate(1)}
+                  />
+                  <Button
+                    title="Miss a day"
+                    size="sm"
+                    variant="secondary"
+                    onPress={() => void devBackdate(3)}
+                  />
+                  <Button
+                    title="Jump to final day"
+                    size="sm"
+                    variant="secondary"
+                    onPress={() => void devBackdate(1, challenge.target_days - 1)}
+                  />
+                </View>
+              </Card>
+            ) : null}
+
             <Button
               title="Give up this challenge"
               variant="ghost"
@@ -178,4 +223,6 @@ const makeStyles = (t: Theme) =>
     actions: { marginTop: t.spacing.xl, marginBottom: t.spacing.md },
     celebrate: { gap: t.spacing.lg, alignItems: 'stretch', paddingTop: t.spacing.xl },
     affirmCard: { alignSelf: 'stretch' },
+    devPanel: { marginTop: t.spacing.lg, gap: t.spacing.sm },
+    devActions: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
   })
