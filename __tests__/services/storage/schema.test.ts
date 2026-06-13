@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -143,5 +143,17 @@ describe('migration 007 (pursuits)', () => {
       stmts.some((s) => s.includes("CHECK (status IN ('active','done','abandoned','dormant'))"))
     ).toBe(true)
     expect(stmts.some((s) => s.includes('CREATE INDEX idx_pursuits_status'))).toBe(true)
+  })
+
+  it('is registered as version 8', () => {
+    expect(MIGRATIONS[7].version).toBe(8)
+    expect(MIGRATIONS[7].name).toBe('challenges')
+  })
+
+  it('creates the challenges table with a two-state status and an index', () => {
+    const stmts = MIGRATIONS[7].statements
+    expect(stmts.some((s) => s.includes('CREATE TABLE challenges'))).toBe(true)
+    expect(stmts.some((s) => s.includes("CHECK (status IN ('active','completed'))"))).toBe(true)
+    expect(stmts.some((s) => s.includes('CREATE INDEX idx_challenges_status'))).toBe(true)
   })
 })

@@ -35,6 +35,7 @@ describe('SYNCED_TABLES', () => {
       'conversations',
       'chat_messages',
       'pursuits',
+      'challenges',
     ])
   })
 
