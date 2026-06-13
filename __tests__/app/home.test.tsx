@@ -31,6 +31,15 @@ jest.mock('@/hooks/useModelDownload', () => ({
 const mockWiki = jest.fn(() => ({ pages: [] as WikiPage[], loading: false }))
 jest.mock('@/hooks/useWiki', () => ({ useWikiPages: () => mockWiki() }))
 
+const mockOpenCheckin = jest.fn()
+const mockDismissCheckin = jest.fn()
+const mockCheckin = jest.fn(() => ({
+  checkin: null as { id: string; checkin_question: string } | null,
+  open: mockOpenCheckin,
+  dismiss: mockDismissCheckin,
+}))
+jest.mock('@/hooks/usePursuitCheckin', () => ({ usePursuitCheckin: () => mockCheckin() }))
+
 const mockList = listEntries as jest.Mock
 
 const entry = (over = {}) => ({
@@ -53,6 +62,9 @@ describe('Home entries list', () => {
     mockList.mockReset()
     mockPush.mockReset()
     mockWiki.mockReturnValue({ pages: [], loading: false })
+    mockOpenCheckin.mockReset()
+    mockDismissCheckin.mockReset()
+    mockCheckin.mockReturnValue({ checkin: null, open: mockOpenCheckin, dismiss: mockDismissCheckin })
     useWikiStore.setState({ pending: 0 })
   })
 
@@ -100,6 +112,33 @@ describe('Home entries list', () => {
     render(<Home />)
     await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
     expect(screen.queryByText('Your weekly digest is ready')).toBeNull()
+  })
+
+  it('shows the check-in card and wires its actions when a pursuit is due', async () => {
+    mockList.mockResolvedValue(ok([entry()]))
+    mockCheckin.mockReturnValue({
+      checkin: { id: 'p1', checkin_question: 'How is the marathon training going?' },
+      open: mockOpenCheckin,
+      dismiss: mockDismissCheckin,
+    })
+    render(<Home />)
+
+    await waitFor(() =>
+      expect(screen.getByText('How is the marathon training going?')).toBeTruthy()
+    )
+    expect(screen.getByText('Checking in')).toBeTruthy()
+
+    fireEvent.press(screen.getByTestId('checkin-open'))
+    expect(mockOpenCheckin).toHaveBeenCalled()
+    fireEvent.press(screen.getByTestId('checkin-dismiss'))
+    expect(mockDismissCheckin).toHaveBeenCalled()
+  })
+
+  it('hides the check-in card when nothing is due', async () => {
+    mockList.mockResolvedValue(ok([entry()]))
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+    expect(screen.queryByText('Checking in')).toBeNull()
   })
 
   it('surfaces a proactive question from the richest wiki page', async () => {
