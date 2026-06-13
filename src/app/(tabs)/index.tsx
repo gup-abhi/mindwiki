@@ -2,10 +2,12 @@ import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
 import { FlatList, Pressable, StyleSheet, View } from 'react-native'
 
-import { Button, Card, Screen, Text } from '@/components/ui'
+import { Button, Card, ProgressBar, Screen, Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { ModelDownloadCard } from '@/components/ModelDownloadCard'
 import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
+import { useChallenge } from '@/hooks/useChallenge'
+import { useCoverAffirmation } from '@/hooks/useCoverAffirmation'
 import { useEntries } from '@/hooks/useEntries'
 import { usePursuitCheckin } from '@/hooks/usePursuitCheckin'
 import { useWikiPages } from '@/hooks/useWiki'
@@ -21,6 +23,8 @@ export default function Home() {
   const { entries, count } = useEntries()
   const { pages } = useWikiPages()
   const { checkin, open: openCheckin, dismiss: dismissCheckin } = usePursuitCheckin()
+  const { challenge, streak, doneToday, checkIn } = useChallenge()
+  const coverAffirmation = useCoverAffirmation()
   const synthesizing = useWikiStore((s) => s.pending > 0)
   const stage = useMemo(
     () => streakStage(computeStreak(entries.map((e) => e.created_at), Date.now()).current),
@@ -37,6 +41,11 @@ export default function Home() {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.header}>
+            {coverAffirmation ? (
+              <Text variant="label" color="accent" style={styles.cover} testID="home-cover-affirmation">
+                {coverAffirmation}
+              </Text>
+            ) : null}
             <Text variant="display">MindWiki</Text>
             <Text variant="label" color="accent" style={styles.stage}>
               {stage.headline}
@@ -56,6 +65,35 @@ export default function Home() {
             <View style={styles.cta}>
               <Button title="New entry" size="lg" fullWidth onPress={() => router.push('/entry')} />
             </View>
+            {challenge && (
+              <Card variant="sunken" style={styles.fullWidth} testID="home-challenge">
+                <Pressable accessibilityRole="button" onPress={() => router.push('/challenge')}>
+                  <Text variant="caption" color="accent">
+                    🔥 Day {streak} of {challenge.target_days}
+                  </Text>
+                  <Text variant="bodyStrong" style={styles.surfaceText}>
+                    {challenge.title}
+                  </Text>
+                  <View style={styles.challengeBar}>
+                    <ProgressBar progress={streak / challenge.target_days} />
+                  </View>
+                </Pressable>
+                {doneToday ? (
+                  <Text variant="caption" color="textMuted" style={styles.challengeDone}>
+                    Done for today ✓ — see you tomorrow.
+                  </Text>
+                ) : (
+                  <View style={styles.challengeAction}>
+                    <Button
+                      title="I did it today"
+                      size="sm"
+                      onPress={() => void checkIn()}
+                      testID="home-challenge-checkin"
+                    />
+                  </View>
+                )}
+              </Card>
+            )}
             {checkin && (
               <Card variant="sunken" style={styles.fullWidth}>
                 <Text variant="caption" color="accent">
@@ -126,7 +164,11 @@ const makeStyles = (t: Theme) =>
     listContent: { paddingBottom: t.spacing['2xl'] },
     header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.xl, paddingHorizontal: t.spacing.xl },
     stage: { marginTop: t.spacing.sm, textAlign: 'center' },
+    cover: { textAlign: 'center', marginBottom: t.spacing.md, fontStyle: 'italic' },
     fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
+    challengeBar: { marginTop: t.spacing.md },
+    challengeAction: { flexDirection: 'row', marginTop: t.spacing.md },
+    challengeDone: { marginTop: t.spacing.md },
     digestSub: { marginTop: t.spacing.xs },
     cta: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     surfaceText: { marginTop: t.spacing.xs },

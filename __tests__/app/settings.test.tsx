@@ -96,6 +96,12 @@ describe('Settings', () => {
     expect(mockPush).toHaveBeenCalledWith('/pursuits')
   })
 
+  it('opens the challenge screen', () => {
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-challenge'))
+    expect(mockPush).toHaveBeenCalledWith('/challenge')
+  })
+
   it('toggles the app lock', () => {
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-app-lock'))
