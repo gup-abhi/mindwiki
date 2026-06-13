@@ -23,6 +23,9 @@ export default function ChallengeScreen() {
   // affirmation render even though the hook clears the active challenge.
   const [completed, setCompleted] = useState<Challenge | null>(null)
   const [coverSet, setCoverSet] = useState(false)
+  // Guards the check-in against a still-in-flight dev backdate write (the dev
+  // buttons are fire-and-forget) so a fast tap can't read the pre-backdate date.
+  const [devBusy, setDevBusy] = useState(false)
 
   const onStart = async () => {
     if (!title.trim()) return
@@ -46,11 +49,16 @@ export default function ChallengeScreen() {
   // production builds by the __DEV__ guard on the panel below.
   const devBackdate = async (daysAgo: number, streak?: number) => {
     if (!challenge) return
-    await updateChallenge(challenge.id, {
-      last_checkin_date: toLocalDate(Date.now() - daysAgo * DAY_MS),
-      ...(streak !== undefined ? { current_streak: streak } : {}),
-    })
-    await refresh()
+    setDevBusy(true)
+    try {
+      await updateChallenge(challenge.id, {
+        last_checkin_date: toLocalDate(Date.now() - daysAgo * DAY_MS),
+        ...(streak !== undefined ? { current_streak: streak } : {}),
+      })
+      await refresh()
+    } finally {
+      setDevBusy(false)
+    }
   }
 
   return (
@@ -124,6 +132,7 @@ export default function ChallengeScreen() {
                   size="lg"
                   fullWidth
                   loading={busy}
+                  disabled={devBusy}
                   onPress={onCheckIn}
                   testID="challenge-checkin"
                 />
@@ -140,18 +149,21 @@ export default function ChallengeScreen() {
                     title="+1 day"
                     size="sm"
                     variant="secondary"
+                    disabled={devBusy || busy}
                     onPress={() => void devBackdate(1)}
                   />
                   <Button
                     title="Miss a day"
                     size="sm"
                     variant="secondary"
+                    disabled={devBusy || busy}
                     onPress={() => void devBackdate(3)}
                   />
                   <Button
                     title="Jump to final day"
                     size="sm"
                     variant="secondary"
+                    disabled={devBusy || busy}
                     onPress={() => void devBackdate(1, challenge.target_days - 1)}
                   />
                 </View>
