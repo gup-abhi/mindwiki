@@ -23,6 +23,8 @@ interface Props {
   labelColor: string
   backgroundColor: string
   filter: Filter
+  /** When set, the graph shows only this node + its direct neighbors. */
+  selectedId: string | null
   onSelect: (node: GraphNode | null) => void
 }
 
@@ -106,10 +108,30 @@ export function buildGraphHtml(
     '  requestAnimationFrame(updateLabels);',
     '}',
     'buildLabels(CURRENT); requestAnimationFrame(updateLabels);',
-    // Filtering happens here (driven from RN via injectJavaScript) so changing a
-    // filter pill never reloads the WebView — it just swaps the graph data.
-    'window.applyFilter = function(type){',
-    "  var ns = type === 'all' ? DATA.nodes : DATA.nodes.filter(function(n){ return n.type === type; });",
+    // View state, driven from RN via injectJavaScript (no reload): a type filter
+    // (pills) and an optional focus node. Focusing shows ONLY the node + its
+    // direct neighbors so the user can see how it connects; it overrides the
+    // type filter. render() recomputes the visible nodes/links + labels.
+    "var FILTER = 'all';",
+    'var FOCUS = null;',
+    'function neighborIds(id){',
+    '  var ids = {}; ids[id] = true;',
+    '  DATA.links.forEach(function(l){',
+    '    var s = (l.source && l.source.id) || l.source; var t = (l.target && l.target.id) || l.target;',
+    '    if (s === id) ids[t] = true; if (t === id) ids[s] = true;',
+    '  });',
+    '  return ids;',
+    '}',
+    'function render(){',
+    '  var ns;',
+    '  if (FOCUS != null) {',
+    '    var keep = neighborIds(FOCUS);',
+    '    ns = DATA.nodes.filter(function(n){ return keep[n.id]; });',
+    "  } else if (FILTER === 'all') {",
+    '    ns = DATA.nodes;',
+    '  } else {',
+    '    ns = DATA.nodes.filter(function(n){ return n.type === FILTER; });',
+    '  }',
     '  var ids = {}; ns.forEach(function(n){ ids[n.id] = true; });',
     '  var ls = DATA.links.filter(function(l){',
     '    var s = (l.source && l.source.id) || l.source; var t = (l.target && l.target.id) || l.target;',
@@ -117,7 +139,9 @@ export function buildGraphHtml(
     '  });',
     '  CURRENT = ns; buildLabels(ns);',
     '  G.graphData({ nodes: ns, links: ls });',
-    '};',
+    '}',
+    'window.applyFilter = function(type){ FILTER = type; render(); };',
+    'window.focusNode = function(id){ FOCUS = id; render(); };',
     "post({ type: 'ready' });",
   ].join('\n')
 
@@ -149,7 +173,7 @@ export function buildGraphHtml(
  * library. Node taps surface back through `onSelect`; filtering is applied live
  * without reloading. The whole thing runs offline — see the bundle note above.
  */
-export function Graph3D({ nodes, edges, colors, edgeColor, labelColor, backgroundColor, filter, onSelect }: Props) {
+export function Graph3D({ nodes, edges, colors, edgeColor, labelColor, backgroundColor, filter, selectedId, onSelect }: Props) {
   const theme = useTheme()
   const webRef = useRef<WebView>(null)
   const [lib, setLib] = useState<string | null>(null)
@@ -185,6 +209,13 @@ export function Graph3D({ nodes, edges, colors, edgeColor, labelColor, backgroun
     if (!ready) return
     webRef.current?.injectJavaScript(`window.applyFilter(${JSON.stringify(filter)});true;`)
   }, [filter, ready])
+
+  // Focus the selected node's neighborhood (or clear it). Re-runs on load so the
+  // current selection is reapplied if the data (and WebView) reloaded.
+  useEffect(() => {
+    if (!ready) return
+    webRef.current?.injectJavaScript(`window.focusNode(${JSON.stringify(selectedId)});true;`)
+  }, [selectedId, ready])
 
   const onMessage = useCallback(
     (e: WebViewMessageEvent) => {

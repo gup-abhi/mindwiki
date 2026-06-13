@@ -41,7 +41,10 @@ export default function GraphScreen() {
           <Pressable
             key={f}
             accessibilityRole="button"
-            onPress={() => setFilter(f)}
+            onPress={() => {
+              setFilter(f)
+              setSelected(null) // switching filter exits node focus
+            }}
             style={[styles.pill, filter === f && styles.pillActive]}
           >
             <Text style={[styles.pillText, filter === f && styles.pillTextActive]}>{f}</Text>
@@ -65,6 +68,7 @@ export default function GraphScreen() {
             labelColor={theme.colors.textSecondary}
             backgroundColor={theme.colors.bg}
             filter={filter}
+            selectedId={selected?.id ?? null}
             onSelect={setSelected}
           />
         </View>

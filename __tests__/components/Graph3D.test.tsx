@@ -53,6 +53,9 @@ describe('buildGraphHtml', () => {
     // always-on labels, themed with the supplied label color
     expect(html).toContain('buildLabels')
     expect(html).toContain('graph2ScreenCoords')
+    // node-focus (show a node + its neighbors) driven from RN
+    expect(html).toContain('focusNode')
+    expect(html).toContain('neighborIds')
     // one-finger pan enabled (ctrl.touches.ONE = 1)
     expect(html).toContain('screenSpacePanning')
     expect(html).toContain('ctrl.touches.ONE = 1')
@@ -73,7 +76,7 @@ describe('Graph3D', () => {
 
   it('shows a loader, then renders a WebView with the inlined library + data', async () => {
     render(
-      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="all" onSelect={jest.fn()} />
+      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="all" selectedId={null} onSelect={jest.fn()} />
     )
     expect(screen.getByTestId('graph-loading')).toBeTruthy()
     await screen.findByTestId('graph-webview')
@@ -84,7 +87,7 @@ describe('Graph3D', () => {
   it('routes a node-tap message to onSelect and a background tap to null', async () => {
     const onSelect = jest.fn()
     render(
-      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="all" onSelect={onSelect} />
+      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="all" selectedId={null} onSelect={onSelect} />
     )
     await screen.findByTestId('graph-webview')
 
@@ -97,10 +100,28 @@ describe('Graph3D', () => {
 
   it('pushes the active filter into the graph once loaded', async () => {
     render(
-      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="emotion" onSelect={jest.fn()} />
+      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="emotion" selectedId={null} onSelect={jest.fn()} />
     )
     await screen.findByTestId('graph-webview')
     act(() => mockWebProps.onLoadEnd())
     expect(mockInjectSpy).toHaveBeenCalledWith(expect.stringContaining('applyFilter("emotion")'))
+  })
+
+  it('focuses the selected node once loaded', async () => {
+    render(
+      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="all" selectedId="n1" onSelect={jest.fn()} />
+    )
+    await screen.findByTestId('graph-webview')
+    act(() => mockWebProps.onLoadEnd())
+    expect(mockInjectSpy).toHaveBeenCalledWith(expect.stringContaining('focusNode("n1")'))
+  })
+
+  it('clears focus when nothing is selected', async () => {
+    render(
+      <Graph3D nodes={nodes} edges={edges} colors={colors} edgeColor="#ccc" labelColor="#555" backgroundColor="#fff" filter="all" selectedId={null} onSelect={jest.fn()} />
+    )
+    await screen.findByTestId('graph-webview')
+    act(() => mockWebProps.onLoadEnd())
+    expect(mockInjectSpy).toHaveBeenCalledWith(expect.stringContaining('focusNode(null)'))
   })
 })
