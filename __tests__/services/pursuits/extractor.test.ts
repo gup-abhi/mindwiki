@@ -105,6 +105,7 @@ describe('extractPursuit', () => {
     const [id, patch] = mockUpdate.mock.calls[0]
     expect(id).toBe('p1')
     expect(patch.details).toBe('A fresh note.')
+    expect(patch.checkin_question).toBe('') // a new mention invalidates a stale question
     expect(typeof patch.last_mentioned_at).toBe('number')
   })
 

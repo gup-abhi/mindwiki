@@ -67,6 +67,9 @@ export async function extractPursuit(workingOn: string, entryText: string): Prom
     })
     await updatePursuit(existing.id, {
       last_mentioned_at: Date.now(),
+      // A fresh mention invalidates any pending check-in question; it'll be
+      // regenerated from the updated note next time the pursuit is due.
+      checkin_question: '',
       ...(details.success ? { details: details.data } : {}),
     })
     return

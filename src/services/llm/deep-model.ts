@@ -8,10 +8,11 @@ import {
 } from './prompts/conversation'
 import { buildDigestQuestionPrompt, type DigestQuestionInput } from './prompts/digest-question'
 import { buildDigestSynthesisPrompt, type DigestSynthesisInput } from './prompts/digest-synthesis'
+import { buildCheckinQuestionPrompt, type CheckinQuestionInput } from './prompts/checkin-question'
 import { buildPursuitDetailsPrompt, type PursuitDetailsInput } from './prompts/pursuit-details'
 import { buildUpdatePagePrompt, type UpdatePageInput } from './prompts/update-page'
 import { ConversationReplySchema, ConversationSummarySchema } from './schemas/conversation.schema'
-import { PursuitDetailsSchema } from './schemas/pursuit.schema'
+import { CheckinQuestionSchema, PursuitDetailsSchema } from './schemas/pursuit.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
@@ -74,6 +75,32 @@ export async function synthesizePursuitDetails(
   const parsed = PursuitDetailsSchema.safeParse(raw.trim())
   if (!parsed.success) {
     return err('PURSUIT_SYNTH_VALIDATION_FAILED', 'Pursuit details failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Generate one check-in question for a pursuit from its title + running note
+ * (on-device). Best-effort; the caller falls back to a templated question on
+ * any failure. Never throws; errors carry a code only, never entry text.
+ */
+export async function generateCheckinQuestion(
+  input: CheckinQuestionInput
+): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildCheckinQuestionPrompt(input), {
+      maxTokens: 60,
+      temperature: 0.7,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('CHECKIN_QUESTION_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  const parsed = CheckinQuestionSchema.safeParse(raw.trim())
+  if (!parsed.success) {
+    return err('CHECKIN_QUESTION_VALIDATION_FAILED', 'Check-in question failed validation')
   }
   return ok(parsed.data)
 }

@@ -1,11 +1,13 @@
 import {
   synthesizePage,
   synthesizePursuitDetails,
+  generateCheckinQuestion,
   generateReflectionQuestion,
   converseFromWiki,
 } from '@/services/llm/deep-model'
 import { buildUpdatePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildPursuitDetailsPrompt } from '@/services/llm/prompts/pursuit-details'
+import { buildCheckinQuestionPrompt } from '@/services/llm/prompts/checkin-question'
 import { buildDigestQuestionPrompt } from '@/services/llm/prompts/digest-question'
 import { LLMBridge } from '@/native/LLMBridge'
 
@@ -114,6 +116,41 @@ describe('synthesizePursuitDetails', () => {
     const result = await synthesizePursuitDetails(input)
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('PURSUIT_SYNTH_VALIDATION_FAILED')
+  })
+})
+
+describe('buildCheckinQuestionPrompt', () => {
+  it('includes the title and the running note and asks for one question', () => {
+    const p = buildCheckinQuestionPrompt({ title: 'Marathon training', details: 'Aiming for a fall race.' })
+    expect(p).toContain('Marathon training')
+    expect(p).toContain('Aiming for a fall race.')
+    expect(p).toMatch(/ONE[\s\S]*question/)
+  })
+})
+
+describe('generateCheckinQuestion', () => {
+  beforeEach(() => mockSynthesise.mockReset())
+  const input = { title: 'Marathon training', details: 'Aiming for a fall race.' }
+
+  it('returns the trimmed question on success', async () => {
+    mockSynthesise.mockResolvedValue({ text: '  How is the training feeling lately?  ' })
+    const result = await generateCheckinQuestion(input)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toBe('How is the training feeling lately?')
+  })
+
+  it('fails with CHECKIN_QUESTION_INFERENCE_FAILED when the model throws', async () => {
+    mockSynthesise.mockRejectedValue(new Error('OOM'))
+    const result = await generateCheckinQuestion(input)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('CHECKIN_QUESTION_INFERENCE_FAILED')
+  })
+
+  it('fails with CHECKIN_QUESTION_VALIDATION_FAILED on empty output', async () => {
+    mockSynthesise.mockResolvedValue({ text: '   ' })
+    const result = await generateCheckinQuestion(input)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('CHECKIN_QUESTION_VALIDATION_FAILED')
   })
 })
 
