@@ -119,4 +119,23 @@ describe('extractPursuit', () => {
     expect(patch.details).toBeUndefined()
     expect(typeof patch.last_mentioned_at).toBe('number')
   })
+
+  it('closes the matching pursuit when the entry reports completion', async () => {
+    mockList.mockResolvedValue(ok([pursuit({ id: 'p1', title: 'Marathon training' })]))
+
+    await extractPursuit('marathon training', 'I finished the marathon!', 'done')
+
+    expect(mockUpdate).toHaveBeenCalledWith('p1', { status: 'done' })
+    expect(mockSynth).not.toHaveBeenCalled() // no note refresh on close
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it('does nothing on completion when no active pursuit matches', async () => {
+    mockList.mockResolvedValue(ok([]))
+
+    await extractPursuit('some old thing', 'wrapped it up', 'done')
+
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
 })

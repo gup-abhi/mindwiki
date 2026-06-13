@@ -5,6 +5,9 @@ const DAY_MS = 86_400_000
 // Weekly-ish cadence, capped at one surfaced check-in per day across all pursuits.
 export const CHECKIN_INTERVAL_MS = 7 * DAY_MS
 export const CHECKIN_COOLDOWN_MS = DAY_MS
+// Active pursuits with no activity for this long are retired to 'dormant' so
+// forgotten goals stop surfacing (re-mentioning one starts a fresh pursuit).
+export const DORMANT_AFTER_MS = 30 * DAY_MS
 
 // A pursuit's most recent activity — a fresh mention or a check-in both reset
 // the clock, so we don't nag about something the user just wrote about.
@@ -14,6 +17,11 @@ function lastActivity(p: Pursuit): number {
 
 export function dueForCheckin(p: Pursuit, now: number): boolean {
   return p.status === 'active' && now - lastActivity(p) >= CHECKIN_INTERVAL_MS
+}
+
+/** An active pursuit gone quiet long enough to retire to 'dormant'. */
+export function isStale(p: Pursuit, now: number): boolean {
+  return p.status === 'active' && now - lastActivity(p) >= DORMANT_AFTER_MS
 }
 
 /**
@@ -48,7 +56,14 @@ export async function prepareCheckin(now: number = Date.now()): Promise<Pursuit 
   const all = await listPursuits()
   if (!all.success) return null
 
-  const due = selectDuePursuit(all.data, now)
+  // Retire long-silent pursuits, and keep the rest in the running for selection.
+  const live: Pursuit[] = []
+  for (const p of all.data) {
+    if (isStale(p, now)) void updatePursuit(p.id, { status: 'dormant' })
+    else live.push(p)
+  }
+
+  const due = selectDuePursuit(live, now)
   if (!due) return null
   if (due.checkin_question.trim()) return due // already prepared
 

@@ -53,9 +53,10 @@ async function indexEntryFromTags(entry: Entry, tags: EntryTag): Promise<boolean
   void updateWikiForEntry(taggedEntry, tags.topic).finally(() => useWikiStore.getState().end())
 
   // Pursuits: if the entry names something the user is actively working on,
-  // upsert a pursuit + refresh its running note. Background, best-effort.
+  // upsert a pursuit (or close it on completion) + refresh its running note.
+  // Background, best-effort.
   if (tags.working_on.trim()) {
-    void extractPursuit(tags.working_on, `${entry.situation}\n${entry.thought}`)
+    void extractPursuit(tags.working_on, `${entry.situation}\n${entry.thought}`, tags.pursuit_status)
   }
 
   return applied.success

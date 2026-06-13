@@ -19,9 +19,10 @@ describe('buildTagPrompt', () => {
     expect(p).toContain('ONLY a JSON object')
   })
 
-  it('asks for the working_on pursuit field', () => {
+  it('asks for the working_on pursuit field and its status', () => {
     const p = buildTagPrompt({ situation: 's', thought: 't' })
     expect(p).toContain('working_on')
+    expect(p).toContain('pursuit_status')
   })
 })
 
@@ -42,15 +43,25 @@ describe('tagEntry', () => {
       expect(result.data.crisis_confidence).toBe(0.1)
       expect(result.data.topic).toBe('Work')
       expect(result.data.working_on).toBe('') // defaults when the model omits it
+      expect(result.data.pursuit_status).toBe('active') // default
     }
   })
 
-  it('passes through the working_on phrase when present', async () => {
+  it('passes through the working_on phrase and a done status when present', async () => {
     modelReturns(
-      '{"emotion":"hope","distortion":"none","mood_score":0.7,"crisis_confidence":0.0,"topic":"Fitness","working_on":"Marathon training"}'
+      '{"emotion":"pride","distortion":"none","mood_score":0.9,"crisis_confidence":0.0,"topic":"Fitness","working_on":"Marathon training","pursuit_status":"done"}'
     )
     const result = await tagEntry({ situation: 's', thought: 't' })
     expect(result.success && result.data.working_on).toBe('Marathon training')
+    expect(result.success && result.data.pursuit_status).toBe('done')
+  })
+
+  it('falls back to active for an out-of-range pursuit_status', async () => {
+    modelReturns(
+      '{"emotion":"calm","distortion":"none","mood_score":0.6,"crisis_confidence":0.0,"topic":"x","working_on":"Reading","pursuit_status":"finished"}'
+    )
+    const result = await tagEntry({ situation: 's', thought: 't' })
+    expect(result.success && result.data.pursuit_status).toBe('active') // .catch fallback
   })
 
   it('fails with TAG_INFERENCE_FAILED when the model throws', async () => {

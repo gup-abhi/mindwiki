@@ -1,8 +1,10 @@
 import {
   CHECKIN_COOLDOWN_MS,
   CHECKIN_INTERVAL_MS,
+  DORMANT_AFTER_MS,
   dueForCheckin,
   fallbackCheckinQuestion,
+  isStale,
   prepareCheckin,
   selectDuePursuit,
 } from '@/services/pursuits/checkin'
@@ -25,6 +27,8 @@ const NOW = 10 * CHECKIN_INTERVAL_MS // comfortably past any interval math
 // regardless of the configured interval/cooldown.
 const UNDER_INTERVAL = CHECKIN_INTERVAL_MS / 2
 const UNDER_COOLDOWN = CHECKIN_COOLDOWN_MS / 2
+// Quiet long enough to be due, but not long enough to be retired as dormant.
+const DUE_NOT_STALE = NOW - CHECKIN_INTERVAL_MS
 
 const pursuit = (over: Partial<Pursuit>): Pursuit => ({
   id: 'p1',
@@ -55,6 +59,17 @@ describe('dueForCheckin', () => {
   it('counts a recent check-in as activity (no immediate re-nag)', () => {
     const p = pursuit({ last_mentioned_at: 0, last_checkin_at: NOW - UNDER_INTERVAL })
     expect(dueForCheckin(p, NOW)).toBe(false)
+  })
+})
+
+describe('isStale', () => {
+  it('is stale once an active pursuit has been silent past the dormant window', () => {
+    expect(isStale(pursuit({ last_mentioned_at: NOW - DORMANT_AFTER_MS }), NOW)).toBe(true)
+    expect(isStale(pursuit({ last_mentioned_at: DUE_NOT_STALE }), NOW)).toBe(false)
+  })
+
+  it('is never stale for a non-active pursuit', () => {
+    expect(isStale(pursuit({ status: 'done', last_mentioned_at: 0 }), NOW)).toBe(false)
   })
 })
 
@@ -91,7 +106,7 @@ describe('prepareCheckin', () => {
   })
 
   it('returns a prepared pursuit as-is without regenerating', async () => {
-    const ready = pursuit({ last_mentioned_at: 0, checkin_question: 'Already asked?' })
+    const ready = pursuit({ last_mentioned_at: DUE_NOT_STALE, checkin_question: 'Already asked?' })
     mockList.mockResolvedValue(ok([ready]))
     const res = await prepareCheckin(NOW)
     expect(res?.checkin_question).toBe('Already asked?')
@@ -100,7 +115,7 @@ describe('prepareCheckin', () => {
   })
 
   it('generates + caches the question for a due pursuit', async () => {
-    mockList.mockResolvedValue(ok([pursuit({ id: 'p1', last_mentioned_at: 0 })]))
+    mockList.mockResolvedValue(ok([pursuit({ id: 'p1', last_mentioned_at: DUE_NOT_STALE })]))
     mockGen.mockResolvedValue(ok('How is the training feeling?'))
 
     const res = await prepareCheckin(NOW)
@@ -111,7 +126,7 @@ describe('prepareCheckin', () => {
   })
 
   it('falls back to a templated question when generation fails', async () => {
-    mockList.mockResolvedValue(ok([pursuit({ id: 'p1', last_mentioned_at: 0 })]))
+    mockList.mockResolvedValue(ok([pursuit({ id: 'p1', last_mentioned_at: DUE_NOT_STALE })]))
     mockGen.mockResolvedValue(err('CHECKIN_QUESTION_INFERENCE_FAILED', 'x'))
 
     const res = await prepareCheckin(NOW)
@@ -120,5 +135,15 @@ describe('prepareCheckin', () => {
     expect(mockUpdate).toHaveBeenCalledWith('p1', {
       checkin_question: 'How are things going with Marathon training?',
     })
+  })
+
+  it('retires a stale pursuit to dormant and excludes it from selection', async () => {
+    mockList.mockResolvedValue(ok([pursuit({ id: 'old', last_mentioned_at: NOW - DORMANT_AFTER_MS })]))
+
+    const res = await prepareCheckin(NOW)
+
+    expect(mockUpdate).toHaveBeenCalledWith('old', { status: 'dormant' })
+    expect(res).toBeNull() // retired, so nothing surfaces
+    expect(mockGen).not.toHaveBeenCalled()
   })
 })

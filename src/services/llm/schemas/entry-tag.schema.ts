@@ -20,6 +20,10 @@ export const EntryTagSchema = z.object({
   // on (a goal/project/effort), or '' if none. Feeds the pursuits tracker; a
   // missing/malformed value never fails the tag (ADR 004).
   working_on: z.string().default('').catch(''),
+  // Transient — whether working_on was just completed ('done'), given up
+  // ('abandoned'), or is ongoing ('active', default). Drives pursuit lifecycle;
+  // ignored when working_on is empty.
+  pursuit_status: z.enum(['active', 'done', 'abandoned']).default('active').catch('active'),
 })
 
 export type EntryTag = z.infer<typeof EntryTagSchema>

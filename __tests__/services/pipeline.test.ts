@@ -40,6 +40,7 @@ const tags = (over: Record<string, unknown> = {}) => ({
   places: [],
   activities: [],
   working_on: '',
+  pursuit_status: 'active',
   ...over,
 })
 
@@ -119,7 +120,17 @@ describe('processEntry', () => {
 
     await processEntry(entry({ situation: 'ran today', thought: 'felt strong' }))
 
-    expect(mockExtractPursuit).toHaveBeenCalledWith('Marathon training', 'ran today\nfelt strong')
+    expect(mockExtractPursuit).toHaveBeenCalledWith('Marathon training', 'ran today\nfelt strong', 'active')
+  })
+
+  it('forwards a done status so the extractor can close the pursuit', async () => {
+    mockTagEntry.mockResolvedValue(
+      ok(tags({ working_on: 'Marathon training', pursuit_status: 'done' }))
+    )
+
+    await processEntry(entry({ situation: 'I finished the race', thought: '' }))
+
+    expect(mockExtractPursuit).toHaveBeenCalledWith('Marathon training', 'I finished the race\n', 'done')
   })
 
   it('still catches an explicit crisis via the keyword net when tagging fails', async () => {

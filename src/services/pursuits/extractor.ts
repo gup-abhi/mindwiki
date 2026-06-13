@@ -4,6 +4,7 @@ import {
   listPursuits,
   updatePursuit,
   type Pursuit,
+  type PursuitStatus,
 } from '@/services/storage/pursuits'
 
 const MIN_TITLE_LEN = 3
@@ -46,18 +47,30 @@ export function matchActivePursuit(title: string, pursuits: Pursuit[]): Pursuit 
 }
 
 /**
- * Upsert a pursuit from an entry's `working_on` tag: bump (or create) it and
- * refresh its running note from the new reflection. Background, best-effort —
- * never throws, never blocks indexing. `entryText` stays on-device (used only
- * for on-device synthesis); it is never logged.
+ * Upsert a pursuit from an entry's `working_on` tag. When the entry reports the
+ * thing was completed or given up (`status` done/abandoned), close the matching
+ * pursuit instead. Otherwise bump (or create) it and refresh its running note.
+ * Background, best-effort — never throws, never blocks indexing. `entryText`
+ * stays on-device (used only for on-device synthesis); it is never logged.
  */
-export async function extractPursuit(workingOn: string, entryText: string): Promise<void> {
+export async function extractPursuit(
+  workingOn: string,
+  entryText: string,
+  status: PursuitStatus = 'active'
+): Promise<void> {
   const title = normalizePursuitTitle(workingOn)
   if (!title) return
 
   const all = await listPursuits()
   if (!all.success) return
   const existing = matchActivePursuit(title, all.data)
+
+  // Completion/abandonment reported: close the matching pursuit so it stops
+  // checking in. Nothing to close if it was never tracked — ignore.
+  if (status === 'done' || status === 'abandoned') {
+    if (existing) await updatePursuit(existing.id, { status })
+    return
+  }
 
   if (existing) {
     const details = await synthesizePursuitDetails({
