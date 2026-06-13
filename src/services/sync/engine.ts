@@ -58,6 +58,13 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
+  challenges: {
+    columns: [
+      'id', 'title', 'details', 'target_days', 'current_streak', 'last_checkin_date',
+      'status', 'affirmation', 'created_at', 'updated_at', 'completed_at',
+    ],
+    updatedAt: (r) => Number(r.updated_at) || 0,
+  },
 }
 
 function isSyncTable(t: string): t is SyncTable {

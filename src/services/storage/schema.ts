@@ -234,3 +234,33 @@ export const migration007: Migration = {
     `CREATE INDEX idx_pursuits_status ON pursuits (status, last_mentioned_at)`,
   ],
 }
+
+// Migration 008 — challenges. An explicit, user-declared 30-day challenge (e.g.
+// "work out every day"). Unlike pursuits (implicit, open-ended, auto-detected),
+// a challenge is bounded and daily: the user taps "I did it" each day and the
+// streak builds toward `target_days`. A missed day hard-resets the streak (see
+// challenges.ts). `last_checkin_date` is a local 'YYYY-MM-DD' string (not an
+// epoch) so streak math is calendar-day based regardless of time-of-day.
+// `affirmation` is the reward unlocked on completion; the user may then promote
+// it to the cover screen. Synced as ciphertext.
+export const migration008: Migration = {
+  version: 8,
+  name: 'challenges',
+  statements: [
+    `CREATE TABLE challenges (
+      id                TEXT PRIMARY KEY,
+      title             TEXT NOT NULL,
+      details           TEXT NOT NULL DEFAULT '',
+      target_days       INTEGER NOT NULL DEFAULT 30,
+      current_streak    INTEGER NOT NULL DEFAULT 0,
+      last_checkin_date TEXT NOT NULL DEFAULT '',
+      status            TEXT NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active','completed')),
+      affirmation       TEXT NOT NULL DEFAULT '',
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL,
+      completed_at      INTEGER
+    )`,
+    `CREATE INDEX idx_challenges_status ON challenges (status, updated_at)`,
+  ],
+}

@@ -40,6 +40,18 @@ const mockCheckin = jest.fn(() => ({
 }))
 jest.mock('@/hooks/usePursuitCheckin', () => ({ usePursuitCheckin: () => mockCheckin() }))
 
+const mockChallengeCheckIn = jest.fn()
+const mockChallenge = jest.fn(() => ({
+  challenge: null as { id: string; title: string; target_days: number } | null,
+  streak: 0,
+  doneToday: false,
+  checkIn: mockChallengeCheckIn,
+}))
+jest.mock('@/hooks/useChallenge', () => ({ useChallenge: () => mockChallenge() }))
+
+const mockCover = jest.fn(() => '')
+jest.mock('@/hooks/useCoverAffirmation', () => ({ useCoverAffirmation: () => mockCover() }))
+
 const mockList = listEntries as jest.Mock
 
 const entry = (over = {}) => ({
@@ -65,6 +77,9 @@ describe('Home entries list', () => {
     mockOpenCheckin.mockReset()
     mockDismissCheckin.mockReset()
     mockCheckin.mockReturnValue({ checkin: null, open: mockOpenCheckin, dismiss: mockDismissCheckin })
+    mockChallengeCheckIn.mockReset()
+    mockChallenge.mockReturnValue({ challenge: null, streak: 0, doneToday: false, checkIn: mockChallengeCheckIn })
+    mockCover.mockReturnValue('')
     useWikiStore.setState({ pending: 0 })
   })
 
@@ -139,6 +154,43 @@ describe('Home entries list', () => {
     render(<Home />)
     await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
     expect(screen.queryByText('Checking in')).toBeNull()
+  })
+
+  it('shows the active challenge card with progress and wires the check-in', async () => {
+    mockList.mockResolvedValue(ok([entry()]))
+    mockChallenge.mockReturnValue({
+      challenge: { id: 'c1', title: 'Work out every day', target_days: 30 },
+      streak: 4,
+      doneToday: false,
+      checkIn: mockChallengeCheckIn,
+    })
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('Work out every day')).toBeTruthy())
+    expect(screen.getByText('🔥 Day 4 of 30')).toBeTruthy()
+
+    fireEvent.press(screen.getByTestId('home-challenge-checkin'))
+    expect(mockChallengeCheckIn).toHaveBeenCalled()
+  })
+
+  it('shows "done for today" instead of the button once checked in', async () => {
+    mockList.mockResolvedValue(ok([entry()]))
+    mockChallenge.mockReturnValue({
+      challenge: { id: 'c1', title: 'Work out every day', target_days: 30 },
+      streak: 4,
+      doneToday: true,
+      checkIn: mockChallengeCheckIn,
+    })
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText(/Done for today/)).toBeTruthy())
+    expect(screen.queryByTestId('home-challenge-checkin')).toBeNull()
+  })
+
+  it('renders the cover affirmation banner when one is set', async () => {
+    mockList.mockResolvedValue(ok([entry()]))
+    mockCover.mockReturnValue('I finish what I start.')
+    render(<Home />)
+    await waitFor(() => expect(screen.getByTestId('home-cover-affirmation')).toBeTruthy())
+    expect(screen.getByText('I finish what I start.')).toBeTruthy()
   })
 
   it('surfaces a proactive question from the richest wiki page', async () => {

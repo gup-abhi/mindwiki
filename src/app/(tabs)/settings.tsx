@@ -73,6 +73,16 @@ export default function Settings() {
       </Card>
 
       <Text variant="label" color="textMuted" style={styles.section}>
+        Challenge
+      </Text>
+      <Card variant="sunken" onPress={() => router.push('/challenge')} testID="settings-challenge">
+        <Text variant="bodyStrong">30-day challenge</Text>
+        <Text variant="caption" color="textSecondary" style={styles.hint}>
+          Commit to one thing daily for 30 days. Tap each day to keep the streak.
+        </Text>
+      </Card>
+
+      <Text variant="label" color="textMuted" style={styles.section}>
         Security
       </Text>
       <Card variant="sunken">

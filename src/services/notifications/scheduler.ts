@@ -4,7 +4,9 @@ import { type SqliteDatabase, getDb } from '@/services/storage/db'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { type Result, ok, err } from '@/types/result'
 
-import { reminderCopy } from './copy'
+import { type Challenge } from '@/services/storage/challenges'
+
+import { challengeCopy, reminderCopy } from './copy'
 import {
   type HourHistogram,
   emptyHistogram,
@@ -16,7 +18,13 @@ const HISTOGRAM_KEY = 'notif_hour_histogram'
 const PERMISSION_ASKED_KEY = 'notif_permission_asked'
 const DAILY_ID = 'mindwiki-daily-reminder'
 const WEEKLY_DIGEST_ID = 'mindwiki-weekly-digest'
+const CHALLENGE_ID_PREFIX = 'mindwiki-challenge'
 const DAY_MS = 86_400_000
+// Challenge nudges fire in the morning ("go do your thing today"), distinct from
+// the evening journaling reminder. A buffer of one-shot reminders armed ahead and
+// re-armed on each check-in, so nudges keep coming if the user lapses a little.
+const CHALLENGE_REMINDER_HOUR = 9
+const CHALLENGE_REMINDER_DAYS = 14
 
 /** Show reminders even when the app is foregrounded; no sound/badge. */
 export function configureNotifications(): void {
@@ -89,6 +97,60 @@ export async function rescheduleDailyReminder(
     return ok(hour)
   } catch (e) {
     return err('NOTIF_SCHEDULE_FAILED', 'Failed to schedule reminder', e)
+  }
+}
+
+function challengeNotifId(challengeId: string, slot: number): string {
+  return `${CHALLENGE_ID_PREFIX}-${challengeId}-${slot}`
+}
+
+/** Cancel a challenge's armed morning nudges (e.g. on completion or deletion). */
+export async function cancelChallengeReminders(challengeId: string): Promise<Result<void>> {
+  try {
+    for (let i = 0; i < CHALLENGE_REMINDER_DAYS; i++) {
+      await Notifications.cancelScheduledNotificationAsync(challengeNotifId(challengeId, i)).catch(
+        () => {}
+      )
+    }
+    return ok(undefined)
+  } catch (e) {
+    return err('CHALLENGE_NOTIF_CANCEL_FAILED', 'Failed to cancel challenge reminders', e)
+  }
+}
+
+/**
+ * (Re)arm a challenge's morning nudges: one-shot 9am reminders for the next
+ * CHALLENGE_REMINDER_DAYS days, re-armed on each check-in (which rolls the window
+ * forward). Today is skipped when already done — or when 9am has passed — so a
+ * nudge only fires on a morning the user hasn't checked in yet. Cancels and
+ * schedules nothing for a non-active challenge. Copy is generic (no title/streak
+ * — it shows on the lock screen). Returns the number of reminders armed.
+ */
+export async function scheduleChallengeReminders(
+  challenge: Pick<Challenge, 'id' | 'status'>,
+  now: number,
+  doneToday: boolean
+): Promise<Result<number>> {
+  try {
+    await cancelChallengeReminders(challenge.id)
+    if (challenge.status !== 'active') return ok(0)
+
+    let slot = 0
+    for (let i = 0; i < CHALLENGE_REMINDER_DAYS; i++) {
+      const date = new Date(now)
+      date.setDate(date.getDate() + i)
+      date.setHours(CHALLENGE_REMINDER_HOUR, 0, 0, 0)
+      if (i === 0 && (doneToday || date.getTime() <= now)) continue
+      await Notifications.scheduleNotificationAsync({
+        identifier: challengeNotifId(challenge.id, slot),
+        content: { title: 'MindWiki', body: challengeCopy(Math.floor(date.getTime() / DAY_MS)) },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date },
+      })
+      slot++
+    }
+    return ok(slot)
+  } catch (e) {
+    return err('CHALLENGE_NOTIF_SCHEDULE_FAILED', 'Failed to schedule challenge reminders', e)
   }
 }
 
