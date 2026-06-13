@@ -20,10 +20,11 @@ import { type Theme, useTheme, useThemedStyles } from '@/theme'
 export default function QueryScreen() {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
-  const { q } = useLocalSearchParams<{ q?: string }>()
+  const { q, ask } = useLocalSearchParams<{ q?: string; ask?: string }>()
   const initial = typeof q === 'string' ? q : undefined
+  const initialCheckin = typeof ask === 'string' ? ask : undefined
   const { messages, streaming, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
-    useConversation(initial)
+    useConversation(initial, initialCheckin)
   const scrollRef = useRef<ScrollView>(null)
   const isEmpty = messages.length === 0
   const [tab, setTab] = useState<'start' | 'history'>('start')

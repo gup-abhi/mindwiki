@@ -61,11 +61,11 @@ function createFakeDb() {
         return { rows: [], rowsAffected: 1 }
       }
       if (/^UPDATE conversations/.test(sql)) {
-        const [updated_at, role, titleSlice, id] = params
+        const [updated_at, titleSlice, id] = params
         const row = conversations.get(String(id))
         if (row) {
           row.updated_at = updated_at
-          if (row.title == null && role === 'user') row.title = titleSlice
+          if (row.title == null) row.title = titleSlice // first message of any role
         }
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
@@ -131,6 +131,20 @@ describe('storage/chat CRUD', () => {
     if (list.success) {
       expect(list.data[0].title).toBe('First thing I said')
     }
+  })
+
+  it('seeds the title from an opening assistant message (a check-in question)', async () => {
+    const { db } = createFakeDb()
+    const conv = await createConversation(db)
+    const convId = conv.success ? conv.data.id : ''
+
+    await appendMessage(
+      { conversation_id: convId, role: 'assistant', content: 'How is the marathon training going?' },
+      db
+    )
+
+    const list = await listConversations(db)
+    expect(list.success && list.data[0].title).toBe('How is the marathon training going?')
   })
 
   it('persists the crisis tier on a user message', async () => {

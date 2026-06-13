@@ -63,7 +63,7 @@ describe('usePursuitCheckin', () => {
     expect(mockUpdate).toHaveBeenCalledWith('p1', expect.objectContaining({ last_checkin_at: expect.any(Number) }))
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/query',
-      params: { q: 'How is the training going?' },
+      params: { ask: 'How is the training going?' },
     })
     expect(result.current.checkin).toBeNull() // card clears
   })

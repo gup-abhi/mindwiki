@@ -1,4 +1,5 @@
 import {
+  CHECKIN_COOLDOWN_MS,
   CHECKIN_INTERVAL_MS,
   dueForCheckin,
   fallbackCheckinQuestion,
@@ -20,7 +21,10 @@ const mockUpdate = updatePursuit as jest.Mock
 const mockGen = generateCheckinQuestion as jest.Mock
 
 const NOW = 10 * CHECKIN_INTERVAL_MS // comfortably past any interval math
-const DAY = 86_400_000
+// Durations expressed relative to the exported cadence so these stay correct
+// regardless of the configured interval/cooldown.
+const UNDER_INTERVAL = CHECKIN_INTERVAL_MS / 2
+const UNDER_COOLDOWN = CHECKIN_COOLDOWN_MS / 2
 
 const pursuit = (over: Partial<Pursuit>): Pursuit => ({
   id: 'p1',
@@ -39,7 +43,7 @@ const pursuit = (over: Partial<Pursuit>): Pursuit => ({
 describe('dueForCheckin', () => {
   it('is due when an active pursuit has been quiet past the interval', () => {
     expect(dueForCheckin(pursuit({ last_mentioned_at: NOW - CHECKIN_INTERVAL_MS }), NOW)).toBe(true)
-    expect(dueForCheckin(pursuit({ last_mentioned_at: NOW - DAY }), NOW)).toBe(false)
+    expect(dueForCheckin(pursuit({ last_mentioned_at: NOW - UNDER_INTERVAL }), NOW)).toBe(false)
   })
 
   it('is never due for a non-active pursuit', () => {
@@ -49,7 +53,7 @@ describe('dueForCheckin', () => {
   })
 
   it('counts a recent check-in as activity (no immediate re-nag)', () => {
-    const p = pursuit({ last_mentioned_at: 0, last_checkin_at: NOW - DAY })
+    const p = pursuit({ last_mentioned_at: 0, last_checkin_at: NOW - UNDER_INTERVAL })
     expect(dueForCheckin(p, NOW)).toBe(false)
   })
 })
@@ -61,7 +65,7 @@ describe('selectDuePursuit', () => {
 
   it('holds off entirely if any pursuit was checked in within the last day', () => {
     const due = pursuit({ id: 'due', last_mentioned_at: 0 })
-    const justChecked = pursuit({ id: 'recent', last_checkin_at: NOW - DAY / 2 })
+    const justChecked = pursuit({ id: 'recent', last_checkin_at: NOW - UNDER_COOLDOWN })
     expect(selectDuePursuit([due, justChecked], NOW)).toBeNull()
   })
 

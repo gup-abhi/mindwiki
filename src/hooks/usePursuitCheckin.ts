@@ -34,9 +34,11 @@ export function usePursuitCheckin() {
 
   const open = useCallback(() => {
     if (!checkin) return
-    const q = checkin.checkin_question
+    // Route as a check-in (ask), not a starter (q): the question opens as the
+    // companion's message and the user answers it.
+    const ask = checkin.checkin_question
     stamp(checkin)
-    router.push({ pathname: '/query', params: { q } })
+    router.push({ pathname: '/query', params: { ask } })
   }, [checkin, router, stamp])
 
   const dismiss = useCallback(() => {

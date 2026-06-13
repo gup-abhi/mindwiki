@@ -42,7 +42,8 @@ export interface NewMessage {
   crisis_tier?: number | null
 }
 
-// A conversation's title is seeded from its first user message, truncated here.
+// A conversation's title is seeded from its first message (user starter or a
+// check-in's opening question), truncated here.
 export const CONVERSATION_TITLE_MAX = 60
 
 /** The title a message would seed (trim + truncate). */
@@ -165,7 +166,8 @@ export async function setConversationSummary(
 
 /**
  * Append a message and bump the conversation's updated_at, in one transaction.
- * The first user message also seeds the conversation title (trimmed) if unset.
+ * The first message also seeds the conversation title (trimmed) if unset — a
+ * user starter, or a check-in's opening assistant question.
  */
 export async function appendMessage(
   input: NewMessage,
@@ -200,9 +202,9 @@ export async function appendMessage(
       await tx.execute(
         `UPDATE conversations
            SET updated_at = ?,
-               title = COALESCE(title, CASE WHEN ? = 'user' THEN ? ELSE title END)
+               title = COALESCE(title, ?)
          WHERE id = ?`,
-        [now, message.role, conversationTitle(message.content), message.conversation_id]
+        [now, conversationTitle(message.content), message.conversation_id]
       )
     })
     await enqueueUpsert('chat_messages', message.id, db)
