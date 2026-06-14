@@ -1,9 +1,10 @@
 // Per-table conflict resolution for delta sync.
 //
 // entries + wiki_pages + entry_entities + conversations + chat_messages sync as
-// encrypted blobs with last-write-wins by updated_at. Graph tables are additive
-// (ADR 006) and are rebuilt locally from entries + entry_entities rather than
-// blob-synced, so they are intentionally not in this set.
+// encrypted blobs with last-write-wins by updated_at. The graph_nodes/graph_edges
+// tables are additive (ADR 006) and rebuilt locally from entries, so they are
+// intentionally not synced. graph_node_dismissals IS synced, though — it's user
+// intent (which nodes to drop), not derivable from entries, so it must travel.
 //
 // conversations is listed before chat_messages so a pull applies the parent rows
 // first (chat_messages references conversations).
@@ -16,6 +17,7 @@ export type SyncTable =
   | 'chat_messages'
   | 'pursuits'
   | 'challenges'
+  | 'graph_node_dismissals'
 
 export const SYNCED_TABLES: SyncTable[] = [
   'entries',
@@ -26,6 +28,7 @@ export const SYNCED_TABLES: SyncTable[] = [
   // After wiki_pages so the FK parent (wiki_page_id) applies first on a pull.
   'pursuits',
   'challenges',
+  'graph_node_dismissals',
 ]
 
 export interface Versioned {

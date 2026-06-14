@@ -1,6 +1,11 @@
 import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { type SqliteDatabase, setDb } from '@/services/storage/db'
-import { upsertNode, upsertEdge, findNodeByLabel } from '@/services/storage/graph'
+import {
+  upsertNode,
+  upsertEdge,
+  findNodeByLabel,
+  loadDismissedNodeKeys,
+} from '@/services/storage/graph'
 import { listEntitiesForEntry } from '@/services/storage/entities'
 import { type Entry } from '@/services/storage/entries'
 import { ok } from '@/types/result'
@@ -9,12 +14,16 @@ jest.mock('@/services/storage/graph', () => ({
   upsertNode: jest.fn(),
   upsertEdge: jest.fn(),
   findNodeByLabel: jest.fn(),
+  loadDismissedNodeKeys: jest.fn(),
+  // real impl — the engine keys its skip checks on this
+  nodeDismissalKey: (type: string, label: string) => `${type}:${label}`.toLowerCase(),
 }))
 jest.mock('@/services/storage/entities', () => ({ listEntitiesForEntry: jest.fn() }))
 
 const mockUpsertNode = upsertNode as jest.Mock
 const mockUpsertEdge = upsertEdge as jest.Mock
 const mockFindNode = findNodeByLabel as jest.Mock
+const mockLoadDismissed = loadDismissedNodeKeys as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
@@ -42,6 +51,8 @@ describe('updateGraphForEntry', () => {
     mockListEntities.mockResolvedValue(ok([]))
     mockFindNode.mockReset()
     mockFindNode.mockResolvedValue(ok(null)) // no pre-existing same-label node by default
+    mockLoadDismissed.mockReset()
+    mockLoadDismissed.mockResolvedValue(new Set()) // nothing dropped by default
     let n = 0
     mockUpsertNode.mockImplementation(async (type, label) =>
       ok({ id: `id-${++n}`, type, label, frequency: 1 })
@@ -102,6 +113,16 @@ describe('updateGraphForEntry', () => {
     expect(mockFindNode).not.toHaveBeenCalled() // resolved in-entry, no DB lookup needed
   })
 
+  it('skips a dropped node (and any edge to it) when deriving from an entry', async () => {
+    // emotion "anxiety" was dropped — only the distortion node should be built.
+    await updateGraphForEntry(entry(), null, new Set(['emotion:anxiety']))
+
+    expect(mockUpsertNode).toHaveBeenCalledTimes(1)
+    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('emotion', 'anxiety')
+    expect(mockUpsertEdge).not.toHaveBeenCalled() // single surviving node → no pair
+  })
+
   it('adds person/place/activity nodes from the entry entities', async () => {
     mockListEntities.mockResolvedValue(
       ok([
@@ -126,6 +147,8 @@ describe('rebuildGraph', () => {
     mockListEntities.mockResolvedValue(ok([]))
     mockFindNode.mockReset()
     mockFindNode.mockResolvedValue(ok(null)) // no pre-existing same-label node by default
+    mockLoadDismissed.mockReset()
+    mockLoadDismissed.mockResolvedValue(new Set()) // nothing dropped by default
     let n = 0
     mockUpsertNode.mockImplementation(async (type, label) =>
       ok({ id: `id-${++n}`, type, label, frequency: 1 })
@@ -164,5 +187,32 @@ describe('rebuildGraph', () => {
     expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'calm')
     expect(mockUpsertEdge).toHaveBeenCalledTimes(1) // e1: 2 nodes→1 edge; e2: 1 node→0
+  })
+
+  it('loads dropped nodes once and excludes them from the whole rebuild', async () => {
+    mockLoadDismissed.mockResolvedValue(new Set(['emotion:anxiety']))
+    const rows = [
+      entry({ id: 'e1', emotion: 'anxiety', distortion: 'catastrophizing' }),
+      entry({ id: 'e2', emotion: 'calm', distortion: 'none' }),
+    ]
+    const fakeDb = {
+      async execute(sql: string) {
+        if (/^DELETE FROM/.test(sql)) return { rows: [], rowsAffected: 0 }
+        if (/^SELECT \* FROM entries/.test(sql)) return { rows, rowsAffected: 0 }
+        throw new Error(`unhandled SQL: ${sql}`)
+      },
+      async transaction(fn: (tx: SqliteDatabase) => Promise<void>) {
+        await fn(fakeDb)
+      },
+      close() {},
+    } as unknown as SqliteDatabase
+    setDb(fakeDb)
+
+    await rebuildGraph()
+
+    expect(mockLoadDismissed).toHaveBeenCalledTimes(1) // once for the rebuild, not per entry
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('emotion', 'anxiety')
+    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'calm')
   })
 })

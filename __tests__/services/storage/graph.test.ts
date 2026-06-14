@@ -1,5 +1,15 @@
 import { type SqliteDatabase } from '@/services/storage/db'
-import { upsertNode, upsertEdge, listNodes, listEdges, findNodeByLabel } from '@/services/storage/graph'
+import {
+  upsertNode,
+  upsertEdge,
+  listNodes,
+  listEdges,
+  findNodeByLabel,
+  dismissNode,
+  restoreNodeDismissal,
+  listActiveNodeDismissals,
+  loadDismissedNodeKeys,
+} from '@/services/storage/graph'
 
 let mockUuidCounter = 0
 jest.mock('expo-crypto', () => ({
@@ -9,8 +19,51 @@ jest.mock('expo-crypto', () => ({
 function createFakeDb() {
   const nodes = new Map<string, Record<string, unknown>>()
   const edges = new Map<string, Record<string, unknown>>()
+  const dismissals = new Map<string, Record<string, unknown>>()
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
+      // --- node dismissals ---
+      if (/^INSERT INTO graph_node_dismissals/.test(sql)) {
+        const [id, type, label, dismissed_at, updated_at] = params
+        const existing = dismissals.get(String(id))
+        if (existing) Object.assign(existing, { dismissed_at, updated_at })
+        else dismissals.set(String(id), { id, type, label, dismissed_at, updated_at })
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT \* FROM graph_node_dismissals WHERE dismissed_at IS NOT NULL/.test(sql)) {
+        const out = [...dismissals.values()]
+          .filter((d) => d.dismissed_at != null)
+          .sort((a, b) => Number(b.dismissed_at) - Number(a.dismissed_at))
+        return { rows: out, rowsAffected: 0 }
+      }
+      if (/^UPDATE graph_node_dismissals SET dismissed_at = NULL/.test(sql)) {
+        const [updated_at, id] = params
+        const row = dismissals.get(String(id))
+        if (row) Object.assign(row, { dismissed_at: null, updated_at })
+        return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^SELECT id FROM graph_nodes WHERE type/.test(sql)) {
+        const matches = [...nodes.values()].filter(
+          (n) =>
+            n.type === params[0] &&
+            String(n.label).toLowerCase() === String(params[1]).toLowerCase()
+        )
+        return { rows: matches.map((n) => ({ id: n.id })), rowsAffected: 0 }
+      }
+      if (/^DELETE FROM graph_edges WHERE source_id/.test(sql)) {
+        let removed = 0
+        for (const [id, e] of [...edges.entries()]) {
+          if (e.source_id === params[0] || e.target_id === params[1]) {
+            edges.delete(id)
+            removed++
+          }
+        }
+        return { rows: [], rowsAffected: removed }
+      }
+      if (/^DELETE FROM graph_nodes WHERE id/.test(sql)) {
+        const had = nodes.delete(String(params[0]))
+        return { rows: [], rowsAffected: had ? 1 : 0 }
+      }
       if (/^SELECT \* FROM graph_nodes WHERE type/.test(sql)) {
         // Mirror "COLLATE NOCASE": match label case-insensitively.
         const row = [...nodes.values()].find(
@@ -133,5 +186,49 @@ describe('storage/graph', () => {
 
     const edges = await listEdges(db)
     expect(edges.success && edges.data).toHaveLength(1)
+  })
+
+  it('dismissNode removes the live node + its edges and records the dismissal', async () => {
+    const { db } = createFakeDb()
+    const a = await upsertNode('emotion', 'Anxiety', db)
+    const b = await upsertNode('situation', 'Work', db)
+    if (!a.success || !b.success) throw new Error('setup failed')
+    await upsertEdge(a.data.id, b.data.id, db)
+
+    const dropped = await dismissNode('emotion', 'Anxiety', db)
+    expect(dropped.success).toBe(true)
+
+    // node gone, and the edge touching it gone — the other node survives
+    const nodes = await listNodes(db)
+    expect(nodes.success && nodes.data.map((n) => n.label)).toEqual(['Work'])
+    const edges = await listEdges(db)
+    expect(edges.success && edges.data).toHaveLength(0)
+
+    // recorded under the stable key, and exposed by loadDismissedNodeKeys
+    const keys = await loadDismissedNodeKeys(db)
+    expect(keys.has('emotion:anxiety')).toBe(true)
+    const active = await listActiveNodeDismissals(db)
+    expect(active.success && active.data.map((d) => d.label)).toEqual(['Anxiety'])
+  })
+
+  it('restoreNodeDismissal clears the flag so the key no longer suppresses', async () => {
+    const { db } = createFakeDb()
+    await upsertNode('emotion', 'Anxiety', db)
+    await dismissNode('emotion', 'Anxiety', db)
+
+    const restored = await restoreNodeDismissal('emotion:anxiety', db)
+    expect(restored.success).toBe(true)
+
+    const keys = await loadDismissedNodeKeys(db)
+    expect(keys.has('emotion:anxiety')).toBe(false)
+    const active = await listActiveNodeDismissals(db)
+    expect(active.success && active.data).toHaveLength(0)
+  })
+
+  it('restoreNodeDismissal returns GRAPH_NODE_NOT_FOUND for an unknown id', async () => {
+    const { db } = createFakeDb()
+    const res = await restoreNodeDismissal('ghost:nope', db)
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('GRAPH_NODE_NOT_FOUND')
   })
 })

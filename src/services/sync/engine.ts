@@ -65,6 +65,10 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
+  graph_node_dismissals: {
+    columns: ['id', 'type', 'label', 'dismissed_at', 'updated_at'],
+    updatedAt: (r) => Number(r.updated_at) || 0,
+  },
 }
 
 function isSyncTable(t: string): t is SyncTable {

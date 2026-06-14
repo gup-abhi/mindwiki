@@ -1,8 +1,17 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
-import { listNodes, listEdges, type GraphNode, type GraphEdge } from '@/services/storage/graph'
+import {
+  listNodes,
+  listEdges,
+  listActiveNodeDismissals,
+  restoreNodeDismissal,
+  type GraphNode,
+  type GraphEdge,
+  type GraphNodeDismissal,
+} from '@/services/storage/graph'
 import { computeLayout, type Point } from '@/services/graph/layout'
+import { rebuildGraph } from '@/services/graph/engine'
 import { useSyncStore } from '@/store/sync.store'
 
 /** Loads the graph and computes node positions for a canvas of width x height. */
@@ -33,5 +42,36 @@ export function useGraph(width: number, height: number) {
     [nodes, edges, width, height]
   )
 
-  return { nodes, edges, layout }
+  return { nodes, edges, layout, refresh }
+}
+
+/** Nodes the user has dropped from the graph; restore brings them back. */
+export function useNodeDismissals() {
+  const [dismissals, setDismissals] = useState<GraphNodeDismissal[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async () => {
+    const res = await listActiveNodeDismissals()
+    if (res.success) setDismissals(res.data)
+    setLoading(false)
+  }, [])
+
+  useFocusEffect(
+    useCallback(() => {
+      void refresh()
+    }, [refresh])
+  )
+
+  // Clearing the flag isn't enough — the graph is derived, so re-derive it so the
+  // node + its edges reappear before we re-list.
+  const restore = useCallback(
+    async (id: string) => {
+      const res = await restoreNodeDismissal(id)
+      if (res.success) await rebuildGraph()
+      await refresh()
+    },
+    [refresh]
+  )
+
+  return { dismissals, loading, refresh, restore }
 }

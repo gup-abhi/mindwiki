@@ -1,5 +1,12 @@
 import { getDb } from '@/services/storage/db'
-import { upsertNode, upsertEdge, findNodeByLabel, type NodeType } from '@/services/storage/graph'
+import {
+  upsertNode,
+  upsertEdge,
+  findNodeByLabel,
+  loadDismissedNodeKeys,
+  nodeDismissalKey,
+  type NodeType,
+} from '@/services/storage/graph'
 import { listEntries, type Entry } from '@/services/storage/entries'
 import { listEntitiesForEntry } from '@/services/storage/entities'
 import { type Result, ok, err } from '@/types/result'
@@ -17,9 +24,13 @@ import { type Result, ok, err } from '@/types/result'
  */
 export async function updateGraphForEntry(
   entry: Entry,
-  topic?: string | null
+  topic?: string | null,
+  dismissed?: Set<string>
 ): Promise<Result<void>> {
   try {
+    // Nodes the user dropped are excluded from the derivation. Loaded here for a
+    // live single-entry call; rebuildGraph loads it once and passes it down.
+    const dropped = dismissed ?? (await loadDismissedNodeKeys())
     const concrete: { type: NodeType; label: string }[] = []
     const emotion = entry.emotion?.trim()
     const distortion = entry.distortion?.trim()
@@ -38,6 +49,7 @@ export async function updateGraphForEntry(
     const ids: string[] = []
     const labels = new Set<string>()
     for (const spec of concrete) {
+      if (dropped.has(nodeDismissalKey(spec.type, spec.label))) continue
       const node = await upsertNode(spec.type, spec.label)
       if (node.success) {
         ids.push(node.data.id)
@@ -51,8 +63,11 @@ export async function updateGraphForEntry(
       // "Work" the place stay one node; otherwise it's a new theme node.
       const existing = await findNodeByLabel(theme)
       const matched = existing.success ? existing.data : null
-      const node = await upsertNode(matched ? matched.type : 'situation', theme)
-      if (node.success && !ids.includes(node.data.id)) ids.push(node.data.id)
+      const themeType = matched ? matched.type : 'situation'
+      if (!dropped.has(nodeDismissalKey(themeType, theme))) {
+        const node = await upsertNode(themeType, theme)
+        if (node.success && !ids.includes(node.data.id)) ids.push(node.data.id)
+      }
     }
 
     // Edge between every co-occurring pair.
@@ -83,10 +98,11 @@ export async function rebuildGraph(): Promise<Result<void>> {
     const db = getDb()
     await db.execute('DELETE FROM graph_edges')
     await db.execute('DELETE FROM graph_nodes')
+    const dismissed = await loadDismissedNodeKeys(db) // loaded once for the whole rebuild
     const entries = await listEntries(10000)
     if (!entries.success) return entries
     for (const entry of entries.data) {
-      await updateGraphForEntry(entry, entry.topic)
+      await updateGraphForEntry(entry, entry.topic, dismissed)
     }
     return ok(undefined)
   } catch (e) {

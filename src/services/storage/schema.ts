@@ -287,3 +287,24 @@ export const migration010: Migration = {
   name: 'wiki_page_correction',
   statements: [`ALTER TABLE wiki_pages ADD COLUMN corrected_at INTEGER`],
 }
+
+// Migration 011 — let the user drop a wrong graph node. The graph is derived:
+// rebuildGraph() wipes graph_nodes/graph_edges and re-derives them from entries
+// on every sync pull, and node ids are regenerated each time. So a suppression
+// flag can't live on the node row (wiped) or key on its id (regenerated) — it
+// lives in its own table, keyed by stable identity (type + label), which the
+// derivation honors. Soft + reversible: dismissed_at NULL means restored; the
+// row persists so it syncs last-write-wins like the wiki dismissal.
+export const migration011: Migration = {
+  version: 11,
+  name: 'graph_node_dismissal',
+  statements: [
+    `CREATE TABLE graph_node_dismissals (
+      id           TEXT PRIMARY KEY,
+      type         TEXT NOT NULL,
+      label        TEXT NOT NULL,
+      dismissed_at INTEGER,
+      updated_at   INTEGER NOT NULL
+    )`,
+  ],
+}

@@ -27,7 +27,7 @@ describe('recordsToApply', () => {
 })
 
 describe('SYNCED_TABLES', () => {
-  it('covers the blob-synced tables (excludes the locally-rebuilt graph tables)', () => {
+  it('covers the blob-synced tables (excludes the locally-rebuilt graph_nodes/edges)', () => {
     expect(SYNCED_TABLES).toEqual([
       'entries',
       'wiki_pages',
@@ -36,6 +36,8 @@ describe('SYNCED_TABLES', () => {
       'chat_messages',
       'pursuits',
       'challenges',
+      // user intent, not derivable from entries — must travel between devices
+      'graph_node_dismissals',
     ])
   })
 

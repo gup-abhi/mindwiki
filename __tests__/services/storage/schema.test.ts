@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -171,5 +171,11 @@ describe('migration 007 (pursuits)', () => {
     expect(MIGRATIONS[9].statements).toEqual([
       'ALTER TABLE wiki_pages ADD COLUMN corrected_at INTEGER',
     ])
+  })
+
+  it('is registered as version 11 and creates the graph_node_dismissals table', () => {
+    expect(MIGRATIONS[10].version).toBe(11)
+    expect(MIGRATIONS[10].name).toBe('graph_node_dismissal')
+    expect(MIGRATIONS[10].statements.some((s) => s.includes('CREATE TABLE graph_node_dismissals'))).toBe(true)
   })
 })

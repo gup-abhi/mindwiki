@@ -1,10 +1,25 @@
+import { Alert } from 'react-native'
 import { render, screen, fireEvent } from '@testing-library/react-native'
 
 import GraphScreen from '@/app/(tabs)/graph'
+import { dismissNode } from '@/services/storage/graph'
 
 const mockUseGraph = jest.fn()
-jest.mock('@/hooks/useGraph', () => ({ useGraph: (...a: unknown[]) => mockUseGraph(...a) }))
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }))
+const mockRefresh = jest.fn()
+const mockUseNodeDismissals = jest.fn(() => ({
+  dismissals: [] as Array<{ id: string; type: string; label: string; dismissed_at: number; updated_at: number }>,
+  refresh: jest.fn(),
+}))
+jest.mock('@/hooks/useGraph', () => ({
+  useGraph: (...a: unknown[]) => mockUseGraph(...a),
+  useNodeDismissals: () => mockUseNodeDismissals(),
+}))
+
+jest.mock('@/services/storage/graph', () => ({ dismissNode: jest.fn() }))
+const mockDismissNode = dismissNode as jest.Mock
+
+const mockPush = jest.fn()
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }))
 
 // The 3D graph runs in a WebView, which can't render under the test runner. Stub
 // it with a pressable per node so we can still exercise the screen's filtering
@@ -31,7 +46,13 @@ const nodes = [
 const edges = [{ id: 'e1', source_id: 'n1', target_id: 'n2', weight: 2, created_at: 0, updated_at: 0 }]
 
 describe('GraphScreen', () => {
-  beforeEach(() => mockUseGraph.mockReturnValue({ nodes, edges, layout: new Map() }))
+  beforeEach(() => {
+    mockUseGraph.mockReturnValue({ nodes, edges, layout: new Map(), refresh: mockRefresh })
+    mockUseNodeDismissals.mockReturnValue({ dismissals: [], refresh: jest.fn() })
+    mockPush.mockReset()
+    mockRefresh.mockReset()
+    mockDismissNode.mockReset().mockResolvedValue({ success: true })
+  })
 
   it('renders filter pills and a node per visible node', () => {
     render(<GraphScreen />)
@@ -47,8 +68,35 @@ describe('GraphScreen', () => {
   })
 
   it('shows an empty state with no nodes', () => {
-    mockUseGraph.mockReturnValue({ nodes: [], edges: [], layout: new Map() })
+    mockUseGraph.mockReturnValue({ nodes: [], edges: [], layout: new Map(), refresh: mockRefresh })
     render(<GraphScreen />)
     expect(screen.getByText(/No graph yet/)).toBeTruthy()
+  })
+
+  it('drops a node from the detail card after confirming', () => {
+    const spy = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, btns) => {
+      btns?.find((b) => b.style === 'destructive')?.onPress?.()
+    })
+    render(<GraphScreen />)
+    fireEvent.press(screen.getAllByTestId('graph-node')[0])
+    fireEvent.press(screen.getByTestId('graph-drop'))
+    expect(spy).toHaveBeenCalled()
+    expect(mockDismissNode).toHaveBeenCalledWith('emotion', 'Anxiety')
+    spy.mockRestore()
+  })
+
+  it('shows the Hidden link and opens it when nodes were dropped', () => {
+    mockUseNodeDismissals.mockReturnValue({
+      dismissals: [{ id: 'emotion:anxiety', type: 'emotion', label: 'Anxiety', dismissed_at: 1, updated_at: 1 }],
+      refresh: jest.fn(),
+    })
+    render(<GraphScreen />)
+    fireEvent.press(screen.getByTestId('graph-hidden-link'))
+    expect(mockPush).toHaveBeenCalledWith('/graph/hidden')
+  })
+
+  it('hides the Hidden link when nothing is dropped', () => {
+    render(<GraphScreen />)
+    expect(screen.queryByTestId('graph-hidden-link')).toBeNull()
   })
 })
