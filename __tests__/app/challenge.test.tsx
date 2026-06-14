@@ -32,6 +32,7 @@ const challenge = (over: Partial<Challenge> = {}): Challenge => ({
 
 const baseHook = (over = {}) => ({
   challenge: null,
+  rewards: [],
   loading: false,
   busy: false,
   streak: 0,
@@ -118,6 +119,39 @@ describe('ChallengeScreen', () => {
       fireEvent.press(screen.getByTestId('challenge-set-cover'))
     })
     expect(mockSetCover).toHaveBeenCalledWith('I finish what I start.')
+  })
+
+  it('lists earned rewards with their affirmations', () => {
+    mockUse.mockReturnValue(
+      baseHook({
+        rewards: [
+          challenge({ id: 'r1', status: 'completed', affirmation: 'I show up.', completed_at: 1_700_000_000_000 }),
+        ],
+      })
+    )
+    render(<ChallengeScreen />)
+    expect(screen.getByTestId('challenge-rewards')).toBeTruthy()
+    expect(screen.getByText('“I show up.”')).toBeTruthy()
+  })
+
+  it('hides the rewards section during the completion celebration', async () => {
+    mockCheckIn.mockResolvedValue({
+      challenge: challenge({ status: 'completed', affirmation: 'Done.' }),
+      decision: { outcome: 'continued', streak: 30, justCompleted: true },
+    })
+    mockUse.mockReturnValue(
+      baseHook({
+        challenge: challenge({ current_streak: 29 }),
+        streak: 29,
+        rewards: [challenge({ id: 'r1', status: 'completed', affirmation: 'Old.' })],
+      })
+    )
+    render(<ChallengeScreen />)
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('challenge-checkin'))
+    })
+    expect(await screen.findByTestId('challenge-complete')).toBeTruthy()
+    expect(screen.queryByTestId('challenge-rewards')).toBeNull()
   })
 
   it('gives up the active challenge', () => {

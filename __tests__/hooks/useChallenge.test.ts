@@ -5,6 +5,7 @@ import {
   createChallenge,
   deleteChallenge,
   getActiveChallenge,
+  listChallenges,
   type Challenge,
 } from '@/services/storage/challenges'
 import { recordCheckin } from '@/services/challenges/checkin'
@@ -24,6 +25,7 @@ jest.mock('@/services/storage/challenges', () => ({
   createChallenge: jest.fn(),
   deleteChallenge: jest.fn(),
   getActiveChallenge: jest.fn(),
+  listChallenges: jest.fn(),
 }))
 jest.mock('@/services/challenges/checkin', () => ({
   recordCheckin: jest.fn(),
@@ -37,6 +39,7 @@ jest.mock('@/services/notifications/scheduler', () => ({
 }))
 
 const mockGetActive = getActiveChallenge as jest.Mock
+const mockList = listChallenges as jest.Mock
 const mockCreate = createChallenge as jest.Mock
 const mockDelete = deleteChallenge as jest.Mock
 const mockRecord = recordCheckin as jest.Mock
@@ -63,6 +66,7 @@ describe('useChallenge', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetActive.mockResolvedValue(ok(null))
+    mockList.mockResolvedValue(ok([]))
     mockCreate.mockResolvedValue(ok(challenge()))
     mockDelete.mockResolvedValue(ok(undefined))
     mockSchedule.mockResolvedValue(ok(0))
@@ -75,6 +79,18 @@ describe('useChallenge', () => {
     const { result } = renderHook(() => useChallenge())
     await waitFor(() => expect(result.current.challenge?.id).toBe('c1'))
     expect(result.current.streak).toBe(3)
+  })
+
+  it('loads completed challenges as rewards on focus', async () => {
+    mockList.mockResolvedValue(
+      ok([
+        challenge({ id: 'done1', status: 'completed', affirmation: 'I show up.' }),
+        challenge({ id: 'active1', status: 'active' }),
+      ])
+    )
+    const { result } = renderHook(() => useChallenge())
+    await waitFor(() => expect(result.current.rewards).toHaveLength(1))
+    expect(result.current.rewards[0].id).toBe('done1')
   })
 
   it('create arms reminders and asks permission', async () => {
@@ -126,6 +142,9 @@ describe('useChallenge', () => {
     })
     expect(mockCancel).toHaveBeenCalledWith('c1')
     expect(result.current.challenge).toBeNull()
+    // the freshly completed challenge becomes an earned reward
+    expect(result.current.rewards).toHaveLength(1)
+    expect(result.current.rewards[0].status).toBe('completed')
   })
 
   it('remove cancels reminders and deletes', async () => {

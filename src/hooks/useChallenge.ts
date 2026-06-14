@@ -7,6 +7,7 @@ import {
   createChallenge,
   deleteChallenge,
   getActiveChallenge,
+  listChallenges,
 } from '@/services/storage/challenges'
 import {
   type CheckinResult,
@@ -30,12 +31,15 @@ import {
  */
 export function useChallenge() {
   const [challenge, setChallenge] = useState<Challenge | null>(null)
+  // Completed challenges — the earned rewards, newest first.
+  const [rewards, setRewards] = useState<Challenge[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
   const refresh = useCallback(async () => {
-    const res = await getActiveChallenge()
-    setChallenge(res.success ? res.data : null)
+    const [active, all] = await Promise.all([getActiveChallenge(), listChallenges()])
+    setChallenge(active.success ? active.data : null)
+    if (all.success) setRewards(all.data.filter((c) => c.status === 'completed'))
     setLoading(false)
   }, [])
 
@@ -72,10 +76,12 @@ export function useChallenge() {
       const updated = res.data.challenge
       if (updated.status === 'completed') {
         void cancelChallengeReminders(updated.id)
+        setChallenge(null)
+        setRewards((prev) => [updated, ...prev]) // newly earned reward
       } else {
         void scheduleChallengeReminders(updated, now, true) // just done today
+        setChallenge(updated)
       }
-      setChallenge(updated.status === 'completed' ? null : updated)
       return res.data
     } finally {
       setBusy(false)
@@ -92,6 +98,7 @@ export function useChallenge() {
   const now = Date.now()
   return {
     challenge,
+    rewards,
     loading,
     busy,
     streak: challenge ? effectiveStreak(challenge, now) : 0,

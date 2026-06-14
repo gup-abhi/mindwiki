@@ -11,7 +11,8 @@ import { setCoverAffirmation } from '@/services/challenges/cover'
 export default function ChallengeScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { challenge, loading, busy, streak, doneToday, create, checkIn, remove } = useChallenge()
+  const { challenge, rewards, loading, busy, streak, doneToday, create, checkIn, remove } =
+    useChallenge()
   // This tap will finish the challenge (and so generate the affirmation) when the
   // live streak is one short of the target and today isn't logged yet.
   const willComplete = challenge != null && !doneToday && streak === challenge.target_days - 1
@@ -170,9 +171,39 @@ export default function ChallengeScreen() {
             />
           </View>
         )}
+
+        {/* Earned rewards — past completed challenges and the affirmation each
+            unlocked, so finished challenges leave a lasting trophy shelf. */}
+        {!completed && rewards.length > 0 ? (
+          <View style={styles.rewards} testID="challenge-rewards">
+            <Text variant="label" color="textMuted" style={styles.rewardsHeading}>
+              EARNED REWARDS
+            </Text>
+            {rewards.map((r) => (
+              <Card key={r.id} variant="sunken" style={styles.rewardCard} testID="challenge-reward">
+                <Text variant="body" style={styles.rewardAffirmation}>
+                  “{r.affirmation}”
+                </Text>
+                <Text variant="caption" color="textMuted" style={styles.rewardMeta}>
+                  {r.title} · {r.target_days} days · {formatEarned(r.completed_at)}
+                </Text>
+              </Card>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
     </Screen>
   )
+}
+
+/** Short, locale-friendly "earned on" date for a completed challenge. */
+function formatEarned(completedAt: number | null): string {
+  if (completedAt == null) return ''
+  return new Date(completedAt).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 }
 
 const makeStyles = (t: Theme) =>
@@ -189,4 +220,9 @@ const makeStyles = (t: Theme) =>
     crafting: { textAlign: 'center', marginTop: t.spacing.md },
     celebrate: { gap: t.spacing.lg, alignItems: 'stretch', paddingTop: t.spacing.xl },
     affirmCard: { alignSelf: 'stretch' },
+    rewards: { marginTop: t.spacing['2xl'] },
+    rewardsHeading: { letterSpacing: 1, marginBottom: t.spacing.md },
+    rewardCard: { marginBottom: t.spacing.md },
+    rewardAffirmation: { fontStyle: 'italic' },
+    rewardMeta: { marginTop: t.spacing.sm },
   })
