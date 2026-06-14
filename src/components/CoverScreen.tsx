@@ -48,14 +48,11 @@ export function CoverScreen() {
     })
   }
 
-  // Fade in, hold, fade out once the affirmation is loaded.
+  // Fade in once the affirmation is loaded, then stay put until the user taps.
   useEffect(() => {
     if (affirmation == null) return
-    opacity.value = withTiming(1, { duration: 450 })
-    const t = setTimeout(dismiss, 2600)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [affirmation])
+    opacity.value = withTiming(1, { duration: 600 })
+  }, [affirmation, opacity])
 
   const animStyle = useAnimatedStyle(() => ({ opacity: opacity.value }))
 
