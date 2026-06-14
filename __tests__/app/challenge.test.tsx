@@ -134,6 +134,19 @@ describe('ChallengeScreen', () => {
     expect(screen.getByText('“I show up.”')).toBeTruthy()
   })
 
+  it('replays a reward as the full-screen cover when its card is tapped', () => {
+    mockUse.mockReturnValue(
+      baseHook({
+        rewards: [challenge({ id: 'r1', status: 'completed', affirmation: 'I keep going.' })],
+      })
+    )
+    render(<ChallengeScreen />)
+    expect(screen.queryByTestId('cover-affirmation')).toBeNull()
+    fireEvent.press(screen.getByTestId('challenge-reward'))
+    expect(screen.getByTestId('cover-affirmation')).toBeTruthy()
+    expect(screen.getByText('I keep going.')).toBeTruthy()
+  })
+
   it('hides the rewards section during the completion celebration', async () => {
     mockCheckIn.mockResolvedValue({
       challenge: challenge({ status: 'completed', affirmation: 'Done.' }),

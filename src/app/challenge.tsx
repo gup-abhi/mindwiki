@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, View } from 'react-native'
 
 import { Button, Card, IconButton, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
+import { AffirmationCover } from '@/components/AffirmationCover'
 import { useChallenge } from '@/hooks/useChallenge'
 import { type Challenge } from '@/services/storage/challenges'
 import { setCoverAffirmation } from '@/services/challenges/cover'
@@ -23,6 +24,8 @@ export default function ChallengeScreen() {
   // affirmation render even though the hook clears the active challenge.
   const [completed, setCompleted] = useState<Challenge | null>(null)
   const [coverSet, setCoverSet] = useState(false)
+  // A reward the user tapped to replay full-screen, or null.
+  const [viewing, setViewing] = useState<string | null>(null)
 
   const onStart = async () => {
     if (!title.trim()) return
@@ -41,6 +44,7 @@ export default function ChallengeScreen() {
   }
 
   return (
+    <>
     <Screen scroll={false}>
       <View style={styles.header}>
         <IconButton
@@ -180,7 +184,13 @@ export default function ChallengeScreen() {
               EARNED REWARDS
             </Text>
             {rewards.map((r) => (
-              <Card key={r.id} variant="sunken" style={styles.rewardCard} testID="challenge-reward">
+              <Card
+                key={r.id}
+                variant="sunken"
+                style={styles.rewardCard}
+                onPress={() => setViewing(r.affirmation)}
+                testID="challenge-reward"
+              >
                 <Text variant="body" style={styles.rewardAffirmation}>
                   “{r.affirmation}”
                 </Text>
@@ -193,6 +203,10 @@ export default function ChallengeScreen() {
         ) : null}
       </ScrollView>
     </Screen>
+    {viewing != null ? (
+      <AffirmationCover affirmation={viewing} onDismiss={() => setViewing(null)} />
+    ) : null}
+    </>
   )
 }
 
