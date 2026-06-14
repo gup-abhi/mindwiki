@@ -1,12 +1,13 @@
 import {
   synthesizePage,
+  regeneratePage,
   synthesizePursuitDetails,
   generateCheckinQuestion,
   generateReflectionQuestion,
   generateAffirmation,
   converseFromWiki,
 } from '@/services/llm/deep-model'
-import { buildUpdatePagePrompt } from '@/services/llm/prompts/update-page'
+import { buildUpdatePagePrompt, buildRewritePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildPursuitDetailsPrompt } from '@/services/llm/prompts/pursuit-details'
 import { buildCheckinQuestionPrompt } from '@/services/llm/prompts/checkin-question'
 import { buildAffirmationPrompt } from '@/services/llm/prompts/affirmation'
@@ -27,6 +28,31 @@ const input = {
   situation: 'a meeting',
   thought: 'I will fail',
 }
+
+describe('buildRewritePagePrompt', () => {
+  it('asks to keep substance, pins the voice, and includes the page to rewrite', () => {
+    const p = buildRewritePagePrompt({ title: 'Anxiety', category: 'emotion', content: 'I always panic.' })
+    expect(p).toMatch(/Keep ALL of its substance/i)
+    expect(p).toMatch(/do not add new information/i)
+    expect(p).toMatch(/address the reader directly as "you"/i) // shared voice rules
+    expect(p).toContain('I always panic.') // the existing content is fed in
+  })
+})
+
+describe('regeneratePage', () => {
+  it('returns the rewritten content on success', async () => {
+    mockSynthesise.mockResolvedValue({ text: 'You tend to expect the worst before meetings.' })
+    const res = await regeneratePage({ title: 'Anxiety', category: 'emotion', content: 'old' })
+    expect(res.success && res.data).toBe('You tend to expect the worst before meetings.')
+  })
+
+  it('returns REGEN_INFERENCE_FAILED when the model throws', async () => {
+    mockSynthesise.mockRejectedValue(new Error('no model'))
+    const res = await regeneratePage({ title: 'Anxiety', category: 'emotion', content: 'old' })
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('REGEN_INFERENCE_FAILED')
+  })
+})
 
 describe('buildUpdatePagePrompt', () => {
   it('asks for first version when content is empty and includes the entry', () => {

@@ -11,7 +11,12 @@ import { buildDigestSynthesisPrompt, type DigestSynthesisInput } from './prompts
 import { buildCheckinQuestionPrompt, type CheckinQuestionInput } from './prompts/checkin-question'
 import { buildPursuitDetailsPrompt, type PursuitDetailsInput } from './prompts/pursuit-details'
 import { buildAffirmationPrompt, type AffirmationInput } from './prompts/affirmation'
-import { buildUpdatePagePrompt, type UpdatePageInput } from './prompts/update-page'
+import {
+  buildUpdatePagePrompt,
+  buildRewritePagePrompt,
+  type UpdatePageInput,
+  type RewritePageInput,
+} from './prompts/update-page'
 import { ConversationReplySchema, ConversationSummarySchema } from './schemas/conversation.schema'
 import { CheckinQuestionSchema, PursuitDetailsSchema } from './schemas/pursuit.schema'
 import { AffirmationSchema } from './schemas/challenge.schema'
@@ -51,6 +56,30 @@ export async function synthesizePage(input: UpdatePageInput): Promise<Result<str
   const parsed = WikiContentSchema.safeParse(raw)
   if (!parsed.success) {
     return err('SYNTH_VALIDATION_FAILED', 'Synthesized content failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Rewrite an existing wiki page in the canonical voice (substance unchanged).
+ * Lets pages written before the voice was pinned be brought into a consistent
+ * voice on demand. Never throws; errors carry a code only, never page text.
+ */
+export async function regeneratePage(input: RewritePageInput): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildRewritePagePrompt(input), {
+      maxTokens: 400,
+      temperature: 0.4,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('REGEN_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  const parsed = WikiContentSchema.safeParse(raw)
+  if (!parsed.success) {
+    return err('REGEN_VALIDATION_FAILED', 'Regenerated content failed validation')
   }
   return ok(parsed.data)
 }

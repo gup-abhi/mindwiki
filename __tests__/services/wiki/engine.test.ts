@@ -1,15 +1,22 @@
-import { candidateTopics, updateWikiForEntry } from '@/services/wiki/engine'
-import { synthesizePage } from '@/services/llm/deep-model'
-import { getPageByTitle, createPage, updatePage } from '@/services/storage/wiki'
+import { candidateTopics, updateWikiForEntry, regeneratePageVoice } from '@/services/wiki/engine'
+import { synthesizePage, regeneratePage } from '@/services/llm/deep-model'
+import {
+  getPageByTitle,
+  createPage,
+  updatePage,
+  regeneratePageContent,
+  type WikiPage,
+} from '@/services/storage/wiki'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
 import { type Entry } from '@/services/storage/entries'
 import { ok, err } from '@/types/result'
 
-jest.mock('@/services/llm/deep-model', () => ({ synthesizePage: jest.fn() }))
+jest.mock('@/services/llm/deep-model', () => ({ synthesizePage: jest.fn(), regeneratePage: jest.fn() }))
 jest.mock('@/services/storage/wiki', () => ({
   getPageByTitle: jest.fn(),
   createPage: jest.fn(),
   updatePage: jest.fn(),
+  regeneratePageContent: jest.fn(),
 }))
 jest.mock('@/services/storage/entities', () => ({
   listEntitiesForEntry: jest.fn(),
@@ -17,6 +24,8 @@ jest.mock('@/services/storage/entities', () => ({
 }))
 
 const mockSynth = synthesizePage as jest.Mock
+const mockRegen = regeneratePage as jest.Mock
+const mockRegenContent = regeneratePageContent as jest.Mock
 const mockGetByTitle = getPageByTitle as jest.Mock
 const mockCreate = createPage as jest.Mock
 const mockUpdate = updatePage as jest.Mock
@@ -169,5 +178,43 @@ describe('updateWikiForEntry', () => {
     const second = await updateWikiForEntry(entry({ distortion: 'none' }))
     expect(mockCreate).toHaveBeenCalledWith({ title: 'Sarah', category: 'person' })
     expect(second.success && second.data).toEqual(['Anxiety', 'Sarah'])
+  })
+})
+
+describe('regeneratePageVoice', () => {
+  const page = {
+    id: 'p1',
+    title: 'Anxiety',
+    category: 'emotion',
+    content: 'I always panic before meetings.',
+  } as WikiPage
+
+  beforeEach(() => {
+    mockRegen.mockReset()
+    mockRegenContent.mockReset()
+  })
+
+  it('rewrites the page content via the deep model, then persists it', async () => {
+    mockRegen.mockResolvedValue(ok('You tend to expect the worst before meetings.'))
+    mockRegenContent.mockResolvedValue(ok({ ...page, content: 'rewritten' }))
+
+    const res = await regeneratePageVoice(page)
+
+    expect(mockRegen).toHaveBeenCalledWith({
+      title: 'Anxiety',
+      category: 'emotion',
+      content: 'I always panic before meetings.',
+    })
+    expect(mockRegenContent).toHaveBeenCalledWith('p1', 'You tend to expect the worst before meetings.')
+    expect(res.success).toBe(true)
+  })
+
+  it('does not persist when the model fails', async () => {
+    mockRegen.mockResolvedValue(err('REGEN_INFERENCE_FAILED', 'no model'))
+
+    const res = await regeneratePageVoice(page)
+
+    expect(res.success).toBe(false)
+    expect(mockRegenContent).not.toHaveBeenCalled()
   })
 })

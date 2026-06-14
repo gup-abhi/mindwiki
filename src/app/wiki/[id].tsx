@@ -12,8 +12,18 @@ const RICHNESS_TARGET = 10 // entries at which the richness bar is full
 export default function WikiPageScreen() {
   const styles = useThemedStyles(makeStyles)
   const { id } = useLocalSearchParams<{ id?: string }>()
-  const { page, loading, dismiss, restore, correct } = useWikiPage(id)
+  const { page, loading, dismiss, restore, correct, regenerate, regenerating } = useWikiPage(id)
   const [draft, setDraft] = useState<string | null>(null) // non-null while editing
+
+  const onRegenerate = async () => {
+    const ok = await regenerate()
+    if (!ok) {
+      Alert.alert(
+        'Couldn’t regenerate',
+        'The rewrite needs the on-device AI models. Make sure they’ve finished downloading, then try again.'
+      )
+    }
+  }
 
   const confirmDismiss = () => {
     Alert.alert(
@@ -133,6 +143,13 @@ export default function WikiPageScreen() {
                 ✎ In your own words
               </Text>
             )}
+            <Button
+              title={regenerating ? 'Regenerating…' : 'Regenerate in a consistent voice'}
+              variant="secondary"
+              loading={regenerating}
+              onPress={() => void onRegenerate()}
+              testID="wiki-regenerate"
+            />
             <Button
               title="Rewrite this myself"
               variant="ghost"
