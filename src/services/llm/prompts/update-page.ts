@@ -60,12 +60,17 @@ export interface RewritePageInput {
  */
 export function buildRewritePagePrompt({ title, category, content }: RewritePageInput): string {
   return [
-    `You maintain a personal wiki page titled "${title}"${category ? ` (${category})` : ''}.`,
-    'Rewrite the page below so it follows the voice rules. Keep ALL of its substance and facts —',
-    'do not add new information, do not drop any insight, do not change the meaning. Only fix the',
-    'voice and phrasing. Write a few short paragraphs of warm, plain prose.',
+    `Rewrite this personal wiki page titled "${title}"${category ? ` (${category})` : ''} in a new voice.`,
+    'Keep the SAME facts and meaning, but change the wording so the whole page speaks directly to',
+    'the reader in the second person. Rewrite every sentence — do NOT copy sentences unchanged.',
+    'Transform the voice:',
+    '- First person → second person: "I feel anxious" → "You feel anxious"; "my work" → "your work".',
+    '- A dictionary definition → a direct observation: "Catastrophizing is when someone assumes the',
+    '  worst" → "You tend to assume the worst will happen".',
+    '- Third person about the reader → second person: "they avoid conflict" → "you avoid conflict".',
     ...VOICE_RULES,
-    'Do NOT add section headings (no "#" markdown headings). Output ONLY the page content, no preamble.',
+    'Write a few short paragraphs of warm, plain prose. Do NOT add section headings (no "#" headings).',
+    'Output ONLY the rewritten page, no preamble.',
     '',
     `Page to rewrite:\n${content.trim()}`,
   ].join('\n')

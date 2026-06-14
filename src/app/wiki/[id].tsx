@@ -16,11 +16,11 @@ export default function WikiPageScreen() {
   const [draft, setDraft] = useState<string | null>(null) // non-null while editing
 
   const onRegenerate = async () => {
-    const ok = await regenerate()
-    if (!ok) {
+    const error = await regenerate()
+    if (error) {
       Alert.alert(
         'Couldn’t regenerate',
-        'The rewrite needs the on-device AI models. Make sure they’ve finished downloading, then try again.'
+        `${error}\n\nThe rewrite runs the on-device AI model — make sure it has finished downloading, then try again.`
       )
     }
   }

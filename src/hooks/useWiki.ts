@@ -82,15 +82,15 @@ export function useWikiPage(id: string | undefined) {
   }, [id])
 
   // Re-run the deep model to rewrite this page in the canonical voice (substance
-  // unchanged). Returns whether it succeeded so the screen can surface a failure
-  // (e.g. models not downloaded). Reflects the new content/version locally.
-  const regenerate = useCallback(async (): Promise<boolean> => {
-    if (!page) return false
+  // unchanged). Resolves to null on success, or an error message the screen can
+  // surface (so a real failure isn't silent). Reflects the new content locally.
+  const regenerate = useCallback(async (): Promise<string | null> => {
+    if (!page) return 'No page loaded.'
     setRegenerating(true)
     const res = await regeneratePageVoice(page)
     if (res.success) setPage(res.data)
     setRegenerating(false)
-    return res.success
+    return res.success ? null : res.error.message
   }, [page])
 
   return { page, loading, dismiss, restore, correct, regenerate, regenerating }

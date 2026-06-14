@@ -113,7 +113,7 @@ describe('WikiPageScreen', () => {
     mockDismiss.mockReset()
     mockRestore.mockReset()
     mockCorrect.mockReset()
-    mockRegenerate.mockReset().mockResolvedValue(true)
+    mockRegenerate.mockReset().mockResolvedValue(null) // null = success
   })
 
   const pageReturn = (page: Record<string, unknown>) => ({
@@ -184,8 +184,8 @@ describe('WikiPageScreen', () => {
     expect(mockRegenerate).toHaveBeenCalled()
   })
 
-  it('alerts when regeneration fails (e.g. models not downloaded)', async () => {
-    mockRegenerate.mockResolvedValue(false)
+  it('alerts with the reason when regeneration fails', async () => {
+    mockRegenerate.mockResolvedValue('Deep model inference failed')
     const spy = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
     mockUseWikiPage.mockReturnValue(
       pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 1, entry_count: 3, content: 'c', dismissed_at: null, corrected_at: null })

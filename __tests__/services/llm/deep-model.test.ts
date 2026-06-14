@@ -32,8 +32,8 @@ const input = {
 describe('buildRewritePagePrompt', () => {
   it('asks to keep substance, pins the voice, and includes the page to rewrite', () => {
     const p = buildRewritePagePrompt({ title: 'Anxiety', category: 'emotion', content: 'I always panic.' })
-    expect(p).toMatch(/Keep ALL of its substance/i)
-    expect(p).toMatch(/do not add new information/i)
+    expect(p).toMatch(/Keep the SAME facts and meaning/i)
+    expect(p).toMatch(/do NOT copy sentences unchanged/i) // combats verbatim echo
     expect(p).toMatch(/address the reader directly as "you"/i) // shared voice rules
     expect(p).toContain('I always panic.') // the existing content is fed in
   })
