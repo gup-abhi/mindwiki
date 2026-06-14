@@ -12,6 +12,9 @@ export default function ChallengeScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const { challenge, loading, busy, streak, doneToday, create, checkIn, remove } = useChallenge()
+  // This tap will finish the challenge (and so generate the affirmation) when the
+  // live streak is one short of the target and today isn't logged yet.
+  const willComplete = challenge != null && !doneToday && streak === challenge.target_days - 1
 
   const [title, setTitle] = useState('')
   const [details, setDetails] = useState('')
@@ -111,6 +114,13 @@ export default function ChallengeScreen() {
                   testID="challenge-checkin"
                 />
               )}
+              {/* The final check-in generates the affirmation on-device, which
+                  takes a moment — tell the user what the spinner is doing. */}
+              {busy && willComplete ? (
+                <Text variant="caption" color="accent" style={styles.crafting} testID="challenge-crafting">
+                  Crafting your reward…
+                </Text>
+              ) : null}
             </View>
 
             <Button
@@ -176,6 +186,7 @@ const makeStyles = (t: Theme) =>
     detailsText: { marginTop: t.spacing.sm },
     dayCount: { marginTop: t.spacing.xl, marginBottom: t.spacing.sm },
     actions: { marginTop: t.spacing.xl, marginBottom: t.spacing.md },
+    crafting: { textAlign: 'center', marginTop: t.spacing.md },
     celebrate: { gap: t.spacing.lg, alignItems: 'stretch', paddingTop: t.spacing.xl },
     affirmCard: { alignSelf: 'stretch' },
   })

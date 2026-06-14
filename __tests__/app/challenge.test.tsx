@@ -76,6 +76,23 @@ describe('ChallengeScreen', () => {
     expect(mockCheckIn).toHaveBeenCalled()
   })
 
+  it('shows "Crafting your reward…" on the final check-in while busy', () => {
+    // streak at target-1, not done today, busy → the completing tap is generating.
+    mockUse.mockReturnValue(
+      baseHook({ challenge: challenge({ current_streak: 29 }), streak: 29, busy: true })
+    )
+    render(<ChallengeScreen />)
+    expect(screen.getByTestId('challenge-crafting')).toBeTruthy()
+  })
+
+  it('does not show the crafting message on a non-final check-in', () => {
+    mockUse.mockReturnValue(
+      baseHook({ challenge: challenge(), streak: 4, busy: true })
+    )
+    render(<ChallengeScreen />)
+    expect(screen.queryByTestId('challenge-crafting')).toBeNull()
+  })
+
   it('disables the button and hides check-in once done today', () => {
     mockUse.mockReturnValue(baseHook({ challenge: challenge(), streak: 4, doneToday: true }))
     render(<ChallengeScreen />)
