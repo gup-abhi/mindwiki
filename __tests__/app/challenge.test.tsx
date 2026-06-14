@@ -121,7 +121,7 @@ describe('ChallengeScreen', () => {
     expect(mockSetCover).toHaveBeenCalledWith('I finish what I start.')
   })
 
-  it('lists earned rewards with their affirmations', () => {
+  it('shows the create form on the Challenge tab and rewards on the Rewards tab', () => {
     mockUse.mockReturnValue(
       baseHook({
         rewards: [
@@ -130,8 +130,21 @@ describe('ChallengeScreen', () => {
       })
     )
     render(<ChallengeScreen />)
+    // Default tab: challenge → rewards hidden.
+    expect(screen.getByTestId('challenge-create')).toBeTruthy()
+    expect(screen.queryByTestId('challenge-rewards')).toBeNull()
+
+    fireEvent.press(screen.getByTestId('tab-rewards'))
     expect(screen.getByTestId('challenge-rewards')).toBeTruthy()
     expect(screen.getByText('“I show up.”')).toBeTruthy()
+    expect(screen.queryByTestId('challenge-create')).toBeNull()
+  })
+
+  it('shows an empty state on the Rewards tab with no rewards', () => {
+    mockUse.mockReturnValue(baseHook())
+    render(<ChallengeScreen />)
+    fireEvent.press(screen.getByTestId('tab-rewards'))
+    expect(screen.getByTestId('challenge-rewards-empty')).toBeTruthy()
   })
 
   it('replays a reward as the full-screen cover when its card is tapped', () => {
@@ -141,6 +154,7 @@ describe('ChallengeScreen', () => {
       })
     )
     render(<ChallengeScreen />)
+    fireEvent.press(screen.getByTestId('tab-rewards'))
     expect(screen.queryByTestId('cover-affirmation')).toBeNull()
     fireEvent.press(screen.getByTestId('challenge-reward'))
     expect(screen.getByTestId('cover-affirmation')).toBeTruthy()

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useRouter } from 'expo-router'
 import { ScrollView, StyleSheet, View } from 'react-native'
 
-import { Button, Card, IconButton, ProgressBar, Screen, Text, TextField } from '@/components/ui'
+import { Button, Card, Chip, IconButton, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { AffirmationCover } from '@/components/AffirmationCover'
 import { useChallenge } from '@/hooks/useChallenge'
@@ -26,6 +26,7 @@ export default function ChallengeScreen() {
   const [coverSet, setCoverSet] = useState(false)
   // A reward the user tapped to replay full-screen, or null.
   const [viewing, setViewing] = useState<string | null>(null)
+  const [tab, setTab] = useState<'challenge' | 'rewards'>('challenge')
 
   const onStart = async () => {
     if (!title.trim()) return
@@ -58,8 +59,8 @@ export default function ChallengeScreen() {
         <View style={styles.spacer} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
-        {completed ? (
+      {completed ? (
+        <ScrollView contentContainerStyle={styles.body}>
           <View style={styles.celebrate} testID="challenge-complete">
             <Text variant="display" style={styles.center}>
               🎉
@@ -86,7 +87,56 @@ export default function ChallengeScreen() {
             )}
             <Button title="Done" variant="ghost" fullWidth onPress={() => router.back()} />
           </View>
-        ) : loading ? null : challenge ? (
+        </ScrollView>
+      ) : (
+        <>
+          <View style={styles.tabs}>
+            <Chip
+              label="Challenge"
+              selected={tab === 'challenge'}
+              onPress={() => setTab('challenge')}
+              testID="tab-challenge"
+            />
+            <Chip
+              label="Rewards"
+              selected={tab === 'rewards'}
+              onPress={() => setTab('rewards')}
+              testID="tab-rewards"
+            />
+          </View>
+
+          <ScrollView contentContainerStyle={styles.body}>
+            {tab === 'rewards' ? (
+              rewards.length === 0 ? (
+                <Text
+                  variant="body"
+                  color="textMuted"
+                  style={styles.rewardsEmpty}
+                  testID="challenge-rewards-empty"
+                >
+                  Finish a challenge to earn your first reward. It’ll live here.
+                </Text>
+              ) : (
+                <View testID="challenge-rewards">
+                  {rewards.map((r) => (
+                    <Card
+                      key={r.id}
+                      variant="sunken"
+                      style={styles.rewardCard}
+                      onPress={() => setViewing(r.affirmation)}
+                      testID="challenge-reward"
+                    >
+                      <Text variant="body" style={styles.rewardAffirmation}>
+                        “{r.affirmation}”
+                      </Text>
+                      <Text variant="caption" color="textMuted" style={styles.rewardMeta}>
+                        {r.title} · {r.target_days} days · {formatEarned(r.completed_at)}
+                      </Text>
+                    </Card>
+                  ))}
+                </View>
+              )
+            ) : loading ? null : challenge ? (
           <View testID="challenge-active">
             <Text variant="display">{challenge.title}</Text>
             {challenge.details ? (
@@ -174,34 +224,10 @@ export default function ChallengeScreen() {
               testID="challenge-start"
             />
           </View>
-        )}
-
-        {/* Earned rewards — past completed challenges and the affirmation each
-            unlocked, so finished challenges leave a lasting trophy shelf. */}
-        {!completed && rewards.length > 0 ? (
-          <View style={styles.rewards} testID="challenge-rewards">
-            <Text variant="label" color="textMuted" style={styles.rewardsHeading}>
-              EARNED REWARDS
-            </Text>
-            {rewards.map((r) => (
-              <Card
-                key={r.id}
-                variant="sunken"
-                style={styles.rewardCard}
-                onPress={() => setViewing(r.affirmation)}
-                testID="challenge-reward"
-              >
-                <Text variant="body" style={styles.rewardAffirmation}>
-                  “{r.affirmation}”
-                </Text>
-                <Text variant="caption" color="textMuted" style={styles.rewardMeta}>
-                  {r.title} · {r.target_days} days · {formatEarned(r.completed_at)}
-                </Text>
-              </Card>
-            ))}
-          </View>
-        ) : null}
-      </ScrollView>
+            )}
+          </ScrollView>
+        </>
+      )}
     </Screen>
     {viewing != null ? (
       <AffirmationCover affirmation={viewing} onDismiss={() => setViewing(null)} />
@@ -234,9 +260,9 @@ const makeStyles = (t: Theme) =>
     crafting: { textAlign: 'center', marginTop: t.spacing.md },
     celebrate: { gap: t.spacing.lg, alignItems: 'stretch', paddingTop: t.spacing.xl },
     affirmCard: { alignSelf: 'stretch' },
-    rewards: { marginTop: t.spacing['2xl'] },
-    rewardsHeading: { letterSpacing: 1, marginBottom: t.spacing.md },
+    tabs: { flexDirection: 'row', gap: t.spacing.sm, marginBottom: t.spacing.lg },
     rewardCard: { marginBottom: t.spacing.md },
     rewardAffirmation: { fontStyle: 'italic' },
     rewardMeta: { marginTop: t.spacing.sm },
+    rewardsEmpty: { textAlign: 'center', marginTop: t.spacing.xl, lineHeight: 22 },
   })
