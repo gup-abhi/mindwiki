@@ -20,6 +20,7 @@ import { useSync } from '@/hooks/useSync'
 import { useAppLock } from '@/hooks/useAppLock'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { LockScreen } from '@/components/auth/LockScreen'
+import { CoverScreen } from '@/components/CoverScreen'
 import { ThemeProvider, type Theme, useTheme, useThemedStyles } from '@/theme'
 
 // Hold the native splash until our custom fonts are ready (best-effort).
@@ -38,6 +39,8 @@ function AppRoot() {
   return (
     <>
       <Stack screenOptions={{ headerShown: false }} />
+      {/* After unlock, flash the earned affirmation over the app before Home. */}
+      {!locked && <CoverScreen />}
       {locked && <LockScreen />}
     </>
   )

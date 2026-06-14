@@ -49,9 +49,6 @@ const mockChallenge = jest.fn(() => ({
 }))
 jest.mock('@/hooks/useChallenge', () => ({ useChallenge: () => mockChallenge() }))
 
-const mockCover = jest.fn(() => '')
-jest.mock('@/hooks/useCoverAffirmation', () => ({ useCoverAffirmation: () => mockCover() }))
-
 const mockList = listEntries as jest.Mock
 
 const entry = (over = {}) => ({
@@ -79,7 +76,6 @@ describe('Home entries list', () => {
     mockCheckin.mockReturnValue({ checkin: null, open: mockOpenCheckin, dismiss: mockDismissCheckin })
     mockChallengeCheckIn.mockReset()
     mockChallenge.mockReturnValue({ challenge: null, streak: 0, doneToday: false, checkIn: mockChallengeCheckIn })
-    mockCover.mockReturnValue('')
     useWikiStore.setState({ pending: 0 })
   })
 
@@ -183,14 +179,6 @@ describe('Home entries list', () => {
     render(<Home />)
     await waitFor(() => expect(screen.getByText(/Done for today/)).toBeTruthy())
     expect(screen.queryByTestId('home-challenge-checkin')).toBeNull()
-  })
-
-  it('renders the cover affirmation banner when one is set', async () => {
-    mockList.mockResolvedValue(ok([entry()]))
-    mockCover.mockReturnValue('I finish what I start.')
-    render(<Home />)
-    await waitFor(() => expect(screen.getByTestId('home-cover-affirmation')).toBeTruthy())
-    expect(screen.getByText('I finish what I start.')).toBeTruthy()
   })
 
   it('surfaces a proactive question from the richest wiki page', async () => {
