@@ -12,6 +12,7 @@ const page = (over: Partial<WikiPage> = {}): WikiPage => ({
   version_history: [],
   created_at: 0,
   updated_at: 0,
+  dismissed_at: null,
   ...over,
 })
 

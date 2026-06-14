@@ -2,9 +2,12 @@ import { type SqliteDatabase } from '@/services/storage/db'
 import {
   createPage,
   deleteEmptyPages,
+  dismissPage,
   getPage,
   getPageByTitle,
+  listDismissedPages,
   listPages,
+  restorePage,
   updatePage,
 } from '@/services/storage/wiki'
 
@@ -31,6 +34,7 @@ function createFakeDb() {
           version_history,
           created_at,
           updated_at,
+          dismissed_at: null,
         })
         return { rows: [], rowsAffected: 1 }
       }
@@ -42,13 +46,34 @@ function createFakeDb() {
         const row = [...rows.values()].find((r) => r.title === params[0])
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
-      if (/^SELECT \* FROM wiki_pages ORDER BY/.test(sql)) {
-        return { rows: [...rows.values()], rowsAffected: 0 }
+      if (/^SELECT \* FROM wiki_pages WHERE dismissed_at IS NOT NULL/.test(sql)) {
+        const out = [...rows.values()]
+          .filter((r) => r.dismissed_at != null)
+          .sort((a, b) => Number(b.dismissed_at) - Number(a.dismissed_at))
+        return { rows: out, rowsAffected: 0 }
+      }
+      if (/^SELECT \* FROM wiki_pages WHERE dismissed_at IS NULL/.test(sql)) {
+        const out = [...rows.values()]
+          .filter((r) => r.dismissed_at == null)
+          .sort((a, b) => Number(b.updated_at) - Number(a.updated_at))
+        return { rows: out, rowsAffected: 0 }
+      }
+      if (/^UPDATE wiki_pages SET dismissed_at = \? WHERE id/.test(sql)) {
+        const row = rows.get(String(params[1]))
+        if (row) row.dismissed_at = params[0]
+        return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^UPDATE wiki_pages SET dismissed_at = NULL WHERE id/.test(sql)) {
+        const row = rows.get(String(params[0]))
+        if (row) row.dismissed_at = null
+        return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^UPDATE wiki_pages/.test(sql)) {
         const [content, version, version_history, entry_count, updated_at, id] = params
         const row = rows.get(String(id))
-        if (row) Object.assign(row, { content, version, version_history, entry_count, updated_at })
+        if (row) {
+          Object.assign(row, { content, version, version_history, entry_count, updated_at, dismissed_at: null })
+        }
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^DELETE FROM wiki_pages/.test(sql)) {
@@ -144,5 +169,61 @@ describe('storage/wiki CRUD', () => {
 
     const pages = await listPages(db)
     expect(pages.success && pages.data.map((p) => p.title)).toEqual(['Anxiety'])
+  })
+
+  it('a dismissed page drops out of listPages and into listDismissedPages', async () => {
+    const { db } = createFakeDb()
+    const a = await createPage({ title: 'A' }, db)
+    await createPage({ title: 'B' }, db)
+    if (!a.success) throw new Error('setup failed')
+
+    const dismissed = await dismissPage(a.data.id, db)
+    expect(dismissed.success).toBe(true)
+
+    const active = await listPages(db)
+    expect(active.success && active.data.map((p) => p.title)).toEqual(['B'])
+
+    const dropped = await listDismissedPages(db)
+    expect(dropped.success && dropped.data.map((p) => p.title)).toEqual(['A'])
+
+    const got = await getPage(a.data.id, db)
+    expect(got.success && got.data?.dismissed_at).toEqual(expect.any(Number))
+  })
+
+  it('restorePage brings a dropped page back into listPages', async () => {
+    const { db } = createFakeDb()
+    const a = await createPage({ title: 'A' }, db)
+    if (!a.success) throw new Error('setup failed')
+    await dismissPage(a.data.id, db)
+
+    const restored = await restorePage(a.data.id, db)
+    expect(restored.success).toBe(true)
+
+    const active = await listPages(db)
+    expect(active.success && active.data.map((p) => p.title)).toEqual(['A'])
+    const got = await getPage(a.data.id, db)
+    expect(got.success && got.data?.dismissed_at).toBeNull()
+  })
+
+  it('re-synthesizing a dropped page clears the dismissal (self-heal)', async () => {
+    const { db } = createFakeDb()
+    const a = await createPage({ title: 'Anxiety', category: 'emotion' }, db)
+    if (!a.success) throw new Error('setup failed')
+    await dismissPage(a.data.id, db)
+
+    await updatePage(a.data.id, 'fresh content', db)
+    const got = await getPage(a.data.id, db)
+    expect(got.success && got.data?.dismissed_at).toBeNull()
+    expect(got.success && got.data?.content).toBe('fresh content')
+  })
+
+  it('dismiss/restore return WIKI_NOT_FOUND for a missing id', async () => {
+    const { db } = createFakeDb()
+    const d = await dismissPage('ghost', db)
+    expect(d.success).toBe(false)
+    if (!d.success) expect(d.error.code).toBe('WIKI_NOT_FOUND')
+    const r = await restorePage('ghost', db)
+    expect(r.success).toBe(false)
+    if (!r.success) expect(r.error.code).toBe('WIKI_NOT_FOUND')
   })
 })

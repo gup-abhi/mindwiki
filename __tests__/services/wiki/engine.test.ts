@@ -102,6 +102,28 @@ describe('updateWikiForEntry', () => {
     expect(result.success && result.data).toEqual(['Anxiety'])
   })
 
+  it('regenerates a dropped page from scratch (ignores its dismissed content)', async () => {
+    mockGetByTitle.mockResolvedValue(
+      ok({ id: 'p9', title: 'Anxiety', category: 'emotion', content: 'wrong old take', dismissed_at: 123 })
+    )
+
+    await updateWikiForEntry(entry({ distortion: 'none' }))
+
+    // synthesized fresh — the dismissed content is NOT fed back in
+    expect(mockSynth).toHaveBeenCalledWith(expect.objectContaining({ existingContent: '' }))
+    expect(mockUpdate).toHaveBeenCalledWith('p9', 'synthesized content') // updatePage clears the flag
+  })
+
+  it('builds on existing content for an active (non-dismissed) page', async () => {
+    mockGetByTitle.mockResolvedValue(
+      ok({ id: 'p9', title: 'Anxiety', category: 'emotion', content: 'good prior take', dismissed_at: null })
+    )
+
+    await updateWikiForEntry(entry({ distortion: 'none' }))
+
+    expect(mockSynth).toHaveBeenCalledWith(expect.objectContaining({ existingContent: 'good prior take' }))
+  })
+
   it('skips a page when synthesis fails (best-effort)', async () => {
     mockGetByTitle.mockResolvedValue(ok({ id: 'p', title: 'Anxiety', category: 'emotion', content: '' }))
     mockSynth.mockResolvedValue(err('SYNTH_INFERENCE_FAILED', 'down'))

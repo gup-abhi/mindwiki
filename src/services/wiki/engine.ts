@@ -85,10 +85,13 @@ export async function updateWikiForEntry(
     // Synthesize first. A failed synthesis must never leave a blank, 0-entry
     // page behind (it would surface as an empty wiki page), so a brand-new page
     // is only created once we actually have content for it.
+    // A dropped page was flagged as inaccurate — don't build on its content.
+    // Regenerate from scratch on this entry; updatePage then clears the flag.
+    const baseContent = page && page.dismissed_at == null ? page.content : ''
     const synth = await synthesizePage({
       title: topic.title,
       category: page?.category ?? topic.category,
-      existingContent: page?.content ?? '',
+      existingContent: baseContent,
       situation: entry.situation,
       thought: entry.thought,
     })

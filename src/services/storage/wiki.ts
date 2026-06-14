@@ -21,6 +21,8 @@ export interface WikiPage {
   version_history: WikiPageVersion[]
   created_at: number
   updated_at: number
+  /** When the user dropped this page as inaccurate; null when active. */
+  dismissed_at: number | null
 }
 
 export interface NewWikiPage {
@@ -47,6 +49,7 @@ function rowToPage(row: Record<string, unknown>): WikiPage {
     version_history: history,
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
+    dismissed_at: row.dismissed_at == null ? null : Number(row.dismissed_at),
   }
 }
 
@@ -65,6 +68,7 @@ export async function createPage(
     version_history: [],
     created_at: now,
     updated_at: now,
+    dismissed_at: null,
   }
   try {
     await db.execute(
@@ -122,12 +126,66 @@ export async function deleteEmptyPages(db: SqliteDatabase = getDb()): Promise<Re
   }
 }
 
+/**
+ * Active wiki pages (dismissed ones excluded). This is the single source for
+ * retrieval grounding (Reflect, suggested questions) and the wiki list, so a
+ * dropped page stops shaping any future interaction.
+ */
 export async function listPages(db: SqliteDatabase = getDb()): Promise<Result<WikiPage[]>> {
   try {
-    const res = await db.execute('SELECT * FROM wiki_pages ORDER BY updated_at DESC')
+    const res = await db.execute(
+      'SELECT * FROM wiki_pages WHERE dismissed_at IS NULL ORDER BY updated_at DESC'
+    )
     return ok(res.rows.map(rowToPage))
   } catch (e) {
     return err('WIKI_LIST_FAILED', 'Failed to list wiki pages', e)
+  }
+}
+
+/** Pages the user has dropped as inaccurate, most-recently-dropped first. */
+export async function listDismissedPages(
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPage[]>> {
+  try {
+    const res = await db.execute(
+      'SELECT * FROM wiki_pages WHERE dismissed_at IS NOT NULL ORDER BY dismissed_at DESC'
+    )
+    return ok(res.rows.map(rowToPage))
+  } catch (e) {
+    return err('WIKI_LIST_FAILED', 'Failed to list dismissed wiki pages', e)
+  }
+}
+
+/** Drop a page the user flagged as inaccurate (soft + reversible). */
+export async function dismissPage(
+  id: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<void>> {
+  try {
+    const res = await db.execute('UPDATE wiki_pages SET dismissed_at = ? WHERE id = ?', [
+      Date.now(),
+      id,
+    ])
+    if ((res.rowsAffected ?? 0) === 0) return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    await enqueueUpsert('wiki_pages', id, db)
+    return ok(undefined)
+  } catch (e) {
+    return err('WIKI_DISMISS_FAILED', 'Failed to dismiss wiki page', e)
+  }
+}
+
+/** Restore a previously dropped page. */
+export async function restorePage(
+  id: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<void>> {
+  try {
+    const res = await db.execute('UPDATE wiki_pages SET dismissed_at = NULL WHERE id = ?', [id])
+    if ((res.rowsAffected ?? 0) === 0) return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    await enqueueUpsert('wiki_pages', id, db)
+    return ok(undefined)
+  } catch (e) {
+    return err('WIKI_RESTORE_FAILED', 'Failed to restore wiki page', e)
   }
 }
 
@@ -160,11 +218,15 @@ export async function updatePage(
       version_history: history,
       entry_count: prev.entry_count + 1,
       updated_at: now,
+      // A fresh synthesis heals a previously-dropped page: clear the flag so it
+      // rejoins retrieval (the engine regenerates its content from scratch).
+      dismissed_at: null,
     }
 
     await db.execute(
       `UPDATE wiki_pages
-         SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?
+         SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?,
+             dismissed_at = NULL
        WHERE id = ?`,
       [next.content, next.version, JSON.stringify(history), next.entry_count, now, id]
     )

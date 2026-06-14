@@ -264,3 +264,14 @@ export const migration008: Migration = {
     `CREATE INDEX idx_challenges_status ON challenges (status, updated_at)`,
   ],
 }
+
+// Migration 009 — let the user drop a wrong wiki insight. dismissed_at marks a
+// page the user flagged as inaccurate: it's excluded from retrieval grounding
+// (Reflect, suggested questions) and the wiki list, so it stops shaping future
+// interactions. Soft + reversible (restore sets it back to NULL); a new entry on
+// the topic re-synthesizes the page fresh and clears the flag (self-heals).
+export const migration009: Migration = {
+  version: 9,
+  name: 'wiki_page_dismissal',
+  statements: [`ALTER TABLE wiki_pages ADD COLUMN dismissed_at INTEGER`],
+}

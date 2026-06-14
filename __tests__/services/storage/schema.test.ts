@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -155,5 +155,13 @@ describe('migration 007 (pursuits)', () => {
     expect(stmts.some((s) => s.includes('CREATE TABLE challenges'))).toBe(true)
     expect(stmts.some((s) => s.includes("CHECK (status IN ('active','completed'))"))).toBe(true)
     expect(stmts.some((s) => s.includes('CREATE INDEX idx_challenges_status'))).toBe(true)
+  })
+
+  it('is registered as version 9 and adds the wiki page dismissal column', () => {
+    expect(MIGRATIONS[8].version).toBe(9)
+    expect(MIGRATIONS[8].name).toBe('wiki_page_dismissal')
+    expect(MIGRATIONS[8].statements).toEqual([
+      'ALTER TABLE wiki_pages ADD COLUMN dismissed_at INTEGER',
+    ])
   })
 })
