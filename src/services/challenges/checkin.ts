@@ -6,6 +6,7 @@ import {
   updateChallenge,
 } from '@/services/storage/challenges'
 import { type SqliteDatabase, getDb } from '@/services/storage/db'
+import { generateAffirmation } from '@/services/llm/deep-model'
 
 import { pickAffirmation } from './affirmations'
 
@@ -126,7 +127,15 @@ export async function recordCheckin(
   if (decision.justCompleted) {
     patch.status = 'completed'
     patch.completed_at = now
-    patch.affirmation = pickAffirmation()
+    // Personalize the reward with the on-device model; fall back to the bank on
+    // any failure so completion always unlocks something. Never blocks on a model
+    // error (mirrors ADR 004 — LLM failures must not fail the user action).
+    const gen = await generateAffirmation({
+      title: challenge.title,
+      details: challenge.details,
+      targetDays: challenge.target_days,
+    })
+    patch.affirmation = gen.success ? gen.data : pickAffirmation()
   }
 
   const updated = await updateChallenge(id, patch, db)

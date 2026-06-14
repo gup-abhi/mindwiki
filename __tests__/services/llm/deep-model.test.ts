@@ -3,11 +3,13 @@ import {
   synthesizePursuitDetails,
   generateCheckinQuestion,
   generateReflectionQuestion,
+  generateAffirmation,
   converseFromWiki,
 } from '@/services/llm/deep-model'
 import { buildUpdatePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildPursuitDetailsPrompt } from '@/services/llm/prompts/pursuit-details'
 import { buildCheckinQuestionPrompt } from '@/services/llm/prompts/checkin-question'
+import { buildAffirmationPrompt } from '@/services/llm/prompts/affirmation'
 import { buildDigestQuestionPrompt } from '@/services/llm/prompts/digest-question'
 import { LLMBridge } from '@/native/LLMBridge'
 
@@ -178,6 +180,42 @@ describe('converseFromWiki', () => {
     const res = await converseFromWiki(cInput)
     expect(res.success).toBe(false)
     if (!res.success) expect(res.error.code).toBe('CONVERSE_VALIDATION_FAILED')
+  })
+})
+
+describe('buildAffirmationPrompt', () => {
+  it('includes the challenge, its length, and asks for one first-person line', () => {
+    const p = buildAffirmationPrompt({ title: 'Work out', details: '20 min', targetDays: 30 })
+    expect(p).toContain('Work out')
+    expect(p).toContain('30-day')
+    expect(p).toContain('20 min')
+    expect(p).toMatch(/ONE[\s\S]*affirmation/)
+  })
+})
+
+describe('generateAffirmation', () => {
+  beforeEach(() => mockSynthesise.mockReset())
+  const aInput = { title: 'Work out', details: '', targetDays: 30 }
+
+  it('returns the affirmation, stripping wrapping quotes', async () => {
+    mockSynthesise.mockResolvedValue({ text: '  "I am someone who shows up."  ' })
+    const result = await generateAffirmation(aInput)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toBe('I am someone who shows up.')
+  })
+
+  it('fails with AFFIRMATION_INFERENCE_FAILED when the model throws', async () => {
+    mockSynthesise.mockRejectedValue(new Error('OOM'))
+    const result = await generateAffirmation(aInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('AFFIRMATION_INFERENCE_FAILED')
+  })
+
+  it('fails with AFFIRMATION_VALIDATION_FAILED on empty output', async () => {
+    mockSynthesise.mockResolvedValue({ text: '   ' })
+    const result = await generateAffirmation(aInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('AFFIRMATION_VALIDATION_FAILED')
   })
 })
 

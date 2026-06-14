@@ -10,9 +10,11 @@ import { buildDigestQuestionPrompt, type DigestQuestionInput } from './prompts/d
 import { buildDigestSynthesisPrompt, type DigestSynthesisInput } from './prompts/digest-synthesis'
 import { buildCheckinQuestionPrompt, type CheckinQuestionInput } from './prompts/checkin-question'
 import { buildPursuitDetailsPrompt, type PursuitDetailsInput } from './prompts/pursuit-details'
+import { buildAffirmationPrompt, type AffirmationInput } from './prompts/affirmation'
 import { buildUpdatePagePrompt, type UpdatePageInput } from './prompts/update-page'
 import { ConversationReplySchema, ConversationSummarySchema } from './schemas/conversation.schema'
 import { CheckinQuestionSchema, PursuitDetailsSchema } from './schemas/pursuit.schema'
+import { AffirmationSchema } from './schemas/challenge.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
@@ -101,6 +103,32 @@ export async function generateCheckinQuestion(
   const parsed = CheckinQuestionSchema.safeParse(raw.trim())
   if (!parsed.success) {
     return err('CHECKIN_QUESTION_VALIDATION_FAILED', 'Check-in question failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Generate a personal affirmation rewarding a completed challenge, from its
+ * title + details (on-device). Best-effort; the caller falls back to a bank
+ * affirmation on any failure. Strips wrapping quotes the model often adds. Never
+ * throws; errors carry a code only, never challenge text.
+ */
+export async function generateAffirmation(input: AffirmationInput): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildAffirmationPrompt(input), {
+      maxTokens: 60,
+      temperature: 0.7,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('AFFIRMATION_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  const cleaned = raw.trim().replace(/^["']+|["']+$/g, '')
+  const parsed = AffirmationSchema.safeParse(cleaned)
+  if (!parsed.success) {
+    return err('AFFIRMATION_VALIDATION_FAILED', 'Affirmation failed validation')
   }
   return ok(parsed.data)
 }

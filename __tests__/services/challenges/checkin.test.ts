@@ -8,6 +8,16 @@ import {
   recordCheckin,
   toLocalDate,
 } from '@/services/challenges/checkin'
+import { generateAffirmation } from '@/services/llm/deep-model'
+import { ok, err } from '@/types/result'
+
+jest.mock('@/services/llm/deep-model', () => ({ generateAffirmation: jest.fn() }))
+const mockGenerate = generateAffirmation as jest.Mock
+
+beforeEach(() => {
+  // Default: model fails, so completion falls back to the bank.
+  mockGenerate.mockResolvedValue(err('AFFIRMATION_INFERENCE_FAILED', 'down'))
+})
 
 // A local-noon timestamp for a given calendar date (avoids DST/midnight edges).
 const day = (y: number, m: number, d: number): number => new Date(y, m - 1, d, 12, 0).getTime()
@@ -150,9 +160,10 @@ describe('recordCheckin', () => {
     expect(rows.get('c1')?.updated_at).toBe(111) // untouched
   })
 
-  it('completes the challenge and unlocks an affirmation at target_days', async () => {
+  it('completes the challenge and unlocks an AI affirmation from the challenge', async () => {
+    mockGenerate.mockResolvedValue(ok('I am someone who shows up.'))
     const { db, rows } = createFakeDb(
-      challenge({ target_days: 3, current_streak: 2, last_checkin_date: '2026-06-12' })
+      challenge({ title: 'Work out', target_days: 3, current_streak: 2, last_checkin_date: '2026-06-12' })
     )
     const res = await recordCheckin('c1', day(2026, 6, 13), db)
     expect(res.success).toBe(true)
@@ -160,6 +171,17 @@ describe('recordCheckin', () => {
     expect(res.data.decision.justCompleted).toBe(true)
     expect(rows.get('c1')?.status).toBe('completed')
     expect(rows.get('c1')?.completed_at).toBe(day(2026, 6, 13))
+    expect(mockGenerate).toHaveBeenCalledWith({ title: 'Work out', details: '', targetDays: 3 })
+    expect(rows.get('c1')?.affirmation).toBe('I am someone who shows up.')
+  })
+
+  it('falls back to a bank affirmation when generation fails', async () => {
+    // mockGenerate defaults to an error in beforeEach.
+    const { db, rows } = createFakeDb(
+      challenge({ target_days: 3, current_streak: 2, last_checkin_date: '2026-06-12' })
+    )
+    const res = await recordCheckin('c1', day(2026, 6, 13), db)
+    expect(res.success).toBe(true)
     expect(AFFIRMATION_BANK).toContain(rows.get('c1')?.affirmation)
   })
 
