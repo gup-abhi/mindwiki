@@ -7,7 +7,9 @@ import { type Theme, useThemedStyles } from '@/theme'
 import { AffirmationCover } from '@/components/AffirmationCover'
 import { useChallenge } from '@/hooks/useChallenge'
 import { type Challenge } from '@/services/storage/challenges'
-import { setCoverAffirmation } from '@/services/challenges/cover'
+import { COVER_AFFIRMATION_TTL_MS, setCoverAffirmation } from '@/services/challenges/cover'
+
+const COVER_DAYS = Math.round(COVER_AFFIRMATION_TTL_MS / 86_400_000)
 
 export default function ChallengeScreen() {
   const router = useRouter()
@@ -75,15 +77,21 @@ export default function ChallengeScreen() {
             </Card>
             {coverSet ? (
               <Text variant="body" color="textSecondary" style={styles.center}>
-                Added to your cover. You’ll see it each time you open MindWiki.
+                Added to your cover — it’ll greet you each time you open MindWiki for the next{' '}
+                {COVER_DAYS} days.
               </Text>
             ) : (
-              <Button
-                title="Set as my cover affirmation"
-                fullWidth
-                onPress={onSetCover}
-                testID="challenge-set-cover"
-              />
+              <View style={styles.setCover}>
+                <Button
+                  title="Set as my cover affirmation"
+                  fullWidth
+                  onPress={onSetCover}
+                  testID="challenge-set-cover"
+                />
+                <Text variant="caption" color="textMuted" style={styles.center}>
+                  Greets you on every app open for {COVER_DAYS} days.
+                </Text>
+              </View>
             )}
             <Button title="Done" variant="ghost" fullWidth onPress={() => router.back()} />
           </View>
@@ -260,6 +268,7 @@ const makeStyles = (t: Theme) =>
     crafting: { textAlign: 'center', marginTop: t.spacing.md },
     celebrate: { gap: t.spacing.lg, alignItems: 'stretch', paddingTop: t.spacing.xl },
     affirmCard: { alignSelf: 'stretch' },
+    setCover: { alignSelf: 'stretch', gap: t.spacing.sm },
     tabs: { flexDirection: 'row', gap: t.spacing.sm, marginBottom: t.spacing.lg },
     rewardCard: { marginBottom: t.spacing.md },
     rewardAffirmation: { fontStyle: 'italic' },

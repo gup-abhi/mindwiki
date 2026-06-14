@@ -13,7 +13,10 @@ const mockUse = jest.fn()
 jest.mock('@/hooks/useChallenge', () => ({ useChallenge: () => mockUse() }))
 
 const mockSetCover = jest.fn()
-jest.mock('@/services/challenges/cover', () => ({ setCoverAffirmation: (t: string) => mockSetCover(t) }))
+jest.mock('@/services/challenges/cover', () => ({
+  setCoverAffirmation: (t: string) => mockSetCover(t),
+  COVER_AFFIRMATION_TTL_MS: 7 * 86_400_000,
+}))
 
 const challenge = (over: Partial<Challenge> = {}): Challenge => ({
   id: 'c1',
@@ -114,6 +117,8 @@ describe('ChallengeScreen', () => {
     })
     expect(await screen.findByTestId('challenge-complete')).toBeTruthy()
     expect(screen.getByText('I finish what I start.')).toBeTruthy()
+    // sets expectations: the cover lasts 7 days
+    expect(screen.getByText(/7 days/)).toBeTruthy()
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('challenge-set-cover'))
