@@ -16,6 +16,7 @@ import { initStorage } from '@/services/storage/bootstrap'
 import { configureNotifications } from '@/services/notifications/scheduler'
 import { hydrateAuth } from '@/services/auth/auth.service'
 import { useAuthStore } from '@/store/auth.store'
+import { useLockStore } from '@/store/lock.store'
 import { useSync } from '@/hooks/useSync'
 import { useAppLock } from '@/hooks/useAppLock'
 import { AuthScreen } from '@/components/auth/AuthScreen'
@@ -36,11 +37,14 @@ function AppRoot() {
   useSync()
   // Overlay (not swap) the lock so navigation state survives lock/unlock.
   const locked = useAppLock()
+  // Only after the cold-start lock decision is made, so the cover doesn't mount
+  // (and burn its once-per-launch flash) during the brief pre-lock window.
+  const lockResolved = useLockStore((s) => s.resolved)
   return (
     <>
       <Stack screenOptions={{ headerShown: false }} />
-      {/* After unlock, flash the earned affirmation over the app before Home. */}
-      {!locked && <CoverScreen />}
+      {/* After a genuine unlock, flash the earned affirmation before Home. */}
+      {lockResolved && !locked && <CoverScreen />}
       {locked && <LockScreen />}
     </>
   )

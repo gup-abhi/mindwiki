@@ -12,6 +12,10 @@ interface LockState {
   // Effective enabled = user preference AND the device can authenticate. The gate
   // sets this at launch / when the Settings toggle changes.
   enabled: boolean
+  // Whether the cold-start lock decision has been made yet. Guards consumers (the
+  // app-open cover) from acting during the brief pre-lock window where locked is
+  // still its default false.
+  resolved: boolean
   backgroundedAt: number | null
   setEnabled: (enabled: boolean) => void
   /** Lock now if enabled (used on cold start). */
@@ -26,10 +30,12 @@ export const useLockStore = create<LockState>()(
   immer((set) => ({
     locked: false,
     enabled: true,
+    resolved: false,
     backgroundedAt: null,
     setEnabled: (enabled) =>
       set((s) => {
         s.enabled = enabled
+        s.resolved = true
         if (!enabled) s.locked = false
       }),
     requireUnlock: () =>
