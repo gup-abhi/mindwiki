@@ -1,3 +1,4 @@
+import { Alert } from 'react-native'
 import { render, screen, fireEvent } from '@testing-library/react-native'
 
 import WikiBrowse from '@/app/(tabs)/wiki/index'
@@ -14,10 +15,18 @@ jest.mock('expo-router', () => ({
 
 const mockUseWikiPages = jest.fn()
 const mockUseWikiPage = jest.fn()
+const mockUseDismissedPages = jest.fn(() => ({
+  pages: [] as Array<{ id: string; title: string; category: string }>,
+  loading: false,
+  refresh: jest.fn(),
+}))
 jest.mock('@/hooks/useWiki', () => ({
   useWikiPages: () => mockUseWikiPages(),
   useWikiPage: () => mockUseWikiPage(),
+  useDismissedPages: () => mockUseDismissedPages(),
 }))
+const mockDismiss = jest.fn()
+const mockRestore = jest.fn()
 
 const mixedPages = [
   { id: 'p1', title: 'Anxiety', category: 'emotion', entry_count: 3 },
@@ -30,6 +39,25 @@ describe('WikiBrowse (category list)', () => {
   beforeEach(() => {
     mockPush.mockReset()
     mockParams = { id: 'p1' }
+    mockUseDismissedPages.mockReturnValue({ pages: [], loading: false, refresh: jest.fn() })
+  })
+
+  it('shows the dropped-insights footer and opens it when pages were dropped', () => {
+    mockUseWikiPages.mockReturnValue({ pages: mixedPages, loading: false })
+    mockUseDismissedPages.mockReturnValue({
+      pages: [{ id: 'd1', title: 'Avoidant', category: 'belief' }],
+      loading: false,
+      refresh: jest.fn(),
+    })
+    render(<WikiBrowse />)
+    fireEvent.press(screen.getByText('Dropped insights'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/dismissed')
+  })
+
+  it('hides the dropped-insights footer when nothing is dropped', () => {
+    mockUseWikiPages.mockReturnValue({ pages: mixedPages, loading: false })
+    render(<WikiBrowse />)
+    expect(screen.queryByText('Dropped insights')).toBeNull()
   })
 
   it('lists categories with page counts and opens one', () => {
@@ -80,17 +108,52 @@ describe('WikiCategoryScreen', () => {
 describe('WikiPageScreen', () => {
   beforeEach(() => {
     mockParams = { id: 'p1' }
+    mockDismiss.mockReset()
+    mockRestore.mockReset()
+  })
+
+  const pageReturn = (page: Record<string, unknown>) => ({
+    page,
+    loading: false,
+    dismiss: mockDismiss,
+    restore: mockRestore,
   })
 
   it('renders the page title and synthesized content', () => {
-    mockUseWikiPage.mockReturnValue({
-      page: { id: 'p1', title: 'Anxiety', category: 'emotion', version: 2, entry_count: 3, content: 'You tend to expect the worst before meetings.' },
-      loading: false,
-    })
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 2, entry_count: 3, content: 'You tend to expect the worst before meetings.', dismissed_at: null })
+    )
     render(<WikiPageScreen />)
     expect(screen.getByText('Anxiety')).toBeTruthy()
     expect(screen.getByText('You tend to expect the worst before meetings.')).toBeTruthy()
     expect(screen.getByText('emotion · v2 · 3 entries')).toBeTruthy()
+  })
+
+  it('offers "This isn’t right" on an active page and confirms before dropping', () => {
+    const spy = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, btns) => {
+      // tap the destructive "Drop it" button
+      btns?.find((b) => b.style === 'destructive')?.onPress?.()
+    })
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 1, entry_count: 3, content: 'c', dismissed_at: null })
+    )
+    render(<WikiPageScreen />)
+    expect(screen.queryByTestId('wiki-dropped-banner')).toBeNull()
+    fireEvent.press(screen.getByTestId('wiki-dismiss'))
+    expect(spy).toHaveBeenCalled()
+    expect(mockDismiss).toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it('shows the dropped banner and restores a dismissed page', () => {
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 1, entry_count: 3, content: 'c', dismissed_at: 123 })
+    )
+    render(<WikiPageScreen />)
+    expect(screen.getByTestId('wiki-dropped-banner')).toBeTruthy()
+    expect(screen.queryByTestId('wiki-dismiss')).toBeNull()
+    fireEvent.press(screen.getByTestId('wiki-restore'))
+    expect(mockRestore).toHaveBeenCalled()
   })
 
   it('shows version history when present', () => {

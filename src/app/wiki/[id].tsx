@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from 'expo-router'
-import { StyleSheet, View } from 'react-native'
+import { Alert, StyleSheet, View } from 'react-native'
 
-import { Divider, ProgressBar, Screen, Text } from '@/components/ui'
+import { Button, Card, Divider, ProgressBar, Screen, Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { Markdown } from '@/components/wiki/Markdown'
 import { useWikiPage } from '@/hooks/useWiki'
@@ -11,7 +11,18 @@ const RICHNESS_TARGET = 10 // entries at which the richness bar is full
 export default function WikiPageScreen() {
   const styles = useThemedStyles(makeStyles)
   const { id } = useLocalSearchParams<{ id?: string }>()
-  const { page, loading } = useWikiPage(id)
+  const { page, loading, dismiss, restore } = useWikiPage(id)
+
+  const confirmDismiss = () => {
+    Alert.alert(
+      'Drop this insight?',
+      'It’ll stop shaping your reflections and won’t come up in conversations. You can restore it anytime, and a new entry on this topic will rebuild it fresh.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Drop it', style: 'destructive', onPress: () => void dismiss() },
+      ]
+    )
+  }
 
   if (loading) {
     return (
@@ -66,6 +77,32 @@ export default function WikiPageScreen() {
           ))}
         </View>
       )}
+
+      <View style={styles.feedback}>
+        <Divider />
+        {page.dismissed_at != null ? (
+          <Card variant="sunken" style={styles.droppedCard} testID="wiki-dropped-banner">
+            <Text variant="bodyStrong">You dropped this insight</Text>
+            <Text variant="caption" color="textSecondary" style={styles.droppedHint}>
+              It’s no longer shaping your reflections or conversations.
+            </Text>
+            <Button
+              title="Restore it"
+              variant="secondary"
+              size="sm"
+              onPress={() => void restore()}
+              testID="wiki-restore"
+            />
+          </Card>
+        ) : (
+          <Button
+            title="This isn’t right about me"
+            variant="ghost"
+            onPress={confirmDismiss}
+            testID="wiki-dismiss"
+          />
+        )}
+      </View>
     </Screen>
   )
 }
@@ -77,4 +114,7 @@ const makeStyles = (t: Theme) =>
     richness: { marginBottom: t.spacing.xl },
     history: { marginTop: t.spacing['2xl'], paddingTop: t.spacing.md, gap: t.spacing.xs },
     historyTitle: { marginBottom: t.spacing.xs },
+    feedback: { marginTop: t.spacing['2xl'], paddingTop: t.spacing.md, gap: t.spacing.md },
+    droppedCard: { gap: t.spacing.sm, alignItems: 'flex-start' },
+    droppedHint: {},
   })

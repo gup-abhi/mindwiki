@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
-import { deleteEmptyPages, listPages, getPage, type WikiPage } from '@/services/storage/wiki'
+import {
+  deleteEmptyPages,
+  dismissPage,
+  getPage,
+  listDismissedPages,
+  listPages,
+  restorePage,
+  type WikiPage,
+} from '@/services/storage/wiki'
 import { useSyncStore } from '@/store/sync.store'
 
 /** All wiki pages; refreshed on focus and after a sync pull. */
@@ -48,5 +56,39 @@ export function useWikiPage(id: string | undefined) {
     }
   }, [id])
 
-  return { page, loading }
+  // Drop this page as inaccurate (or restore it). Updates local state optimistically
+  // so the screen flips to the dropped/active banner without a reload.
+  const dismiss = useCallback(async () => {
+    if (!id) return
+    const res = await dismissPage(id)
+    if (res.success) setPage((p) => (p ? { ...p, dismissed_at: Date.now() } : p))
+  }, [id])
+
+  const restore = useCallback(async () => {
+    if (!id) return
+    const res = await restorePage(id)
+    if (res.success) setPage((p) => (p ? { ...p, dismissed_at: null } : p))
+  }, [id])
+
+  return { page, loading, dismiss, restore }
+}
+
+/** Pages the user has dropped as inaccurate; refreshed on focus. */
+export function useDismissedPages() {
+  const [pages, setPages] = useState<WikiPage[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async () => {
+    const res = await listDismissedPages()
+    if (res.success) setPages(res.data)
+    setLoading(false)
+  }, [])
+
+  useFocusEffect(
+    useCallback(() => {
+      void refresh()
+    }, [refresh])
+  )
+
+  return { pages, loading, refresh }
 }

@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Divider, EmptyState, ListRow, Screen, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { CATEGORY_ORDER, categoryKey, categoryLabel } from '@/services/wiki/categories'
-import { useWikiPages } from '@/hooks/useWiki'
+import { useDismissedPages, useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
 
 interface CategorySummary {
@@ -20,6 +20,7 @@ export default function WikiBrowse() {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const { pages, loading } = useWikiPages()
+  const { pages: dismissed } = useDismissedPages()
   const synthesizing = useWikiStore((s) => s.pending > 0)
 
   // One row per category present, with its page count.
@@ -72,6 +73,16 @@ export default function WikiBrowse() {
             right={<Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />}
           />
         )}
+        ListFooterComponent={
+          dismissed.length > 0 ? (
+            <ListRow
+              title="Dropped insights"
+              subtitle={`${dismissed.length} ${dismissed.length === 1 ? 'page' : 'pages'} you set aside`}
+              onPress={() => router.push('/wiki/dismissed')}
+              right={<Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />}
+            />
+          ) : null
+        }
       />
     </Screen>
   )
