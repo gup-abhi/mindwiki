@@ -133,6 +133,18 @@ describe('loginNewDevice', () => {
     if (!res.success) expect(res.error.code).toBe('LOGIN_DECRYPT_FAILED')
     expect(mockSetKey).not.toHaveBeenCalled()
   })
+
+  it('maps a 401 to a friendly "wrong email or password" message', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(401, 'Invalid credentials'))
+
+    const res = await loginNewDevice('a@b.com', 'wrong')
+    expect(res.success).toBe(false)
+    if (!res.success) {
+      expect(res.error.code).toBe('LOGIN_INVALID_CREDENTIALS')
+      expect(res.error.message).toBe('Wrong email or password')
+    }
+    expect(mockSetKey).not.toHaveBeenCalled()
+  })
 })
 
 describe('recoverAccount', () => {

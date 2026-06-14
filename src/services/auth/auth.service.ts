@@ -92,6 +92,9 @@ export async function loginNewDevice(email: string, password: string): Promise<R
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password_hash: hashPassword(password) }),
     })
+    // 401 = the server rejected the email/password pair (unknown email or bad
+    // password). Surface a friendly message; keep the status for other failures.
+    if (res.status === 401) return err('LOGIN_INVALID_CREDENTIALS', 'Wrong email or password')
     if (!res.ok) return err('LOGIN_FAILED', `Login failed (${res.status})`)
 
     const data = (await res.json()) as AuthResponse
