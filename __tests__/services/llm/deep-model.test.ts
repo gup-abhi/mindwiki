@@ -42,6 +42,13 @@ describe('buildUpdatePagePrompt', () => {
     expect(p).toContain('prior text')
   })
 
+  it('pins a consistent second-person voice and forbids first-person / definitions', () => {
+    const p = buildUpdatePagePrompt(input)
+    expect(p).toMatch(/address the reader directly as "you"/i)
+    expect(p).toMatch(/never write in the\s+first person/i)
+    expect(p).toMatch(/never write a generic dictionary definition/i)
+  })
+
   it('does not feed parrotable Situation/Thought labels and forbids headings', () => {
     const p = buildUpdatePagePrompt(input)
     expect(p).not.toMatch(/-\s*Situation:/)
