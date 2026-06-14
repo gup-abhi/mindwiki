@@ -1,5 +1,6 @@
 import { type SqliteDatabase } from '@/services/storage/db'
 import {
+  correctPage,
   createPage,
   deleteEmptyPages,
   dismissPage,
@@ -35,6 +36,7 @@ function createFakeDb() {
           created_at,
           updated_at,
           dismissed_at: null,
+          corrected_at: null,
         })
         return { rows: [], rowsAffected: 1 }
       }
@@ -68,11 +70,27 @@ function createFakeDb() {
         if (row) row.dismissed_at = null
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
+      if (/^UPDATE wiki_pages\s+SET content = \?, version = \?, version_history = \?, updated_at = \?,\s+corrected_at = \?/.test(sql)) {
+        const [content, version, version_history, updated_at, corrected_at, id] = params
+        const row = rows.get(String(id))
+        if (row) {
+          Object.assign(row, { content, version, version_history, updated_at, corrected_at, dismissed_at: null })
+        }
+        return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
       if (/^UPDATE wiki_pages/.test(sql)) {
         const [content, version, version_history, entry_count, updated_at, id] = params
         const row = rows.get(String(id))
         if (row) {
-          Object.assign(row, { content, version, version_history, entry_count, updated_at, dismissed_at: null })
+          Object.assign(row, {
+            content,
+            version,
+            version_history,
+            entry_count,
+            updated_at,
+            dismissed_at: null,
+            corrected_at: null,
+          })
         }
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
@@ -215,6 +233,47 @@ describe('storage/wiki CRUD', () => {
     const got = await getPage(a.data.id, db)
     expect(got.success && got.data?.dismissed_at).toBeNull()
     expect(got.success && got.data?.content).toBe('fresh content')
+  })
+
+  it('correctPage replaces content with the user’s words, marks it, and un-drops', async () => {
+    const { db } = createFakeDb()
+    const created = await createPage({ title: 'Avoidant', content: 'AI said you avoid people' }, db)
+    const id = created.success ? created.data.id : ''
+    await dismissPage(id, db) // user dropped it first
+
+    const corrected = await correctPage(id, 'I just value alone time', db)
+    expect(corrected.success).toBe(true)
+    if (corrected.success) {
+      expect(corrected.data.content).toBe('I just value alone time')
+      expect(corrected.data.version).toBe(2)
+      expect(corrected.data.corrected_at).toEqual(expect.any(Number))
+      expect(corrected.data.dismissed_at).toBeNull() // correcting un-drops
+      expect(corrected.data.entry_count).toBe(0) // a correction is not an entry
+      expect(corrected.data.version_history[0].content).toBe('AI said you avoid people')
+    }
+
+    // a corrected page is active again — back in listPages with the user's text
+    const active = await listPages(db)
+    expect(active.success && active.data.map((p) => p.content)).toEqual(['I just value alone time'])
+  })
+
+  it('a later synthesis supersedes a correction (clears corrected_at)', async () => {
+    const { db } = createFakeDb()
+    const created = await createPage({ title: 'Avoidant', content: 'old' }, db)
+    const id = created.success ? created.data.id : ''
+    await correctPage(id, 'my words', db)
+
+    await updatePage(id, 'AI rebuilt on my words', db)
+    const got = await getPage(id, db)
+    expect(got.success && got.data?.corrected_at).toBeNull()
+    expect(got.success && got.data?.content).toBe('AI rebuilt on my words')
+  })
+
+  it('correctPage returns WIKI_NOT_FOUND for a missing id', async () => {
+    const { db } = createFakeDb()
+    const result = await correctPage('ghost', 'x', db)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('WIKI_NOT_FOUND')
   })
 
   it('dismiss/restore return WIKI_NOT_FOUND for a missing id', async () => {

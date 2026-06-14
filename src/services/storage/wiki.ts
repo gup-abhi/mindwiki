@@ -23,6 +23,9 @@ export interface WikiPage {
   updated_at: number
   /** When the user dropped this page as inaccurate; null when active. */
   dismissed_at: number | null
+  /** When the user last rewrote this page in their own words; null once the AI
+   * has re-synthesized over it. */
+  corrected_at: number | null
 }
 
 export interface NewWikiPage {
@@ -50,6 +53,7 @@ function rowToPage(row: Record<string, unknown>): WikiPage {
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
     dismissed_at: row.dismissed_at == null ? null : Number(row.dismissed_at),
+    corrected_at: row.corrected_at == null ? null : Number(row.corrected_at),
   }
 }
 
@@ -69,6 +73,7 @@ export async function createPage(
     created_at: now,
     updated_at: now,
     dismissed_at: null,
+    corrected_at: null,
   }
   try {
     await db.execute(
@@ -219,14 +224,17 @@ export async function updatePage(
       entry_count: prev.entry_count + 1,
       updated_at: now,
       // A fresh synthesis heals a previously-dropped page: clear the flag so it
-      // rejoins retrieval (the engine regenerates its content from scratch).
+      // rejoins retrieval (the engine regenerates its content from scratch). It
+      // also supersedes a user correction — the content now folds in a new entry,
+      // so it's no longer purely the user's words.
       dismissed_at: null,
+      corrected_at: null,
     }
 
     await db.execute(
       `UPDATE wiki_pages
          SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?,
-             dismissed_at = NULL
+             dismissed_at = NULL, corrected_at = NULL
        WHERE id = ?`,
       [next.content, next.version, JSON.stringify(history), next.entry_count, now, id]
     )
@@ -234,5 +242,55 @@ export async function updatePage(
     return ok(next)
   } catch (e) {
     return err('WIKI_UPDATE_FAILED', 'Failed to update wiki page', e)
+  }
+}
+
+/**
+ * Replace a page's content with the user's own words (correct-with-replacement):
+ * archive the current content into version_history, bump the version, mark
+ * corrected_at, and un-drop the page. Future synthesis builds on this text (the
+ * engine uses the current content as its base), so the correction compounds
+ * forward instead of being re-derived away. entry_count is left unchanged — a
+ * correction is the user's edit, not a journal entry.
+ */
+export async function correctPage(
+  id: string,
+  content: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPage>> {
+  try {
+    const current = await getPage(id, db)
+    if (!current.success) return current
+    if (current.data == null) {
+      return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    }
+
+    const prev = current.data
+    const history: WikiPageVersion[] = [
+      ...prev.version_history,
+      { version: prev.version, content: prev.content, updated_at: prev.updated_at },
+    ]
+    const now = Date.now()
+    const next: WikiPage = {
+      ...prev,
+      content,
+      version: prev.version + 1,
+      version_history: history,
+      updated_at: now,
+      corrected_at: now,
+      dismissed_at: null,
+    }
+
+    await db.execute(
+      `UPDATE wiki_pages
+         SET content = ?, version = ?, version_history = ?, updated_at = ?,
+             corrected_at = ?, dismissed_at = NULL
+       WHERE id = ?`,
+      [next.content, next.version, JSON.stringify(history), now, now, id]
+    )
+    await enqueueUpsert('wiki_pages', id, db) // content changed → re-sync
+    return ok(next)
+  } catch (e) {
+    return err('WIKI_CORRECT_FAILED', 'Failed to correct wiki page', e)
   }
 }

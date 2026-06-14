@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
 import {
+  correctPage,
   deleteEmptyPages,
   dismissPage,
   getPage,
@@ -70,7 +71,15 @@ export function useWikiPage(id: string | undefined) {
     if (res.success) setPage((p) => (p ? { ...p, dismissed_at: null } : p))
   }, [id])
 
-  return { page, loading, dismiss, restore }
+  // Rewrite the page in the user's own words. Reflects the new content, bumped
+  // version, and corrected/active flags locally so the screen updates in place.
+  const correct = useCallback(async (text: string) => {
+    if (!id) return
+    const res = await correctPage(id, text)
+    if (res.success) setPage(res.data)
+  }, [id])
+
+  return { page, loading, dismiss, restore, correct }
 }
 
 /** Pages the user has dropped as inaccurate; refreshed on focus. */

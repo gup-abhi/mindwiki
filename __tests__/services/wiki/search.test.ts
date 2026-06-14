@@ -13,6 +13,7 @@ const page = (over: Partial<WikiPage> = {}): WikiPage => ({
   created_at: 0,
   updated_at: 0,
   dismissed_at: null,
+  corrected_at: null,
   ...over,
 })
 

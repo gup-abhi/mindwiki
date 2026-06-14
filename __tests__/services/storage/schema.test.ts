@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -162,6 +162,14 @@ describe('migration 007 (pursuits)', () => {
     expect(MIGRATIONS[8].name).toBe('wiki_page_dismissal')
     expect(MIGRATIONS[8].statements).toEqual([
       'ALTER TABLE wiki_pages ADD COLUMN dismissed_at INTEGER',
+    ])
+  })
+
+  it('is registered as version 10 and adds the wiki page correction column', () => {
+    expect(MIGRATIONS[9].version).toBe(10)
+    expect(MIGRATIONS[9].name).toBe('wiki_page_correction')
+    expect(MIGRATIONS[9].statements).toEqual([
+      'ALTER TABLE wiki_pages ADD COLUMN corrected_at INTEGER',
     ])
   })
 })

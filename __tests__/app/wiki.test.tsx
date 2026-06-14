@@ -27,6 +27,7 @@ jest.mock('@/hooks/useWiki', () => ({
 }))
 const mockDismiss = jest.fn()
 const mockRestore = jest.fn()
+const mockCorrect = jest.fn()
 
 const mixedPages = [
   { id: 'p1', title: 'Anxiety', category: 'emotion', entry_count: 3 },
@@ -110,6 +111,7 @@ describe('WikiPageScreen', () => {
     mockParams = { id: 'p1' }
     mockDismiss.mockReset()
     mockRestore.mockReset()
+    mockCorrect.mockReset()
   })
 
   const pageReturn = (page: Record<string, unknown>) => ({
@@ -117,6 +119,7 @@ describe('WikiPageScreen', () => {
     loading: false,
     dismiss: mockDismiss,
     restore: mockRestore,
+    correct: mockCorrect,
   })
 
   it('renders the page title and synthesized content', () => {
@@ -154,6 +157,26 @@ describe('WikiPageScreen', () => {
     expect(screen.queryByTestId('wiki-dismiss')).toBeNull()
     fireEvent.press(screen.getByTestId('wiki-restore'))
     expect(mockRestore).toHaveBeenCalled()
+  })
+
+  it('rewrites a page in the user’s own words and saves the correction', () => {
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 1, entry_count: 3, content: 'AI take', dismissed_at: null, corrected_at: null })
+    )
+    render(<WikiPageScreen />)
+    fireEvent.press(screen.getByTestId('wiki-rewrite'))
+    const input = screen.getByTestId('wiki-edit-input')
+    fireEvent.changeText(input, 'What is actually true for me')
+    fireEvent.press(screen.getByTestId('wiki-edit-save'))
+    expect(mockCorrect).toHaveBeenCalledWith('What is actually true for me')
+  })
+
+  it('shows the “in your own words” badge on a corrected page', () => {
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 2, entry_count: 3, content: 'my words', dismissed_at: null, corrected_at: 123 })
+    )
+    render(<WikiPageScreen />)
+    expect(screen.getByTestId('wiki-corrected-badge')).toBeTruthy()
   })
 
   it('shows version history when present', () => {

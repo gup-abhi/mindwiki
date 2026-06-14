@@ -29,7 +29,7 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
   wiki_pages: {
     columns: [
       'id', 'title', 'category', 'content', 'entry_count', 'version',
-      'version_history', 'created_at', 'updated_at', 'dismissed_at',
+      'version_history', 'created_at', 'updated_at', 'dismissed_at', 'corrected_at',
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },

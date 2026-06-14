@@ -275,3 +275,15 @@ export const migration009: Migration = {
   name: 'wiki_page_dismissal',
   statements: [`ALTER TABLE wiki_pages ADD COLUMN dismissed_at INTEGER`],
 }
+
+// Migration 010 — correct-with-replacement. Lets the user rewrite a wrong insight
+// in their own words instead of only dropping it. corrected_at marks a page whose
+// content is the user's text: future synthesis builds on it (the engine uses the
+// current content as its base) so the correction compounds forward. The flag is
+// cleared on the next synthesis (updatePage) — once a new entry merges in, the
+// content is no longer purely the user's words.
+export const migration010: Migration = {
+  version: 10,
+  name: 'wiki_page_correction',
+  statements: [`ALTER TABLE wiki_pages ADD COLUMN corrected_at INTEGER`],
+}
