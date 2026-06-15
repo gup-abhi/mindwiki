@@ -5,6 +5,7 @@ import {
   markSynced,
   backfillSyncQueue,
 } from '@/services/storage/sync-queue'
+import { useSyncStore } from '@/store/sync.store'
 
 // In-memory fake backing exactly the queries sync-queue.ts issues, so we can
 // assert real semantics (enqueue -> list -> mark synced).
@@ -55,6 +56,13 @@ describe('storage/sync-queue', () => {
     const pending = await pendingUploads(db)
     expect(pending.success && pending.data.map((q) => q.record_id)).toEqual(['e1'])
     expect(pending.success && pending.data[0].id).toBe('entries:e1')
+  })
+
+  it('signals a local change so the debounced background sync wakes', async () => {
+    const { db } = createFakeDb()
+    useSyncStore.setState({ pendingSignal: 0 })
+    await enqueueUpsert('entries', 'e1', db)
+    expect(useSyncStore.getState().pendingSignal).toBe(1)
   })
 
   it('collapses repeated edits of one record into a single pending row', async () => {

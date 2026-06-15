@@ -1,3 +1,4 @@
+import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
@@ -44,6 +45,9 @@ export async function enqueueUpsert(
        ON CONFLICT(id) DO UPDATE SET operation = 'upsert', created_at = excluded.created_at, synced_at = NULL`,
       [`${tableName}:${recordId}`, tableName, recordId, Date.now()]
     )
+    // Wake the debounced background sync (useSync) so this change uploads on its
+    // own. Best-effort signal — never affects the enqueue result.
+    useSyncStore.getState().notifyLocalChange()
     return ok(undefined)
   } catch (e) {
     return err('SYNC_ENQUEUE_FAILED', 'Failed to enqueue record for sync', e)

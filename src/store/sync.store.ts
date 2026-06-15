@@ -7,6 +7,11 @@ import { immer } from 'zustand/middleware/immer'
 interface SyncState {
   revision: number
   bumpRevision: () => void
+  // Bumped whenever a local record is enqueued for upload. useSync watches this
+  // and runs a debounced background sync, so anything created/updated (including
+  // background-generated wiki pages) uploads on its own without a manual sync.
+  pendingSignal: number
+  notifyLocalChange: () => void
 }
 
 export const useSyncStore = create<SyncState>()(
@@ -15,6 +20,11 @@ export const useSyncStore = create<SyncState>()(
     bumpRevision: () =>
       set((s) => {
         s.revision += 1
+      }),
+    pendingSignal: 0,
+    notifyLocalChange: () =>
+      set((s) => {
+        s.pendingSignal += 1
       }),
   }))
 )

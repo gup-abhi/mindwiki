@@ -5,6 +5,7 @@ import NetInfo from '@react-native-community/netinfo'
 import { useSync } from '@/hooks/useSync'
 import { sync } from '@/services/sync/engine'
 import { useAuthStore } from '@/store/auth.store'
+import { useSyncStore } from '@/store/sync.store'
 
 jest.mock('@/services/sync/engine', () => ({ sync: jest.fn() }))
 
@@ -16,6 +17,7 @@ beforeEach(() => {
   mockSync.mockReset()
   mockSync.mockResolvedValue({ success: true, data: { pushed: 0, pulled: 0 } })
   useAuthStore.setState({ status: 'loading', accountId: null })
+  useSyncStore.setState({ revision: 0, pendingSignal: 0 })
   // Capture the AppState 'change' handler so we can simulate foregrounding.
   changeHandler = () => {}
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
@@ -30,7 +32,10 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => jest.restoreAllMocks())
+afterEach(() => {
+  jest.restoreAllMocks()
+  jest.useRealTimers()
+})
 
 describe('useSync', () => {
   it('does not sync while unauthenticated', () => {
@@ -87,6 +92,22 @@ describe('useSync', () => {
     await act(async () => {
       netHandler({ isConnected: true }) // still connected — no extra sync
     })
+    expect(mockSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs a debounced sync when a local change is enqueued (pendingSignal bump)', async () => {
+    jest.useFakeTimers()
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc' })
+    renderHook(() => useSync())
+    await act(async () => {
+      await Promise.resolve() // let the mount sync settle
+    })
+    mockSync.mockClear()
+
+    act(() => useSyncStore.getState().notifyLocalChange())
+    expect(mockSync).not.toHaveBeenCalled() // debounced, not immediate
+
+    act(() => jest.advanceTimersByTime(2000))
     expect(mockSync).toHaveBeenCalledTimes(1)
   })
 
