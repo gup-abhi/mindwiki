@@ -33,8 +33,9 @@ describe('buildRewritePagePrompt', () => {
   it('asks to keep substance, pins the voice, and includes the page to rewrite', () => {
     const p = buildRewritePagePrompt({ title: 'Anxiety', category: 'emotion', content: 'I always panic.' })
     expect(p).toMatch(/Keep the SAME facts and meaning/i)
-    expect(p).toMatch(/do NOT copy sentences unchanged/i) // combats verbatim echo
-    expect(p).toMatch(/address the reader directly as "you"/i) // shared voice rules
+    expect(p).toMatch(/do NOT copy sentences/i) // combats verbatim echo
+    expect(p).toMatch(/DELETE any "Situation", "Thought"/i) // strips the CBT skeleton
+    expect(p).toMatch(/consolidated/i) // shared house style
     expect(p).toContain('I always panic.') // the existing content is fed in
   })
 })
@@ -68,18 +69,18 @@ describe('buildUpdatePagePrompt', () => {
     expect(p).toContain('prior text')
   })
 
-  it('pins a consistent second-person voice and forbids first-person / definitions', () => {
+  it('pins a consolidated second-person house style (no labels, no first person)', () => {
     const p = buildUpdatePagePrompt(input)
+    expect(p).toMatch(/consolidated/i)
     expect(p).toMatch(/address the reader directly as "you"/i)
     expect(p).toMatch(/never write in the\s+first person/i)
-    expect(p).toMatch(/never write a generic dictionary definition/i)
+    expect(p).toMatch(/Never use labels or section headings/i)
   })
 
-  it('does not feed parrotable Situation/Thought labels and forbids headings', () => {
+  it('does not feed parrotable Situation/Thought labels into the reflection', () => {
     const p = buildUpdatePagePrompt(input)
     expect(p).not.toMatch(/-\s*Situation:/)
     expect(p).not.toMatch(/-\s*Thought:/)
-    expect(p).toMatch(/do NOT add section headings/i)
     // both pieces of the reflection are still present for the model to synthesize
     expect(p).toContain('a meeting')
     expect(p).toContain('I will fail')

@@ -6,13 +6,16 @@ export interface UpdatePageInput {
   thought: string
 }
 
-// The one voice every wiki page is written in. Shared by first-time synthesis,
+// The house style every wiki page is written in. Shared by first-time synthesis,
 // per-entry updates, and the regenerate pass so they can't drift apart.
-const VOICE_RULES = [
-  'Voice: always address the reader directly as "you" — this page is about THEIR patterns,',
-  'feelings, and tendencies as they show up across their reflections. Never write in the',
-  'first person ("I", "my"), and never write a generic dictionary definition of the topic.',
-  'If the topic is a person or place, describe it in relation to the reader ("your", "you").',
+const PAGE_STYLE = [
+  'Style: write ONE consolidated, human-readable summary — a few flowing paragraphs of warm,',
+  'plain prose that a person would actually want to read. Never use labels or section headings',
+  'like "Situation:", "Thought:", "Behavior:", or "#" markdown headings — merge everything into',
+  'natural prose. Address the reader directly as "you"; the page is about THEIR patterns and',
+  'tendencies. Never write in the first person ("I", "my"), and never write a generic dictionary',
+  'definition. If the topic is a person or place, describe it in relation to the reader',
+  '("your", "you"). Be specific and concise — no generic filler.',
 ]
 
 /**
@@ -35,11 +38,9 @@ export function buildUpdatePagePrompt({
   return [
     `You maintain a personal wiki page titled "${title}"${category ? ` (${category})` : ''}.`,
     'Weave the new reflection below into the page. Synthesize — merge its insight into the',
-    'existing understanding rather than appending or restating it. Write a few short',
-    'paragraphs of warm, plain prose about this topic.',
-    ...VOICE_RULES,
-    'Do NOT add section headings (no "Situation", "Thought", or "#" markdown headings),',
-    'and do NOT copy the reflection word-for-word. Output ONLY the page content, no preamble.',
+    'existing understanding rather than appending or restating it.',
+    ...PAGE_STYLE,
+    'Do NOT copy the reflection word-for-word. Output ONLY the page content, no preamble.',
     '',
     existing ? `Current page:\n${existing}` : 'The page is currently empty — write the first version.',
     '',
@@ -54,23 +55,24 @@ export interface RewritePageInput {
 }
 
 /**
- * Instruction for the deep model to rewrite an EXISTING page in the canonical
- * voice without changing its substance — used to bring older pages (written
- * before the voice was pinned) into a consistent voice. Output is markdown only.
+ * Instruction for the deep model to rewrite an EXISTING page into the house
+ * style without changing its substance — used to bring older pages (which echo
+ * the entry's "Situation:/Thought:" skeleton, or use the wrong voice) into a
+ * consolidated, readable form. Output is the page content only.
  */
 export function buildRewritePagePrompt({ title, category, content }: RewritePageInput): string {
   return [
-    `Rewrite this personal wiki page titled "${title}"${category ? ` (${category})` : ''} in a new voice.`,
-    'Keep the SAME facts and meaning, but change the wording so the whole page speaks directly to',
-    'the reader in the second person. Rewrite every sentence — do NOT copy sentences unchanged.',
-    'Transform the voice:',
-    '- First person → second person: "I feel anxious" → "You feel anxious"; "my work" → "your work".',
-    '- A dictionary definition → a direct observation: "Catastrophizing is when someone assumes the',
-    '  worst" → "You tend to assume the worst will happen".',
-    '- Third person about the reader → second person: "they avoid conflict" → "you avoid conflict".',
-    ...VOICE_RULES,
-    'Write a few short paragraphs of warm, plain prose. Do NOT add section headings (no "#" headings).',
-    'Output ONLY the rewritten page, no preamble.',
+    `Rewrite this personal wiki page titled "${title}"${category ? ` (${category})` : ''}.`,
+    'Keep the SAME facts and meaning, but rewrite the wording completely — do NOT copy sentences',
+    'unchanged. The current page is badly formatted; fix it:',
+    '- DELETE any "Situation", "Thought", "Behavior" labels or headings and any "#" headings.',
+    '  Merge that content into flowing paragraphs — the result must read as one consolidated summary,',
+    '  not a list of labelled sections.',
+    '- Turn first person into second person: "I feel anxious" → "You feel anxious".',
+    '- Turn a dictionary definition into a direct observation about the reader: "Catastrophizing is',
+    '  when someone assumes the worst" → "You tend to assume the worst will happen".',
+    ...PAGE_STYLE,
+    'Output ONLY the rewritten page, no preamble, no headings, no labels.',
     '',
     `Page to rewrite:\n${content.trim()}`,
   ].join('\n')
