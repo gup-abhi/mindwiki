@@ -6,10 +6,12 @@ import {
   getRecoveryStatus,
   addRecoveryPhrase,
   hydrateAuth,
+  logout,
 } from '@/services/auth/auth.service'
 import { wrapMasterKey } from '@/services/auth/crypto'
 import { generateRecoveryPhrase, recoveryKeyFromPhrase } from '@/services/auth/recovery'
-import { saveTokens, getTokens } from '@/services/auth/token-store'
+import { saveTokens, getTokens, clearTokens } from '@/services/auth/token-store'
+import { deleteDatabase } from '@/services/storage/db'
 import { CryptoModule } from '@/native/CryptoModule'
 import { useAuthStore } from '@/store/auth.store'
 
@@ -23,8 +25,12 @@ jest.mock('@/native/CryptoModule', () => ({
     getKeyFromKeychain: jest.fn(),
     deriveKey: jest.fn(),
     setKeyInKeychain: jest.fn(),
+    deleteKeyFromKeychain: jest.fn(),
   },
 }))
+// Mock the storage module so importing auth.service doesn't pull in op-sqlite
+// (native). logout() calls deleteDatabase(); we only assert it's invoked.
+jest.mock('@/services/storage/db', () => ({ deleteDatabase: jest.fn() }))
 jest.mock('@/services/auth/token-store', () => ({
   saveTokens: jest.fn(),
   clearTokens: jest.fn(),
@@ -34,8 +40,11 @@ jest.mock('@/services/auth/token-store', () => ({
 const mockGetKey = CryptoModule.getKeyFromKeychain as jest.Mock
 const mockDerive = CryptoModule.deriveKey as jest.Mock
 const mockSetKey = CryptoModule.setKeyInKeychain as jest.Mock
+const mockDeleteKey = CryptoModule.deleteKeyFromKeychain as jest.Mock
 const mockSave = saveTokens as jest.Mock
 const mockGetTokens = getTokens as jest.Mock
+const mockClear = clearTokens as jest.Mock
+const mockDeleteDb = deleteDatabase as jest.Mock
 
 const MASTER = 'ab'.repeat(32)
 const WRAP = 'cd'.repeat(32)
@@ -275,6 +284,21 @@ describe('hydrateAuth', () => {
   it('falls back to unauthenticated when there is no session', async () => {
     mockGetTokens.mockResolvedValue(null)
     await hydrateAuth()
+    expect(useAuthStore.getState().status).toBe('unauthenticated')
+  })
+})
+
+describe('logout', () => {
+  it('wipes local state: clears tokens, deletes the DB + master key, unauthenticates', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+
+    await logout()
+
+    // Account isolation: the next account on this device must not inherit the
+    // previous account's master key or database.
+    expect(mockClear).toHaveBeenCalled()
+    expect(mockDeleteDb).toHaveBeenCalled()
+    expect(mockDeleteKey).toHaveBeenCalled()
     expect(useAuthStore.getState().status).toBe('unauthenticated')
   })
 })

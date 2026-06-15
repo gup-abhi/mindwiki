@@ -1,6 +1,7 @@
 import { getRandomBytesAsync } from 'expo-crypto'
 
 import { CryptoModule } from '@/native/CryptoModule'
+import { deleteDatabase } from '@/services/storage/db'
 import { useAuthStore } from '@/store/auth.store'
 import { type Result, ok, err } from '@/types/result'
 
@@ -233,8 +234,16 @@ export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: stri
   }
 }
 
-/** Sign out: drop the session (re-login required); local master key + data stay. */
+/**
+ * Sign out: drop the session AND wipe local state — delete the encrypted DB and
+ * remove the master key from the keystore. This is required for account
+ * isolation: without it, the next account registered/signed-in on this device
+ * would inherit the previous account's master key and database (privacy-first —
+ * no residual journal data after logout). Re-login re-pulls from the server.
+ */
 export async function logout(): Promise<void> {
   await clearTokens()
+  deleteDatabase()
+  await CryptoModule.deleteKeyFromKeychain()
   useAuthStore.getState().setUnauthenticated()
 }

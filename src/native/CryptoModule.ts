@@ -38,6 +38,8 @@ export interface ICryptoModule {
   getKeyFromKeychain(): Promise<string>
   /** Persist the master key to the OS keystore. */
   setKeyInKeychain(key: string): Promise<void>
+  /** Remove the master key from the OS keystore (e.g. on logout). */
+  deleteKeyFromKeychain(): Promise<void>
   /** AES-256-GCM encrypt. */
   encrypt(plaintext: string, keyHex: string): Promise<string>
   /** AES-256-GCM decrypt. */
@@ -65,6 +67,9 @@ export const CryptoModule: ICryptoModule = {
   },
   async setKeyInKeychain(key: string) {
     await SecureStore.setItemAsync(MASTER_KEY_ID, key)
+  },
+  async deleteKeyFromKeychain() {
+    await SecureStore.deleteItemAsync(MASTER_KEY_ID)
   },
   async encrypt() {
     return notImplemented('CryptoModule.encrypt')

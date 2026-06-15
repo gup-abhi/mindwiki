@@ -17,6 +17,8 @@ export interface SqliteDatabase {
   execute(sql: string, params?: SqlParam[]): Promise<QueryResult>
   transaction(fn: (tx: SqliteDatabase) => Promise<void>): Promise<void>
   close(): void
+  /** op-sqlite: close the connection and remove the underlying DB file. */
+  delete?(): void
 }
 
 const DB_NAME = 'mindwiki.db'
@@ -54,5 +56,17 @@ export function setDb(db: SqliteDatabase | null): void {
 
 export function closeDb(): void {
   dbInstance?.close()
+  dbInstance = null
+}
+
+/**
+ * Delete the encrypted database file and drop the singleton, so the next
+ * initDb() recreates an empty DB keyed to whatever master key is current. Used
+ * on logout: a different account must never inherit the previous account's local
+ * data (the old file is keyed with the old master key and cannot be reused).
+ */
+export function deleteDatabase(): void {
+  if (dbInstance?.delete) dbInstance.delete()
+  else dbInstance?.close()
   dbInstance = null
 }

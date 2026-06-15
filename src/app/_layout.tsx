@@ -64,6 +64,13 @@ function AppGate() {
     void hydrateAuth()
   }, [])
 
+  // On logout the session ends and logout() deletes the DB + master key; reset
+  // storage to 'idle' so the next sign-in re-runs initStorage and opens a fresh
+  // DB keyed to the new account (otherwise it stays 'ready' on the stale handle).
+  useEffect(() => {
+    if (authStatus === 'unauthenticated') setStorage('idle')
+  }, [authStatus])
+
   // Open the encrypted DB only after auth — so it's keyed with the correct
   // master key (a fresh DB on a new-device login, the existing DB for a
   // returning user). Opening before auth would create it with a throwaway
