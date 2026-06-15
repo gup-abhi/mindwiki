@@ -60,7 +60,7 @@ async function refreshSummary(conversationId: string): Promise<void> {
  * persists the thread. UI state lives in the chat store so streaming re-renders
  * only the live bubble.
  */
-export function useConversation(initialQuestion?: string, initialCheckin?: string) {
+export function useConversation(initialQuestion?: string) {
   const messages = useChatStore((s) => s.messages)
   const streaming = useChatStore((s) => s.streaming)
   const sending = useChatStore((s) => s.sending)
@@ -268,50 +268,16 @@ export function useConversation(initialQuestion?: string, initialCheckin?: strin
     [history, loadConversation, send]
   )
 
-  // Open a pursuit check-in: unlike a starter, the question is the COMPANION
-  // asking the user, so it seeds the thread as an opening assistant message and
-  // waits for the user to answer (no model call yet). Reopens the existing
-  // conversation if one already exists (matched by the title the question seeded).
-  const openCheckin = useCallback(
-    async (question: string) => {
-      const existing = findConversationByStarter(history, question)
-      if (existing) {
-        loadConversation(existing.id)
-        return
-      }
-      if (useChatStore.getState().sending) return
-      const created = await createConversation()
-      if (!created.success) return
-      const conversationId = created.data.id
-      const appended = await appendMessage({
-        conversation_id: conversationId,
-        role: 'assistant',
-        content: question,
-      })
-      const msg: UIMessage = {
-        id: appended.success ? appended.data.id : randomUUID(),
-        role: 'assistant',
-        content: question,
-        sources: [],
-        crisisTier: null,
-      }
-      useChatStore.getState().load(conversationId, [msg], '', 0)
-    },
-    [history, loadConversation]
-  )
-
-  // Auto-open a thread routed in from elsewhere, once, after the wiki/graph
-  // context has loaded. A check-in (Home "Checking in" card) opens as the
-  // companion's question; a plain question (Home "Curious?" card) opens as a
-  // user starter. Both reopen the existing conversation instead of duplicating.
+  // Auto-open a thread routed in from elsewhere (Home "Curious?" card), once,
+  // after the wiki/graph context has loaded, as a user starter. Reopens the
+  // existing conversation instead of duplicating.
   const askedInitial = useRef(false)
   useEffect(() => {
-    if (loaded && !askedInitial.current && (initialQuestion || initialCheckin)) {
+    if (loaded && !askedInitial.current && initialQuestion) {
       askedInitial.current = true
-      if (initialCheckin) void openCheckin(initialCheckin)
-      else if (initialQuestion) openStarter(initialQuestion)
+      openStarter(initialQuestion)
     }
-  }, [initialQuestion, initialCheckin, loaded, openStarter, openCheckin])
+  }, [initialQuestion, loaded, openStarter])
 
   const suggestions = useMemo(() => suggestedQuestions(pages), [pages])
 

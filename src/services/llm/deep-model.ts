@@ -8,8 +8,6 @@ import {
 } from './prompts/conversation'
 import { buildDigestQuestionPrompt, type DigestQuestionInput } from './prompts/digest-question'
 import { buildDigestSynthesisPrompt, type DigestSynthesisInput } from './prompts/digest-synthesis'
-import { buildCheckinQuestionPrompt, type CheckinQuestionInput } from './prompts/checkin-question'
-import { buildPursuitDetailsPrompt, type PursuitDetailsInput } from './prompts/pursuit-details'
 import { buildAffirmationPrompt, type AffirmationInput } from './prompts/affirmation'
 import {
   buildUpdatePagePrompt,
@@ -18,7 +16,6 @@ import {
   type RewritePageInput,
 } from './prompts/update-page'
 import { ConversationReplySchema, ConversationSummarySchema } from './schemas/conversation.schema'
-import { CheckinQuestionSchema, PursuitDetailsSchema } from './schemas/pursuit.schema'
 import { AffirmationSchema } from './schemas/challenge.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
@@ -80,58 +77,6 @@ export async function regeneratePage(input: RewritePageInput): Promise<Result<st
   const parsed = WikiContentSchema.safeParse(raw)
   if (!parsed.success) {
     return err('REGEN_VALIDATION_FAILED', 'Regenerated content failed validation')
-  }
-  return ok(parsed.data)
-}
-
-/**
- * Synthesize/refresh a pursuit's short running note with the deep model
- * (background, ~18 tok/s). Folds the new reflection into the existing note.
- * Never throws; errors carry a code only, never entry text.
- */
-export async function synthesizePursuitDetails(
-  input: PursuitDetailsInput
-): Promise<Result<string>> {
-  let raw: string
-  try {
-    const output = await LLMBridge.synthesise(buildPursuitDetailsPrompt(input), {
-      maxTokens: 200,
-      temperature: 0.5,
-    })
-    raw = output.text
-  } catch (e) {
-    return err('PURSUIT_SYNTH_INFERENCE_FAILED', 'Deep model inference failed', e)
-  }
-
-  const parsed = PursuitDetailsSchema.safeParse(raw.trim())
-  if (!parsed.success) {
-    return err('PURSUIT_SYNTH_VALIDATION_FAILED', 'Pursuit details failed validation')
-  }
-  return ok(parsed.data)
-}
-
-/**
- * Generate one check-in question for a pursuit from its title + running note
- * (on-device). Best-effort; the caller falls back to a templated question on
- * any failure. Never throws; errors carry a code only, never entry text.
- */
-export async function generateCheckinQuestion(
-  input: CheckinQuestionInput
-): Promise<Result<string>> {
-  let raw: string
-  try {
-    const output = await LLMBridge.synthesise(buildCheckinQuestionPrompt(input), {
-      maxTokens: 60,
-      temperature: 0.7,
-    })
-    raw = output.text
-  } catch (e) {
-    return err('CHECKIN_QUESTION_INFERENCE_FAILED', 'Deep model inference failed', e)
-  }
-
-  const parsed = CheckinQuestionSchema.safeParse(raw.trim())
-  if (!parsed.success) {
-    return err('CHECKIN_QUESTION_VALIDATION_FAILED', 'Check-in question failed validation')
   }
   return ok(parsed.data)
 }

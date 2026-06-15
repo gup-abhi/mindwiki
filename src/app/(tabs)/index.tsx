@@ -8,7 +8,6 @@ import { ModelDownloadCard } from '@/components/ModelDownloadCard'
 import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
 import { useChallenge } from '@/hooks/useChallenge'
 import { useEntries } from '@/hooks/useEntries'
-import { usePursuitCheckin } from '@/hooks/usePursuitCheckin'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
 import { computeStreak } from '@/services/notifications/streak'
@@ -21,7 +20,6 @@ export default function Home() {
   const styles = useThemedStyles(makeStyles)
   const { entries, count } = useEntries()
   const { pages } = useWikiPages()
-  const { checkin, open: openCheckin, dismiss: dismissCheckin } = usePursuitCheckin()
   const { challenge, streak, doneToday, checkIn } = useChallenge()
   const synthesizing = useWikiStore((s) => s.pending > 0)
   const stage = useMemo(
@@ -87,26 +85,6 @@ export default function Home() {
                 )}
               </Card>
             )}
-            {checkin && (
-              <Card variant="sunken" style={styles.fullWidth}>
-                <Text variant="caption" color="accent">
-                  Checking in
-                </Text>
-                <Text variant="body" style={styles.surfaceText}>
-                  {checkin.checkin_question}
-                </Text>
-                <View style={styles.checkinActions}>
-                  <Button title="Talk it through" size="sm" onPress={openCheckin} testID="checkin-open" />
-                  <Button
-                    title="Not now"
-                    size="sm"
-                    variant="ghost"
-                    onPress={dismissCheckin}
-                    testID="checkin-dismiss"
-                  />
-                </View>
-              </Card>
-            )}
             {surfacedQuestion && (
               <Card
                 variant="sunken"
@@ -164,7 +142,6 @@ const makeStyles = (t: Theme) =>
     digestSub: { marginTop: t.spacing.xs },
     cta: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     surfaceText: { marginTop: t.spacing.xs },
-    checkinActions: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, marginTop: t.spacing.md },
     synth: { marginTop: t.spacing.md },
     count: { marginTop: t.spacing.lg },
     row: {

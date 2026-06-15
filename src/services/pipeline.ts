@@ -4,7 +4,6 @@ import { type EntryTag } from '@/services/llm/schemas/entry-tag.schema'
 import { applyTags, createEntry, type Entry } from '@/services/storage/entries'
 import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
 import { updateGraphForEntry } from '@/services/graph/engine'
-import { extractPursuit } from '@/services/pursuits/extractor'
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
 
@@ -51,13 +50,6 @@ async function indexEntryFromTags(entry: Entry, tags: EntryTag): Promise<boolean
   // Wiki synthesis is the slow deep-model step — track it for the indicator.
   useWikiStore.getState().begin()
   void updateWikiForEntry(taggedEntry, tags.topic).finally(() => useWikiStore.getState().end())
-
-  // Pursuits: if the entry names something the user is actively working on,
-  // upsert a pursuit (or close it on completion) + refresh its running note.
-  // Background, best-effort.
-  if (tags.working_on.trim()) {
-    void extractPursuit(tags.working_on, `${entry.situation}\n${entry.thought}`, tags.pursuit_status)
-  }
 
   return applied.success
 }

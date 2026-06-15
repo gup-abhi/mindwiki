@@ -90,12 +90,6 @@ describe('Settings', () => {
     expect(mockPush).toHaveBeenCalledWith('/pair')
   })
 
-  it('opens the pursuits manage screen', () => {
-    render(<Settings />)
-    fireEvent.press(screen.getByTestId('settings-pursuits'))
-    expect(mockPush).toHaveBeenCalledWith('/pursuits')
-  })
-
   it('opens the challenge screen', () => {
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-challenge'))
