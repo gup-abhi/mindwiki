@@ -6,6 +6,7 @@ import { type Theme, useThemedStyles } from '@/theme'
 import { type UIMessage } from '@/store/chat.store'
 
 import { CrisisBanner } from './CrisisBanner'
+import { Markdown } from './Markdown'
 import { SourceChips } from './SourceChips'
 
 function MessageBubbleBase({
@@ -20,9 +21,17 @@ function MessageBubbleBase({
   return (
     <View style={isUser ? styles.userWrap : styles.assistantWrap}>
       <View style={[styles.bubble, isUser ? styles.user : styles.assistant]}>
-        <Text variant="body" color={isUser ? 'primaryText' : 'textPrimary'}>
-          {message.content}
-        </Text>
+        {isUser ? (
+          // The user's own text, shown verbatim.
+          <Text variant="body" color="primaryText">
+            {message.content}
+          </Text>
+        ) : (
+          // Companion replies are markdown (bold, lists) — render so the **/#/-
+          // markers don't show as raw text. Markdown's Text defaults to
+          // textPrimary, matching the previous assistant colour.
+          <Markdown content={message.content} />
+        )}
       </View>
       {message.sources.length > 0 && <SourceChips sources={message.sources} />}
       {message.crisisTier != null && message.crisisTier > 0 && <CrisisBanner />}
