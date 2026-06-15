@@ -1,7 +1,13 @@
-import { synthesizePage } from '@/services/llm/deep-model'
+import { synthesizePage, regeneratePage } from '@/services/llm/deep-model'
 import { type Entry } from '@/services/storage/entries'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
-import { getPageByTitle, createPage, updatePage } from '@/services/storage/wiki'
+import {
+  getPageByTitle,
+  createPage,
+  updatePage,
+  regeneratePageContent,
+  type WikiPage,
+} from '@/services/storage/wiki'
 import { type Result, ok } from '@/types/result'
 
 export interface Topic {
@@ -119,4 +125,19 @@ export async function updateWikiForEntry(
   }
 
   return ok(updated)
+}
+
+/**
+ * Rewrite a single page in the canonical voice (substance unchanged) and persist
+ * it, versioned. Used to bring pages written before the voice was pinned into a
+ * consistent voice. Returns the updated page.
+ */
+export async function regeneratePageVoice(page: WikiPage): Promise<Result<WikiPage>> {
+  const synth = await regeneratePage({
+    title: page.title,
+    category: page.category,
+    content: page.content,
+  })
+  if (!synth.success) return synth
+  return regeneratePageContent(page.id, synth.data)
 }

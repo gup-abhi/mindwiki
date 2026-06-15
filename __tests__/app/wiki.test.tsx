@@ -1,5 +1,5 @@
 import { Alert } from 'react-native'
-import { render, screen, fireEvent } from '@testing-library/react-native'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
 
 import WikiBrowse from '@/app/(tabs)/wiki/index'
 import WikiCategoryScreen from '@/app/wiki/category/[category]'
@@ -28,6 +28,7 @@ jest.mock('@/hooks/useWiki', () => ({
 const mockDismiss = jest.fn()
 const mockRestore = jest.fn()
 const mockCorrect = jest.fn()
+const mockRegenerate = jest.fn()
 
 const mixedPages = [
   { id: 'p1', title: 'Anxiety', category: 'emotion', entry_count: 3 },
@@ -112,6 +113,7 @@ describe('WikiPageScreen', () => {
     mockDismiss.mockReset()
     mockRestore.mockReset()
     mockCorrect.mockReset()
+    mockRegenerate.mockReset().mockResolvedValue(null) // null = success
   })
 
   const pageReturn = (page: Record<string, unknown>) => ({
@@ -120,6 +122,8 @@ describe('WikiPageScreen', () => {
     dismiss: mockDismiss,
     restore: mockRestore,
     correct: mockCorrect,
+    regenerate: mockRegenerate,
+    regenerating: false,
   })
 
   it('renders the page title and synthesized content', () => {
@@ -169,6 +173,27 @@ describe('WikiPageScreen', () => {
     fireEvent.changeText(input, 'What is actually true for me')
     fireEvent.press(screen.getByTestId('wiki-edit-save'))
     expect(mockCorrect).toHaveBeenCalledWith('What is actually true for me')
+  })
+
+  it('regenerates the page in the current voice', () => {
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 1, entry_count: 3, content: 'c', dismissed_at: null, corrected_at: null })
+    )
+    render(<WikiPageScreen />)
+    fireEvent.press(screen.getByTestId('wiki-regenerate'))
+    expect(mockRegenerate).toHaveBeenCalled()
+  })
+
+  it('alerts with the reason when regeneration fails', async () => {
+    mockRegenerate.mockResolvedValue('Deep model inference failed')
+    const spy = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 1, entry_count: 3, content: 'c', dismissed_at: null, corrected_at: null })
+    )
+    render(<WikiPageScreen />)
+    fireEvent.press(screen.getByTestId('wiki-regenerate'))
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('Couldn’t regenerate', expect.any(String)))
+    spy.mockRestore()
   })
 
   it('shows the “in your own words” badge on a corrected page', () => {

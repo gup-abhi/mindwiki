@@ -11,6 +11,7 @@ import {
   restorePage,
   type WikiPage,
 } from '@/services/storage/wiki'
+import { regeneratePageVoice } from '@/services/wiki/engine'
 import { useSyncStore } from '@/store/sync.store'
 
 /** All wiki pages; refreshed on focus and after a sync pull. */
@@ -40,6 +41,7 @@ export function useWikiPages() {
 export function useWikiPage(id: string | undefined) {
   const [page, setPage] = useState<WikiPage | null>(null)
   const [loading, setLoading] = useState(true)
+  const [regenerating, setRegenerating] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -79,7 +81,19 @@ export function useWikiPage(id: string | undefined) {
     if (res.success) setPage(res.data)
   }, [id])
 
-  return { page, loading, dismiss, restore, correct }
+  // Re-run the deep model to rewrite this page in the canonical voice (substance
+  // unchanged). Resolves to null on success, or an error message the screen can
+  // surface (so a real failure isn't silent). Reflects the new content locally.
+  const regenerate = useCallback(async (): Promise<string | null> => {
+    if (!page) return 'No page loaded.'
+    setRegenerating(true)
+    const res = await regeneratePageVoice(page)
+    if (res.success) setPage(res.data)
+    setRegenerating(false)
+    return res.success ? null : res.error.message
+  }, [page])
+
+  return { page, loading, dismiss, restore, correct, regenerate, regenerating }
 }
 
 /** Pages the user has dropped as inaccurate; refreshed on focus. */

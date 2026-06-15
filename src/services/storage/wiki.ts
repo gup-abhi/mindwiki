@@ -294,3 +294,49 @@ export async function correctPage(
     return err('WIKI_CORRECT_FAILED', 'Failed to correct wiki page', e)
   }
 }
+
+/**
+ * Replace a page's content with an AI regeneration (e.g. a voice rewrite):
+ * archive the current content into version_history and bump the version, but
+ * leave entry_count unchanged (no new entry was folded in) and clear corrected_at
+ * (the content is AI-authored again, not the user's words).
+ */
+export async function regeneratePageContent(
+  id: string,
+  content: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPage>> {
+  try {
+    const current = await getPage(id, db)
+    if (!current.success) return current
+    if (current.data == null) {
+      return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    }
+
+    const prev = current.data
+    const history: WikiPageVersion[] = [
+      ...prev.version_history,
+      { version: prev.version, content: prev.content, updated_at: prev.updated_at },
+    ]
+    const now = Date.now()
+    const next: WikiPage = {
+      ...prev,
+      content,
+      version: prev.version + 1,
+      version_history: history,
+      updated_at: now,
+      corrected_at: null,
+    }
+
+    await db.execute(
+      `UPDATE wiki_pages
+         SET content = ?, version = ?, version_history = ?, updated_at = ?, corrected_at = NULL
+       WHERE id = ?`,
+      [next.content, next.version, JSON.stringify(history), now, id]
+    )
+    await enqueueUpsert('wiki_pages', id, db) // content changed → re-sync
+    return ok(next)
+  } catch (e) {
+    return err('WIKI_REGEN_FAILED', 'Failed to regenerate wiki page', e)
+  }
+}

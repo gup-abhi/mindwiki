@@ -8,6 +8,7 @@ import {
   getPageByTitle,
   listDismissedPages,
   listPages,
+  regeneratePageContent,
   restorePage,
   updatePage,
 } from '@/services/storage/wiki'
@@ -76,6 +77,13 @@ function createFakeDb() {
         if (row) {
           Object.assign(row, { content, version, version_history, updated_at, corrected_at, dismissed_at: null })
         }
+        return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^UPDATE wiki_pages\s+SET content = \?, version = \?, version_history = \?, updated_at = \?, corrected_at = NULL/.test(sql)) {
+        // regeneratePageContent: no entry_count change, dismissed_at untouched
+        const [content, version, version_history, updated_at, id] = params
+        const row = rows.get(String(id))
+        if (row) Object.assign(row, { content, version, version_history, updated_at, corrected_at: null })
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^UPDATE wiki_pages/.test(sql)) {
@@ -267,6 +275,30 @@ describe('storage/wiki CRUD', () => {
     const got = await getPage(id, db)
     expect(got.success && got.data?.corrected_at).toBeNull()
     expect(got.success && got.data?.content).toBe('AI rebuilt on my words')
+  })
+
+  it('regeneratePageContent archives + bumps version but does NOT change entry_count', async () => {
+    const { db } = createFakeDb()
+    const created = await createPage({ title: 'Anxiety', content: 'old voice' }, db)
+    const id = created.success ? created.data.id : ''
+    await updatePage(id, 'v2 from an entry', db) // entry_count -> 1, version -> 2
+
+    const regen = await regeneratePageContent(id, 'rewritten in a consistent voice', db)
+    expect(regen.success).toBe(true)
+    if (regen.success) {
+      expect(regen.data.content).toBe('rewritten in a consistent voice')
+      expect(regen.data.version).toBe(3) // version bumped
+      expect(regen.data.entry_count).toBe(1) // unchanged — no new entry
+      expect(regen.data.version_history.at(-1)?.content).toBe('v2 from an entry') // old archived
+    }
+  })
+
+  it('regeneratePageContent clears a prior user correction flag', async () => {
+    const { db } = createFakeDb()
+    const created = await createPage({ title: 'Anxiety', content: 'c' }, db)
+    const id = created.success ? created.data.id : ''
+    const regen = await regeneratePageContent(id, 'fresh', db)
+    expect(regen.success && regen.data.corrected_at).toBeNull()
   })
 
   it('correctPage returns WIKI_NOT_FOUND for a missing id', async () => {

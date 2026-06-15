@@ -1,12 +1,13 @@
 import {
   synthesizePage,
+  regeneratePage,
   synthesizePursuitDetails,
   generateCheckinQuestion,
   generateReflectionQuestion,
   generateAffirmation,
   converseFromWiki,
 } from '@/services/llm/deep-model'
-import { buildUpdatePagePrompt } from '@/services/llm/prompts/update-page'
+import { buildUpdatePagePrompt, buildRewritePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildPursuitDetailsPrompt } from '@/services/llm/prompts/pursuit-details'
 import { buildCheckinQuestionPrompt } from '@/services/llm/prompts/checkin-question'
 import { buildAffirmationPrompt } from '@/services/llm/prompts/affirmation'
@@ -28,6 +29,32 @@ const input = {
   thought: 'I will fail',
 }
 
+describe('buildRewritePagePrompt', () => {
+  it('asks to keep substance, pins the voice, and includes the page to rewrite', () => {
+    const p = buildRewritePagePrompt({ title: 'Anxiety', category: 'emotion', content: 'I always panic.' })
+    expect(p).toMatch(/Keep the SAME facts and meaning/i)
+    expect(p).toMatch(/do NOT copy sentences/i) // combats verbatim echo
+    expect(p).toMatch(/DELETE any "Situation", "Thought"/i) // strips the CBT skeleton
+    expect(p).toMatch(/consolidated/i) // shared house style
+    expect(p).toContain('I always panic.') // the existing content is fed in
+  })
+})
+
+describe('regeneratePage', () => {
+  it('returns the rewritten content on success', async () => {
+    mockSynthesise.mockResolvedValue({ text: 'You tend to expect the worst before meetings.' })
+    const res = await regeneratePage({ title: 'Anxiety', category: 'emotion', content: 'old' })
+    expect(res.success && res.data).toBe('You tend to expect the worst before meetings.')
+  })
+
+  it('returns REGEN_INFERENCE_FAILED when the model throws', async () => {
+    mockSynthesise.mockRejectedValue(new Error('no model'))
+    const res = await regeneratePage({ title: 'Anxiety', category: 'emotion', content: 'old' })
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('REGEN_INFERENCE_FAILED')
+  })
+})
+
 describe('buildUpdatePagePrompt', () => {
   it('asks for first version when content is empty and includes the entry', () => {
     const p = buildUpdatePagePrompt(input)
@@ -42,11 +69,18 @@ describe('buildUpdatePagePrompt', () => {
     expect(p).toContain('prior text')
   })
 
-  it('does not feed parrotable Situation/Thought labels and forbids headings', () => {
+  it('pins a consolidated second-person house style (no labels, no first person)', () => {
+    const p = buildUpdatePagePrompt(input)
+    expect(p).toMatch(/consolidated/i)
+    expect(p).toMatch(/address the reader directly as "you"/i)
+    expect(p).toMatch(/never write in the\s+first person/i)
+    expect(p).toMatch(/Never use labels or section headings/i)
+  })
+
+  it('does not feed parrotable Situation/Thought labels into the reflection', () => {
     const p = buildUpdatePagePrompt(input)
     expect(p).not.toMatch(/-\s*Situation:/)
     expect(p).not.toMatch(/-\s*Thought:/)
-    expect(p).toMatch(/do NOT add section headings/i)
     // both pieces of the reflection are still present for the model to synthesize
     expect(p).toContain('a meeting')
     expect(p).toContain('I will fail')
