@@ -30,7 +30,7 @@ const recoveryBase = { needsSetup: false, phrase: null, busy: false, error: null
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockSyncStatus.mockReturnValue({ lastPull: null, pending: 0, syncing: false, message: null, syncNow })
+  mockSyncStatus.mockReturnValue({ lastSynced: null, pending: 0, syncing: false, message: null, syncNow })
   mockRecovery.mockReturnValue(recoveryBase)
   mockAuth.mockReturnValue({ logout })
   mockBiometric.mockReturnValue({ enabled: true, capable: true, toggle: toggleLock })
@@ -39,7 +39,7 @@ beforeEach(() => {
 
 describe('Settings', () => {
   it('shows sync status and runs sync now', () => {
-    mockSyncStatus.mockReturnValue({ lastPull: null, pending: 3, syncing: false, message: null, syncNow })
+    mockSyncStatus.mockReturnValue({ lastSynced: null, pending: 3, syncing: false, message: null, syncNow })
     render(<Settings />)
     expect(screen.getByText('Never')).toBeTruthy()
     expect(screen.getByText('3')).toBeTruthy()
@@ -49,7 +49,7 @@ describe('Settings', () => {
 
   it('shows the post-sync message (e.g. already synced)', () => {
     mockSyncStatus.mockReturnValue({
-      lastPull: null,
+      lastSynced: null,
       pending: 0,
       syncing: false,
       message: 'Everything’s already synced.',

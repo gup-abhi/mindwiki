@@ -30,7 +30,7 @@ const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
 export default function Settings() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { lastPull, pending, syncing, message, syncNow } = useSyncStatus()
+  const { lastSynced, pending, syncing, message, syncNow } = useSyncStatus()
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
   const { preference, setPreference } = useThemePreference()
   const { enabled: lockEnabled, capable: lockCapable, toggle: toggleLock } = useBiometricLock()
@@ -114,7 +114,7 @@ export default function Settings() {
           <Text variant="body" color="textSecondary">
             Last synced
           </Text>
-          <Text variant="bodyStrong">{timeAgo(lastPull)}</Text>
+          <Text variant="bodyStrong">{timeAgo(lastSynced)}</Text>
         </View>
         <View style={styles.row}>
           <Text variant="body" color="textSecondary">

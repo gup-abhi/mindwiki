@@ -12,6 +12,11 @@ import { SYNCED_TABLES, recordsToApply, type SyncTable, type Versioned } from '.
 import { encryptRecord, decryptRecord } from './encryption'
 
 const LAST_PULL_KEY = 'sync:last_pull'
+// Wall-clock time of the last successful sync (push+pull completed). Distinct
+// from LAST_PULL_KEY, which is a data cursor (newest remote updated_at) — that
+// doesn't move when there's nothing newer to pull, so it can't represent "last
+// synced". Surfaced in Settings.
+const LAST_SYNCED_KEY = 'sync:last_synced_at'
 
 type Row = Record<string, unknown>
 
@@ -240,5 +245,6 @@ export async function sync(): Promise<Result<{ pushed: number; pulled: number }>
   const pulled = await pullDelta(masterKeyHex, tokens.accountId, db)
   if (!pulled.success) return pulled
 
+  await setSetting(LAST_SYNCED_KEY, String(Date.now()), db)
   return ok({ pushed: pushed.data, pulled: pulled.data })
 }

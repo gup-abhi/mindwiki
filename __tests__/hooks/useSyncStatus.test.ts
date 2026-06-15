@@ -21,17 +21,19 @@ beforeEach(() => {
 })
 
 describe('useSyncStatus', () => {
-  it('reads last pull + pending count on mount', async () => {
+  it('reads last-synced time (sync:last_synced_at) + pending count on mount', async () => {
     const { result } = renderHook(() => useSyncStatus())
     await waitFor(() => expect(result.current.pending).toBe(2))
-    expect(result.current.lastPull).toBe(1700000000000)
+    expect(result.current.lastSynced).toBe(1700000000000)
+    // Must read the wall-clock sync time, NOT the sync:last_pull data cursor.
+    expect(mockGetSetting).toHaveBeenCalledWith('sync:last_synced_at')
   })
 
-  it('reports Never when no pull has happened', async () => {
+  it('reports Never when no sync has happened', async () => {
     mockGetSetting.mockResolvedValue({ success: true, data: null })
     const { result } = renderHook(() => useSyncStatus())
     await waitFor(() => expect(mockGetSetting).toHaveBeenCalled())
-    expect(result.current.lastPull).toBeNull()
+    expect(result.current.lastSynced).toBeNull()
   })
 
   it('syncNow runs a sync then refreshes', async () => {
