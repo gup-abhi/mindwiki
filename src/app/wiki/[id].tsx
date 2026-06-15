@@ -143,13 +143,17 @@ export default function WikiPageScreen() {
                 ✎ In your own words
               </Text>
             )}
-            <Button
-              title={regenerating ? 'Regenerating…' : 'Regenerate in a consistent voice'}
-              variant="secondary"
-              loading={regenerating}
-              onPress={() => void onRegenerate()}
-              testID="wiki-regenerate"
-            />
+            {/* Dev-only: kept out of the shipping UI but handy for testing prompt
+                or model changes against existing pages. */}
+            {__DEV__ && (
+              <Button
+                title={regenerating ? 'Regenerating…' : 'Regenerate (dev)'}
+                variant="secondary"
+                loading={regenerating}
+                onPress={() => void onRegenerate()}
+                testID="wiki-regenerate"
+              />
+            )}
             <Button
               title="Rewrite this myself"
               variant="ghost"
