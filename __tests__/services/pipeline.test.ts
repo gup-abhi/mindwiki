@@ -8,6 +8,7 @@ jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn(), createEnt
 jest.mock('@/services/storage/entities', () => ({ setEntitiesForEntry: jest.fn() }))
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
 jest.mock('@/services/graph/engine', () => ({ updateGraphForEntry: jest.fn() }))
+jest.mock('@/services/storage/settings', () => ({ getSetting: jest.fn(), setSetting: jest.fn() }))
 
 const mockBegin = jest.fn()
 const mockEnd = jest.fn()
@@ -18,6 +19,7 @@ jest.mock('@/store/wiki.store', () => ({
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { updateGraphForEntry } from '@/services/graph/engine'
 import { setEntitiesForEntry } from '@/services/storage/entities'
+import { getSetting, setSetting } from '@/services/storage/settings'
 
 const mockTagEntry = tagEntry as jest.Mock
 const mockApplyTags = applyTags as jest.Mock
@@ -25,6 +27,8 @@ const mockCreateEntry = createEntry as jest.Mock
 const mockUpdateWiki = updateWikiForEntry as jest.Mock
 const mockUpdateGraph = updateGraphForEntry as jest.Mock
 const mockSetEntities = setEntitiesForEntry as jest.Mock
+const mockGetSetting = getSetting as jest.Mock
+const mockSetSetting = setSetting as jest.Mock
 
 // Tag output always carries the three entity lists (normalized in fast-model).
 const tags = (over: Record<string, unknown> = {}) => ({
@@ -139,57 +143,61 @@ describe('captureReflectMessage', () => {
     mockUpdateGraph.mockReset()
     mockBegin.mockReset()
     mockEnd.mockReset()
+    mockGetSetting.mockReset()
+    mockSetSetting.mockReset()
     mockApplyTags.mockResolvedValue(ok(undefined))
     mockSetEntities.mockResolvedValue(ok(undefined))
     mockUpdateWiki.mockResolvedValue(ok([]))
     mockUpdateGraph.mockResolvedValue(ok(undefined))
     mockCreateEntry.mockResolvedValue(ok(entry({ id: 'r1', source: 'reflect' })))
+    mockGetSetting.mockResolvedValue({ success: true, data: null }) // theme unseen
+    mockSetSetting.mockResolvedValue({ success: true, data: undefined })
   })
 
-  it('captures a message with a new entity as a reflect entry and indexes it', async () => {
-    mockTagEntry.mockResolvedValue(ok(tags({ people: ['Sarah'], topic: 'none' })))
+  it('never ingests a question (no tagging, no capture)', async () => {
+    await captureReflectMessage('What tends to trigger my Sadness?')
 
-    await captureReflectMessage('I had coffee with Sarah today')
-
-    // stored as a reflect-sourced entry, never a journal one
-    expect(mockCreateEntry).toHaveBeenCalledWith(
-      expect.objectContaining({
-        situation: 'I had coffee with Sarah today',
-        thought: '',
-        source: 'reflect',
-      })
-    )
-    // fanned out to entities + wiki/graph, keyed to the new entry id
-    expect(mockSetEntities).toHaveBeenCalledWith('r1', [{ type: 'person', label: 'Sarah' }])
-    expect(mockUpdateWiki).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'r1' }),
-      'none'
-    )
+    expect(mockTagEntry).not.toHaveBeenCalled()
+    expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
-  it('captures a message that only carries a theme (no entities)', async () => {
+  it('skips the FIRST mention of a theme but records it', async () => {
     mockTagEntry.mockResolvedValue(ok(tags({ topic: 'Boundaries' })))
 
     await captureReflectMessage('I think I need firmer boundaries')
 
-    expect(mockCreateEntry).toHaveBeenCalledTimes(1)
+    // counted (now seen once) but not yet ingested
+    expect(mockSetSetting).toHaveBeenCalledWith('reflect:theme:boundaries', '1')
+    expect(mockCreateEntry).not.toHaveBeenCalled()
+    expect(mockUpdateWiki).not.toHaveBeenCalled()
+  })
+
+  it('captures a theme once it recurs (second mention)', async () => {
+    mockGetSetting.mockResolvedValue({ success: true, data: '1' }) // seen once before
+    mockTagEntry.mockResolvedValue(ok(tags({ topic: 'Boundaries' })))
+
+    await captureReflectMessage('I really do need firmer boundaries with work')
+
+    expect(mockSetSetting).toHaveBeenCalledWith('reflect:theme:boundaries', '2')
+    expect(mockCreateEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'reflect' })
+    )
     expect(mockUpdateWiki).toHaveBeenCalled()
   })
 
-  it('skips chit-chat with no entities and no real theme', async () => {
+  it('skips a statement with no real theme', async () => {
     mockTagEntry.mockResolvedValue(ok(tags({ topic: 'none' })))
 
     await captureReflectMessage('thanks, that helps')
 
+    expect(mockSetSetting).not.toHaveBeenCalled()
     expect(mockCreateEntry).not.toHaveBeenCalled()
-    expect(mockApplyTags).not.toHaveBeenCalled()
-    expect(mockUpdateWiki).not.toHaveBeenCalled()
   })
 
   it('does nothing when tagging fails (never throws)', async () => {
     mockTagEntry.mockResolvedValue(err('TAG_INFERENCE_FAILED', 'model down'))
 
-    await expect(captureReflectMessage('anything')).resolves.toBeUndefined()
+    await expect(captureReflectMessage('I felt calm at the park')).resolves.toBeUndefined()
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 })

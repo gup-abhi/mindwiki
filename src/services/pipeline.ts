@@ -3,6 +3,7 @@ import { tagEntry } from '@/services/llm/fast-model'
 import { type EntryTag } from '@/services/llm/schemas/entry-tag.schema'
 import { applyTags, createEntry, type Entry } from '@/services/storage/entries'
 import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
+import { getSetting, setSetting } from '@/services/storage/settings'
 import { updateGraphForEntry } from '@/services/graph/engine'
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
@@ -91,24 +92,42 @@ function moodFromScore(score: number): number {
   return Math.min(5, Math.max(1, Math.round(score * 4) + 1))
 }
 
+// A Reflect message must be stated this many times before it's allowed into the
+// knowledge base — a one-off chat tangent never spawns graph/wiki nodes.
+const MIN_REFLECT_MENTIONS = 2
+const reflectThemeKey = (theme: string) => `reflect:theme:${theme.trim().toLowerCase()}`
+
+// Questions are prompts/queries, not reflections — they must never be ingested.
+function isQuestion(text: string): boolean {
+  return /\?\s*$/.test(text.trim())
+}
+
 /**
- * Capture durable knowledge from a Reflect-chat message into the wiki/graph.
- * Conversation often surfaces people, places, activities, or themes the journal
- * hasn't recorded yet. We tag the message and — only when it carries something
- * concrete (a person/place/activity or a real theme, not just an emotion or
- * chit-chat) — persist it as a `source:'reflect'` entry and run the same
- * indexing as a journal entry, so it counts toward entity recurrence and feeds
- * the graph + wiki. Background, best-effort: never throws, never blocks a reply.
+ * Capture durable knowledge from a Reflect-chat message into the wiki/graph —
+ * deliberately conservative so conversation noise never pollutes the knowledge
+ * base. Only the user's own message reaches here (companion turns are never
+ * passed in). We then: (1) skip questions, (2) require a real theme, and (3) gate
+ * on recurrence — a theme is ingested only once the user has stated it at least
+ * MIN_REFLECT_MENTIONS times in Reflect, never on first mention. Qualifying
+ * statements are persisted as a `source:'reflect'` entry and indexed like a
+ * journal entry. Background, best-effort: never throws, never blocks a reply.
  */
 export async function captureReflectMessage(message: string): Promise<void> {
+  if (isQuestion(message)) return
+
   const tagResult = await tagEntry({ situation: message, thought: '' })
   if (!tagResult.success) return
 
   const tags = tagResult.data
-  const hasEntity = tags.people.length + tags.places.length + tags.activities.length > 0
-  const theme = tags.topic.trim().toLowerCase()
-  const hasTheme = theme.length > 0 && theme !== 'none'
-  if (!hasEntity && !hasTheme) return // nothing durable to capture
+  const theme = tags.topic.trim()
+  if (!theme || theme.toLowerCase() === 'none') return // no trackable statement
+
+  // Count this mention; only ingest from the Nth onward.
+  const key = reflectThemeKey(theme)
+  const prev = await getSetting(key)
+  const count = (prev.success && prev.data ? Number(prev.data) : 0) + 1
+  await setSetting(key, String(count))
+  if (count < MIN_REFLECT_MENTIONS) return
 
   const created = await createEntry({
     mood: moodFromScore(tags.mood_score),
