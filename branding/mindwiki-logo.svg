@@ -3,15 +3,15 @@
   <g>
     <rect x="6" y="6" width="108" height="108" rx="25" fill="#2F4739"/>
     <g transform="translate(6,6) scale(0.9)">
-      <path d="M 37,82 L 37,42 L 60,63 L 83,42 L 83,82"
-            fill="none" stroke="#9FC4AC" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M 44,75 L 44,49 L 60,63 L 76,49 L 76,75"
+            fill="none" stroke="#9FC4AC" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
       <g fill="#F4EFE7">
-        <circle cx="37" cy="82" r="6"/>
-        <circle cx="37" cy="42" r="6"/>
-        <circle cx="83" cy="42" r="6"/>
-        <circle cx="83" cy="82" r="6"/>
+        <circle cx="44" cy="75" r="5"/>
+        <circle cx="44" cy="49" r="5"/>
+        <circle cx="76" cy="49" r="5"/>
+        <circle cx="76" cy="75" r="5"/>
       </g>
-      <circle cx="60" cy="63" r="7.2" fill="#E0BE72"/>
+      <circle cx="60" cy="63" r="6" fill="#E0BE72"/>
     </g>
   </g>
 
