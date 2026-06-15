@@ -55,6 +55,9 @@ function fakeDb() {
       if (/^INSERT OR REPLACE INTO entries/.test(sql)) {
         const row: Record<string, unknown> = {}
         ENTRY_COLS.forEach((c, i) => (row[c] = params[i]))
+        // Simulate a single malformed row that the DB rejects (constraint / bind
+        // failure), so the pull's per-record resilience can be exercised.
+        if (row.id === 'poison') throw new Error('SQLITE constraint failed')
         entries.set(String(row.id), row)
         return { rows: [], rowsAffected: 1 }
       }
@@ -140,6 +143,28 @@ describe('sync/engine pullDelta', () => {
     expect(syncQueue.size).toBe(0) // applyRemote must NOT re-enqueue (no echo)
     expect(mockFetch.mock.calls[0][0]).toBe('/sync/acc/delta?since=0')
     expect(useSyncStore.getState().revision).toBe(1) // signals hooks to refetch
+  })
+
+  it('skips a record whose apply throws and still applies the rest (no abort)', async () => {
+    const { db, entries, settings } = fakeDb()
+    mockFetch.mockResolvedValue(
+      okResp([
+        { table: 'entries', record_id: 'ok1', ciphertext: JSON.stringify(entryRow('ok1', { situation: 'first' })), updated_at: 4000 },
+        { table: 'entries', record_id: 'poison', ciphertext: JSON.stringify(entryRow('poison')), updated_at: 5000 },
+        { table: 'entries', record_id: 'ok2', ciphertext: JSON.stringify(entryRow('ok2', { situation: 'third' })), updated_at: 6000 },
+      ])
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    // The poison row must not abort the pull: both good rows land and the cursor
+    // advances past the batch (regression test for the mid-loop throw that wedged
+    // sync at a partial state and never advanced the cursor).
+    expect(res.success && res.data).toBe(2)
+    expect(entries.get('ok1')?.situation).toBe('first')
+    expect(entries.get('ok2')?.situation).toBe('third')
+    expect(entries.has('poison')).toBe(false)
+    expect(settings.get('sync:last_pull')).toBe('6000')
   })
 
   it('skips a remote record older than the local copy (last-write-wins)', async () => {

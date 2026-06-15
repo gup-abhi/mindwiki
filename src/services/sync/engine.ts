@@ -189,7 +189,17 @@ export async function pullDelta(
 
     const local = await localUpdatedAt(table, decoded.map((d) => d.record_id), db)
     for (const d of recordsToApply(decoded, (id) => local.get(id) ?? null)) {
-      await applyRemote(table, d.row, db)
+      try {
+        await applyRemote(table, d.row, db)
+      } catch {
+        // A single malformed/constraint-violating row must not abort the whole
+        // pull — that would also block every table applied after it (entries is
+        // first) and leave the cursor un-advanced, wedging sync permanently on
+        // the same row. Skip it, same policy as the decrypt failure above. Log
+        // the record id only — never the row content.
+        console.warn(`sync: skipped ${table}/${d.record_id} on apply`)
+        continue
+      }
       maxUpdated = Math.max(maxUpdated, d.updated_at)
       applied++
     }
