@@ -153,6 +153,40 @@ export async function applyTags(
   }
 }
 
+/**
+ * Count entries whose tag column equals `value` (case-insensitive) — the
+ * recurrence gate for emotion/distortion/topic graph nodes, mirroring
+ * countEntriesForEntity for entity nodes. Counts journal + reflect entries
+ * (both feed the graph). `column` is a fixed internal literal, never user input.
+ */
+async function countEntriesByColumn(
+  column: 'emotion' | 'distortion' | 'topic',
+  value: string,
+  db: SqliteDatabase
+): Promise<Result<number>> {
+  try {
+    const res = await db.execute(
+      `SELECT COUNT(*) AS n FROM entries WHERE ${column} = ? COLLATE NOCASE`,
+      [value]
+    )
+    return ok(Number(res.rows[0]?.n ?? 0))
+  } catch (e) {
+    return err('ENTRY_TAG_COUNT_FAILED', 'Failed to count entries by tag', e)
+  }
+}
+
+export function countEntriesByEmotion(label: string, db: SqliteDatabase = getDb()): Promise<Result<number>> {
+  return countEntriesByColumn('emotion', label, db)
+}
+
+export function countEntriesByDistortion(label: string, db: SqliteDatabase = getDb()): Promise<Result<number>> {
+  return countEntriesByColumn('distortion', label, db)
+}
+
+export function countEntriesByTopic(label: string, db: SqliteDatabase = getDb()): Promise<Result<number>> {
+  return countEntriesByColumn('topic', label, db)
+}
+
 export async function deleteEntry(
   id: string,
   db: SqliteDatabase = getDb()

@@ -1,4 +1,4 @@
-import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
+import { updateGraphForEntry, rebuildGraph, type SupportCounter } from '@/services/graph/engine'
 import { type SqliteDatabase, setDb } from '@/services/storage/db'
 import {
   upsertNode,
@@ -18,13 +18,21 @@ jest.mock('@/services/storage/graph', () => ({
   // real impl — the engine keys its skip checks on this
   nodeDismissalKey: (type: string, label: string) => `${type}:${label}`.toLowerCase(),
 }))
-jest.mock('@/services/storage/entities', () => ({ listEntitiesForEntry: jest.fn() }))
+jest.mock('@/services/storage/entities', () => ({
+  listEntitiesForEntry: jest.fn(),
+  countEntriesForEntity: jest.fn(async () => ({ success: true, data: 5 })),
+}))
 
 const mockUpsertNode = upsertNode as jest.Mock
 const mockUpsertEdge = upsertEdge as jest.Mock
 const mockFindNode = findNodeByLabel as jest.Mock
 const mockLoadDismissed = loadDismissedNodeKeys as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
+
+// Every label is well-corroborated by default — keeps the existing derivation
+// assertions about WHICH nodes/edges are built independent of the recurrence
+// gate (which has its own tests below).
+const HIGH: SupportCounter = async () => 5
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -61,7 +69,7 @@ describe('updateGraphForEntry', () => {
   })
 
   it('upserts a node per tag and an edge per co-occurring pair', async () => {
-    await updateGraphForEntry(entry(), 'Work') // emotion + distortion + theme = 3 nodes
+    await updateGraphForEntry(entry(), 'Work', undefined, HIGH) // emotion + distortion + theme = 3 nodes
 
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
     expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
@@ -71,7 +79,7 @@ describe('updateGraphForEntry', () => {
   })
 
   it('skips distortion "none" and makes no edge for a single node', async () => {
-    await updateGraphForEntry(entry({ distortion: 'none' })) // only emotion (no topic)
+    await updateGraphForEntry(entry({ distortion: 'none' }), undefined, undefined, HIGH) // only emotion (no topic)
 
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
@@ -79,12 +87,12 @@ describe('updateGraphForEntry', () => {
   })
 
   it('does nothing for an untagged entry', async () => {
-    await updateGraphForEntry(entry({ emotion: null, distortion: null }))
+    await updateGraphForEntry(entry({ emotion: null, distortion: null }), undefined, undefined, HIGH)
     expect(mockUpsertNode).not.toHaveBeenCalled()
   })
 
   it('skips a theme node that just repeats the emotion (case-insensitive)', async () => {
-    await updateGraphForEntry(entry({ emotion: 'loneliness', distortion: 'none' }), 'Loneliness')
+    await updateGraphForEntry(entry({ emotion: 'loneliness', distortion: 'none' }), 'Loneliness', undefined, HIGH)
 
     // only the emotion node — no duplicate "situation" node for the same word
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
@@ -95,7 +103,7 @@ describe('updateGraphForEntry', () => {
   it('attaches a theme to an existing same-label node instead of duplicating it', async () => {
     // A "Work" place node already exists from a prior entry.
     mockFindNode.mockResolvedValue(ok({ id: 'wk', type: 'place', label: 'Work', frequency: 3 }))
-    await updateGraphForEntry(entry({ distortion: 'none' }), 'Work') // emotion + theme "Work"
+    await updateGraphForEntry(entry({ distortion: 'none' }), 'Work', undefined, HIGH) // emotion + theme "Work"
 
     // the theme reuses the existing place node — no second "situation" node
     expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Work')
@@ -106,7 +114,7 @@ describe('updateGraphForEntry', () => {
     mockListEntities.mockResolvedValue(
       ok([{ id: 'x1', entry_id: 'e1', type: 'place', label: 'Gym', created_at: 0 }])
     )
-    await updateGraphForEntry(entry({ distortion: 'none' }), 'gym') // theme echoes the place
+    await updateGraphForEntry(entry({ distortion: 'none' }), 'gym', undefined, HIGH) // theme echoes the place
 
     expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Gym')
     expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'gym')
@@ -115,7 +123,7 @@ describe('updateGraphForEntry', () => {
 
   it('skips a dropped node (and any edge to it) when deriving from an entry', async () => {
     // emotion "anxiety" was dropped — only the distortion node should be built.
-    await updateGraphForEntry(entry(), null, new Set(['emotion:anxiety']))
+    await updateGraphForEntry(entry(), null, new Set(['emotion:anxiety']), HIGH)
 
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
     expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
@@ -130,12 +138,33 @@ describe('updateGraphForEntry', () => {
         { id: 'x2', entry_id: 'e1', type: 'place', label: 'Office', created_at: 0 },
       ])
     )
-    await updateGraphForEntry(entry({ distortion: 'none' }), null) // emotion + 2 entities = 3 nodes
+    await updateGraphForEntry(entry({ distortion: 'none' }), null, undefined, HIGH) // emotion + 2 entities = 3 nodes
 
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
     expect(mockUpsertNode).toHaveBeenCalledWith('person', 'Sarah')
     expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Office')
     expect(mockUpsertEdge).toHaveBeenCalledTimes(3) // 3 nodes -> 3 pairs
+  })
+
+  describe('recurrence gate', () => {
+    it('creates no node when a signal appears in only one entry', async () => {
+      const ONCE: SupportCounter = async () => 1
+      await updateGraphForEntry(entry(), 'Work', undefined, ONCE)
+      expect(mockUpsertNode).not.toHaveBeenCalled() // emotion, distortion, theme all uncorroborated
+      expect(mockUpsertEdge).not.toHaveBeenCalled()
+    })
+
+    it('materializes only the signals corroborated by >=2 entries', async () => {
+      // Emotion recurs; the distortion + theme are one-offs.
+      const sup: SupportCounter = async (type) => (type === 'emotion' ? 2 : 1)
+      await updateGraphForEntry(entry(), 'Work', undefined, sup)
+
+      expect(mockUpsertNode).toHaveBeenCalledTimes(1)
+      expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
+      expect(mockUpsertNode).not.toHaveBeenCalledWith('distortion', 'catastrophizing')
+      expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Work')
+      expect(mockUpsertEdge).not.toHaveBeenCalled() // one node → no pair
+    })
   })
 })
 
@@ -157,6 +186,17 @@ describe('rebuildGraph', () => {
   })
   afterEach(() => setDb(null))
 
+  // Precomputed support maps come from GROUP BY queries; return all test labels
+  // as well-corroborated (>=2) so rebuild assertions cover derivation, not the
+  // gate (which is unit-tested above).
+  const groupBy = (sql: string): { rows: Record<string, unknown>[]; rowsAffected: number } | null => {
+    if (/GROUP BY emotion/.test(sql)) return { rows: [{ k: 'anxiety', n: 2 }, { k: 'calm', n: 2 }], rowsAffected: 0 }
+    if (/GROUP BY distortion/.test(sql)) return { rows: [{ k: 'catastrophizing', n: 2 }], rowsAffected: 0 }
+    if (/GROUP BY topic/.test(sql)) return { rows: [], rowsAffected: 0 }
+    if (/FROM entry_entities GROUP BY/.test(sql)) return { rows: [], rowsAffected: 0 }
+    return null
+  }
+
   it('clears the graph then rebuilds emotion/distortion nodes from all entries', async () => {
     const rows = [
       entry({ id: 'e1', emotion: 'anxiety', distortion: 'catastrophizing' }),
@@ -169,6 +209,8 @@ describe('rebuildGraph', () => {
           deletes.push(sql)
           return { rows: [], rowsAffected: 0 }
         }
+        const g = groupBy(sql)
+        if (g) return g
         if (/^SELECT \* FROM entries/.test(sql)) return { rows, rowsAffected: 0 }
         throw new Error(`unhandled SQL: ${sql}`)
       },
@@ -198,6 +240,8 @@ describe('rebuildGraph', () => {
     const fakeDb = {
       async execute(sql: string) {
         if (/^DELETE FROM/.test(sql)) return { rows: [], rowsAffected: 0 }
+        const g = groupBy(sql)
+        if (g) return g
         if (/^SELECT \* FROM entries/.test(sql)) return { rows, rowsAffected: 0 }
         throw new Error(`unhandled SQL: ${sql}`)
       },

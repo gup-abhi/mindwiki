@@ -1,9 +1,15 @@
 import { processEntry, captureReflectMessage } from '@/services/pipeline'
 import { tagEntry } from '@/services/llm/fast-model'
+import { classifyAffect } from '@/services/llm/deep-model'
 import { applyTags, createEntry, type Entry } from '@/services/storage/entries'
 import { ok, err } from '@/types/result'
 
+// The deep affect re-classification + graph/wiki run as a fire-and-forget chain
+// after the deep `await`; let those microtasks settle before asserting on them.
+const flush = () => new Promise<void>((r) => setImmediate(r))
+
 jest.mock('@/services/llm/fast-model', () => ({ tagEntry: jest.fn() }))
+jest.mock('@/services/llm/deep-model', () => ({ classifyAffect: jest.fn() }))
 jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn(), createEntry: jest.fn() }))
 jest.mock('@/services/storage/entities', () => ({ setEntitiesForEntry: jest.fn() }))
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
@@ -22,6 +28,7 @@ import { setEntitiesForEntry } from '@/services/storage/entities'
 import { getSetting, setSetting } from '@/services/storage/settings'
 
 const mockTagEntry = tagEntry as jest.Mock
+const mockClassifyAffect = classifyAffect as jest.Mock
 const mockApplyTags = applyTags as jest.Mock
 const mockCreateEntry = createEntry as jest.Mock
 const mockUpdateWiki = updateWikiForEntry as jest.Mock
@@ -73,6 +80,9 @@ describe('processEntry', () => {
     mockUpdateGraph.mockResolvedValue(ok(undefined))
     mockSetEntities.mockReset()
     mockSetEntities.mockResolvedValue(ok(undefined))
+    mockClassifyAffect.mockReset()
+    // Default: the deep pass fails, so graph/wiki fall back to the fast affect.
+    mockClassifyAffect.mockResolvedValue(err('AFFECT_INFERENCE_FAILED', 'down'))
   })
 
   it('applies the model tags and assesses crisis from crisis_confidence', async () => {
@@ -86,6 +96,7 @@ describe('processEntry', () => {
       { type: 'place', label: 'Office' },
     ])
 
+    // provisional fast tags persisted immediately
     expect(mockApplyTags).toHaveBeenCalledWith('e1', {
       emotion: 'anxiety',
       distortion: 'none',
@@ -94,6 +105,9 @@ describe('processEntry', () => {
     })
     expect(result.tagged).toBe(true)
     expect(result.crisis.tier).toBe(2) // 0.65 -> tier 2
+
+    await flush() // let the background deep pass → graph/wiki settle
+
     // wiki synthesis kicked off in the background with the tagged entry + topic
     expect(mockUpdateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'e1', emotion: 'anxiety', distortion: 'none' }),
@@ -106,8 +120,42 @@ describe('processEntry', () => {
     )
     // synthesis status begins, and ends once the background update settles
     expect(mockBegin).toHaveBeenCalledTimes(1)
-    await Promise.resolve()
     expect(mockEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it('overrides emotion/distortion with the deep classification before graph/wiki', async () => {
+    mockTagEntry.mockResolvedValue(ok(tags({ emotion: 'anxiety', distortion: 'none' })))
+    mockClassifyAffect.mockResolvedValue(
+      ok({ emotion: 'Sadness', distortion: 'Catastrophizing', distortion_confidence: 0.9 })
+    )
+
+    await processEntry(entry())
+    await flush()
+
+    // the corrected affect is persisted and drives graph + wiki (not the fast one)
+    expect(mockApplyTags).toHaveBeenCalledWith('e1', {
+      emotion: 'Sadness',
+      distortion: 'Catastrophizing',
+      mood_score: 0.4,
+      topic: 'Work',
+    })
+    expect(mockUpdateGraph).toHaveBeenCalledWith(
+      expect.objectContaining({ emotion: 'Sadness', distortion: 'Catastrophizing' }),
+      'Work'
+    )
+  })
+
+  it('falls back to the fast affect when the deep classification fails', async () => {
+    mockTagEntry.mockResolvedValue(ok(tags({ emotion: 'anxiety', distortion: 'mind reading' })))
+    mockClassifyAffect.mockResolvedValue(err('AFFECT_INFERENCE_FAILED', 'down'))
+
+    await processEntry(entry())
+    await flush()
+
+    expect(mockUpdateGraph).toHaveBeenCalledWith(
+      expect.objectContaining({ emotion: 'anxiety', distortion: 'mind reading' }),
+      'Work'
+    )
   })
 
   it('still catches an explicit crisis via the keyword net when tagging fails', async () => {
@@ -149,6 +197,8 @@ describe('captureReflectMessage', () => {
     mockSetEntities.mockResolvedValue(ok(undefined))
     mockUpdateWiki.mockResolvedValue(ok([]))
     mockUpdateGraph.mockResolvedValue(ok(undefined))
+    mockClassifyAffect.mockReset()
+    mockClassifyAffect.mockResolvedValue(err('AFFECT_INFERENCE_FAILED', 'down'))
     mockCreateEntry.mockResolvedValue(ok(entry({ id: 'r1', source: 'reflect' })))
     mockGetSetting.mockResolvedValue({ success: true, data: null }) // theme unseen
     mockSetSetting.mockResolvedValue({ success: true, data: undefined })
@@ -177,6 +227,8 @@ describe('captureReflectMessage', () => {
     mockTagEntry.mockResolvedValue(ok(tags({ topic: 'Boundaries' })))
 
     await captureReflectMessage('I really do need firmer boundaries with work')
+
+    await flush() // background deep pass → wiki
 
     expect(mockSetSetting).toHaveBeenCalledWith('reflect:theme:boundaries', '2')
     expect(mockCreateEntry).toHaveBeenCalledWith(

@@ -4,6 +4,7 @@ import {
   generateReflectionQuestion,
   generateAffirmation,
   converseFromWiki,
+  classifyAffect,
 } from '@/services/llm/deep-model'
 import { buildUpdatePagePrompt, buildRewritePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildAffirmationPrompt } from '@/services/llm/prompts/affirmation'
@@ -203,6 +204,41 @@ describe('generateReflectionQuestion', () => {
     const result = await generateReflectionQuestion(qInput)
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('DIGEST_QUESTION_VALIDATION_FAILED')
+  })
+})
+
+describe('classifyAffect', () => {
+  const affectInput = { situation: 'a meeting', thought: 'I will fail and get fired' }
+
+  it('canonicalizes the emotion + distortion from a confident classification', async () => {
+    mockSynthesise.mockResolvedValue({
+      text: '{"emotion":"anxious","distortion":"catastrophising","distortion_confidence":0.9}',
+    })
+    const result = await classifyAffect(affectInput)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.emotion).toBe('Anxiety') // snapped via alias
+      expect(result.data.distortion).toBe('Catastrophizing')
+    }
+  })
+
+  it('drops a low-confidence distortion to "none" but keeps the emotion', async () => {
+    mockSynthesise.mockResolvedValue({
+      text: '{"emotion":"Anxiety","distortion":"Catastrophizing","distortion_confidence":0.3}',
+    })
+    const result = await classifyAffect(affectInput)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.distortion).toBe('none')
+      expect(result.data.emotion).toBe('Anxiety')
+    }
+  })
+
+  it('fails with AFFECT_PARSE_FAILED when the model returns no JSON', async () => {
+    mockSynthesise.mockResolvedValue({ text: 'I think this is anxiety.' })
+    const result = await classifyAffect(affectInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('AFFECT_PARSE_FAILED')
   })
 })
 

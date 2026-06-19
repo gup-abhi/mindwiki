@@ -20,6 +20,14 @@ import { AffirmationSchema } from './schemas/challenge.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
+import { buildAffectPrompt, type AffectPromptInput } from './prompts/classify-affect'
+import { AffectTagSchema, type AffectTag } from './schemas/affect-tag.schema'
+import { canonicalizeEmotion, canonicalizeDistortion } from './taxonomy'
+
+// Below this confidence we don't trust the distortion call enough to record it —
+// a shaky distortion would otherwise seed a (gated, but still) graph node and
+// colour the wiki. Drop it to 'none' instead. Tunable knob, not a guarantee.
+const DISTORTION_CONF_THRESHOLD = 0.6
 
 // Pull the first {...} object out of the model output (it may add stray text).
 function extractJson(text: string): unknown {
@@ -31,6 +39,43 @@ function extractJson(text: string): unknown {
   } catch {
     return undefined
   }
+}
+
+/**
+ * Re-classify an entry's emotion + distortion with the deep model (KB-grounded,
+ * far better than the fast 1.5B at the subtle distortion call). Background only.
+ * Snaps both to the controlled vocabulary, and drops a low-confidence distortion
+ * to 'none' so only a clearly-present pattern is recorded. Never throws; on any
+ * failure the caller keeps the fast tag. Errors carry a code only, never text.
+ */
+export async function classifyAffect(input: AffectPromptInput): Promise<Result<AffectTag>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildAffectPrompt(input), {
+      maxTokens: 80,
+      temperature: 0.2,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('AFFECT_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  const json = extractJson(raw)
+  if (json === undefined) return err('AFFECT_PARSE_FAILED', 'No JSON object found in model output')
+
+  const parsed = AffectTagSchema.safeParse(json)
+  if (!parsed.success) return err('AFFECT_VALIDATION_FAILED', 'Affect output failed schema validation')
+
+  const distortion =
+    parsed.data.distortion_confidence >= DISTORTION_CONF_THRESHOLD
+      ? canonicalizeDistortion(parsed.data.distortion)
+      : 'none'
+
+  return ok({
+    emotion: canonicalizeEmotion(parsed.data.emotion),
+    distortion,
+    distortion_confidence: parsed.data.distortion_confidence,
+  })
 }
 
 /**

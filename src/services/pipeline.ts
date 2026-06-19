@@ -1,5 +1,6 @@
 import { assessCrisis, type CrisisAssessment } from '@/services/crisis/detector'
 import { tagEntry } from '@/services/llm/fast-model'
+import { classifyAffect } from '@/services/llm/deep-model'
 import { type EntryTag } from '@/services/llm/schemas/entry-tag.schema'
 import { applyTags, createEntry, type Entry } from '@/services/storage/entries'
 import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
@@ -20,6 +21,9 @@ export interface ProcessResult {
  * indexing path. Returns whether the tags were persisted. Never throws.
  */
 async function indexEntryFromTags(entry: Entry, tags: EntryTag): Promise<boolean> {
+  // Provisional fast tags, persisted immediately so the entry shows an emotion
+  // right away and the recurrence counts already include this entry. The deep
+  // pass below corrects emotion/distortion before they reach the graph.
   const applied = await applyTags(entry.id, {
     emotion: tags.emotion,
     distortion: tags.distortion,
@@ -37,22 +41,55 @@ async function indexEntryFromTags(entry: Entry, tags: EntryTag): Promise<boolean
   ]
   await setEntitiesForEntry(entry.id, entities)
 
+  // The deep model re-classifies affect and only then do we build the graph +
+  // wiki — fire-and-forget so the caller (and the crisis check) never waits.
+  void refineAffectThenIndex(entry, tags)
+
+  return applied.success
+}
+
+/**
+ * Background: re-classify the entry's emotion + distortion with the deep model
+ * (KB-grounded, far better at the subtle distortion call than the fast 1.5B),
+ * persist the correction, then build the recurrence-gated graph + wiki from the
+ * corrected affect. On any deep failure we keep the fast tag — never worse than
+ * before. Best-effort, never throws.
+ */
+async function refineAffectThenIndex(entry: Entry, fast: EntryTag): Promise<void> {
+  const affect = await classifyAffect({
+    situation: entry.situation,
+    thought: entry.thought,
+    behavior: entry.behavior,
+    closing_note: entry.closing_note,
+  })
+  const emotion = affect.success ? affect.data.emotion : fast.emotion
+  const distortion = affect.success ? affect.data.distortion : fast.distortion
+
+  // Persist the correction (keep the fast mood/topic). Skip the write if the
+  // deep pass failed — the provisional fast tags are already in place.
+  if (affect.success) {
+    await applyTags(entry.id, {
+      emotion,
+      distortion,
+      mood_score: fast.mood_score,
+      topic: fast.topic,
+    })
+  }
+
   const taggedEntry: Entry = {
     ...entry,
-    emotion: tags.emotion,
-    distortion: tags.distortion,
-    mood_score: tags.mood_score,
-    topic: tags.topic,
+    emotion,
+    distortion,
+    mood_score: fast.mood_score,
+    topic: fast.topic,
     tagged_at: Date.now(),
   }
   // Graph update is cheap (DB only) — fire-and-forget.
-  void updateGraphForEntry(taggedEntry, tags.topic)
+  void updateGraphForEntry(taggedEntry, fast.topic)
 
   // Wiki synthesis is the slow deep-model step — track it for the indicator.
   useWikiStore.getState().begin()
-  void updateWikiForEntry(taggedEntry, tags.topic).finally(() => useWikiStore.getState().end())
-
-  return applied.success
+  void updateWikiForEntry(taggedEntry, fast.topic).finally(() => useWikiStore.getState().end())
 }
 
 /**
