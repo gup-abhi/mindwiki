@@ -100,6 +100,8 @@ export async function updateWikiForEntry(
       existingContent: baseContent,
       situation: entry.situation,
       thought: entry.thought,
+      distortion: entry.distortion,
+      emotion: entry.emotion,
     })
     if (!synth.success) {
       if (__DEV__) console.log(`[wiki] synth failed: ${synth.error.code}`)

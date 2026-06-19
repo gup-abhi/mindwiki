@@ -1,4 +1,5 @@
 import { type ChatMessage } from '@/native/LLMBridge'
+import { REFLECTIVE_TECHNIQUES, distortionGuide } from '@/services/llm/reference'
 
 export interface ConversationContext {
   /** Ranked wiki pages relevant to the latest user message. */
@@ -45,6 +46,12 @@ const SYSTEM = [
   '- Never diagnose, label, or give medical or clinical advice.',
 ].join('\n')
 
+// Persona + the reflective talk technique + a compact, example-led guide to
+// common distorted-thinking patterns, so the model can recognize and gently
+// loosen them in the live message. Kept compact (guide is capped) to protect the
+// deep model's 2048-token context budget, which it shares with pages + history.
+const SYSTEM_PROMPT = [SYSTEM, REFLECTIVE_TECHNIQUES, distortionGuide()].join('\n\n')
+
 // Optional background from the wiki, framed as "use only if it relates". Returns
 // an empty string when there's nothing relevant, so the model just answers the
 // message rather than being told to anchor on absent pages.
@@ -81,8 +88,8 @@ export function buildConversationMessages({
   // A long thread is trimmed to the recent turns; the recap stands in for the
   // earlier ones so the companion keeps continuity without blowing the context.
   const recap = summary && summary.trim()
-    ? `${SYSTEM}\n\n— Earlier in this conversation (recap of what came before the messages below) —\n${summary.trim()}`
-    : SYSTEM
+    ? `${SYSTEM_PROMPT}\n\n— Earlier in this conversation (recap of what came before the messages below) —\n${summary.trim()}`
+    : SYSTEM_PROMPT
   const userTurn = `${message}${backgroundBlock(context)}`
   return [{ role: 'system', content: recap }, ...history, { role: 'user', content: userTurn }]
 }

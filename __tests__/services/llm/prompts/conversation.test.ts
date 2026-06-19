@@ -26,6 +26,14 @@ describe('buildConversationMessages', () => {
     expect(system.content).toMatch(/don’t end every reply with a question/i)
   })
 
+  it('carries the reflective technique and the distortion guide (with examples) in the system prompt', () => {
+    const [system] = buildConversationMessages({ history: [], message: 'hi', context: empty })
+    expect(system.content).toMatch(/reflective companion technique/i)
+    expect(system.content).toMatch(/distorted-thinking patterns/i)
+    expect(system.content).toMatch(/Catastrophizing/)
+    expect(system.content).toMatch(/e\.g\./) // identification examples present
+  })
+
   it('a new topic with no wiki match becomes a bare message — no background block', () => {
     const msgs = buildConversationMessages({
       history: [],
