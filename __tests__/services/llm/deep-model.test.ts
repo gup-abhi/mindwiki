@@ -242,20 +242,36 @@ describe('classifyAffect', () => {
   })
 })
 
-describe('synthesizePage — prompt-leak guard', () => {
-  it('accepts a clean, prose page', async () => {
+describe('synthesizePage — scaffolding strip', () => {
+  it('accepts a clean, prose page unchanged', async () => {
     mockSynthesise.mockResolvedValue({ text: 'You tend to brace for the worst before a deadline.' })
     const result = await synthesizePage(input)
     expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toBe('You tend to brace for the worst before a deadline.')
   })
 
-  it('rejects output that echoed the prompt scaffolding (never shows the reader)', async () => {
+  it('strips echoed scaffolding lines, keeping the real prose (repairs a leaked page)', async () => {
     mockSynthesise.mockResolvedValue({
-      text: 'Reframe lens: where is the middle ground?\nCurrent page:\nYou tend to catastrophize.',
+      text:
+        'For your understanding only — do NOT define these terms:\n' +
+        'Thinking pattern: All-or-nothing thinking — seeing extremes.\n' +
+        'Reframe lens: where is the middle ground?\n' +
+        'Current page:\n' +
+        'You tend to see your life as total success or total failure.',
     })
     const result = await synthesizePage(input)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data).toBe('You tend to see your life as total success or total failure.')
+      expect(result.data).not.toMatch(/Reframe lens:|Thinking pattern:|Current page:|for your understanding/i)
+    }
+  })
+
+  it('fails validation when the output was nothing but scaffolding', async () => {
+    mockSynthesise.mockResolvedValue({ text: 'Current page:\nNew reflection:' })
+    const result = await synthesizePage(input)
     expect(result.success).toBe(false)
-    if (!result.success) expect(result.error.code).toBe('SYNTH_LEAK_REJECTED')
+    if (!result.success) expect(result.error.code).toBe('SYNTH_VALIDATION_FAILED')
   })
 })
 

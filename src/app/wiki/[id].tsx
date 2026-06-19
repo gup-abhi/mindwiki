@@ -20,7 +20,7 @@ export default function WikiPageScreen() {
     if (error) {
       Alert.alert(
         'Couldn’t regenerate',
-        `${error}\n\nThe rewrite runs the on-device AI model — make sure it has finished downloading, then try again.`
+        'The on-device AI didn’t return a clean rewrite this time. Tap Regenerate to try again.'
       )
     }
   }

@@ -42,22 +42,32 @@ function extractJson(text: string): unknown {
 }
 
 // A finished wiki page is flowing prose. These labels only ever come from the
-// prompt scaffolding (or the entry skeleton the style forbids), so if any appear
-// in the output the small model echoed the prompt instead of synthesizing — we
-// reject it rather than show the reader the scaffolding. Backstop independent of
-// any single prompt's wording.
-const PAGE_LEAK_MARKERS = [
-  /current page:/i,
-  /new reflection:/i,
-  /page to rewrite:/i,
-  /reframe lens:/i,
-  /thinking pattern:/i,
-  /for your understanding/i,
-  /\bsituation:/i,
-  /\bthought:/i,
+// prompt scaffolding (or the entry skeleton the style forbids), so a line that
+// STARTS with one is the small model echoing the prompt rather than synthesizing.
+// We strip those lines instead of rejecting the whole output — that way the
+// "Regenerate" button can actually CLEAN an already-leaked page, and new
+// synthesis never shows the reader scaffolding either. Backstop independent of
+// any single prompt's wording. If nothing real is left, WikiContentSchema's
+// min-length check fails the synthesis (caller keeps the prior page).
+const SCAFFOLDING_LINE = [
+  /^current page:/i,
+  /^new reflection:/i,
+  /^page to rewrite:/i,
+  /^reframe lens:/i,
+  /^thinking pattern:/i,
+  /^feeling:/i,
+  /^for your understanding/i,
+  /^situation:/i,
+  /^thought:/i,
+  /^behaviou?r:/i,
 ]
-function looksLikePromptLeak(text: string): boolean {
-  return PAGE_LEAK_MARKERS.some((re) => re.test(text))
+function stripScaffolding(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !SCAFFOLDING_LINE.some((re) => re.test(line.trim())))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 /**
@@ -114,13 +124,11 @@ export async function synthesizePage(input: UpdatePageInput): Promise<Result<str
     return err('SYNTH_INFERENCE_FAILED', 'Deep model inference failed', e)
   }
 
-  const parsed = WikiContentSchema.safeParse(raw)
+  // Strip any echoed scaffolding before validating — keeps the reader from ever
+  // seeing prompt lines, and turns a partly-leaked output into its clean prose.
+  const parsed = WikiContentSchema.safeParse(stripScaffolding(raw))
   if (!parsed.success) {
     return err('SYNTH_VALIDATION_FAILED', 'Synthesized content failed validation')
-  }
-  if (looksLikePromptLeak(parsed.data)) {
-    // Echoed the prompt — keep the prior page rather than show scaffolding.
-    return err('SYNTH_LEAK_REJECTED', 'Output echoed prompt scaffolding')
   }
   return ok(parsed.data)
 }
@@ -142,12 +150,9 @@ export async function regeneratePage(input: RewritePageInput): Promise<Result<st
     return err('REGEN_INFERENCE_FAILED', 'Deep model inference failed', e)
   }
 
-  const parsed = WikiContentSchema.safeParse(raw)
+  const parsed = WikiContentSchema.safeParse(stripScaffolding(raw))
   if (!parsed.success) {
     return err('REGEN_VALIDATION_FAILED', 'Regenerated content failed validation')
-  }
-  if (looksLikePromptLeak(parsed.data)) {
-    return err('REGEN_LEAK_REJECTED', 'Output echoed prompt scaffolding')
   }
   return ok(parsed.data)
 }
