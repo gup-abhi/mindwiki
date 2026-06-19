@@ -1,5 +1,5 @@
 // Controlled vocabulary for emotions + cognitive distortions. The fast model is
-// asked to choose from these lists (see prompts/tag-entry.ts), and its output is
+// asked to choose from these lists (see prompts/extract-entry.ts), and its output is
 // snapped to the nearest canonical term here — so near-synonyms ("anxious",
 // "nervous", "worried") collapse to one node/page instead of many.
 //
@@ -152,4 +152,44 @@ export function canonicalizeDistortion(raw: string): string {
   const key = raw.trim().toLowerCase()
   if (!key || key === 'none') return 'none'
   return DISTORTION_CANON.get(key) ?? DISTORTION_ALIASES[key] ?? 'none'
+}
+
+// Free-text labels (topics, entities) aren't a controlled vocabulary, but they
+// still feed recurrence-gated graph nodes — so near-variants must collapse to one
+// label or they never recur. A leading article is the common splitter
+// ("the app" vs "App" vs "my app").
+const LEADING_ARTICLE = /^(the|a|an|my|your|our)\s+/i
+
+function titleCase(s: string): string {
+  return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s
+}
+
+/** Canonical form for a free-text label: trim, collapse spaces, drop a leading
+ * article, Title-case the first word — so "the app" / "App" / "my app" → "App". */
+export function canonicalizeLabel(raw: string): string {
+  const stripped = raw.trim().replace(/\s+/g, ' ').replace(LEADING_ARTICLE, '')
+  return titleCase(stripped)
+}
+
+// The writer is never an extracted "person"; drop self-references the model
+// sometimes emits.
+const FIRST_PERSON = new Set(['i', 'me', 'my', 'myself', 'we', 'us', 'mine', 'none'])
+
+/**
+ * Clean a raw entity list from the model: trim, drop blanks / 'none' /
+ * first-person, canonicalize the label, de-dupe case-insensitively, cap at 3.
+ * Keeps junk out of the graph + wiki and lets near-variants collapse to one node.
+ */
+export function normalizeEntities(raw: string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const label = canonicalizeLabel(item)
+    const key = label.toLowerCase()
+    if (!label || FIRST_PERSON.has(key) || seen.has(key)) continue
+    seen.add(key)
+    out.push(label)
+    if (out.length >= 3) break
+  }
+  return out
 }

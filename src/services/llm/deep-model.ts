@@ -20,9 +20,9 @@ import { AffirmationSchema } from './schemas/challenge.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
-import { buildAffectPrompt, type AffectPromptInput } from './prompts/classify-affect'
-import { AffectTagSchema, type AffectTag } from './schemas/affect-tag.schema'
-import { canonicalizeEmotion, canonicalizeDistortion } from './taxonomy'
+import { buildExtractPrompt, type ExtractPromptInput } from './prompts/extract-entry'
+import { EntryExtractSchema, type EntryExtract } from './schemas/entry-extract.schema'
+import { canonicalizeEmotion, canonicalizeDistortion, canonicalizeLabel, normalizeEntities } from './taxonomy'
 
 // Below this confidence we don't trust the distortion call enough to record it —
 // a shaky distortion would otherwise seed a (gated, but still) graph node and
@@ -71,29 +71,31 @@ function stripScaffolding(text: string): string {
 }
 
 /**
- * Re-classify an entry's emotion + distortion with the deep model (KB-grounded,
- * far better than the fast 1.5B at the subtle distortion call). Background only.
- * Snaps both to the controlled vocabulary, and drops a low-confidence distortion
- * to 'none' so only a clearly-present pattern is recorded. Never throws; on any
- * failure the caller keeps the fast tag. Errors carry a code only, never text.
+ * Extract everything that feeds the knowledge base — emotion, distortion, mood,
+ * topic, and entities — with the deep model (KB-grounded, far more consistent
+ * than the fast 1.5B, which matters because the recurrence-gated graph needs
+ * labels to recur). Background only. Snaps emotion/distortion to the controlled
+ * vocabulary, canonicalizes the free-text topic + entity labels so near-variants
+ * collapse, and drops a low-confidence distortion to 'none'. Never throws; on
+ * failure the entry just isn't indexed. Errors carry a code only, never text.
  */
-export async function classifyAffect(input: AffectPromptInput): Promise<Result<AffectTag>> {
+export async function extractEntry(input: ExtractPromptInput): Promise<Result<EntryExtract>> {
   let raw: string
   try {
-    const output = await LLMBridge.synthesise(buildAffectPrompt(input), {
-      maxTokens: 80,
+    const output = await LLMBridge.synthesise(buildExtractPrompt(input), {
+      maxTokens: 200,
       temperature: 0.2,
     })
     raw = output.text
   } catch (e) {
-    return err('AFFECT_INFERENCE_FAILED', 'Deep model inference failed', e)
+    return err('EXTRACT_INFERENCE_FAILED', 'Deep model inference failed', e)
   }
 
   const json = extractJson(raw)
-  if (json === undefined) return err('AFFECT_PARSE_FAILED', 'No JSON object found in model output')
+  if (json === undefined) return err('EXTRACT_PARSE_FAILED', 'No JSON object found in model output')
 
-  const parsed = AffectTagSchema.safeParse(json)
-  if (!parsed.success) return err('AFFECT_VALIDATION_FAILED', 'Affect output failed schema validation')
+  const parsed = EntryExtractSchema.safeParse(json)
+  if (!parsed.success) return err('EXTRACT_VALIDATION_FAILED', 'Extract output failed schema validation')
 
   const distortion =
     parsed.data.distortion_confidence >= DISTORTION_CONF_THRESHOLD
@@ -104,6 +106,11 @@ export async function classifyAffect(input: AffectPromptInput): Promise<Result<A
     emotion: canonicalizeEmotion(parsed.data.emotion),
     distortion,
     distortion_confidence: parsed.data.distortion_confidence,
+    mood_score: parsed.data.mood_score,
+    topic: canonicalizeLabel(parsed.data.topic),
+    people: normalizeEntities(parsed.data.people),
+    places: normalizeEntities(parsed.data.places),
+    activities: normalizeEntities(parsed.data.activities),
   })
 }
 

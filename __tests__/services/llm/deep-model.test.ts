@@ -4,7 +4,7 @@ import {
   generateReflectionQuestion,
   generateAffirmation,
   converseFromWiki,
-  classifyAffect,
+  extractEntry,
 } from '@/services/llm/deep-model'
 import { buildUpdatePagePrompt, buildRewritePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildAffirmationPrompt } from '@/services/llm/prompts/affirmation'
@@ -207,26 +207,33 @@ describe('generateReflectionQuestion', () => {
   })
 })
 
-describe('classifyAffect', () => {
-  const affectInput = { situation: 'a meeting', thought: 'I will fail and get fired' }
+describe('extractEntry', () => {
+  const exInput = { situation: 'building the app brought me joy', thought: '' }
 
-  it('canonicalizes the emotion + distortion from a confident classification', async () => {
+  it('canonicalizes emotion/distortion and the topic + entity labels', async () => {
     mockSynthesise.mockResolvedValue({
-      text: '{"emotion":"anxious","distortion":"catastrophising","distortion_confidence":0.9}',
+      text:
+        '{"emotion":"joyful","distortion":"none","distortion_confidence":0.0,"mood_score":0.9,' +
+        '"topic":"the app","people":[],"places":[],"activities":["the app"," me "]}',
     })
-    const result = await classifyAffect(affectInput)
+    const result = await extractEntry(exInput)
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.emotion).toBe('Anxiety') // snapped via alias
-      expect(result.data.distortion).toBe('Catastrophizing')
+      expect(result.data.emotion).toBe('Joy') // snapped via alias
+      expect(result.data.distortion).toBe('none')
+      expect(result.data.mood_score).toBe(0.9)
+      expect(result.data.topic).toBe('App') // "the app" -> "App"
+      expect(result.data.activities).toEqual(['App']) // "the app" canon, "me" dropped
     }
   })
 
   it('drops a low-confidence distortion to "none" but keeps the emotion', async () => {
     mockSynthesise.mockResolvedValue({
-      text: '{"emotion":"Anxiety","distortion":"Catastrophizing","distortion_confidence":0.3}',
+      text:
+        '{"emotion":"Anxiety","distortion":"Catastrophizing","distortion_confidence":0.3,' +
+        '"mood_score":0.2,"topic":"Work"}',
     })
-    const result = await classifyAffect(affectInput)
+    const result = await extractEntry(exInput)
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.distortion).toBe('none')
@@ -234,11 +241,11 @@ describe('classifyAffect', () => {
     }
   })
 
-  it('fails with AFFECT_PARSE_FAILED when the model returns no JSON', async () => {
+  it('fails with EXTRACT_PARSE_FAILED when the model returns no JSON', async () => {
     mockSynthesise.mockResolvedValue({ text: 'I think this is anxiety.' })
-    const result = await classifyAffect(affectInput)
+    const result = await extractEntry(exInput)
     expect(result.success).toBe(false)
-    if (!result.success) expect(result.error.code).toBe('AFFECT_PARSE_FAILED')
+    if (!result.success) expect(result.error.code).toBe('EXTRACT_PARSE_FAILED')
   })
 })
 

@@ -1,7 +1,7 @@
 import { assessCrisis, type CrisisAssessment } from '@/services/crisis/detector'
-import { tagEntry } from '@/services/llm/fast-model'
-import { classifyAffect } from '@/services/llm/deep-model'
-import { type EntryTag } from '@/services/llm/schemas/entry-tag.schema'
+import { scoreCrisis } from '@/services/llm/fast-model'
+import { extractEntry } from '@/services/llm/deep-model'
+import { type EntryExtract } from '@/services/llm/schemas/entry-extract.schema'
 import { applyTags, createEntry, type Entry } from '@/services/storage/entries'
 import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
 import { getSetting, setSetting } from '@/services/storage/settings'
@@ -10,116 +10,94 @@ import { updateWikiForEntry } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
 
 export interface ProcessResult {
-  tagged: boolean
   crisis: CrisisAssessment
 }
 
 /**
- * Apply fast-model tags to a saved entry and fan them out to the knowledge base:
- * persist entities (the wiki recurrence count reads them), then graph + wiki
- * synthesis. Shared by the journal flow and Reflect-chat capture so there is one
- * indexing path. Returns whether the tags were persisted. Never throws.
+ * Persist a deep extraction onto an entry and fan it out to the knowledge base:
+ * apply the tags, persist entities (the wiki recurrence count reads them), then
+ * the recurrence-gated graph + wiki synthesis. Shared by the journal flow and
+ * Reflect-chat capture so there is one indexing path. Best-effort, never throws.
  */
-async function indexEntryFromTags(entry: Entry, tags: EntryTag): Promise<boolean> {
-  // Provisional fast tags, persisted immediately so the entry shows an emotion
-  // right away and the recurrence counts already include this entry. The deep
-  // pass below corrects emotion/distortion before they reach the graph.
-  const applied = await applyTags(entry.id, {
-    emotion: tags.emotion,
-    distortion: tags.distortion,
-    mood_score: tags.mood_score,
-    topic: tags.topic,
+async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
+  await applyTags(entry.id, {
+    emotion: ex.emotion,
+    distortion: ex.distortion,
+    mood_score: ex.mood_score,
+    topic: ex.topic,
   })
 
-  // Persist extracted entities before graph/wiki run — the graph reads them to
-  // build person/place/activity nodes and the wiki uses the recurrence count
-  // (which must include this entry). Cheap DB write; await it.
+  // Persist entities before graph/wiki run — the graph reads them for
+  // person/place/activity nodes and the wiki uses the recurrence count (which
+  // must include this entry). Cheap DB write; await it.
   const entities: NewEntity[] = [
-    ...tags.people.map((label) => ({ type: 'person' as const, label })),
-    ...tags.places.map((label) => ({ type: 'place' as const, label })),
-    ...tags.activities.map((label) => ({ type: 'activity' as const, label })),
+    ...ex.people.map((label) => ({ type: 'person' as const, label })),
+    ...ex.places.map((label) => ({ type: 'place' as const, label })),
+    ...ex.activities.map((label) => ({ type: 'activity' as const, label })),
   ]
   await setEntitiesForEntry(entry.id, entities)
 
-  // The deep model re-classifies affect and only then do we build the graph +
-  // wiki — fire-and-forget so the caller (and the crisis check) never waits.
-  void refineAffectThenIndex(entry, tags)
+  const taggedEntry: Entry = {
+    ...entry,
+    emotion: ex.emotion,
+    distortion: ex.distortion,
+    mood_score: ex.mood_score,
+    topic: ex.topic,
+    tagged_at: Date.now(),
+  }
+  // Graph update is cheap (DB only) — fire-and-forget.
+  void updateGraphForEntry(taggedEntry, ex.topic)
 
-  return applied.success
+  // Wiki synthesis is the slow deep-model step — track it for the indicator.
+  useWikiStore.getState().begin()
+  void updateWikiForEntry(taggedEntry, ex.topic).finally(() => useWikiStore.getState().end())
 }
 
 /**
- * Background: re-classify the entry's emotion + distortion with the deep model
- * (KB-grounded, far better at the subtle distortion call than the fast 1.5B),
- * persist the correction, then build the recurrence-gated graph + wiki from the
- * corrected affect. On any deep failure we keep the fast tag — never worse than
- * before. Best-effort, never throws.
+ * Background: run the deep extraction for an entry, then index it. The deep model
+ * owns every knowledge-base signal now (emotion/distortion/topic/mood/entities) —
+ * it's slower than the fast model but far more consistent, and the graph/wiki
+ * aren't needed synchronously. On failure the entry stays saved but un-indexed
+ * (parity with a tag failure before). Best-effort, never throws.
  */
-async function refineAffectThenIndex(entry: Entry, fast: EntryTag): Promise<void> {
-  const affect = await classifyAffect({
+async function extractThenIndex(entry: Entry): Promise<void> {
+  const ex = await extractEntry({
     situation: entry.situation,
     thought: entry.thought,
     behavior: entry.behavior,
     closing_note: entry.closing_note,
   })
-  const emotion = affect.success ? affect.data.emotion : fast.emotion
-  const distortion = affect.success ? affect.data.distortion : fast.distortion
-
-  // Persist the correction (keep the fast mood/topic). Skip the write if the
-  // deep pass failed — the provisional fast tags are already in place.
-  if (affect.success) {
-    await applyTags(entry.id, {
-      emotion,
-      distortion,
-      mood_score: fast.mood_score,
-      topic: fast.topic,
-    })
-  }
-
-  const taggedEntry: Entry = {
-    ...entry,
-    emotion,
-    distortion,
-    mood_score: fast.mood_score,
-    topic: fast.topic,
-    tagged_at: Date.now(),
-  }
-  // Graph update is cheap (DB only) — fire-and-forget.
-  void updateGraphForEntry(taggedEntry, fast.topic)
-
-  // Wiki synthesis is the slow deep-model step — track it for the indicator.
-  useWikiStore.getState().begin()
-  void updateWikiForEntry(taggedEntry, fast.topic).finally(() => useWikiStore.getState().end())
+  if (!ex.success) return
+  await indexFromExtract(entry, ex.data)
 }
 
 /**
  * Post-save processing for an entry (run after createEntry, off the save path):
- *   1. fast-model tag -> applyTags (best effort; never blocks)
- *   2. crisis assessment from the model's crisis_confidence + keyword safety net
+ *   1. fast-model crisis score -> crisis assessment (sync; the only blocking step)
+ *   2. deep-model extraction -> tags + entities + graph + wiki (background)
  *
- * Never throws. If tagging fails, tags are skipped (ADR 004) but the keyword
- * safety net still runs, so an explicit crisis is caught even without the model.
+ * Never throws. If the crisis score fails the keyword safety net still runs; if
+ * the deep extract fails the entry is saved but simply not indexed (ADR 004).
  */
 export async function processEntry(entry: Entry): Promise<ProcessResult> {
-  const tagResult = await tagEntry({
+  // Synchronous, safety-critical: score crisis with the fast model so the caller
+  // can route to /crisis immediately. Failure → 0, the keyword net still fires.
+  const crisisResult = await scoreCrisis({
     situation: entry.situation,
     thought: entry.thought,
     behavior: entry.behavior,
     closing_note: entry.closing_note,
   })
-
-  let tagged = false
-  let crisisConfidence = 0
-
-  if (tagResult.success) {
-    crisisConfidence = tagResult.data.crisis_confidence
-    tagged = await indexEntryFromTags(entry, tagResult.data)
-  }
+  const crisisConfidence = crisisResult.success ? crisisResult.data.crisis_confidence : 0
 
   const text = `${entry.situation}\n${entry.thought}`
   const crisis = assessCrisis(text, crisisConfidence)
 
-  return { tagged, crisis }
+  // Everything else (emotion/distortion/topic/mood/entities → graph + wiki) is
+  // the deep model's job, in the background — never blocks the save or crisis.
+  void extractThenIndex(entry)
+
+  return { crisis }
 }
 
 // Map the fast model's normalized mood_score (0..1) onto the entries.mood
@@ -152,11 +130,11 @@ function isQuestion(text: string): boolean {
 export async function captureReflectMessage(message: string): Promise<void> {
   if (isQuestion(message)) return
 
-  const tagResult = await tagEntry({ situation: message, thought: '' })
-  if (!tagResult.success) return
+  // Deep extraction gives the topic (for the recurrence gate) and mood.
+  const ex = await extractEntry({ situation: message, thought: '' })
+  if (!ex.success) return
 
-  const tags = tagResult.data
-  const theme = tags.topic.trim()
+  const theme = ex.data.topic.trim()
   if (!theme || theme.toLowerCase() === 'none') return // no trackable statement
 
   // Count this mention; only ingest from the Nth onward.
@@ -167,12 +145,12 @@ export async function captureReflectMessage(message: string): Promise<void> {
   if (count < MIN_REFLECT_MENTIONS) return
 
   const created = await createEntry({
-    mood: moodFromScore(tags.mood_score),
+    mood: moodFromScore(ex.data.mood_score),
     situation: message,
     thought: '',
     source: 'reflect',
   })
   if (!created.success) return
 
-  await indexEntryFromTags(created.data, tags)
+  await indexFromExtract(created.data, ex.data)
 }
