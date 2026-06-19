@@ -242,3 +242,20 @@ describe('classifyAffect', () => {
   })
 })
 
+describe('synthesizePage — prompt-leak guard', () => {
+  it('accepts a clean, prose page', async () => {
+    mockSynthesise.mockResolvedValue({ text: 'You tend to brace for the worst before a deadline.' })
+    const result = await synthesizePage(input)
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects output that echoed the prompt scaffolding (never shows the reader)', async () => {
+    mockSynthesise.mockResolvedValue({
+      text: 'Reframe lens: where is the middle ground?\nCurrent page:\nYou tend to catastrophize.',
+    })
+    const result = await synthesizePage(input)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('SYNTH_LEAK_REJECTED')
+  })
+})
+

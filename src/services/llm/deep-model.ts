@@ -41,6 +41,25 @@ function extractJson(text: string): unknown {
   }
 }
 
+// A finished wiki page is flowing prose. These labels only ever come from the
+// prompt scaffolding (or the entry skeleton the style forbids), so if any appear
+// in the output the small model echoed the prompt instead of synthesizing — we
+// reject it rather than show the reader the scaffolding. Backstop independent of
+// any single prompt's wording.
+const PAGE_LEAK_MARKERS = [
+  /current page:/i,
+  /new reflection:/i,
+  /page to rewrite:/i,
+  /reframe lens:/i,
+  /thinking pattern:/i,
+  /for your understanding/i,
+  /\bsituation:/i,
+  /\bthought:/i,
+]
+function looksLikePromptLeak(text: string): boolean {
+  return PAGE_LEAK_MARKERS.some((re) => re.test(text))
+}
+
 /**
  * Re-classify an entry's emotion + distortion with the deep model (KB-grounded,
  * far better than the fast 1.5B at the subtle distortion call). Background only.
@@ -99,6 +118,10 @@ export async function synthesizePage(input: UpdatePageInput): Promise<Result<str
   if (!parsed.success) {
     return err('SYNTH_VALIDATION_FAILED', 'Synthesized content failed validation')
   }
+  if (looksLikePromptLeak(parsed.data)) {
+    // Echoed the prompt — keep the prior page rather than show scaffolding.
+    return err('SYNTH_LEAK_REJECTED', 'Output echoed prompt scaffolding')
+  }
   return ok(parsed.data)
 }
 
@@ -122,6 +145,9 @@ export async function regeneratePage(input: RewritePageInput): Promise<Result<st
   const parsed = WikiContentSchema.safeParse(raw)
   if (!parsed.success) {
     return err('REGEN_VALIDATION_FAILED', 'Regenerated content failed validation')
+  }
+  if (looksLikePromptLeak(parsed.data)) {
+    return err('REGEN_LEAK_REJECTED', 'Output echoed prompt scaffolding')
   }
   return ok(parsed.data)
 }

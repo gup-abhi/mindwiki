@@ -1,5 +1,5 @@
 import {
-  decodeFor,
+  synthesisHint,
   distortionGuide,
   DISTORTION_REFERENCE,
   EMOTION_REFERENCE,
@@ -35,28 +35,24 @@ describe('reference coverage', () => {
   })
 })
 
-describe('decodeFor', () => {
-  it('returns the reframe lens for a real distortion', () => {
-    const out = decodeFor({ distortion: 'Catastrophizing', emotion: 'Anxiety' })
-    expect(out).toContain('Catastrophizing')
-    expect(out).toContain('Reframe lens:')
-    expect(out).toContain('Anxiety')
+describe('synthesisHint', () => {
+  it('returns one natural-language instruction naming the pattern (no labels)', () => {
+    const out = synthesisHint('Catastrophizing')
+    expect(out).toContain('catastrophizing')
+    // must NOT be a labelled data block — those leaked into pages
+    expect(out).not.toMatch(/Reframe lens:|Thinking pattern:|Feeling:/)
+    expect(out.split('\n')).toHaveLength(1)
   })
 
   it('canonicalizes a near-synonym distortion before lookup', () => {
-    const out = decodeFor({ distortion: 'catastrophising' })
-    expect(out).toContain('Catastrophizing')
+    expect(synthesisHint('catastrophising')).toContain('catastrophizing')
   })
 
   it('returns empty when there is no distortion (none / absent / unknown)', () => {
-    expect(decodeFor({ distortion: 'none', emotion: 'Joy' })).toBe('')
-    expect(decodeFor({})).toBe('')
-    expect(decodeFor({ distortion: 'not a real distortion' })).toBe('')
-  })
-
-  it('stays within the char cap', () => {
-    const out = decodeFor({ distortion: 'All-or-nothing thinking', emotion: 'Shame' })
-    expect(out.length).toBeLessThanOrEqual(400)
+    expect(synthesisHint('none')).toBe('')
+    expect(synthesisHint(null)).toBe('')
+    expect(synthesisHint(undefined)).toBe('')
+    expect(synthesisHint('not a real distortion')).toBe('')
   })
 })
 

@@ -8,24 +8,22 @@ const base = {
   thought: 'If I get this wrong I will be fired',
 }
 
-describe('buildUpdatePagePrompt — decode lens', () => {
-  it('injects a guarded reframe lens for a tagged distortion', () => {
-    const prompt = buildUpdatePagePrompt({ ...base, distortion: 'Catastrophizing', emotion: 'Anxiety' })
-    expect(prompt).toMatch(/Reframe lens:/)
-    expect(prompt).toMatch(/Catastrophizing/)
-    // guarded: must tell the model NOT to define the term in the page
-    expect(prompt).toMatch(/do NOT define these terms/i)
+describe('buildUpdatePagePrompt — KB grounding', () => {
+  it('adds a single natural-language hint for a tagged distortion (no labelled block)', () => {
+    const prompt = buildUpdatePagePrompt({ ...base, distortion: 'Catastrophizing' })
+    expect(prompt).toMatch(/tends toward catastrophizing/i)
+    // the old labelled decode block (which leaked into pages) must be gone
+    expect(prompt).not.toMatch(/Reframe lens:|Thinking pattern:|Feeling:|do NOT define these terms/i)
   })
 
-  it('injects nothing when the entry has no distortion', () => {
-    const prompt = buildUpdatePagePrompt({ ...base, distortion: 'none', emotion: 'Anxiety' })
-    expect(prompt).not.toMatch(/Reframe lens:/)
-    expect(prompt).not.toMatch(/do NOT define these terms/i)
+  it('adds no hint when the entry has no distortion', () => {
+    const prompt = buildUpdatePagePrompt({ ...base, distortion: 'none' })
+    expect(prompt).not.toMatch(/tends toward/i)
   })
 
-  it('still works with no tags at all (back-compat)', () => {
+  it('works with no distortion field at all (back-compat)', () => {
     const prompt = buildUpdatePagePrompt(base)
     expect(prompt).toMatch(/personal wiki page titled "Work"/)
-    expect(prompt).not.toMatch(/Reframe lens:/)
+    expect(prompt).not.toMatch(/tends toward/i)
   })
 })

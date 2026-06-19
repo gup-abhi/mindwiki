@@ -1,4 +1,4 @@
-import { decodeFor } from '../reference'
+import { synthesisHint } from '../reference'
 
 export interface UpdatePageInput {
   title: string
@@ -6,10 +6,8 @@ export interface UpdatePageInput {
   existingContent: string
   situation: string
   thought: string
-  /** Canonical distortion tag for the entry (optional) — drives the decode lens. */
+  /** Canonical distortion tag for the entry (optional) — grounds the synthesis. */
   distortion?: string | null
-  /** Canonical emotion tag for the entry (optional). */
-  emotion?: string | null
 }
 
 // The house style every wiki page is written in. Shared by first-time synthesis,
@@ -36,31 +34,22 @@ export function buildUpdatePagePrompt({
   situation,
   thought,
   distortion,
-  emotion,
 }: UpdatePageInput): string {
   const existing = existingContent.trim()
   // Present the new material as one reflection. Labelled "Situation:/Thought:"
   // bullets get parroted back by the small model as literal headings, which is
   // not what a synthesized wiki page should look like.
   const reflection = [situation.trim(), thought.trim()].filter(Boolean).join('\n\n')
-  // Optional psychoeducation lens for the tagged pattern. Guarded so the model
-  // uses it to NAME the pattern in plain prose, never to paste a definition
-  // (which would violate the no-dictionary-defs page style).
-  const decode = decodeFor({ distortion, emotion })
+  // KB grounding as a single instruction line (never a labelled data block —
+  // those leak into the page). Empty when there's no distortion.
+  const hint = synthesisHint(distortion)
   return [
     `You maintain a personal wiki page titled "${title}"${category ? ` (${category})` : ''}.`,
     'Weave the new reflection below into the page. Synthesize — merge its insight into the',
     'existing understanding rather than appending or restating it.',
     ...PAGE_STYLE,
+    ...(hint ? [hint] : []),
     'Do NOT copy the reflection word-for-word. Output ONLY the page content, no preamble.',
-    ...(decode
-      ? [
-          '',
-          'For your understanding only — do NOT define these terms or quote the notes below;',
-          'if the pattern genuinely fits, name it in plain everyday words:',
-          decode,
-        ]
-      : []),
     '',
     existing ? `Current page:\n${existing}` : 'The page is currently empty — write the first version.',
     '',
