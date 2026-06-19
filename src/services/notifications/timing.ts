@@ -9,6 +9,12 @@ export type HourHistogram = number[] // length 24, index = local hour
 /** Sensible default until enough data accrues: 8pm. */
 export const DEFAULT_SEND_HOUR = 20
 
+// Reminders are an evening nudge to reflect on the day, so the send hour is
+// constrained to this window (inclusive) — never the small hours, even for a
+// night-owl whose raw activity peaks after midnight.
+export const REMINDER_WINDOW_START = 17 // 5pm
+export const REMINDER_WINDOW_END = 21 // 9pm
+
 export function emptyHistogram(): HourHistogram {
   return new Array(24).fill(0)
 }
@@ -22,25 +28,26 @@ export function recordActivity(histogram: HourHistogram, ts: number): HourHistog
 }
 
 /**
- * Peak active hour (earliest on a tie). Falls back to DEFAULT_SEND_HOUR until
- * at least `minSamples` activities are recorded, so a single early data point
- * can't pin the reminder to an odd hour.
+ * The hour to send the evening reminder: the user's most-active hour *within the
+ * evening window* (earliest on a tie). Falls back to DEFAULT_SEND_HOUR until at
+ * least `minSamples` evening activities accrue — so a night-owl (or a user with
+ * little evening data) gets a sane 8pm nudge rather than an after-midnight one.
  */
-export function optimalHour(
+export function reminderHour(
   histogram: HourHistogram,
   fallback = DEFAULT_SEND_HOUR,
   minSamples = 3
 ): number {
-  const total = histogram.reduce((a, b) => a + b, 0)
-  if (total < minSamples) return fallback
-
-  let bestCount = -1
+  let eveningTotal = 0
+  let bestCount = 0
   let bestHour = fallback
-  for (let h = 0; h < 24; h++) {
-    if ((histogram[h] ?? 0) > bestCount) {
-      bestCount = histogram[h] ?? 0
+  for (let h = REMINDER_WINDOW_START; h <= REMINDER_WINDOW_END; h++) {
+    const count = histogram[h] ?? 0
+    eveningTotal += count
+    if (count > bestCount) {
+      bestCount = count
       bestHour = h
     }
   }
-  return bestHour
+  return eveningTotal < minSamples ? fallback : bestHour
 }

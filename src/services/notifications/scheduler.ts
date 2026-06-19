@@ -10,7 +10,7 @@ import { challengeCopy, reminderCopy } from './copy'
 import {
   type HourHistogram,
   emptyHistogram,
-  optimalHour,
+  reminderHour,
   recordActivity as recordIntoHistogram,
 } from './timing'
 
@@ -20,6 +20,9 @@ const DAILY_ID = 'mindwiki-daily-reminder'
 const WEEKLY_DIGEST_ID = 'mindwiki-weekly-digest'
 const CHALLENGE_ID_PREFIX = 'mindwiki-challenge'
 const DAY_MS = 86_400_000
+// How many days ahead to arm evening reminders. Re-armed on each entry save, so
+// this is the buffer that keeps nudges coming if the user lapses for a while.
+const REMINDER_DAYS = 7
 // Challenge nudges fire in the morning ("go do your thing today"), distinct from
 // the evening journaling reminder. A buffer of one-shot reminders armed ahead and
 // re-armed on each check-in, so nudges keep coming if the user lapses a little.
@@ -77,26 +80,44 @@ export async function recordActivity(
 }
 
 /**
- * Reschedule the single daily reminder at the histogram's optimal hour, with
- * the day's rotating copy. Replaces any previously scheduled reminder.
- * Returns the chosen hour.
+ * (Re)schedule evening journaling reminders as one-shot notifications for the
+ * next REMINDER_DAYS days, at the user's evening hour (5–9pm window, default
+ * 8pm). The save day is skipped when `journaledToday` — and so is today if its
+ * evening hour has already passed — so a reminder only fires on an evening the
+ * user hasn't journaled yet. Re-armed on each entry save, which also rolls the
+ * window forward. Returns the chosen hour.
  */
-export async function rescheduleDailyReminder(
+export async function scheduleDailyReminders(
   now: number,
+  journaledToday: boolean,
   db: SqliteDatabase = getDb()
 ): Promise<Result<number>> {
   try {
-    const hour = optimalHour(await loadHistogram(db))
-    const dayIndex = Math.floor(now / DAY_MS)
+    const hour = reminderHour(await loadHistogram(db))
+
+    // Clear the legacy single repeating reminder + any previously armed batch.
     await Notifications.cancelScheduledNotificationAsync(DAILY_ID).catch(() => {})
-    await Notifications.scheduleNotificationAsync({
-      identifier: DAILY_ID,
-      content: { title: 'MindWiki', body: reminderCopy(dayIndex) },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute: 0 },
-    })
+    for (let i = 0; i < REMINDER_DAYS; i++) {
+      await Notifications.cancelScheduledNotificationAsync(`${DAILY_ID}-${i}`).catch(() => {})
+    }
+
+    let slot = 0
+    for (let i = 0; i < REMINDER_DAYS; i++) {
+      const date = new Date(now)
+      date.setDate(date.getDate() + i)
+      date.setHours(hour, 0, 0, 0)
+      // Don't remind on a day already journaled, or for an evening already past.
+      if (i === 0 && (journaledToday || date.getTime() <= now)) continue
+      await Notifications.scheduleNotificationAsync({
+        identifier: `${DAILY_ID}-${slot}`,
+        content: { title: 'MindWiki', body: reminderCopy(Math.floor(date.getTime() / DAY_MS)) },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date },
+      })
+      slot++
+    }
     return ok(hour)
   } catch (e) {
-    return err('NOTIF_SCHEDULE_FAILED', 'Failed to schedule reminder', e)
+    return err('NOTIF_SCHEDULE_FAILED', 'Failed to schedule reminders', e)
   }
 }
 
@@ -176,9 +197,9 @@ export async function scheduleWeeklyDigest(): Promise<Result<void>> {
 
 /**
  * Run after an entry is saved: ask for notification permission once (after the
- * first entry, never on launch), record the activity, and reschedule the daily
- * reminder + the weekly digest. Best-effort — callers fire-and-forget; never
- * blocks the entry.
+ * first entry, never on launch), record the activity, and re-arm the evening
+ * reminder batch (skipping today) + the weekly digest. Best-effort — callers
+ * fire-and-forget; never blocks the entry.
  */
 export async function onEntrySaved(
   now: number,
@@ -191,7 +212,9 @@ export async function onEntrySaved(
       await setSetting(PERMISSION_ASKED_KEY, '1', db)
     }
     await recordActivity(now, db)
-    await rescheduleDailyReminder(now, db)
+    // The user just journaled, so today's reminder is skipped; the batch arms
+    // the coming evenings.
+    await scheduleDailyReminders(now, true, db)
     await scheduleWeeklyDigest()
     return ok(undefined)
   } catch (e) {

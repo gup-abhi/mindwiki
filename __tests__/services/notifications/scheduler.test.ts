@@ -6,8 +6,8 @@ import {
   ensurePermission,
   onEntrySaved,
   recordActivity,
-  rescheduleDailyReminder,
   scheduleChallengeReminders,
+  scheduleDailyReminders,
   scheduleWeeklyDigest,
 } from '@/services/notifications/scheduler'
 
@@ -88,30 +88,44 @@ describe('recordActivity', () => {
   })
 })
 
-describe('rescheduleDailyReminder', () => {
-  it('cancels the prior reminder and schedules a daily one at the optimal hour', async () => {
+describe('scheduleDailyReminders', () => {
+  it('schedules evening one-shot reminders at the evening hour, skipping the journaled day', async () => {
     const { db } = createFakeDb()
-    // 3+ activities at 21:00 so optimalHour picks 21 (past the minSamples floor).
-    await recordActivity(at(21), db)
-    await recordActivity(at(21), db)
-    await recordActivity(at(21), db)
+    // 3+ activities at 19:00 so reminderHour picks 19 (past the minSamples floor).
+    await recordActivity(at(19), db)
+    await recordActivity(at(19), db)
+    await recordActivity(at(19), db)
 
-    const res = await rescheduleDailyReminder(at(21), db)
+    // Journaled this morning (9am) → today's evening reminder is skipped.
+    const res = await scheduleDailyReminders(at(9), true, db)
 
-    expect(res).toEqual({ success: true, data: 21 })
+    expect(res).toEqual({ success: true, data: 19 })
+    // legacy single reminder is cleared
     expect(mockCancel).toHaveBeenCalledWith('mindwiki-daily-reminder')
-    expect(mockSchedule).toHaveBeenCalledTimes(1)
-    const arg = mockSchedule.mock.calls[0][0]
-    expect(arg.identifier).toBe('mindwiki-daily-reminder')
-    expect(arg.trigger).toMatchObject({ type: 'daily', hour: 21, minute: 0 })
-    expect(typeof arg.content.body).toBe('string')
-    expect(arg.content.body.length).toBeGreaterThan(0)
+
+    const calls = mockSchedule.mock.calls.map((c) => c[0])
+    expect(calls.length).toBeGreaterThanOrEqual(6) // today skipped, ~6 ahead
+    for (const arg of calls) {
+      expect(arg.trigger.type).toBe('date')
+      const d = new Date(arg.trigger.date)
+      expect(d.getHours()).toBe(19) // evening hour
+      expect(d.getTime()).toBeGreaterThan(at(9)) // all in the future
+      expect(typeof arg.content.body).toBe('string')
+      expect(arg.content.body.length).toBeGreaterThan(0)
+    }
+    // first reminder is tomorrow (today was skipped because already journaled)
+    const first = new Date(calls[0].trigger.date)
+    expect(first.getDate()).toBe(new Date(at(9)).getDate() + 1)
   })
 
-  it('falls back to the default hour with insufficient data', async () => {
+  it('falls back to the default hour with insufficient evening data', async () => {
     const { db } = createFakeDb()
-    const res = await rescheduleDailyReminder(at(10), db)
+    // Not journaled today and it's only 10am, so today's 8pm reminder is armed.
+    const res = await scheduleDailyReminders(at(10), false, db)
     expect(res).toEqual({ success: true, data: 20 }) // DEFAULT_SEND_HOUR
+    const first = new Date(mockSchedule.mock.calls[0][0].trigger.date)
+    expect(first.getHours()).toBe(20)
+    expect(first.getDate()).toBe(new Date(at(10)).getDate()) // today
   })
 })
 
@@ -181,8 +195,10 @@ describe('onEntrySaved', () => {
     expect(mockReqPerms).toHaveBeenCalledTimes(1)
     expect(store.get('notif_permission_asked')).toBe('1')
     expect(JSON.parse(store.get('notif_hour_histogram')!)[21]).toBe(1)
-    // schedules both the daily reminder and the weekly digest
-    expect(mockSchedule).toHaveBeenCalledTimes(2)
+    // schedules the evening reminder batch + the weekly digest
+    const ids = mockSchedule.mock.calls.map((c) => c[0].identifier)
+    expect(ids).toContain('mindwiki-weekly-digest')
+    expect(ids.some((id: string) => id.startsWith('mindwiki-daily-reminder-'))).toBe(true)
   })
 
   it('does not ask for permission again on subsequent entries', async () => {
