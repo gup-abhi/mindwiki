@@ -75,13 +75,13 @@ describe('Home entries list', () => {
     expect(mockPush).toHaveBeenCalledWith('/entries/a')
   })
 
-  it('renders a tagged entry with its emotion/distortion', async () => {
+  it('renders a tagged entry with its emotion and topic', async () => {
     mockList.mockResolvedValue(
-      ok([entry({ emotion: 'anxiety', distortion: 'catastrophizing', mood_score: 0.2 })])
+      ok([entry({ emotion: 'anxiety', distortion: 'catastrophizing', topic: 'Work', mood_score: 0.2 })])
     )
     render(<Home />)
     await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
-    expect(screen.getByText('anxiety · catastrophizing · mood 0.2')).toBeTruthy()
+    expect(screen.getByText('anxiety · Work')).toBeTruthy()
   })
 
   it('shows "tagging…" for an entry not yet tagged', async () => {

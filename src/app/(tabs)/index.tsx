@@ -1,9 +1,11 @@
 import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
-import { FlatList, Pressable, StyleSheet, View } from 'react-native'
+import { Pressable, SectionList, StyleSheet, View } from 'react-native'
 
 import { Button, Card, ProgressBar, Screen, Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
+import { EntryCard } from '@/components/journal/EntryCard'
+import { groupEntriesByDay } from '@/components/journal/grouping'
 import { ModelDownloadCard } from '@/components/ModelDownloadCard'
 import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
 import { useChallenge } from '@/hooks/useChallenge'
@@ -28,13 +30,20 @@ export default function Home() {
   )
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
   const surfacedQuestion = useMemo(() => suggestedQuestions(pages, 1)[0] ?? null, [pages])
+  const sections = useMemo(() => groupEntriesByDay(entries, Date.now()), [entries])
 
   return (
     <Screen padded={false}>
-      <FlatList
-        data={entries}
+      <SectionList
+        sections={sections}
         keyExtractor={(e) => e.id}
         contentContainerStyle={styles.listContent}
+        stickySectionHeadersEnabled
+        renderSectionHeader={({ section }) => (
+          <Text variant="label" color="textSecondary" style={styles.sectionHeader}>
+            {section.title}
+          </Text>
+        )}
         ListHeaderComponent={
           <View style={styles.header}>
             <Text variant="display">MindWiki</Text>
@@ -110,20 +119,7 @@ export default function Home() {
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-            onPress={() => router.push(`/entries/${item.id}`)}
-          >
-            <Text variant="body" numberOfLines={1}>
-              {item.situation}
-            </Text>
-            <Text variant="caption" color="textSecondary" style={styles.tags}>
-              {item.emotion
-                ? `${item.emotion} · ${item.distortion} · mood ${item.mood_score}`
-                : 'tagging…'}
-            </Text>
-          </Pressable>
+          <EntryCard entry={item} onPress={() => router.push(`/entries/${item.id}`)} />
         )}
       />
     </Screen>
@@ -144,12 +140,10 @@ const makeStyles = (t: Theme) =>
     surfaceText: { marginTop: t.spacing.xs },
     synth: { marginTop: t.spacing.md },
     count: { marginTop: t.spacing.lg },
-    row: {
+    sectionHeader: {
       paddingHorizontal: t.spacing.xl,
-      paddingVertical: t.spacing.md,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: t.colors.border,
+      paddingTop: t.spacing.lg,
+      paddingBottom: t.spacing.xs,
+      backgroundColor: t.colors.bg,
     },
-    rowPressed: { backgroundColor: t.colors.surfaceAlt },
-    tags: { marginTop: t.spacing.xs },
   })

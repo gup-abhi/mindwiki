@@ -25,6 +25,13 @@ export interface ColorTokens {
   danger: string
   dangerText: string
   overlay: string
+  // Mood scale (1–5): a red→amber→green diverging ramp, reused for the entry
+  // color bar + mood chips so mood reads at a glance.
+  moodVeryLow: string
+  moodLow: string
+  moodOkay: string
+  moodGood: string
+  moodGreat: string
   // Knowledge-graph node colors (centralized so the graph themes consistently).
   graphEmotion: string
   graphSituation: string
@@ -58,6 +65,11 @@ export const lightColors: ColorTokens = {
   danger: '#C75D5D',
   dangerText: '#FFFFFF',
   overlay: 'rgba(34,43,37,0.35)',
+  moodVeryLow: '#C75D5D',
+  moodLow: '#D69A6F',
+  moodOkay: '#E0BE72',
+  moodGood: '#84C29A',
+  moodGreat: '#3C8F66',
   graphEmotion: '#E08A8A',
   graphSituation: '#6FA8DC',
   graphPerson: '#84C29A',
@@ -89,6 +101,11 @@ export const darkColors: ColorTokens = {
   danger: '#E08A8A',
   dangerText: '#121613',
   overlay: 'rgba(0,0,0,0.55)',
+  moodVeryLow: '#E08A8A',
+  moodLow: '#E0AE85',
+  moodOkay: '#E8CD87',
+  moodGood: '#93C2A4',
+  moodGreat: '#6FB48C',
   graphEmotion: '#E08A8A',
   graphSituation: '#6FA8DC',
   graphPerson: '#84C29A',

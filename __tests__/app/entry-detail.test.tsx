@@ -1,17 +1,22 @@
-import { render, screen } from '@testing-library/react-native'
+import { fireEvent, render, screen } from '@testing-library/react-native'
 
 import EntryDetailScreen from '@/app/entries/[id]'
 import { type Entry } from '@/services/storage/entries'
 
 const mockUseEntry = jest.fn()
+const mockUseEntries = jest.fn()
 const mockBack = jest.fn()
-jest.mock('@/hooks/useEntries', () => ({ useEntry: () => mockUseEntry() }))
+const mockReplace = jest.fn()
+jest.mock('@/hooks/useEntries', () => ({
+  useEntry: () => mockUseEntry(),
+  useEntries: () => mockUseEntries(),
+}))
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ back: mockBack }),
+  useRouter: () => ({ back: mockBack, replace: mockReplace }),
   useLocalSearchParams: () => ({ id: 'e1' }),
 }))
 
-const entry: Entry = {
+const make = (over: Partial<Entry> = {}): Entry => ({
   id: 'e1',
   created_at: new Date(2026, 5, 1, 9, 30).getTime(),
   mood: 2,
@@ -25,19 +30,45 @@ const entry: Entry = {
   topic: 'Work',
   tagged_at: 1,
   source: 'journal',
-}
+  ...over,
+})
+
+const entry = make()
 
 describe('EntryDetailScreen', () => {
-  beforeEach(() => mockUseEntry.mockReset())
+  beforeEach(() => {
+    mockUseEntry.mockReset()
+    mockUseEntries.mockReset()
+    mockReplace.mockReset()
+    mockUseEntries.mockReturnValue({ entries: [entry] })
+  })
 
-  it('renders the entry fields and tags', () => {
+  it('renders the entry prose, mood label and tags', () => {
     mockUseEntry.mockReturnValue({ entry, loading: false })
     render(<EntryDetailScreen />)
     expect(screen.getByText('a tense meeting')).toBeTruthy()
     expect(screen.getByText('I will mess this up')).toBeTruthy()
     expect(screen.getByText('left early')).toBeTruthy()
-    expect(screen.getByText(/Mood: 2\/5/)).toBeTruthy()
-    expect(screen.getByText(/anxiety · catastrophizing · mood 0.2/)).toBeTruthy()
+    expect(screen.getByText('Low')).toBeTruthy() // mood 2 → "Low"
+    // tags render as separate pills (no raw mood_score / "none")
+    expect(screen.getByText('anxiety')).toBeTruthy()
+    expect(screen.getByText('catastrophizing')).toBeTruthy()
+    expect(screen.getByText('Work')).toBeTruthy()
+  })
+
+  it('navigates to the older neighbour and disables Newer at the newest entry', () => {
+    const newest = make({ id: 'e1', created_at: 200 })
+    const older = make({ id: 'e0', created_at: 100 })
+    mockUseEntry.mockReturnValue({ entry: newest, loading: false })
+    mockUseEntries.mockReturnValue({ entries: [newest, older] }) // newest-first
+
+    render(<EntryDetailScreen />)
+    fireEvent.press(screen.getByText('← Older'))
+    expect(mockReplace).toHaveBeenCalledWith('/entries/e0')
+
+    // e1 is the newest, so Newer is a no-op
+    fireEvent.press(screen.getByText('Newer →'))
+    expect(mockReplace).toHaveBeenCalledTimes(1)
   })
 
   it('shows a not-found state when the entry is missing', () => {
