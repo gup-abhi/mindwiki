@@ -6,7 +6,7 @@ import { useModelDownload } from '@/hooks/useModelDownload'
 
 /**
  * Home nudge shown when the on-device AI models aren't present yet (e.g. a newly
- * paired device). Tagging, the wiki, and "Ask your wiki" all need them. Tapping
+ * paired device). Tagging, your insights, and "Ask your insights" all need them. Tapping
  * downloads both into the app's model dir (with a check so it never re-downloads).
  * Renders nothing once the models are ready (or while still checking).
  */
@@ -38,7 +38,7 @@ export function ModelDownloadCard() {
       ) : (
         <Text variant="caption" color="accentText" style={styles.sub}>
           {error ??
-            'Tagging, your wiki, and Ask your wiki run on-device AI (~2.8 GB). Download over Wi-Fi to enable them.'}
+            'Tagging, your insights, and Ask your insights run on-device AI (~2.8 GB). Download over Wi-Fi to enable them.'}
         </Text>
       )}
     </Card>

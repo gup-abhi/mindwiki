@@ -33,7 +33,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="wiki/index"
         options={{
-          title: 'Wiki',
+          title: 'Insights',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'book' : 'book-outline'} color={color} size={size} />
           ),

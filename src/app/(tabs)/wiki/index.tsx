@@ -47,7 +47,7 @@ export default function WikiBrowse() {
         ListHeaderComponent={
           <>
             <Text variant="title" style={styles.title}>
-              Your wiki
+              Your insights
             </Text>
             {synthesizing && (
               <Text variant="caption" color="accent" style={styles.synth}>

@@ -33,7 +33,7 @@ export default function SavedScreen() {
         </View>
         <Text variant="title">Entry saved</Text>
         <Text variant="body" color="textSecondary" style={styles.subtitle}>
-          Your reflection is encrypted on your device. Each entry grows your wiki.
+          Your reflection is encrypted on your device. Each entry grows your insights.
         </Text>
         <View style={styles.cta}>
           <Button title="Done" fullWidth onPress={() => router.replace('/')} />

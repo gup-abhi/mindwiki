@@ -6,7 +6,7 @@ export const REMINDER_COPY: readonly string[] = [
   'A minute with your thoughts? Today’s entry is waiting.',
   'What’s on your mind right now?',
   'Take a breath. Jot down how today felt.',
-  'Your wiki grows a little with every entry.',
+  'Your insights grow a little with every entry.',
   'One small note to yourself — what happened today?',
   'Check in with yourself for a moment.',
   'A thought worth keeping? Write it down.',

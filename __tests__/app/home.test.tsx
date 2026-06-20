@@ -94,7 +94,7 @@ describe('Home entries list', () => {
     mockList.mockResolvedValue(ok([]))
     useWikiStore.setState({ pending: 1 })
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('Synthesizing your wiki…')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Synthesizing your insights…')).toBeTruthy())
   })
 
   it('shows the weekly digest card once enough recent entries exist', async () => {

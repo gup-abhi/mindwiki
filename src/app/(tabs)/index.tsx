@@ -117,7 +117,7 @@ export default function Home() {
             )}
             {synthesizing && (
               <Text variant="caption" color="accent" style={styles.synth}>
-                Synthesizing your wiki…
+                Synthesizing your insights…
               </Text>
             )}
           </View>

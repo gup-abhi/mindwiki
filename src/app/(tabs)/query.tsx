@@ -100,7 +100,7 @@ export default function QueryScreen() {
           {isEmpty ? (
             <View>
               <Text variant="body" color="textSecondary" style={styles.intro}>
-                A private space to talk things through — grounded only in your own wiki.
+                A private space to talk things through — grounded only in your own insights.
               </Text>
 
               <View style={styles.segments}>
