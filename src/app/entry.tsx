@@ -36,8 +36,12 @@ export default function EntryScreen() {
   }
 
   return (
-    <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+    <Screen padded={false} animated={false}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         <View style={styles.moodRow}>
           {MOODS.map((m) => {
             const active = j.draft.mood === m
@@ -96,6 +100,7 @@ export default function EntryScreen() {
               value={j.draft.thought}
               onChangeText={j.setThought}
               multiline
+              autoFocus
               testID="entry-thought"
             />
           </View>

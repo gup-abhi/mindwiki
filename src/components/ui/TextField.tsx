@@ -28,7 +28,7 @@ const makeStyles = (t: Theme) =>
   })
 
 /** Themed text input with optional label + error. */
-export function TextField({ label, error, multiline, ...rest }: TextFieldProps) {
+export function TextField({ label, error, multiline, scrollEnabled, ...rest }: TextFieldProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   return (
@@ -41,6 +41,11 @@ export function TextField({ label, error, multiline, ...rest }: TextFieldProps) 
       <TextInput
         {...rest}
         multiline={multiline}
+        // A multiline input defaults to its own internal scroll, which fights a
+        // parent ScrollView for the touch responder on Android (New Arch) — the
+        // field becomes barely tappable. Disable it so the page scrolls and the
+        // field just grows; callers can still opt back in.
+        scrollEnabled={scrollEnabled ?? (multiline ? false : undefined)}
         placeholderTextColor={theme.colors.textMuted}
         style={[styles.input, multiline && styles.multiline, error ? styles.errorBorder : null]}
       />

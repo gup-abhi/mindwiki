@@ -12,6 +12,12 @@ interface ScreenProps {
   scroll?: boolean
   /** Apply default horizontal+top padding. */
   padded?: boolean
+  /**
+   * Fade the content in on mount (default true). Turn OFF for screens with text
+   * inputs: a reanimated `entering` animation mismeasures touch targets on
+   * Android/Fabric, leaving inputs only partially tappable.
+   */
+  animated?: boolean
   edges?: readonly Edge[]
 }
 
@@ -24,7 +30,13 @@ const makeStyles = (t: Theme) =>
   })
 
 /** Themed screen wrapper: safe-area, background, and a status bar matching the theme. */
-export function Screen({ children, scroll, padded = true, edges = ['top', 'left', 'right'] }: ScreenProps) {
+export function Screen({
+  children,
+  scroll,
+  padded = true,
+  animated = true,
+  edges = ['top', 'left', 'right'],
+}: ScreenProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   return (
@@ -36,12 +48,18 @@ export function Screen({ children, scroll, padded = true, edges = ['top', 'left'
           contentContainerStyle={padded ? styles.scrollContent : undefined}
           keyboardShouldPersistTaps="handled"
         >
-          <Animated.View entering={FadeIn.duration(250)}>{children}</Animated.View>
+          {animated ? (
+            <Animated.View entering={FadeIn.duration(250)}>{children}</Animated.View>
+          ) : (
+            children
+          )}
         </ScrollView>
-      ) : (
+      ) : animated ? (
         <Animated.View style={[styles.flex, padded && styles.padded]} entering={FadeIn.duration(250)}>
           {children}
         </Animated.View>
+      ) : (
+        <View style={[styles.flex, padded && styles.padded]}>{children}</View>
       )}
     </SafeAreaView>
   )
