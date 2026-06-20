@@ -62,6 +62,17 @@ export default function Home() {
         )}
         ListHeaderComponent={
           <View style={styles.header}>
+            <View style={styles.topBar}>
+              <Pressable
+                onPress={() => router.push('/search')}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Search entries"
+                testID="home-search"
+              >
+                <Ionicons name="search" size={22} color={theme.colors.textSecondary} />
+              </Pressable>
+            </View>
             <StreakCard
               current={journalStreak.current}
               longest={journalStreak.longest}
@@ -164,6 +175,7 @@ const makeStyles = (t: Theme) =>
     // extra bottom space so the last entry clears the floating button
     listContent: { paddingBottom: t.spacing['3xl'] + t.spacing['2xl'] },
     header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.sm, paddingHorizontal: t.spacing.xl },
+    topBar: { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'flex-end' },
     fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     challengeBar: { marginTop: t.spacing.md },
     challengeAction: { flexDirection: 'row', marginTop: t.spacing.md },

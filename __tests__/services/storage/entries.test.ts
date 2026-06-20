@@ -3,6 +3,7 @@ import {
   createEntry,
   getEntry,
   listEntries,
+  searchEntries,
   applyTags,
   deleteEntry,
 } from '@/services/storage/entries'
@@ -56,6 +57,17 @@ function createFakeDb() {
       if (/^DELETE FROM entries WHERE id/.test(sql)) {
         const existed = rows.delete(String(params[0]))
         return { rows: [], rowsAffected: existed ? 1 : 0 }
+      }
+      if (/^SELECT \* FROM entries\s+WHERE source = 'journal'\s+AND \(situation LIKE/.test(sql)) {
+        const raw = String(params[0]) // %term%
+        const term = raw.slice(1, -1).replace(/\\([\\%_])/g, '$1').toLowerCase()
+        const limit = Number(params[4])
+        const fields = ['situation', 'thought', 'behavior', 'closing_note']
+        const all = [...rows.values()]
+          .filter((r) => r.source === 'journal')
+          .filter((r) => fields.some((c) => String(r[c] ?? '').toLowerCase().includes(term)))
+          .sort((a, b) => Number(b.created_at) - Number(a.created_at))
+        return { rows: all.slice(0, limit), rowsAffected: 0 }
       }
       throw new Error(`unhandled SQL: ${sql}`)
     },
@@ -175,5 +187,48 @@ describe('storage/entries CRUD', () => {
     const result = await createEntry({ mood: 3, situation: 's', thought: 't' }, failing)
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('ENTRY_CREATE_FAILED')
+  })
+})
+
+describe('searchEntries', () => {
+  it('matches across situation/thought/closing fields, newest first', async () => {
+    const { db } = createFakeDb()
+    await createEntry({ mood: 3, situation: 'lunch with Mom', thought: 'felt warm' }, db)
+    await new Promise((r) => setTimeout(r, 2))
+    await createEntry({ mood: 2, situation: 'work', thought: 'mom would be proud' }, db)
+    await createEntry({ mood: 4, situation: 'gym', thought: 'good session' }, db)
+
+    const res = await searchEntries('mom', 10, db)
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data.map((e) => e.situation)).toEqual(['work', 'lunch with Mom']) // newest first, case-insensitive
+  })
+
+  it('excludes reflect-sourced entries', async () => {
+    const { db } = createFakeDb()
+    await createEntry({ mood: 3, situation: 'private journal note', thought: 't' }, db)
+    await createEntry({ mood: 3, situation: 'note said in chat', thought: '', source: 'reflect' }, db)
+
+    const res = await searchEntries('note', 10, db)
+    expect(res.success && res.data).toHaveLength(1)
+    expect(res.success && res.data[0].situation).toBe('private journal note')
+  })
+
+  it('returns nothing for a blank query (no db hit)', async () => {
+    const { db } = createFakeDb()
+    await createEntry({ mood: 3, situation: 'something', thought: 't' }, db)
+    const res = await searchEntries('   ', 10, db)
+    expect(res.success && res.data).toEqual([])
+  })
+
+  it('treats % and _ as literals, not wildcards', async () => {
+    const { db } = createFakeDb()
+    await createEntry({ mood: 3, situation: 'up 50% today', thought: 't' }, db)
+    await createEntry({ mood: 3, situation: 'plain entry', thought: 't' }, db)
+
+    const hit = await searchEntries('50%', 10, db)
+    expect(hit.success && hit.data).toHaveLength(1)
+    const wildcard = await searchEntries('%', 10, db) // would match all if not escaped
+    expect(wildcard.success && wildcard.data).toHaveLength(1)
   })
 })
