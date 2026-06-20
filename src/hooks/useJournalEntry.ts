@@ -29,11 +29,12 @@ export function useJournalEntry() {
 
   const [submitting, setSubmitting] = useState(false)
 
-  const canSave = draft.mood != null && draft.body.trim().length > 0
+  // Mood is the only required field — an entry can be a quick mood log with no
+  // text. The written body, when present, is what the AI analyses.
+  const canSave = draft.mood != null
 
   const submit = useCallback(async (): Promise<Result<SubmitOutcome>> => {
     if (draft.mood == null) return err('ENTRY_INVALID', 'Choose how you’re feeling first')
-    if (draft.body.trim().length === 0) return err('ENTRY_INVALID', 'Write something first')
 
     setSubmitting(true)
     try {

@@ -137,9 +137,15 @@ export default function EntryDetailScreen() {
       </Text>
       <MoodChip mood={entry.mood} />
 
-      <Text variant="body" style={[styles.prose, styles.situation]}>
-        {entry.situation}
-      </Text>
+      {entry.situation.trim() ? (
+        <Text variant="body" style={[styles.prose, styles.situation]}>
+          {entry.situation}
+        </Text>
+      ) : !entry.thought ? (
+        <Text variant="body" color="textMuted" style={styles.situation}>
+          A quick mood check-in — no note added.
+        </Text>
+      ) : null}
       {entry.thought ? <Section label="The thought behind this" value={entry.thought} /> : null}
       {entry.behavior ? <Section label="Behaviour" value={entry.behavior} /> : null}
       {entry.closing_note ? <Section label="Closing note" value={entry.closing_note} /> : null}

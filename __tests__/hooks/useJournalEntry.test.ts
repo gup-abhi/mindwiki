@@ -24,15 +24,11 @@ describe('useJournalEntry', () => {
     })
   })
 
-  it('canSave only once a mood and a non-empty body are present', () => {
+  it('canSave once a mood is set — the body is optional (quick mood log)', () => {
     const { result } = renderHook(() => useJournalEntry())
-    expect(result.current.canSave).toBe(false)
+    expect(result.current.canSave).toBe(false) // no mood yet
     act(() => result.current.setMood(4))
-    expect(result.current.canSave).toBe(false) // body still empty
-    act(() => result.current.setBody('   '))
-    expect(result.current.canSave).toBe(false) // whitespace only
-    act(() => result.current.setBody('a rough day'))
-    expect(result.current.canSave).toBe(true)
+    expect(result.current.canSave).toBe(true) // mood alone is enough, even with no text
   })
 
   it('submit returns an error when mood is missing', async () => {

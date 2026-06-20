@@ -80,6 +80,12 @@ async function extractThenIndex(entry: Entry): Promise<void> {
  * the deep extract fails the entry is saved but simply not indexed (ADR 004).
  */
 export async function processEntry(entry: Entry): Promise<ProcessResult> {
+  // A quick mood log has no written text — nothing to score for crisis or to
+  // extract tags/wiki/graph from. Skip all model work; it's not in distress.
+  if (entry.situation.trim() === '' && entry.thought.trim() === '') {
+    return { crisis: assessCrisis('', 0) }
+  }
+
   // Synchronous, safety-critical: score crisis with the fast model so the caller
   // can route to /crisis immediately. Failure → 0, the keyword net still fires.
   const crisisResult = await scoreCrisis({

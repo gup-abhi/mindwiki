@@ -153,6 +153,16 @@ describe('processEntry', () => {
 
     expect(result.crisis.tier).toBe(0)
   })
+
+  it('skips all model work for a mood-only entry (no text)', async () => {
+    const result = await processEntry(entry({ situation: '', thought: '' }))
+    await flush()
+
+    expect(result.crisis.tier).toBe(0)
+    expect(mockScoreCrisis).not.toHaveBeenCalled()
+    expect(mockExtractEntry).not.toHaveBeenCalled()
+    expect(mockApplyTags).not.toHaveBeenCalled()
+  })
 })
 
 describe('captureReflectMessage', () => {

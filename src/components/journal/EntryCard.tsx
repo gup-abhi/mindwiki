@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native'
 
 import { Text } from '@/components/ui'
 import { type Entry } from '@/services/storage/entries'
-import { type Theme, moodColorKey, useThemedStyles } from '@/theme'
+import { type Theme, moodColorKey, moodLabel, useThemedStyles } from '@/theme'
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -18,6 +18,7 @@ interface EntryCardProps {
  * tags, and a short preview of what was written. Memoized — lists re-render. */
 function EntryCardBase({ entry, onPress }: EntryCardProps) {
   const styles = useThemedStyles(makeStyles)
+  const moodOnly = entry.situation.trim() === ''
   const tags = entry.emotion
     ? [entry.emotion, entry.topic].filter((t): t is string => !!t && t !== 'none').join(' · ')
     : null
@@ -33,18 +34,27 @@ function EntryCardBase({ entry, onPress }: EntryCardProps) {
         <Text variant="caption" color="textMuted">
           {formatTime(entry.created_at)}
         </Text>
-        {tags ? (
-          <Text variant="label" color="accentText" style={styles.tags} numberOfLines={1}>
-            {tags}
+        {moodOnly ? (
+          // A quick mood log carries no text — the mood itself is the content.
+          <Text variant="body" color="textSecondary" style={styles.tags}>
+            Mood check-in · {moodLabel(entry.mood)}
           </Text>
         ) : (
-          <Text variant="caption" color="textMuted" style={styles.tags}>
-            tagging…
-          </Text>
+          <>
+            {tags ? (
+              <Text variant="label" color="accentText" style={styles.tags} numberOfLines={1}>
+                {tags}
+              </Text>
+            ) : (
+              <Text variant="caption" color="textMuted" style={styles.tags}>
+                tagging…
+              </Text>
+            )}
+            <Text variant="body" style={styles.preview} numberOfLines={2}>
+              {entry.situation}
+            </Text>
+          </>
         )}
-        <Text variant="body" style={styles.preview} numberOfLines={2}>
-          {entry.situation}
-        </Text>
       </View>
     </Pressable>
   )
