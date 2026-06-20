@@ -5,14 +5,17 @@ import { type Entry } from '@/services/storage/entries'
 
 const mockUseEntry = jest.fn()
 const mockUseEntries = jest.fn()
+const mockUseLineage = jest.fn()
 const mockBack = jest.fn()
 const mockReplace = jest.fn()
+const mockPush = jest.fn()
 jest.mock('@/hooks/useEntries', () => ({
   useEntry: () => mockUseEntry(),
   useEntries: () => mockUseEntries(),
 }))
+jest.mock('@/hooks/useWiki', () => ({ useEntryLineage: () => mockUseLineage() }))
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ back: mockBack, replace: mockReplace }),
+  useRouter: () => ({ back: mockBack, replace: mockReplace, push: mockPush }),
   useLocalSearchParams: () => ({ id: 'e1' }),
 }))
 
@@ -39,8 +42,11 @@ describe('EntryDetailScreen', () => {
   beforeEach(() => {
     mockUseEntry.mockReset()
     mockUseEntries.mockReset()
+    mockUseLineage.mockReset()
     mockReplace.mockReset()
+    mockPush.mockReset()
     mockUseEntries.mockReturnValue({ entries: [entry] })
+    mockUseLineage.mockReturnValue([])
   })
 
   it('renders the entry prose, mood label and tags', () => {
@@ -69,6 +75,16 @@ describe('EntryDetailScreen', () => {
     // e1 is the newest, so Newer is a no-op
     fireEvent.press(screen.getByText('Newer →'))
     expect(mockReplace).toHaveBeenCalledTimes(1)
+  })
+
+  it('lists the wiki pages the entry shaped and opens one when tapped', () => {
+    mockUseEntry.mockReturnValue({ entry, loading: false })
+    mockUseLineage.mockReturnValue([{ id: 'p1', title: 'Anxiety', category: 'emotion' }])
+
+    render(<EntryDetailScreen />)
+    expect(screen.getByText('Shaped these pages')).toBeTruthy()
+    fireEvent.press(screen.getByText('Anxiety →'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
   })
 
   it('shows a not-found state when the entry is missing', () => {

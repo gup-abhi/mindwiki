@@ -128,6 +128,38 @@ export async function updateWikiForEntry(
   return ok(updated)
 }
 
+/** A live wiki page an entry contributed to, for the entry-detail lineage. */
+export interface LineagePage {
+  id: string
+  title: string
+  category: string | null
+}
+
+/**
+ * The live wiki pages this entry shaped — its emotion, distortion, and theme
+ * topics, plus any recurring people/places/activities that have earned a page.
+ * Dropped (dismissed) pages are excluded. Lets the entry detail surface the
+ * compounding knowledge the entry fed. Best-effort; never throws.
+ */
+export async function lineageForEntry(entry: Entry): Promise<Result<LineagePage[]>> {
+  const topics = candidateTopics(entry, entry.topic)
+  const seen = new Set(topics.map((t) => t.title.toLowerCase()))
+  for (const t of await recurringEntityTopics(entry.id)) {
+    if (seen.has(t.title.toLowerCase())) continue
+    seen.add(t.title.toLowerCase())
+    topics.push(t)
+  }
+
+  const out: LineagePage[] = []
+  for (const t of topics) {
+    const res = await getPageByTitle(t.title)
+    if (res.success && res.data && res.data.dismissed_at == null) {
+      out.push({ id: res.data.id, title: res.data.title, category: res.data.category })
+    }
+  }
+  return ok(out)
+}
+
 /**
  * Rewrite a single page in the canonical voice (substance unchanged) and persist
  * it, versioned. Used to bring pages written before the voice was pinned into a

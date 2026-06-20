@@ -1,4 +1,9 @@
-import { candidateTopics, updateWikiForEntry, regeneratePageVoice } from '@/services/wiki/engine'
+import {
+  candidateTopics,
+  lineageForEntry,
+  updateWikiForEntry,
+  regeneratePageVoice,
+} from '@/services/wiki/engine'
 import { synthesizePage, regeneratePage } from '@/services/llm/deep-model'
 import {
   getPageByTitle,
@@ -216,5 +221,65 @@ describe('regeneratePageVoice', () => {
 
     expect(res.success).toBe(false)
     expect(mockRegenContent).not.toHaveBeenCalled()
+  })
+})
+
+describe('lineageForEntry', () => {
+  const page = (over: Partial<WikiPage> = {}): WikiPage => ({
+    id: 'p',
+    title: 'Anxiety',
+    category: 'emotion',
+    content: 'x',
+    entry_count: 3,
+    version: 1,
+    version_history: [],
+    created_at: 0,
+    updated_at: 0,
+    dismissed_at: null,
+    corrected_at: null,
+    ...over,
+  })
+
+  beforeEach(() => {
+    mockGetByTitle.mockReset()
+    mockListEntities.mockReset()
+    mockCountEntity.mockReset()
+    mockListEntities.mockResolvedValue(ok([]))
+  })
+
+  it('returns the live pages an entry shaped, skipping missing and dismissed ones', async () => {
+    mockGetByTitle.mockImplementation((title: string) => {
+      if (title === 'Anxiety') return Promise.resolve(ok(page({ id: 'p1', title: 'Anxiety' })))
+      // Catastrophizing page was dropped → excluded
+      if (title === 'Catastrophizing')
+        return Promise.resolve(ok(page({ id: 'p2', title: 'Catastrophizing', dismissed_at: 1 })))
+      return Promise.resolve(ok(null))
+    })
+
+    const res = await lineageForEntry(entry())
+
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data).toEqual([{ id: 'p1', title: 'Anxiety', category: 'emotion' }])
+  })
+
+  it('includes a recurring entity page the entry contributed to', async () => {
+    mockListEntities.mockResolvedValue(ok([{ id: 'x', entry_id: 'e1', type: 'activity', label: 'App' }]))
+    mockCountEntity.mockResolvedValue(ok(2)) // recurred → has a page
+    mockGetByTitle.mockImplementation((title: string) =>
+      title === 'App'
+        ? Promise.resolve(ok(page({ id: 'pa', title: 'App', category: 'activity' })))
+        : Promise.resolve(ok(null))
+    )
+
+    const res = await lineageForEntry(entry({ emotion: null, distortion: null }))
+
+    expect(res.success && res.data).toEqual([{ id: 'pa', title: 'App', category: 'activity' }])
+  })
+
+  it('returns an empty list when the entry has touched no live pages', async () => {
+    mockGetByTitle.mockResolvedValue(ok(null))
+    const res = await lineageForEntry(entry())
+    expect(res.success && res.data).toEqual([])
   })
 })

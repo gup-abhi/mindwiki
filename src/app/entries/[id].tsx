@@ -5,6 +5,11 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { Screen, Text } from '@/components/ui'
 import { type Theme, moodColorKey, moodLabel, useThemedStyles } from '@/theme'
 import { useEntries, useEntry } from '@/hooks/useEntries'
+import { useEntryLineage } from '@/hooks/useWiki'
+
+function formatShortDate(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
 
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
@@ -74,6 +79,20 @@ export default function EntryDetailScreen() {
     return { older: entries[i + 1], newer: entries[i - 1] }
   }, [entries, id])
 
+  // The wiki pages this entry shaped, and other entries on the same theme.
+  const lineage = useEntryLineage(entry)
+  const related = useMemo(() => {
+    if (!entry) return []
+    return entries
+      .filter(
+        (e) =>
+          e.id !== entry.id &&
+          ((!!entry.emotion && e.emotion === entry.emotion) ||
+            (!!entry.topic && e.topic === entry.topic))
+      )
+      .slice(0, 3)
+  }, [entries, entry])
+
   if (loading) {
     return (
       <Screen>
@@ -133,6 +152,49 @@ export default function EntryDetailScreen() {
         </View>
       ) : null}
 
+      {lineage.length > 0 ? (
+        <View style={styles.linkSection}>
+          <Text variant="label" color="accent" style={styles.sectionLabel}>
+            Shaped these pages
+          </Text>
+          {lineage.map((p) => (
+            <Pressable
+              key={p.id}
+              accessibilityRole="button"
+              onPress={() => router.push(`/wiki/${p.id}`)}
+              style={styles.linkRow}
+            >
+              <Text variant="body" color="accentText">
+                {p.title} →
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      {related.length > 0 ? (
+        <View style={styles.linkSection}>
+          <Text variant="label" color="accent" style={styles.sectionLabel}>
+            Related entries
+          </Text>
+          {related.map((e) => (
+            <Pressable
+              key={e.id}
+              accessibilityRole="button"
+              onPress={() => router.replace(`/entries/${e.id}`)}
+              style={styles.linkRow}
+            >
+              <Text variant="body" numberOfLines={1}>
+                {e.situation}
+              </Text>
+              <Text variant="caption" color="textMuted">
+                {formatShortDate(e.created_at)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
       <View style={styles.nav}>
         <Pressable
           accessibilityRole="button"
@@ -172,6 +234,8 @@ const makeStyles = (t: Theme) =>
       paddingHorizontal: t.spacing.md,
       backgroundColor: t.colors.surfaceAlt,
     },
+    linkSection: { marginTop: t.spacing['2xl'] },
+    linkRow: { paddingVertical: t.spacing.sm },
     nav: {
       flexDirection: 'row',
       justifyContent: 'space-between',

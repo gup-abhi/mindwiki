@@ -11,7 +11,8 @@ import {
   restorePage,
   type WikiPage,
 } from '@/services/storage/wiki'
-import { regeneratePageVoice } from '@/services/wiki/engine'
+import { lineageForEntry, regeneratePageVoice, type LineagePage } from '@/services/wiki/engine'
+import { type Entry } from '@/services/storage/entries'
 import { useSyncStore } from '@/store/sync.store'
 
 /** All wiki pages; refreshed on focus and after a sync pull. */
@@ -114,4 +115,27 @@ export function useDismissedPages() {
   )
 
   return { pages, loading, refresh }
+}
+
+/** The live wiki pages an entry shaped — for the entry-detail lineage. Reloads
+ * when the entry (re-tags) or a sync pull changes. */
+export function useEntryLineage(entry: Entry | null): LineagePage[] {
+  const [pages, setPages] = useState<LineagePage[]>([])
+  const revision = useSyncStore((s) => s.revision)
+
+  useEffect(() => {
+    let active = true
+    if (!entry) {
+      setPages([])
+      return
+    }
+    lineageForEntry(entry).then((res) => {
+      if (active && res.success) setPages(res.data)
+    })
+    return () => {
+      active = false
+    }
+  }, [entry, revision])
+
+  return pages
 }
