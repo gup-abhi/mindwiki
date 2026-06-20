@@ -163,7 +163,7 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     // extra bottom space so the last entry clears the floating button
     listContent: { paddingBottom: t.spacing['3xl'] + t.spacing['2xl'] },
-    header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.xl, paddingHorizontal: t.spacing.xl },
+    header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.sm, paddingHorizontal: t.spacing.xl },
     fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     challengeBar: { marginTop: t.spacing.md },
     challengeAction: { flexDirection: 'row', marginTop: t.spacing.md },
@@ -171,7 +171,7 @@ const makeStyles = (t: Theme) =>
     digestSub: { marginTop: t.spacing.xs },
     surfaceText: { marginTop: t.spacing.xs },
     synth: { marginTop: t.spacing.md },
-    filterScroll: { alignSelf: 'stretch', marginTop: t.spacing.lg },
+    filterScroll: { alignSelf: 'stretch', marginTop: t.spacing.xl },
     filterRow: { gap: t.spacing.sm, paddingRight: t.spacing.xl },
     sectionHeader: {
       paddingHorizontal: t.spacing.xl,
