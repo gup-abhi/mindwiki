@@ -181,7 +181,7 @@ export default function EntryDetailScreen() {
             <Pressable
               key={e.id}
               accessibilityRole="button"
-              onPress={() => router.replace(`/entries/${e.id}`)}
+              onPress={() => router.push(`/entries/${e.id}`)}
               style={styles.linkRow}
             >
               <Text variant="body" numberOfLines={1}>
