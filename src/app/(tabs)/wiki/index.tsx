@@ -45,16 +45,11 @@ export default function WikiBrowse() {
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={Divider}
         ListHeaderComponent={
-          <>
-            <Text variant="title" style={styles.title}>
-              Your insights
+          synthesizing ? (
+            <Text variant="caption" color="accent" style={styles.synth}>
+              Synthesizing…
             </Text>
-            {synthesizing && (
-              <Text variant="caption" color="accent" style={styles.synth}>
-                Synthesizing…
-              </Text>
-            )}
-          </>
+          ) : null
         }
         ListEmptyComponent={
           !loading ? (
@@ -91,6 +86,5 @@ export default function WikiBrowse() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     listContent: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, paddingBottom: t.spacing['2xl'] },
-    title: { marginBottom: t.spacing.md },
-    synth: { marginTop: -t.spacing.sm, marginBottom: t.spacing.md },
+    synth: { marginBottom: t.spacing.md },
   })
