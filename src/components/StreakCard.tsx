@@ -10,11 +10,17 @@ interface StreakCardProps {
   week: DayCell[]
   /** Encouraging one-liner from streakStage(). */
   headline: string
+  /** Lifetime totals, folded in as the card's footer. */
+  entries: number
+  insights: number
 }
 
-/** Home streak summary: the live count, the record to beat, and a Mon→Sun strip
- * showing the week — wrote / freeze / missed / today. */
-export function StreakCard({ current, longest, week, headline }: StreakCardProps) {
+const count = (n: number, singular: string, plural: string) =>
+  `${n} ${n === 1 ? singular : plural}`
+
+/** Home streak summary: the live count, the record to beat, a Mon→Sun strip
+ * showing the week, and lifetime entry/insight totals. */
+export function StreakCard({ current, longest, week, headline, entries, insights }: StreakCardProps) {
   const styles = useThemedStyles(makeStyles)
   return (
     <Card variant="sunken" style={styles.card}>
@@ -52,6 +58,12 @@ export function StreakCard({ current, longest, week, headline }: StreakCardProps
       <Text variant="caption" color="accent" style={styles.headline}>
         {headline}
       </Text>
+
+      <View style={styles.stats}>
+        <Text variant="caption" color="textSecondary">
+          {count(entries, 'entry', 'entries')} · {count(insights, 'insight', 'insights')}
+        </Text>
+      </View>
     </Card>
   )
 }
@@ -104,4 +116,10 @@ const makeStyles = (t: Theme) =>
     dotToday: { borderWidth: 2, borderColor: t.colors.accent },
     flake: { fontSize: 13, color: t.colors.accentText },
     headline: { marginTop: t.spacing.lg },
+    stats: {
+      marginTop: t.spacing.lg,
+      paddingTop: t.spacing.md,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: t.colors.border,
+    },
   })

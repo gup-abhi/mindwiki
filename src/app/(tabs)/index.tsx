@@ -55,6 +55,8 @@ export default function Home() {
               longest={journalStreak.longest}
               week={week}
               headline={stage.headline}
+              entries={count}
+              insights={pages.length}
             />
             <ModelDownloadCard />
             <RecoverySetupCard />
@@ -119,9 +121,6 @@ export default function Home() {
                 Synthesizing your wiki…
               </Text>
             )}
-            <Text variant="caption" color="textMuted" style={styles.count}>
-              {count} {count === 1 ? 'entry' : 'entries'} so far
-            </Text>
           </View>
         }
         renderItem={({ item }) => (
@@ -144,7 +143,6 @@ const makeStyles = (t: Theme) =>
     cta: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     surfaceText: { marginTop: t.spacing.xs },
     synth: { marginTop: t.spacing.md },
-    count: { marginTop: t.spacing.lg },
     sectionHeader: {
       paddingHorizontal: t.spacing.xl,
       paddingTop: t.spacing.lg,
