@@ -75,6 +75,24 @@ describe('Home entries list', () => {
     expect(mockPush).toHaveBeenCalledWith('/entries/a')
   })
 
+  it('filters the timeline by emotion, and clears back to all', async () => {
+    mockList.mockResolvedValue(
+      ok([
+        entry({ id: 'a', situation: 'anxious meeting', emotion: 'Anxiety' }),
+        entry({ id: 'b', situation: 'joyful walk', emotion: 'Joy' }),
+      ])
+    )
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('joyful walk')).toBeTruthy())
+
+    fireEvent.press(screen.getByTestId('filter-Anxiety'))
+    expect(screen.getByText('anxious meeting')).toBeTruthy()
+    expect(screen.queryByText('joyful walk')).toBeNull()
+
+    fireEvent.press(screen.getByTestId('filter-all'))
+    expect(screen.getByText('joyful walk')).toBeTruthy()
+  })
+
   it('renders a tagged entry with its emotion and topic', async () => {
     mockList.mockResolvedValue(
       ok([entry({ emotion: 'anxiety', distortion: 'catastrophizing', topic: 'Work', mood_score: 0.2 })])

@@ -1,9 +1,9 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'expo-router'
-import { Pressable, SectionList, StyleSheet, View } from 'react-native'
+import { Pressable, ScrollView, SectionList, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Button, Card, ProgressBar, Screen, Text } from '@/components/ui'
+import { Button, Card, Chip, ProgressBar, Screen, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { EntryCard } from '@/components/journal/EntryCard'
 import { groupEntriesByDay } from '@/components/journal/grouping'
@@ -33,7 +33,20 @@ export default function Home() {
   const week = useMemo(() => weekActivity(entries.map((e) => e.created_at), Date.now()), [entries])
   const stage = useMemo(() => streakStage(journalStreak.current), [journalStreak])
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
-  const sections = useMemo(() => groupEntriesByDay(entries, Date.now()), [entries])
+
+  // Filter the timeline by emotion (the primary tag). Lifetime stats above stay
+  // on the full set; only the list below is filtered.
+  const [emotion, setEmotion] = useState<string | null>(null)
+  const emotions = useMemo(() => {
+    const seen = new Set<string>()
+    for (const e of entries) if (e.emotion) seen.add(e.emotion)
+    return Array.from(seen).sort()
+  }, [entries])
+  const visible = useMemo(
+    () => (emotion ? entries.filter((e) => e.emotion === emotion) : entries),
+    [entries, emotion]
+  )
+  const sections = useMemo(() => groupEntriesByDay(visible, Date.now()), [visible])
 
   return (
     <Screen padded={false}>
@@ -103,6 +116,30 @@ export default function Home() {
                 Synthesizing your insights…
               </Text>
             )}
+            {emotions.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.filterScroll}
+                contentContainerStyle={styles.filterRow}
+              >
+                <Chip
+                  label="All"
+                  selected={emotion === null}
+                  onPress={() => setEmotion(null)}
+                  testID="filter-all"
+                />
+                {emotions.map((em) => (
+                  <Chip
+                    key={em}
+                    label={em}
+                    selected={emotion === em}
+                    onPress={() => setEmotion((cur) => (cur === em ? null : em))}
+                    testID={`filter-${em}`}
+                  />
+                ))}
+              </ScrollView>
+            )}
           </View>
         }
         renderItem={({ item }) => (
@@ -134,6 +171,8 @@ const makeStyles = (t: Theme) =>
     digestSub: { marginTop: t.spacing.xs },
     surfaceText: { marginTop: t.spacing.xs },
     synth: { marginTop: t.spacing.md },
+    filterScroll: { alignSelf: 'stretch', marginTop: t.spacing.lg },
+    filterRow: { gap: t.spacing.sm, paddingRight: t.spacing.xl },
     sectionHeader: {
       paddingHorizontal: t.spacing.xl,
       paddingTop: t.spacing.lg,
