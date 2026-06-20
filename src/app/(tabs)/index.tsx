@@ -12,8 +12,9 @@ import { useChallenge } from '@/hooks/useChallenge'
 import { useEntries } from '@/hooks/useEntries'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
-import { computeStreak } from '@/services/notifications/streak'
+import { computeStreak, weekActivity } from '@/services/notifications/streak'
 import { streakStage } from '@/services/notifications/stage'
+import { StreakCard } from '@/components/StreakCard'
 import { generateDigest } from '@/services/digest/generator'
 import { suggestedQuestions } from '@/services/wiki/query'
 
@@ -24,10 +25,12 @@ export default function Home() {
   const { pages } = useWikiPages()
   const { challenge, streak, doneToday, checkIn } = useChallenge()
   const synthesizing = useWikiStore((s) => s.pending > 0)
-  const stage = useMemo(
-    () => streakStage(computeStreak(entries.map((e) => e.created_at), Date.now()).current),
+  const journalStreak = useMemo(
+    () => computeStreak(entries.map((e) => e.created_at), Date.now()),
     [entries]
   )
+  const week = useMemo(() => weekActivity(entries.map((e) => e.created_at), Date.now()), [entries])
+  const stage = useMemo(() => streakStage(journalStreak.current), [journalStreak])
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
   const surfacedQuestion = useMemo(() => suggestedQuestions(pages, 1)[0] ?? null, [pages])
   const sections = useMemo(() => groupEntriesByDay(entries, Date.now()), [entries])
@@ -47,9 +50,12 @@ export default function Home() {
         ListHeaderComponent={
           <View style={styles.header}>
             <Text variant="display">MindWiki</Text>
-            <Text variant="label" color="accent" style={styles.stage}>
-              {stage.headline}
-            </Text>
+            <StreakCard
+              current={journalStreak.current}
+              longest={journalStreak.longest}
+              week={week}
+              headline={stage.headline}
+            />
             <ModelDownloadCard />
             <RecoverySetupCard />
             {digestReady && (
@@ -130,7 +136,6 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     listContent: { paddingBottom: t.spacing['2xl'] },
     header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.xl, paddingHorizontal: t.spacing.xl },
-    stage: { marginTop: t.spacing.sm, textAlign: 'center' },
     fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     challengeBar: { marginTop: t.spacing.md },
     challengeAction: { flexDirection: 'row', marginTop: t.spacing.md },
