@@ -49,7 +49,6 @@ export default function Home() {
         )}
         ListHeaderComponent={
           <View style={styles.header}>
-            <Text variant="display">MindWiki</Text>
             <StreakCard
               current={journalStreak.current}
               longest={journalStreak.longest}
