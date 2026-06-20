@@ -80,6 +80,7 @@ export default function Home() {
               headline={stage.headline}
               entries={count}
               insights={pages.length}
+              onPress={() => router.push('/trends')}
             />
             <ModelDownloadCard />
             <RecoverySetupCard />

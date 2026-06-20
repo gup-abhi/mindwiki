@@ -1,8 +1,9 @@
 import { StyleSheet, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 
 import { Card, Text } from '@/components/ui'
 import { type DayCell } from '@/services/notifications/streak'
-import { type Theme, useThemedStyles } from '@/theme'
+import { type Theme, useTheme, useThemedStyles } from '@/theme'
 
 interface StreakCardProps {
   current: number
@@ -13,6 +14,8 @@ interface StreakCardProps {
   /** Lifetime totals, folded in as the card's footer. */
   entries: number
   insights: number
+  /** Tapping the card opens the Trends screen. */
+  onPress?: () => void
 }
 
 const count = (n: number, singular: string, plural: string) =>
@@ -20,10 +23,11 @@ const count = (n: number, singular: string, plural: string) =>
 
 /** Home streak summary: the live count, the record to beat, a Mon→Sun strip
  * showing the week, and lifetime entry/insight totals. */
-export function StreakCard({ current, longest, week, headline, entries, insights }: StreakCardProps) {
+export function StreakCard({ current, longest, week, headline, entries, insights, onPress }: StreakCardProps) {
   const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
   return (
-    <Card variant="sunken" style={styles.card}>
+    <Card variant="sunken" style={styles.card} onPress={onPress}>
       <View style={styles.topRow}>
         <View>
           {current > 0 ? (
@@ -37,16 +41,21 @@ export function StreakCard({ current, longest, week, headline, entries, insights
             </Text>
           ) : null}
         </View>
-        {longest > 0 ? (
-          <View style={styles.best}>
-            <Text variant="caption" color="textMuted">
-              Best
-            </Text>
-            <Text variant="subtitle" color="textSecondary">
-              {longest}
-            </Text>
-          </View>
-        ) : null}
+        <View style={styles.topRight}>
+          {longest > 0 ? (
+            <View style={styles.best}>
+              <Text variant="caption" color="textMuted">
+                Best
+              </Text>
+              <Text variant="subtitle" color="textSecondary">
+                {longest}
+              </Text>
+            </View>
+          ) : null}
+          {onPress ? (
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.week}>
@@ -99,6 +108,7 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     card: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+    topRight: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
     best: { alignItems: 'flex-end' },
     week: { flexDirection: 'row', justifyContent: 'space-between', marginTop: t.spacing.lg },
     day: { alignItems: 'center', gap: t.spacing.xs },
