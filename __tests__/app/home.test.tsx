@@ -142,28 +142,11 @@ describe('Home entries list', () => {
     expect(screen.queryByTestId('home-challenge-checkin')).toBeNull()
   })
 
-  it('surfaces a proactive question from the richest wiki page', async () => {
+  it('opens the entry composer from the floating button', async () => {
     mockList.mockResolvedValue(ok([entry()]))
-    mockWiki.mockReturnValue({
-      pages: [
-        {
-          id: 'p1',
-          title: 'Work',
-          category: null,
-          content: '',
-          entry_count: 5,
-          version: 1,
-          version_history: [],
-          created_at: 0,
-          updated_at: 0,
-          dismissed_at: null,
-          corrected_at: null,
-        },
-      ],
-      loading: false,
-    })
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('Curious?')).toBeTruthy())
-    expect(screen.getByText(/Work/)).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+    fireEvent.press(screen.getByTestId('home-new-entry'))
+    expect(mockPush).toHaveBeenCalledWith('/entry')
   })
 })

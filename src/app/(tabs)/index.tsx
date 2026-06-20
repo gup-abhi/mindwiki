@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
 import { Pressable, SectionList, StyleSheet, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 
 import { Button, Card, ProgressBar, Screen, Text } from '@/components/ui'
-import { type Theme, useThemedStyles } from '@/theme'
+import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { EntryCard } from '@/components/journal/EntryCard'
 import { groupEntriesByDay } from '@/components/journal/grouping'
 import { ModelDownloadCard } from '@/components/ModelDownloadCard'
@@ -16,11 +17,11 @@ import { computeStreak, weekActivity } from '@/services/notifications/streak'
 import { streakStage } from '@/services/notifications/stage'
 import { StreakCard } from '@/components/StreakCard'
 import { generateDigest } from '@/services/digest/generator'
-import { suggestedQuestions } from '@/services/wiki/query'
 
 export default function Home() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
   const { entries, count } = useEntries()
   const { pages } = useWikiPages()
   const { challenge, streak, doneToday, checkIn } = useChallenge()
@@ -32,7 +33,6 @@ export default function Home() {
   const week = useMemo(() => weekActivity(entries.map((e) => e.created_at), Date.now()), [entries])
   const stage = useMemo(() => streakStage(journalStreak.current), [journalStreak])
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
-  const surfacedQuestion = useMemo(() => suggestedQuestions(pages, 1)[0] ?? null, [pages])
   const sections = useMemo(() => groupEntriesByDay(entries, Date.now()), [entries])
 
   return (
@@ -69,9 +69,6 @@ export default function Home() {
                 </Text>
               </Card>
             )}
-            <View style={styles.cta}>
-              <Button title="New entry" size="lg" fullWidth onPress={() => router.push('/entry')} />
-            </View>
             {challenge && (
               <Card variant="sunken" style={styles.fullWidth} testID="home-challenge">
                 <Pressable accessibilityRole="button" onPress={() => router.push('/challenge')}>
@@ -101,20 +98,6 @@ export default function Home() {
                 )}
               </Card>
             )}
-            {surfacedQuestion && (
-              <Card
-                variant="sunken"
-                style={styles.fullWidth}
-                onPress={() => router.push({ pathname: '/query', params: { q: surfacedQuestion } })}
-              >
-                <Text variant="caption" color="accent">
-                  Curious?
-                </Text>
-                <Text variant="body" style={styles.surfaceText}>
-                  {surfacedQuestion}
-                </Text>
-              </Card>
-            )}
             {synthesizing && (
               <Text variant="caption" color="accent" style={styles.synth}>
                 Synthesizing your insights…
@@ -126,20 +109,29 @@ export default function Home() {
           <EntryCard entry={item} onPress={() => router.push(`/entries/${item.id}`)} />
         )}
       />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="New entry"
+        testID="home-new-entry"
+        onPress={() => router.push('/entry')}
+        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+      >
+        <Ionicons name="add" size={30} color={theme.colors.primaryText} />
+      </Pressable>
     </Screen>
   )
 }
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    listContent: { paddingBottom: t.spacing['2xl'] },
+    // extra bottom space so the last entry clears the floating button
+    listContent: { paddingBottom: t.spacing['3xl'] + t.spacing['2xl'] },
     header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.xl, paddingHorizontal: t.spacing.xl },
     fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     challengeBar: { marginTop: t.spacing.md },
     challengeAction: { flexDirection: 'row', marginTop: t.spacing.md },
     challengeDone: { marginTop: t.spacing.md },
     digestSub: { marginTop: t.spacing.xs },
-    cta: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     surfaceText: { marginTop: t.spacing.xs },
     synth: { marginTop: t.spacing.md },
     sectionHeader: {
@@ -148,4 +140,21 @@ const makeStyles = (t: Theme) =>
       paddingBottom: t.spacing.xs,
       backgroundColor: t.colors.bg,
     },
+    fab: {
+      position: 'absolute',
+      right: t.spacing.xl,
+      bottom: t.spacing.xl,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: t.colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 6,
+      elevation: 6,
+    },
+    fabPressed: { opacity: 0.85 },
   })
