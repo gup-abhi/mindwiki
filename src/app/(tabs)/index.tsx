@@ -69,6 +69,7 @@ export default function Home() {
       <SectionList
         sections={sections}
         keyExtractor={(e) => e.id}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
         stickySectionHeadersEnabled
         renderSectionHeader={({ section }) => (
