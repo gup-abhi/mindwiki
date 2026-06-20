@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router'
 import { Pressable, ScrollView, SectionList, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Button, Card, Chip, ProgressBar, Screen, Text } from '@/components/ui'
+import { Button, Card, Chip, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { EntryCard } from '@/components/journal/EntryCard'
 import { groupEntriesByDay } from '@/components/journal/grouping'
@@ -34,18 +34,34 @@ export default function Home() {
   const stage = useMemo(() => streakStage(journalStreak.current), [journalStreak])
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
 
-  // Filter the timeline by emotion (the primary tag). Lifetime stats above stay
-  // on the full set; only the list below is filtered.
+  // Filter the timeline by emotion (the primary tag) and an inline text search.
+  // Lifetime stats above stay on the full set; only the list below is filtered.
   const [emotion, setEmotion] = useState<string | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const emotions = useMemo(() => {
     const seen = new Set<string>()
     for (const e of entries) if (e.emotion) seen.add(e.emotion)
     return Array.from(seen).sort()
   }, [entries])
-  const visible = useMemo(
-    () => (emotion ? entries.filter((e) => e.emotion === emotion) : entries),
-    [entries, emotion]
-  )
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return entries.filter((e) => {
+      if (emotion && e.emotion !== emotion) return false
+      if (q) {
+        const hay = `${e.situation} ${e.thought} ${e.behavior ?? ''} ${e.closing_note ?? ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [entries, emotion, query])
+
+  // The search icon toggles the field; closing it clears the query.
+  const toggleSearch = () =>
+    setSearchOpen((open) => {
+      if (open) setQuery('')
+      return !open
+    })
   const sections = useMemo(() => groupEntriesByDay(visible, Date.now()), [visible])
 
   return (
@@ -62,17 +78,6 @@ export default function Home() {
         )}
         ListHeaderComponent={
           <View style={styles.header}>
-            <View style={styles.topBar}>
-              <Pressable
-                onPress={() => router.push('/search')}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Search entries"
-                testID="home-search"
-              >
-                <Ionicons name="search" size={22} color={theme.colors.textSecondary} />
-              </Pressable>
-            </View>
             <StreakCard
               current={journalStreak.current}
               longest={journalStreak.longest}
@@ -128,35 +133,72 @@ export default function Home() {
                 Synthesizing your insights…
               </Text>
             )}
-            {emotions.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.filterScroll}
-                contentContainerStyle={styles.filterRow}
-              >
-                <Chip
-                  label="All"
-                  selected={emotion === null}
-                  onPress={() => setEmotion(null)}
-                  testID="filter-all"
-                />
-                {emotions.map((em) => (
-                  <Chip
-                    key={em}
-                    label={em}
-                    selected={emotion === em}
-                    onPress={() => setEmotion((cur) => (cur === em ? null : em))}
-                    testID={`filter-${em}`}
+            {entries.length > 0 && (
+              <View style={styles.filterBar}>
+                <Pressable
+                  onPress={toggleSearch}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={searchOpen ? 'Close search' : 'Search entries'}
+                  testID="home-search"
+                  style={styles.searchBtn}
+                >
+                  <Ionicons
+                    name={searchOpen ? 'close' : 'search'}
+                    size={20}
+                    color={searchOpen ? theme.colors.accent : theme.colors.textSecondary}
                   />
-                ))}
-              </ScrollView>
+                </Pressable>
+                {emotions.length > 0 && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.filterRow}
+                  >
+                    <Chip
+                      label="All"
+                      selected={emotion === null}
+                      onPress={() => setEmotion(null)}
+                      testID="filter-all"
+                    />
+                    {emotions.map((em) => (
+                      <Chip
+                        key={em}
+                        label={em}
+                        selected={emotion === em}
+                        onPress={() => setEmotion((cur) => (cur === em ? null : em))}
+                        testID={`filter-${em}`}
+                      />
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+            )}
+            {searchOpen && (
+              <View style={styles.searchField}>
+                <TextField
+                  placeholder="Search your entries"
+                  value={query}
+                  onChangeText={setQuery}
+                  autoFocus
+                  autoCapitalize="none"
+                  returnKeyType="search"
+                  testID="home-search-input"
+                />
+              </View>
             )}
           </View>
         }
         renderItem={({ item }) => (
           <EntryCard entry={item} onPress={() => router.push(`/entries/${item.id}`)} />
         )}
+        ListEmptyComponent={
+          query.trim() !== '' ? (
+            <Text variant="body" color="textMuted" style={styles.searchEmpty}>
+              No entries match “{query.trim()}”.
+            </Text>
+          ) : null
+        }
       />
       <Pressable
         accessibilityRole="button"
@@ -176,7 +218,6 @@ const makeStyles = (t: Theme) =>
     // extra bottom space so the last entry clears the floating button
     listContent: { paddingBottom: t.spacing['3xl'] + t.spacing['2xl'] },
     header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.sm, paddingHorizontal: t.spacing.xl },
-    topBar: { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'flex-end' },
     fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     challengeBar: { marginTop: t.spacing.md },
     challengeAction: { flexDirection: 'row', marginTop: t.spacing.md },
@@ -184,8 +225,11 @@ const makeStyles = (t: Theme) =>
     digestSub: { marginTop: t.spacing.xs },
     surfaceText: { marginTop: t.spacing.xs },
     synth: { marginTop: t.spacing.md },
-    filterScroll: { alignSelf: 'stretch', marginTop: t.spacing.xl },
+    filterBar: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: t.spacing.md, marginTop: t.spacing.xl },
+    searchBtn: { paddingVertical: t.spacing.xs },
     filterRow: { gap: t.spacing.sm, paddingRight: t.spacing.xl },
+    searchField: { alignSelf: 'stretch', marginTop: t.spacing.md },
+    searchEmpty: { textAlign: 'center', marginTop: t.spacing['2xl'], paddingHorizontal: t.spacing.xl },
     sectionHeader: {
       paddingHorizontal: t.spacing.xl,
       paddingTop: t.spacing.lg,

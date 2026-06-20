@@ -135,35 +135,6 @@ export async function listEntries(
   }
 }
 
-/**
- * Full-text search across an entry's written fields (situation, thought,
- * behaviour, closing note). Case-insensitive substring match, journal entries
- * only, newest first. A blank query returns nothing (the caller shows the
- * normal timeline instead). The term is parameterised — never interpolated.
- */
-export async function searchEntries(
-  query: string,
-  limit = 50,
-  db: SqliteDatabase = getDb()
-): Promise<Result<Entry[]>> {
-  const term = query.trim()
-  if (term === '') return ok([])
-  try {
-    const like = `%${term.replace(/[\\%_]/g, '\\$&')}%` // escape LIKE wildcards
-    const res = await db.execute(
-      `SELECT * FROM entries
-       WHERE source = 'journal'
-         AND (situation LIKE ? ESCAPE '\\' OR thought LIKE ? ESCAPE '\\'
-              OR behavior LIKE ? ESCAPE '\\' OR closing_note LIKE ? ESCAPE '\\')
-       ORDER BY created_at DESC LIMIT ?`,
-      [like, like, like, like, limit]
-    )
-    return ok(res.rows.map(rowToEntry))
-  } catch (e) {
-    return err('ENTRY_SEARCH_FAILED', 'Failed to search entries', e)
-  }
-}
-
 /** Apply fast-model tags to an existing entry (never blocks the original save). */
 export async function applyTags(
   id: string,
