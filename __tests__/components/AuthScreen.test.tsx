@@ -81,6 +81,17 @@ describe('AuthScreen', () => {
     expect(field.props.secureTextEntry).toBe(true)
   })
 
+  it('toggles the confirm-password visibility independently', () => {
+    render(<AuthScreen />)
+    const confirm = screen.getByTestId('auth-password-confirm')
+    expect(confirm.props.secureTextEntry).toBe(true)
+
+    fireEvent.press(screen.getByTestId('auth-password-confirm-toggle'))
+    expect(confirm.props.secureTextEntry).toBe(false)
+    // the main password field is unaffected
+    expect(screen.getByTestId('auth-password').props.secureTextEntry).toBe(true)
+  })
+
   it('shows the auth error', () => {
     mockUseAuth.mockReturnValue({
       submit,

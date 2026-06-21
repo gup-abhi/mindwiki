@@ -28,6 +28,7 @@ export function AuthScreen() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const { submit, submitting, error, pendingPhrase, confirmPhrase } = useAuth()
 
   // After a successful register, show the recovery phrase once before entering.
@@ -92,16 +93,28 @@ export function AuthScreen() {
 
         {isRegister && (
           <>
-            <TextInput
-              style={styles.input}
-              placeholder="Confirm password"
-              placeholderTextColor={theme.colors.textMuted}
-              secureTextEntry={!showPassword}
-              autoCapitalize="none"
-              value={confirm}
-              onChangeText={setConfirm}
-              testID="auth-password-confirm"
-            />
+            <View style={styles.passwordWrap}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                placeholder="Confirm password"
+                placeholderTextColor={theme.colors.textMuted}
+                secureTextEntry={!showConfirm}
+                autoCapitalize="none"
+                value={confirm}
+                onChangeText={setConfirm}
+                testID="auth-password-confirm"
+              />
+              <Pressable
+                style={styles.eyeButton}
+                onPress={() => setShowConfirm((v) => !v)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={showConfirm ? 'Hide password' : 'Show password'}
+                testID="auth-password-confirm-toggle"
+              >
+                <Ionicons name={showConfirm ? 'eye-off' : 'eye'} size={22} color={theme.colors.textMuted} />
+              </Pressable>
+            </View>
             {confirm.length > 0 && confirm !== password && (
               <Text variant="caption" color="danger" style={styles.error}>
                 Passwords don’t match.
