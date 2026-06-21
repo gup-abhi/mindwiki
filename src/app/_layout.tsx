@@ -22,6 +22,8 @@ import { useAppLock } from '@/hooks/useAppLock'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { LockScreen } from '@/components/auth/LockScreen'
 import { CoverScreen } from '@/components/CoverScreen'
+import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
+import { hasSeenOnboarding, markOnboardingSeen } from '@/services/onboarding/seen'
 import { ThemeProvider, type Theme, useTheme, useThemedStyles } from '@/theme'
 
 // Hold the native splash until our custom fonts are ready (best-effort).
@@ -57,6 +59,8 @@ function AppGate() {
   const styles = useThemedStyles(makeStyles)
   const [storage, setStorage] = useState<StorageStatus>('idle')
   const [message, setMessage] = useState('')
+  // null = not yet resolved; gates the one-time welcome tour after the DB opens.
+  const [onboarded, setOnboarded] = useState<boolean | null>(null)
 
   // Launch: configure notifications + resolve the session. No DB access yet.
   useEffect(() => {
@@ -88,6 +92,13 @@ function AppGate() {
     })
   }, [authStatus, storage])
 
+  // Resolve the one-time tour flag once the DB is open (so it shows after the
+  // recovery-phrase step on first register, never before the app is reachable).
+  useEffect(() => {
+    if (storage !== 'ready') return
+    void hasSeenOnboarding().then(setOnboarded)
+  }, [storage])
+
   if (authStatus === 'loading') {
     return (
       <View testID="storage-loading" style={styles.center}>
@@ -109,11 +120,23 @@ function AppGate() {
       </View>
     )
   }
-  if (storage !== 'ready') {
+  if (storage !== 'ready' || onboarded === null) {
     return (
       <View testID="storage-loading" style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.accent} />
       </View>
+    )
+  }
+
+  // First run on this device: show the welcome tour once, then enter the app.
+  if (!onboarded) {
+    return (
+      <OnboardingCarousel
+        onDone={() => {
+          void markOnboardingSeen()
+          setOnboarded(true)
+        }}
+      />
     )
   }
 

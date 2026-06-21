@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react-native'
 
 import RootLayout from '@/app/_layout'
 import { initStorage } from '@/services/storage/bootstrap'
+import { hasSeenOnboarding } from '@/services/onboarding/seen'
 import { useAuthStore } from '@/store/auth.store'
 import { ok, err } from '@/types/result'
 
@@ -13,6 +14,12 @@ jest.mock('@/services/auth/auth.service', () => ({
   loginNewDevice: jest.fn(),
 }))
 jest.mock('@/hooks/useSync', () => ({ useSync: jest.fn() }))
+// The welcome tour is exercised in OnboardingCarousel.test; here assume it's
+// already been seen so the gate falls through to the app.
+jest.mock('@/services/onboarding/seen', () => ({
+  hasSeenOnboarding: jest.fn(() => Promise.resolve(true)),
+  markOnboardingSeen: jest.fn(() => Promise.resolve()),
+}))
 // ThemeProvider hydrates the saved theme preference from settings once
 // authenticated; stub it so the gate test doesn't touch the encrypted DB.
 jest.mock('@/services/storage/settings', () => ({
@@ -50,6 +57,14 @@ describe('RootLayout — auth gate then DB open', () => {
     render(<RootLayout />)
     await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())
     expect(mockInitStorage).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the welcome tour on first run, before the app', async () => {
+    ;(hasSeenOnboarding as jest.Mock).mockResolvedValueOnce(false)
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    render(<RootLayout />)
+    await waitFor(() => expect(screen.getByTestId('onboarding')).toBeTruthy())
+    expect(screen.queryByText('stack-rendered')).toBeNull()
   })
 
   it('shows an error state when the DB fails to open', async () => {
