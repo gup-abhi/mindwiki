@@ -63,6 +63,16 @@ export default function Settings() {
       </View>
 
       <Text variant="label" color="textMuted" style={styles.section}>
+        Calm
+      </Text>
+      <Card variant="sunken" onPress={() => router.push('/breathe')} testID="settings-breathe">
+        <Text variant="bodyStrong">Breathing exercise</Text>
+        <Text variant="caption" color="textSecondary" style={styles.hint}>
+          A one-minute box-breathing exercise to slow down. Nothing leaves your device.
+        </Text>
+      </Card>
+
+      <Text variant="label" color="textMuted" style={styles.section}>
         Challenge
       </Text>
       <Card variant="sunken" onPress={() => router.push('/challenge')} testID="settings-challenge">
