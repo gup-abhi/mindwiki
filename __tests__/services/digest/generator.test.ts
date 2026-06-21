@@ -37,16 +37,45 @@ describe('generateDigest', () => {
     expect(generateDigest([old, ...week().slice(0, 6)], now)).toBeNull() // only 6 in-window
   })
 
-  it('populates all six sections with enough entries', () => {
+  it('populates every dashboard field with enough entries', () => {
     const d = generateDigest(week(), now)
     expect(d).not.toBeNull()
     expect(d!.moodArc.length).toBeGreaterThan(0)
-    expect(d!.observations.length).toBeGreaterThan(0)
+    expect(d!.emotionMix.length).toBeGreaterThan(0)
+    expect(d!.avgMood).toBeGreaterThan(0)
+    expect(d!.dayCount).toBe(7)
     expect(d!.pattern.length).toBeGreaterThan(0)
     expect(d!.correlation.length).toBeGreaterThan(0)
     expect(d!.question.length).toBeGreaterThan(0)
     expect(d!.quote.length).toBeGreaterThan(0)
     expect(d!.entryCount).toBe(7)
+  })
+
+  it('has no mood delta without prior-week entries, and a signed delta with them', () => {
+    expect(generateDigest(week(), now)!.moodDelta).toBeNull()
+
+    // Prior week all mood 1; this week averages > 1 -> positive delta.
+    const prior = Array.from({ length: 3 }, (_, i) =>
+      entry({ created_at: new Date(2026, 4, 26 + i, 12).getTime(), mood: 1 })
+    )
+    const d = generateDigest([...prior, ...week()], now)!
+    expect(d.moodDelta).not.toBeNull()
+    expect(d.moodDelta!).toBeGreaterThan(0)
+  })
+
+  it('calls out the brightest and toughest day when moods differ', () => {
+    const d = generateDigest(week(), now)! // week() moods vary by day
+    expect(d.brightest).not.toBeNull()
+    expect(d.toughest).not.toBeNull()
+    expect(d.brightest!.mood).toBeGreaterThan(d.toughest!.mood)
+    expect(typeof d.brightest!.weekday).toBe('string')
+  })
+
+  it('omits brightest/toughest when every day has the same mood', () => {
+    const flat = week().map((e) => ({ ...e, mood: 3 }))
+    const d = generateDigest(flat, now)!
+    expect(d.brightest).toBeNull()
+    expect(d.toughest).toBeNull()
   })
 
   it('builds the mood arc as one averaged point per day, in order', () => {
@@ -57,13 +86,13 @@ describe('generateDigest', () => {
     expect(d.moodArc.every((p) => p.mood >= 1 && p.mood <= 5)).toBe(true)
   })
 
-  it('surfaces the dominant emotion in observations and pattern', () => {
+  it('surfaces the dominant emotion in the mix and pattern', () => {
     // 7 entries all "anxiety" + "none" distortion -> emotion drives the pattern
     const d = generateDigest(
       week().map((e) => ({ ...e, emotion: 'anxiety', distortion: 'none' })),
       now
     )!
-    expect(d.observations.some((o) => /Anxiety came up most/.test(o))).toBe(true)
+    expect(d.emotionMix[0]).toEqual({ label: 'anxiety', count: 7 })
     expect(d.pattern).toMatch(/Anxiety/)
   })
 })

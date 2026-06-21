@@ -5,9 +5,11 @@ import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg'
 import { Card, Screen, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { useDigest } from '@/hooks/useDigest'
-import { type MoodPoint } from '@/services/digest/generator'
+import { type Digest, type EmotionSlice, type MoodPoint } from '@/services/digest/generator'
 
 const ARC_H = 130
+
+const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 
 function MoodArc({ points, width }: { points: MoodPoint[]; width: number }) {
   const theme = useTheme()
@@ -43,6 +45,120 @@ function MoodArc({ points, width }: { points: MoodPoint[]; width: number }) {
         </SvgText>
       ))}
     </Svg>
+  )
+}
+
+/** A single number-forward tile in the scoreboard row. */
+function StatTile({ value, label, tone }: { value: string; label: string; tone?: 'up' | 'down' }) {
+  const styles = useThemedStyles(makeStyles)
+  const color = tone === 'up' ? 'success' : tone === 'down' ? 'danger' : 'textPrimary'
+  return (
+    <Card variant="sunken" style={styles.tile}>
+      <Text variant="heading" color={color}>
+        {value}
+      </Text>
+      <Text variant="caption" color="textMuted" style={styles.tileLabel}>
+        {label}
+      </Text>
+    </Card>
+  )
+}
+
+/** Horizontal emotion-mix bars, scaled to the most frequent feeling. */
+function EmotionMix({ mix }: { mix: EmotionSlice[] }) {
+  const styles = useThemedStyles(makeStyles)
+  const top = mix.slice(0, 6)
+  const max = top[0]?.count ?? 1
+  return (
+    <View style={styles.mix}>
+      {top.map((s) => (
+        <View key={s.label} style={styles.mixRow}>
+          <Text variant="caption" color="textSecondary" style={styles.mixLabel} numberOfLines={1}>
+            {cap(s.label)}
+          </Text>
+          <View style={styles.mixTrack}>
+            <View style={[styles.mixFill, { width: `${(s.count / max) * 100}%` }]} />
+          </View>
+          <Text variant="caption" color="textMuted" style={styles.mixCount}>
+            {s.count}
+          </Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function deltaLabel(delta: number): { value: string; tone: 'up' | 'down' | undefined } {
+  const rounded = Math.round(delta * 10) / 10
+  if (rounded > 0) return { value: `↑${rounded.toFixed(1)}`, tone: 'up' }
+  if (rounded < 0) return { value: `↓${Math.abs(rounded).toFixed(1)}`, tone: 'down' }
+  return { value: '±0.0', tone: undefined }
+}
+
+function dateRange(start: number, end: number): string {
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+  return `${new Date(start).toLocaleDateString(undefined, opts)} – ${new Date(end).toLocaleDateString(undefined, opts)}`
+}
+
+function Dashboard({ digest, width }: { digest: Digest; width: number }) {
+  const styles = useThemedStyles(makeStyles)
+  const delta = digest.moodDelta == null ? null : deltaLabel(digest.moodDelta)
+
+  return (
+    <>
+      <Text variant="title">Your week</Text>
+      <Text variant="caption" color="textMuted" style={styles.subtitle}>
+        {dateRange(digest.weekStart, digest.weekEnd)} · {digest.entryCount} entries · {digest.dayCount}{' '}
+        {digest.dayCount === 1 ? 'day' : 'days'}
+      </Text>
+
+      <View style={styles.tiles}>
+        <StatTile value={digest.avgMood.toFixed(1)} label="avg mood" />
+        {delta && <StatTile value={delta.value} label="vs last week" tone={delta.tone} />}
+        {digest.emotionMix[0] && (
+          <StatTile value={cap(digest.emotionMix[0].label)} label="top feeling" />
+        )}
+      </View>
+
+      <Card variant="sunken" style={styles.arcCard}>
+        <Text variant="label" color="accent" style={styles.cardLabel}>
+          Mood (1–5)
+        </Text>
+        <MoodArc points={digest.moodArc} width={width - 48 - 32} />
+        {digest.moodArc.length === 1 && (
+          <Text variant="caption" color="textMuted" style={styles.arcHint}>
+            One day so far — the line fills in as you journal across more days.
+          </Text>
+        )}
+        {digest.brightest && digest.toughest && (
+          <Text variant="caption" color="textSecondary" style={styles.extremes}>
+            ☀ Brightest {digest.brightest.weekday} ({digest.brightest.mood.toFixed(1)}) · 🌧 Toughest{' '}
+            {digest.toughest.weekday} ({digest.toughest.mood.toFixed(1)})
+          </Text>
+        )}
+      </Card>
+
+      {digest.emotionMix.length > 0 && (
+        <>
+          <Text variant="label" style={styles.section}>
+            Emotions this week
+          </Text>
+          <Card variant="sunken" style={styles.card}>
+            <EmotionMix mix={digest.emotionMix} />
+          </Card>
+        </>
+      )}
+
+      <Text variant="label" style={styles.section}>
+        What stood out
+      </Text>
+      <Card variant="sunken" style={styles.card}>
+        <Text variant="body">{digest.pattern}</Text>
+      </Card>
+      <Card variant="sunken" style={styles.card}>
+        <Text variant="body">{digest.correlation}</Text>
+      </Card>
+    </>
   )
 }
 
@@ -85,45 +201,7 @@ export default function DigestScreen() {
 
   return (
     <Screen scroll>
-      <Text variant="title">Your week</Text>
-      <Text variant="caption" color="textMuted" style={styles.subtitle}>
-        {digest.entryCount} entries
-      </Text>
-
-      <Card variant="sunken" style={styles.arcCard}>
-        <Text variant="label" color="accent" style={styles.cardLabel}>
-          Mood (1–5)
-        </Text>
-        <MoodArc points={digest.moodArc} width={width - 48 - 32} />
-        {digest.moodArc.length === 1 && (
-          <Text variant="caption" color="textMuted" style={styles.arcHint}>
-            One day so far — the line fills in as you journal across more days.
-          </Text>
-        )}
-      </Card>
-
-      <Text variant="label" style={styles.section}>
-        Observations
-      </Text>
-      {digest.observations.map((o, i) => (
-        <Card key={i} variant="sunken" style={styles.card}>
-          <Text variant="body">{o}</Text>
-        </Card>
-      ))}
-
-      <Text variant="label" style={styles.section}>
-        Pattern
-      </Text>
-      <Card variant="sunken" style={styles.card}>
-        <Text variant="body">{digest.pattern}</Text>
-      </Card>
-
-      <Text variant="label" style={styles.section}>
-        Correlation
-      </Text>
-      <Card variant="sunken" style={styles.card}>
-        <Text variant="body">{digest.correlation}</Text>
-      </Card>
+      <Dashboard digest={digest} width={width} />
 
       <Text variant="label" style={styles.section}>
         A question to sit with
@@ -208,11 +286,21 @@ const makeStyles = (t: Theme) =>
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing.sm },
     centerText: { textAlign: 'center' },
     subtitle: { marginTop: t.spacing.xs },
+    tiles: { flexDirection: 'row', gap: t.spacing.sm, marginTop: t.spacing.lg },
+    tile: { flex: 1, alignItems: 'center' },
+    tileLabel: { marginTop: t.spacing.xs, textAlign: 'center' },
     arcCard: { marginTop: t.spacing.lg },
     cardLabel: { marginBottom: t.spacing.sm },
     arcHint: { marginTop: t.spacing.sm },
+    extremes: { marginTop: t.spacing.md },
     section: { marginTop: t.spacing.xl, marginBottom: t.spacing.sm },
     card: { marginBottom: t.spacing.sm },
+    mix: { gap: t.spacing.sm },
+    mixRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+    mixLabel: { width: 76 },
+    mixTrack: { flex: 1, height: 10, borderRadius: 5, backgroundColor: t.colors.divider, overflow: 'hidden' },
+    mixFill: { height: '100%', borderRadius: 5, backgroundColor: t.colors.accent },
+    mixCount: { width: 20, textAlign: 'right' },
     questionCard: { backgroundColor: t.colors.primary, borderRadius: t.radii.lg, padding: t.spacing.lg },
     synthLoading: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, marginTop: t.spacing.xl },
     flagged: { fontStyle: 'italic', marginTop: t.spacing.md },

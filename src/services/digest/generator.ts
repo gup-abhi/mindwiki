@@ -13,18 +13,21 @@ function dayIndex(ts: number): number {
 const cap = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 const avg = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0)
 
-/** Most frequent value (case-insensitive), with its count; null for an empty list. */
-function mostCommon(values: string[]): { label: string; count: number } | null {
+/** Tally values (case-insensitive), most frequent first. */
+function tally(values: string[]): { label: string; count: number }[] {
   const counts = new Map<string, number>()
   for (const v of values) {
     const k = v.trim().toLowerCase()
     if (k) counts.set(k, (counts.get(k) ?? 0) + 1)
   }
-  let best: { label: string; count: number } | null = null
-  for (const [label, count] of counts) {
-    if (!best || count > best.count) best = { label, count }
-  }
-  return best
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count)
+}
+
+/** Most frequent value (case-insensitive), with its count; null for an empty list. */
+function mostCommon(values: string[]): { label: string; count: number } | null {
+  return tally(values)[0] ?? null
 }
 
 export interface MoodPoint {
@@ -32,6 +35,21 @@ export interface MoodPoint {
   day: number
   /** Average self-reported mood (1–5) for that day. */
   mood: number
+}
+
+/** A single bar in the emotion mix — a feeling and how often it came up. */
+export interface EmotionSlice {
+  label: string
+  count: number
+}
+
+/** The brightest / toughest day of the week, for the callout line. */
+export interface DayExtreme {
+  /** Local-calendar day index (matches MoodPoint.day). */
+  day: number
+  mood: number
+  /** Short weekday name, e.g. "Thu". */
+  weekday: string
 }
 
 /** Multi-agent synthesis added on top of the deterministic sections (optional). */
@@ -47,8 +65,17 @@ export interface Digest {
   weekStart: number
   weekEnd: number
   entryCount: number
+  /** Distinct days journaled this week. */
+  dayCount: number
+  avgMood: number
+  /** Change in average mood vs the prior 7 days; null when there's no prior data. */
+  moodDelta: number | null
   moodArc: MoodPoint[]
-  observations: string[]
+  /** Feelings this week, most frequent first. */
+  emotionMix: EmotionSlice[]
+  /** Highest / lowest mood day; null when there isn't enough contrast (≤1 day or flat). */
+  brightest: DayExtreme | null
+  toughest: DayExtreme | null
   pattern: string
   correlation: string
   question: string
@@ -56,6 +83,9 @@ export interface Digest {
   /** LLM-synthesized themes/patterns/questions (added best-effort, post-generate). */
   synthesis?: DigestSynthesisResult
 }
+
+const weekdayOf = (day: number): string =>
+  new Date(day * DAY_MS).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' })
 
 // Curated, non-clinical reflective lines. Rotated weekly. Never implies
 // diagnosis or treatment.
@@ -94,22 +124,30 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
 
   const avgMood = avg(entries.map((e) => e.mood))
   const emotions = entries.map((e) => e.emotion).filter((x): x is string => !!x)
+  const emotionMix = tally(emotions)
   const distortions = entries
     .map((e) => e.distortion)
     .filter((x): x is string => !!x && x.toLowerCase() !== 'none')
-  const topEmotion = mostCommon(emotions)
+  const topEmotion = emotionMix[0] ?? null
   const topDistortion = mostCommon(distortions)
 
-  const observations: string[] = [
-    `${entries.length} entries across ${byDay.size} ${byDay.size === 1 ? 'day' : 'days'}.`,
-    `Your average mood was ${avgMood.toFixed(1)} out of 5.`,
-  ]
-  if (topEmotion) {
-    observations.push(
-      `${cap(topEmotion.label)} came up most — ${topEmotion.count} ${
-        topEmotion.count === 1 ? 'time' : 'times'
-      }.`
-    )
+  // Week-over-week mood delta — average of the prior 7 days, if any entries exist.
+  const priorStart = weekStart - 7 * DAY_MS
+  const priorMoods = allEntries
+    .filter((e) => e.created_at >= priorStart && e.created_at < weekStart)
+    .map((e) => e.mood)
+  const moodDelta = priorMoods.length ? avgMood - avg(priorMoods) : null
+
+  // Brightest / toughest day — only when there's real contrast across ≥2 days.
+  let brightest: DayExtreme | null = null
+  let toughest: DayExtreme | null = null
+  if (moodArc.length >= 2) {
+    const hi = moodArc.reduce((a, b) => (b.mood > a.mood ? b : a))
+    const lo = moodArc.reduce((a, b) => (b.mood < a.mood ? b : a))
+    if (hi.mood > lo.mood) {
+      brightest = { day: hi.day, mood: hi.mood, weekday: weekdayOf(hi.day) }
+      toughest = { day: lo.day, mood: lo.mood, weekday: weekdayOf(lo.day) }
+    }
   }
 
   const pattern = topDistortion
@@ -140,8 +178,13 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     weekStart,
     weekEnd,
     entryCount: entries.length,
+    dayCount: byDay.size,
+    avgMood,
+    moodDelta,
     moodArc,
-    observations,
+    emotionMix,
+    brightest,
+    toughest,
     pattern,
     correlation,
     question,
