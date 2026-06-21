@@ -64,6 +64,23 @@ function Tag({ label }: { label: string }) {
   )
 }
 
+/** A tag that grew into a wiki page — tappable, opens the page. */
+function PageTag({ label, onPress }: { label: string; onPress: () => void }) {
+  const styles = useThemedStyles(makeStyles)
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open the ${label} page`}
+      onPress={onPress}
+      style={[styles.tag, styles.tagLink]}
+    >
+      <Text variant="caption" color="accentText">
+        {label} ›
+      </Text>
+    </Pressable>
+  )
+}
+
 export default function EntryDetailScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
@@ -126,6 +143,15 @@ export default function EntryDetailScreen() {
     entry.topic,
   ].filter((t): t is string => !!t && t !== 'none')
 
+  // A tag often grew into a wiki page (same label) — so the old "Shaped these
+  // pages" list just repeated the tags. Instead, make each tag that maps to a
+  // live page tappable, and surface any pages the entry shaped that aren't
+  // already a tag (e.g. people/places) as extra links. One row, no duplication.
+  const pageByLabel = new Map(lineage.map((p) => [p.title.trim().toLowerCase(), p]))
+  const taggedLabels = new Set(tags.map((t) => t.toLowerCase()))
+  const extraPages = lineage.filter((p) => !taggedLabels.has(p.title.trim().toLowerCase()))
+  const hasLinks = lineage.length > 0
+
   return (
     <Screen scroll>
       <Text variant="label" color="accent" onPress={() => router.back()}>
@@ -150,32 +176,25 @@ export default function EntryDetailScreen() {
       {entry.behavior ? <Section label="Behaviour" value={entry.behavior} /> : null}
       {entry.closing_note ? <Section label="Closing note" value={entry.closing_note} /> : null}
 
-      {tags.length > 0 ? (
+      {tags.length > 0 || extraPages.length > 0 ? (
         <View style={styles.tags}>
-          {tags.map((t) => (
-            <Tag key={t} label={t} />
+          {tags.map((t) => {
+            const page = pageByLabel.get(t.toLowerCase())
+            return page ? (
+              <PageTag key={t} label={t} onPress={() => router.push(`/wiki/${page.id}`)} />
+            ) : (
+              <Tag key={t} label={t} />
+            )
+          })}
+          {extraPages.map((p) => (
+            <PageTag key={p.id} label={p.title} onPress={() => router.push(`/wiki/${p.id}`)} />
           ))}
         </View>
       ) : null}
-
-      {lineage.length > 0 ? (
-        <View style={styles.linkSection}>
-          <Text variant="label" color="accent" style={styles.sectionLabel}>
-            Shaped these pages
-          </Text>
-          {lineage.map((p) => (
-            <Pressable
-              key={p.id}
-              accessibilityRole="button"
-              onPress={() => router.push(`/wiki/${p.id}`)}
-              style={styles.linkRow}
-            >
-              <Text variant="body" color="accentText">
-                {p.title} →
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+      {hasLinks ? (
+        <Text variant="caption" color="textMuted" style={styles.linkHint}>
+          Tap a highlighted tag to open the page it shaped.
+        </Text>
       ) : null}
 
       {related.length > 0 ? (
@@ -240,6 +259,8 @@ const makeStyles = (t: Theme) =>
       paddingHorizontal: t.spacing.md,
       backgroundColor: t.colors.surfaceAlt,
     },
+    tagLink: { backgroundColor: t.colors.accentMuted },
+    linkHint: { marginTop: t.spacing.sm },
     linkSection: { marginTop: t.spacing['2xl'] },
     linkRow: { paddingVertical: t.spacing.sm },
     nav: {

@@ -77,14 +77,26 @@ describe('EntryDetailScreen', () => {
     expect(mockReplace).toHaveBeenCalledTimes(1)
   })
 
-  it('lists the wiki pages the entry shaped and opens one when tapped', () => {
+  it('makes a tag that grew into a page tappable, opening the page', () => {
     mockUseEntry.mockReturnValue({ entry, loading: false })
+    // 'Anxiety' matches the entry's emotion tag — so the tag itself becomes the
+    // link (no separate "Shaped these pages" list duplicating it).
     mockUseLineage.mockReturnValue([{ id: 'p1', title: 'Anxiety', category: 'emotion' }])
 
     render(<EntryDetailScreen />)
-    expect(screen.getByText('Shaped these pages')).toBeTruthy()
-    fireEvent.press(screen.getByText('Anxiety →'))
+    expect(screen.queryByText('Shaped these pages')).toBeNull()
+    expect(screen.getByText('Tap a highlighted tag to open the page it shaped.')).toBeTruthy()
+    fireEvent.press(screen.getByText('anxiety ›'))
     expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+  })
+
+  it('surfaces a shaped page that is not one of the entry tags', () => {
+    mockUseEntry.mockReturnValue({ entry, loading: false })
+    mockUseLineage.mockReturnValue([{ id: 'p9', title: 'Mom', category: 'person' }])
+
+    render(<EntryDetailScreen />)
+    fireEvent.press(screen.getByText('Mom ›'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/p9')
   })
 
   it('shows a not-found state when the entry is missing', () => {
