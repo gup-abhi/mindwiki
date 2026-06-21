@@ -35,14 +35,38 @@ describe('AuthScreen', () => {
   it('requires a valid email and an 8+ char password before submitting', () => {
     render(<AuthScreen />)
 
-    // password only — still blocked (email required)
+    // password only — still blocked (email + matching confirm required)
     fireEvent.changeText(screen.getByTestId('auth-password'), 'password123')
+    fireEvent.changeText(screen.getByTestId('auth-password-confirm'), 'password123')
     fireEvent.press(screen.getByTestId('auth-submit'))
     expect(submit).not.toHaveBeenCalled()
 
     fireEvent.changeText(screen.getByTestId('auth-email'), 'a@b.com')
     fireEvent.press(screen.getByTestId('auth-submit'))
     expect(submit).toHaveBeenCalledWith('register', 'a@b.com', 'password123')
+  })
+
+  it('blocks register until the confirmation password matches', () => {
+    render(<AuthScreen />)
+    fireEvent.changeText(screen.getByTestId('auth-email'), 'a@b.com')
+    fireEvent.changeText(screen.getByTestId('auth-password'), 'password123')
+
+    // mismatched confirm — blocked, with a hint
+    fireEvent.changeText(screen.getByTestId('auth-password-confirm'), 'password124')
+    expect(screen.getByText('Passwords don’t match.')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('auth-submit'))
+    expect(submit).not.toHaveBeenCalled()
+
+    // fix it — now allowed
+    fireEvent.changeText(screen.getByTestId('auth-password-confirm'), 'password123')
+    fireEvent.press(screen.getByTestId('auth-submit'))
+    expect(submit).toHaveBeenCalledWith('register', 'a@b.com', 'password123')
+  })
+
+  it('has no confirmation field in login mode', () => {
+    render(<AuthScreen />)
+    fireEvent.press(screen.getByTestId('auth-toggle')) // → login
+    expect(screen.queryByTestId('auth-password-confirm')).toBeNull()
   })
 
   it('toggles password visibility with the eye button', () => {

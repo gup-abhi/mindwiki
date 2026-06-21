@@ -26,6 +26,7 @@ export function AuthScreen() {
   const [scanning, setScanning] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const { submit, submitting, error, pendingPhrase, confirmPhrase } = useAuth()
 
@@ -35,9 +36,12 @@ export function AuthScreen() {
   if (scanning) return <PairScanScreen onCancel={() => setScanning(false)} />
 
   const isRegister = mode === 'register'
+  // A typo'd password at registration wraps the escrow with the wrong key — the
+  // user could never log back in. Require a matching confirmation on register.
+  const passwordsMatch = !isRegister || confirm === password
   // Email is required for both flows: login looks the account up by email, and
   // it's the only way back into the escrow, so an email-less account is a lockout.
-  const canSubmit = isValidEmail(email) && password.length >= 8 && !submitting
+  const canSubmit = isValidEmail(email) && password.length >= 8 && passwordsMatch && !submitting
 
   return (
     <KeyboardAvoidingView
@@ -86,6 +90,26 @@ export function AuthScreen() {
           </Pressable>
         </View>
 
+        {isRegister && (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Confirm password"
+              placeholderTextColor={theme.colors.textMuted}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              value={confirm}
+              onChangeText={setConfirm}
+              testID="auth-password-confirm"
+            />
+            {confirm.length > 0 && confirm !== password && (
+              <Text variant="caption" color="danger" style={styles.error}>
+                Passwords don’t match.
+              </Text>
+            )}
+          </>
+        )}
+
         {error && (
           <Text variant="caption" color="danger" style={styles.error}>
             {error}
@@ -104,7 +128,10 @@ export function AuthScreen() {
         </View>
 
         <Pressable
-          onPress={() => setMode(isRegister ? 'login' : 'register')}
+          onPress={() => {
+            setMode(isRegister ? 'login' : 'register')
+            setConfirm('')
+          }}
           disabled={submitting}
           testID="auth-toggle"
         >
