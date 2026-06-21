@@ -3,15 +3,17 @@ import { render, screen, fireEvent } from '@testing-library/react-native'
 import CrisisScreen from '@/app/crisis'
 
 const mockReplace = jest.fn()
+const mockPush = jest.fn()
 let mockTier = '3'
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
   useLocalSearchParams: () => ({ tier: mockTier }),
 }))
 
 describe('CrisisScreen', () => {
   beforeEach(() => {
     mockReplace.mockReset()
+    mockPush.mockReset()
     mockTier = '3'
   })
 
@@ -36,5 +38,17 @@ describe('CrisisScreen', () => {
     render(<CrisisScreen />)
     fireEvent.press(screen.getByText('Continue'))
     expect(mockReplace).toHaveBeenCalledWith('/')
+  })
+
+  it('offers a breathing exercise as grounding at tier 2', () => {
+    mockTier = '2'
+    render(<CrisisScreen />)
+    fireEvent.press(screen.getByTestId('crisis-breathe'))
+    expect(mockPush).toHaveBeenCalledWith('/breathe')
+  })
+
+  it('does not offer the breathing exercise at tier 3 (988 stays primary)', () => {
+    render(<CrisisScreen />) // tier 3
+    expect(screen.queryByTestId('crisis-breathe')).toBeNull()
   })
 })

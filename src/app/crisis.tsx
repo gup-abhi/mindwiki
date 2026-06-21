@@ -71,6 +71,20 @@ export default function CrisisScreen() {
         </Pressable>
       )}
 
+      {/* A calm grounding option for tiers 1–2. At tier 3 the priority is staying
+          with 988 + resources, so we don't offer it there. */}
+      {t < 3 && (
+        <View style={styles.breatheWrap}>
+          <Button
+            title="Try a breathing exercise"
+            variant="secondary"
+            fullWidth
+            onPress={() => router.push('/breathe')}
+            testID="crisis-breathe"
+          />
+        </View>
+      )}
+
       <View style={styles.continueWrap}>
         <Button title="Continue" variant="ghost" fullWidth onPress={() => router.replace('/')} />
       </View>
@@ -86,5 +100,6 @@ const makeStyles = (t: Theme) =>
     resourceContact: { marginTop: t.spacing.xs },
     resourceDesc: { marginTop: t.spacing.xs },
     softLink: { marginTop: t.spacing.xl },
-    continueWrap: { marginTop: t.spacing.xl },
+    breatheWrap: { marginTop: t.spacing.xl },
+    continueWrap: { marginTop: t.spacing.md },
   })

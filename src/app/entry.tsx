@@ -31,7 +31,8 @@ export default function EntryScreen() {
     if (result.data.crisis.tier > 0) {
       router.replace({ pathname: '/crisis', params: { tier: String(result.data.crisis.tier) } })
     } else {
-      router.replace('/saved')
+      // Pass the mood so the confirmation can gently offer a breather on a low day.
+      router.replace({ pathname: '/saved', params: { mood: String(result.data.entry.mood) } })
     }
   }
 

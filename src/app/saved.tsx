@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
@@ -18,13 +18,16 @@ const makeStyles = (t: Theme) =>
       marginBottom: t.spacing.sm,
     },
     subtitle: { textAlign: 'center', maxWidth: 300 },
-    cta: { marginTop: t.spacing.xl, alignSelf: 'stretch', paddingHorizontal: t.spacing['2xl'] },
+    cta: { marginTop: t.spacing.xl, alignSelf: 'stretch', paddingHorizontal: t.spacing['2xl'], gap: t.spacing.md },
   })
 
 export default function SavedScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
+  // On a low-mood day, gently offer a breather before sending them home.
+  const { mood } = useLocalSearchParams<{ mood?: string }>()
+  const lowMood = Number(mood) > 0 && Number(mood) <= 2
   return (
     <Screen>
       <View style={styles.center}>
@@ -36,6 +39,15 @@ export default function SavedScreen() {
           Your reflection is encrypted on your device. Each entry grows your insights.
         </Text>
         <View style={styles.cta}>
+          {lowMood && (
+            <Button
+              title="Take a minute to breathe"
+              variant="secondary"
+              fullWidth
+              onPress={() => router.replace('/breathe')}
+              testID="saved-breathe"
+            />
+          )}
           <Button title="Done" fullWidth onPress={() => router.replace('/')} />
         </View>
       </View>

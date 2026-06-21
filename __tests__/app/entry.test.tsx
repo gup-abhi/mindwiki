@@ -21,7 +21,8 @@ describe('EntryScreen (free-write)', () => {
     useEntryStore.getState().reset()
     mockReplace.mockReset()
     mockCreateEntry.mockReset()
-    mockCreateEntry.mockResolvedValue(ok({ id: 'e1' }))
+    // Echo the saved fields back (incl. mood) like the real createEntry does.
+    mockCreateEntry.mockImplementation((input) => Promise.resolve(ok({ id: 'e1', ...input })))
     mockProcessEntry.mockReset()
     mockProcessEntry.mockResolvedValue({
       tagged: true,
@@ -44,7 +45,9 @@ describe('EntryScreen (free-write)', () => {
         closing_note: null,
       })
     )
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/saved'))
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith({ pathname: '/saved', params: { mood: '4' } })
+    )
   })
 
   it('does not save without a mood and body', () => {
