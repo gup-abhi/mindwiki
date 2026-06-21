@@ -100,8 +100,17 @@ function dateRange(start: number, end: number): string {
   return `${new Date(start).toLocaleDateString(undefined, opts)} – ${new Date(end).toLocaleDateString(undefined, opts)}`
 }
 
-function Dashboard({ digest, width }: { digest: Digest; width: number }) {
+function Dashboard({
+  digest,
+  width,
+  synthesizing,
+}: {
+  digest: Digest
+  width: number
+  synthesizing: boolean
+}) {
   const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
   const delta = digest.moodDelta == null ? null : deltaLabel(digest.moodDelta)
 
   return (
@@ -111,6 +120,15 @@ function Dashboard({ digest, width }: { digest: Digest; width: number }) {
         {dateRange(digest.weekStart, digest.weekEnd)} · {digest.entryCount} entries · {digest.dayCount}{' '}
         {digest.dayCount === 1 ? 'day' : 'days'}
       </Text>
+
+      {synthesizing && !digest.synthesis && (
+        <View style={styles.synthBanner}>
+          <ActivityIndicator color={theme.colors.accent} size="small" />
+          <Text variant="label" color="accent">
+            Looking for themes across your week…
+          </Text>
+        </View>
+      )}
 
       <View style={styles.tiles}>
         <StatTile value={digest.avgMood.toFixed(1)} label="avg mood" />
@@ -166,7 +184,6 @@ export default function DigestScreen() {
   const router = useRouter()
   const { width } = useWindowDimensions()
   const styles = useThemedStyles(makeStyles)
-  const theme = useTheme()
   const { digest, loading, synthesizing } = useDigest()
 
   if (loading && !digest) {
@@ -201,7 +218,7 @@ export default function DigestScreen() {
 
   return (
     <Screen scroll>
-      <Dashboard digest={digest} width={width} />
+      <Dashboard digest={digest} width={width} synthesizing={synthesizing} />
 
       <Text variant="label" style={styles.section}>
         A question to sit with
@@ -211,15 +228,6 @@ export default function DigestScreen() {
           {digest.question}
         </Text>
       </View>
-
-      {synthesizing && !digest.synthesis && (
-        <View style={styles.synthLoading}>
-          <ActivityIndicator color={theme.colors.accent} />
-          <Text variant="label" color="accent">
-            Looking for themes across your week…
-          </Text>
-        </View>
-      )}
 
       {digest.synthesis && (
         <>
@@ -302,7 +310,7 @@ const makeStyles = (t: Theme) =>
     mixFill: { height: '100%', borderRadius: 5, backgroundColor: t.colors.accent },
     mixCount: { width: 20, textAlign: 'right' },
     questionCard: { backgroundColor: t.colors.primary, borderRadius: t.radii.lg, padding: t.spacing.lg },
-    synthLoading: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, marginTop: t.spacing.xl },
+    synthBanner: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, marginTop: t.spacing.md },
     flagged: { fontStyle: 'italic', marginTop: t.spacing.md },
     quote: { fontStyle: 'italic', textAlign: 'center', marginTop: t.spacing['2xl'] },
     emptyTitle: { marginBottom: t.spacing.sm },

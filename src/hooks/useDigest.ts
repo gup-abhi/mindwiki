@@ -28,23 +28,29 @@ export function useDigest() {
     setLoading(false)
     if (!base) return
 
-    const enriched = await enrichWithQuestion(base)
-    setDigest(enriched)
-
-    // Multi-agent synthesis is the slow deep-model step — flag it so the screen
-    // can show a loader while themes/patterns are still being worked out.
+    // Both deep-model passes (the reflection question, then the multi-agent
+    // synthesis) share one model context and can sit behind background entry
+    // work. Flag it up front so the screen shows it's thinking the moment it
+    // opens — not only after the first inference finishes (and not buried below
+    // the fold).
     setSynthesizing(true)
-    const [nodesR, edgesR, pagesR] = await Promise.all([listNodes(), listEdges(), listPages()])
-    setDigest(
-      await runDigestSynthesis({
-        digest: enriched,
-        entries,
-        nodes: nodesR.success ? nodesR.data : [],
-        edges: edgesR.success ? edgesR.data : [],
-        pages: pagesR.success ? pagesR.data : [],
-      })
-    )
-    setSynthesizing(false)
+    try {
+      const enriched = await enrichWithQuestion(base)
+      setDigest(enriched)
+
+      const [nodesR, edgesR, pagesR] = await Promise.all([listNodes(), listEdges(), listPages()])
+      setDigest(
+        await runDigestSynthesis({
+          digest: enriched,
+          entries,
+          nodes: nodesR.success ? nodesR.data : [],
+          edges: edgesR.success ? edgesR.data : [],
+          pages: pagesR.success ? pagesR.data : [],
+        })
+      )
+    } finally {
+      setSynthesizing(false)
+    }
   }, [])
 
   useFocusEffect(

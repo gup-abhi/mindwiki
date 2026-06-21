@@ -47,6 +47,22 @@ describe('DigestScreen', () => {
     expect(screen.getByText(/A hard week is data/)).toBeTruthy() // quote
   })
 
+  it('shows the synthesis banner up top while themes are being worked out', () => {
+    mockUseDigest.mockReturnValue({ digest, loading: false, synthesizing: true })
+    render(<DigestScreen />)
+    expect(screen.getByText('Looking for themes across your week…')).toBeTruthy()
+  })
+
+  it('hides the synthesis banner once synthesis has landed', () => {
+    mockUseDigest.mockReturnValue({
+      digest: { ...digest, synthesis: { themes: ['t'], patterns: [], openQuestions: [], flaggedClaims: [] } },
+      loading: false,
+      synthesizing: true,
+    })
+    render(<DigestScreen />)
+    expect(screen.queryByText('Looking for themes across your week…')).toBeNull()
+  })
+
   it('shows an empty state when there is no digest', () => {
     mockUseDigest.mockReturnValue({ digest: null, loading: false })
     render(<DigestScreen />)
