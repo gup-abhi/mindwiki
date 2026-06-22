@@ -25,7 +25,7 @@ const COPY: Record<number, { title: string; body: string }> = {
 export default function CrisisScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { tier } = useLocalSearchParams<{ tier?: string }>()
+  const { tier, conf } = useLocalSearchParams<{ tier?: string; conf?: string }>()
   const t = Number(tier) || 1
   const copy = COPY[t] ?? COPY[1]
   // Tier 1 is a low-confidence signal — keep it calm: no red 988 button and no
@@ -39,6 +39,12 @@ export default function CrisisScreen() {
       <Text variant="body" color="textSecondary" style={styles.bodyText}>
         {copy.body}
       </Text>
+
+      {__DEV__ && conf != null && (
+        <Text variant="caption" color="textSecondary" style={styles.debug}>
+          debug · tier {t} · model confidence {Number(conf).toFixed(2)}
+        </Text>
+      )}
 
       {showFullSupport ? (
         <>
@@ -95,6 +101,7 @@ export default function CrisisScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     bodyText: { marginTop: t.spacing.md },
+    debug: { marginTop: t.spacing.sm, fontStyle: 'italic', opacity: 0.6 },
     callWrap: { marginTop: t.spacing.xl },
     resource: { marginTop: t.spacing.md },
     resourceContact: { marginTop: t.spacing.xs },

@@ -34,7 +34,14 @@ export default function EntryScreen() {
     // interstitial — so it saves normally; the /saved screen still offers a breather
     // on a low-mood day.
     if (result.data.crisis.tier >= 2) {
-      router.replace({ pathname: '/crisis', params: { tier: String(result.data.crisis.tier) } })
+      router.replace({
+        pathname: '/crisis',
+        params: {
+          tier: String(result.data.crisis.tier),
+          // dev-only diagnostic readout (numbers only, never entry text)
+          conf: String(result.data.crisis.confidence),
+        },
+      })
     } else {
       // Pass the mood so the confirmation can gently offer a breather on a low day.
       router.replace({ pathname: '/saved', params: { mood: String(result.data.entry.mood) } })

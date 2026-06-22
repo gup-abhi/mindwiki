@@ -86,7 +86,10 @@ describe('EntryScreen (free-write)', () => {
     fireEvent.press(screen.getByTestId('entry-save'))
 
     await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith({ pathname: '/crisis', params: { tier: '3' } })
+      expect(mockReplace).toHaveBeenCalledWith({
+        pathname: '/crisis',
+        params: { tier: '3', conf: '0.9' },
+      })
     )
   })
 

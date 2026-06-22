@@ -20,13 +20,15 @@ describe('buildCrisisPrompt', () => {
     expect(p).not.toMatch(/emotion|distortion|topic|activities/)
   })
 
-  it('calibrates against false positives — everyday distress should score low', () => {
+  it('frames everyday distress as not-a-crisis to curb false positives', () => {
     const p = buildCrisisPrompt({ situation: 'a meeting', thought: 'I will fail' })
-    expect(p).toContain('Calibration')
-    // anchors everyday anxiety/self-criticism (no self-harm mention) near zero
-    expect(p).toMatch(/anxiety[\s\S]*0\.0–0\.1|0\.0–0\.1[\s\S]*anxiety/)
-    // and reserves high scores for genuine self-harm/suicide signals
-    expect(p).toMatch(/0\.9–1\.0/)
+    // everyday anxiety/stress is explicitly normal and anchored near zero
+    expect(p).toMatch(/anxiety/i)
+    expect(p).toMatch(/not a crisis/i)
+    expect(p).toMatch(/near 0\.0/)
+    // must NOT seed a salient high target like 0.9 — the small model echoes it
+    // (the "0.0 to 1.0" scale definition is fine; a 0.9-style anchor is not).
+    expect(p).not.toContain('0.9')
   })
 })
 
