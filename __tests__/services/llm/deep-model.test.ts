@@ -5,6 +5,7 @@ import {
   generateAffirmation,
   converseFromWiki,
   extractEntry,
+  suggestBalancedThought,
 } from '@/services/llm/deep-model'
 import { buildUpdatePagePrompt, buildRewritePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildAffirmationPrompt } from '@/services/llm/prompts/affirmation'
@@ -269,6 +270,32 @@ describe('extractEntry', () => {
     const result = await extractEntry(exInput)
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('EXTRACT_PARSE_FAILED')
+  })
+})
+
+describe('suggestBalancedThought', () => {
+  const reframeInput = { belief: 'I am not good enough', evidenceFor: 'I froze', evidenceAgainst: 'I shipped it' }
+  beforeEach(() => mockSynthesise.mockReset())
+
+  it('returns the first line with wrapping quotes stripped', async () => {
+    mockSynthesise.mockResolvedValue({ text: '"I can be nervous and still capable."\n\n— hope that helps' })
+    const result = await suggestBalancedThought(reframeInput)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toBe('I can be nervous and still capable.')
+  })
+
+  it('fails validation when the model returns only whitespace', async () => {
+    mockSynthesise.mockResolvedValue({ text: '   \n  ' })
+    const result = await suggestBalancedThought(reframeInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('REFRAME_VALIDATION_FAILED')
+  })
+
+  it('fails with REFRAME_INFERENCE_FAILED when inference throws', async () => {
+    mockSynthesise.mockRejectedValue(new Error('OOM'))
+    const result = await suggestBalancedThought(reframeInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('REFRAME_INFERENCE_FAILED')
   })
 })
 

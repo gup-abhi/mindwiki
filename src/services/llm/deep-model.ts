@@ -20,6 +20,8 @@ import { AffirmationSchema } from './schemas/challenge.schema'
 import { ReflectionQuestionSchema } from './schemas/digest-question.schema'
 import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-synthesis.schema'
 import { WikiContentSchema } from './schemas/wiki-update.schema'
+import { buildReframePrompt, type ReframePromptInput } from './prompts/reframe-suggest'
+import { ReframeSuggestionSchema } from './schemas/reframe.schema'
 import { buildExtractPrompt, type ExtractPromptInput } from './prompts/extract-entry'
 import { EntryExtractSchema, type EntryExtract } from './schemas/entry-extract.schema'
 import { canonicalizeEmotion, canonicalizeDistortion, canonicalizeLabel, normalizeEntities, normalizePhrases } from './taxonomy'
@@ -188,6 +190,36 @@ export async function generateAffirmation(input: AffirmationInput): Promise<Resu
   const parsed = AffirmationSchema.safeParse(cleaned)
   if (!parsed.success) {
     return err('AFFIRMATION_VALIDATION_FAILED', 'Affirmation failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Suggest one balanced alternative to a harsh belief from the user's evidence
+ * (CBT cognitive restructuring, on-device). An optional assist for the reframe
+ * flow — the user can edit or replace it, and on any failure the field just stays
+ * as the user left it. Strips wrapping quotes the model often adds. Never throws;
+ * errors carry a code only, never belief/evidence text.
+ */
+export async function suggestBalancedThought(input: ReframePromptInput): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildReframePrompt(input), {
+      maxTokens: 80,
+      temperature: 0.6,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('REFRAME_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  // The model often returns a single sentence but may add a stray prefix/quotes;
+  // take the first non-empty line and strip wrapping quotes.
+  const firstLine = raw.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? ''
+  const cleaned = firstLine.replace(/^["']+|["']+$/g, '')
+  const parsed = ReframeSuggestionSchema.safeParse(cleaned)
+  if (!parsed.success) {
+    return err('REFRAME_VALIDATION_FAILED', 'Reframe suggestion failed validation')
   }
   return ok(parsed.data)
 }

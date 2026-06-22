@@ -1,19 +1,25 @@
 import { useState } from 'react'
-import { useLocalSearchParams } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Alert, StyleSheet, View } from 'react-native'
 
 import { Button, Card, Divider, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { Markdown } from '@/components/wiki/Markdown'
 import { useWikiPage } from '@/hooks/useWiki'
+import { useReframes } from '@/hooks/useReframes'
 
 const RICHNESS_TARGET = 10 // entries at which the richness bar is full
 
 export default function WikiPageScreen() {
+  const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const { id } = useLocalSearchParams<{ id?: string }>()
   const { page, loading, dismiss, restore, correct, regenerate, regenerating } = useWikiPage(id)
   const [draft, setDraft] = useState<string | null>(null) // non-null while editing
+  const [showEarlier, setShowEarlier] = useState(false) // expand older reframes
+  // Beliefs can be challenged with a CBT reframe; only beliefs surface that flow.
+  const isBelief = page?.category === 'belief'
+  const { reframes } = useReframes(isBelief ? (page?.title ?? null) : null)
 
   const onRegenerate = async () => {
     const error = await regenerate()
@@ -82,6 +88,48 @@ export default function WikiPageScreen() {
       </View>
 
       <Markdown content={page.content} />
+
+      {isBelief && page.dismissed_at == null && (
+        <View style={styles.reframeSection}>
+          <Button
+            title="Challenge this belief"
+            variant="secondary"
+            fullWidth
+            onPress={() => router.push({ pathname: '/reframe', params: { belief: page.title } })}
+            testID="wiki-challenge-belief"
+          />
+          {reframes.length > 0 && (
+            <View style={styles.reframeList}>
+              <Text variant="label" color="textSecondary">
+                Your reframes
+              </Text>
+              {/* Latest stays in view; older ones collapse behind a toggle so the
+                  page stays readable as reframes accumulate (newest-first). */}
+              {(showEarlier ? reframes : reframes.slice(0, 1)).map((r) => (
+                <Card key={r.id} variant="sunken" style={styles.reframeCard} testID="wiki-reframe">
+                  <Text variant="body">{r.balanced_thought}</Text>
+                  <Text variant="caption" color="textMuted" style={styles.reframeDate}>
+                    {new Date(r.created_at).toLocaleDateString()}
+                  </Text>
+                </Card>
+              ))}
+              {reframes.length > 1 && (
+                <Text
+                  variant="label"
+                  color="accent"
+                  onPress={() => setShowEarlier((v) => !v)}
+                  style={styles.reframeToggle}
+                  testID="wiki-reframes-toggle"
+                >
+                  {showEarlier
+                    ? 'Hide earlier reframes'
+                    : `${reframes.length - 1} earlier ${reframes.length - 1 === 1 ? 'reframe' : 'reframes'}`}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+      )}
 
       {history.length > 0 && (
         <View style={styles.history}>
@@ -178,6 +226,11 @@ const makeStyles = (t: Theme) =>
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     meta: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
     richness: { marginBottom: t.spacing.xl },
+    reframeSection: { marginTop: t.spacing['2xl'], gap: t.spacing.lg },
+    reframeList: { gap: t.spacing.sm },
+    reframeCard: { gap: t.spacing.xs, alignItems: 'flex-start' },
+    reframeDate: {},
+    reframeToggle: { marginTop: t.spacing.xs },
     history: { marginTop: t.spacing['2xl'], paddingTop: t.spacing.md, gap: t.spacing.xs },
     historyTitle: { marginBottom: t.spacing.xs },
     feedback: { marginTop: t.spacing['2xl'], paddingTop: t.spacing.md, gap: t.spacing.md },

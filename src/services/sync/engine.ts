@@ -67,6 +67,13 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
     columns: ['id', 'type', 'label', 'dismissed_at', 'updated_at'],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
+  belief_reframes: {
+    columns: [
+      'id', 'belief', 'evidence_for', 'evidence_against', 'balanced_thought',
+      'created_at', 'updated_at',
+    ],
+    updatedAt: (r) => Number(r.updated_at) || 0,
+  },
 }
 
 function isSyncTable(t: string): t is SyncTable {

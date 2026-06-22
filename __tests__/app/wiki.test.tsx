@@ -25,6 +25,16 @@ jest.mock('@/hooks/useWiki', () => ({
   useWikiPage: () => mockUseWikiPage(),
   useDismissedPages: () => mockUseDismissedPages(),
 }))
+
+const mockUseReframes = jest.fn(() => ({
+  reframes: [] as Array<{ id: string; balanced_thought: string; created_at: number }>,
+  refresh: jest.fn(),
+  save: jest.fn(),
+  suggest: jest.fn(),
+}))
+jest.mock('@/hooks/useReframes', () => ({
+  useReframes: () => mockUseReframes(),
+}))
 const mockDismiss = jest.fn()
 const mockRestore = jest.fn()
 const mockCorrect = jest.fn()
@@ -114,6 +124,7 @@ describe('WikiPageScreen', () => {
     mockRestore.mockReset()
     mockCorrect.mockReset()
     mockRegenerate.mockReset().mockResolvedValue(null) // null = success
+    mockUseReframes.mockReturnValue({ reframes: [], refresh: jest.fn(), save: jest.fn(), suggest: jest.fn() })
   })
 
   const pageReturn = (page: Record<string, unknown>) => ({
@@ -225,5 +236,64 @@ describe('WikiPageScreen', () => {
     mockUseWikiPage.mockReturnValue({ page: null, loading: false })
     render(<WikiPageScreen />)
     expect(screen.getByText('Page not found')).toBeTruthy()
+  })
+
+  it('offers "Challenge this belief" on a belief page and opens the reframe flow', () => {
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p9', title: 'I am not good enough', category: 'belief', version: 1, entry_count: 2, content: 'c', dismissed_at: null, corrected_at: null })
+    )
+    render(<WikiPageScreen />)
+    fireEvent.press(screen.getByTestId('wiki-challenge-belief'))
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/reframe',
+      params: { belief: 'I am not good enough' },
+    })
+  })
+
+  it('does not offer the reframe flow on a non-belief page', () => {
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 1, entry_count: 3, content: 'c', dismissed_at: null, corrected_at: null })
+    )
+    render(<WikiPageScreen />)
+    expect(screen.queryByTestId('wiki-challenge-belief')).toBeNull()
+  })
+
+  it('lists the user’s saved reframes on a belief page', () => {
+    mockUseReframes.mockReturnValue({
+      reframes: [{ id: 'r1', balanced_thought: 'I can be nervous and still capable.', created_at: 0 }],
+      refresh: jest.fn(),
+      save: jest.fn(),
+      suggest: jest.fn(),
+    })
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p9', title: 'I am not good enough', category: 'belief', version: 1, entry_count: 2, content: 'c', dismissed_at: null, corrected_at: null })
+    )
+    render(<WikiPageScreen />)
+    expect(screen.getByText('I can be nervous and still capable.')).toBeTruthy()
+  })
+
+  it('shows only the latest reframe, collapsing older ones behind a toggle', () => {
+    mockUseReframes.mockReturnValue({
+      reframes: [
+        { id: 'r2', balanced_thought: 'Latest balanced thought.', created_at: 200 },
+        { id: 'r1', balanced_thought: 'Older balanced thought.', created_at: 100 },
+      ],
+      refresh: jest.fn(),
+      save: jest.fn(),
+      suggest: jest.fn(),
+    })
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p9', title: 'I am not good enough', category: 'belief', version: 1, entry_count: 2, content: 'c', dismissed_at: null, corrected_at: null })
+    )
+    render(<WikiPageScreen />)
+
+    // latest visible, older hidden behind "1 earlier reframe"
+    expect(screen.getByText('Latest balanced thought.')).toBeTruthy()
+    expect(screen.queryByText('Older balanced thought.')).toBeNull()
+    expect(screen.getByText('1 earlier reframe')).toBeTruthy()
+
+    fireEvent.press(screen.getByTestId('wiki-reframes-toggle'))
+    expect(screen.getByText('Older balanced thought.')).toBeTruthy()
+    expect(screen.getByText('Hide earlier reframes')).toBeTruthy()
   })
 })

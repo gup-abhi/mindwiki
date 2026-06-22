@@ -17,6 +17,7 @@ export type SyncTable =
   | 'chat_messages'
   | 'challenges'
   | 'graph_node_dismissals'
+  | 'belief_reframes'
 
 export const SYNCED_TABLES: SyncTable[] = [
   'entries',
@@ -26,6 +27,7 @@ export const SYNCED_TABLES: SyncTable[] = [
   'chat_messages',
   'challenges',
   'graph_node_dismissals',
+  'belief_reframes',
 ]
 
 export interface Versioned {

@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -189,5 +189,14 @@ describe('migration 007 (pursuits)', () => {
     expect(stmts.some((s) => /INSERT INTO entry_entities[\s\S]*SELECT/.test(s))).toBe(true)
     // indexes recreated on the new table
     expect(stmts.some((s) => s.includes('CREATE INDEX idx_entry_entities_type_label'))).toBe(true)
+  })
+
+  it('is registered as version 13 and creates the belief_reframes table', () => {
+    expect(MIGRATIONS[12].version).toBe(13)
+    expect(MIGRATIONS[12].name).toBe('belief_reframes')
+    const stmts = MIGRATIONS[12].statements
+    expect(stmts.some((s) => s.includes('CREATE TABLE belief_reframes'))).toBe(true)
+    const create = stmts.find((s) => s.includes('CREATE TABLE belief_reframes'))
+    expect(create).toContain('balanced_thought')
   })
 })

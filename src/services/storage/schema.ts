@@ -335,3 +335,26 @@ export const migration012: Migration = {
     `CREATE INDEX idx_entry_entities_entry ON entry_entities (entry_id)`,
   ],
 }
+
+// Migration 013 — belief reframes. A user-authored CBT thought-record that
+// challenges a recurring belief: evidence for / against it and a more balanced
+// thought. Keyed by the belief `label` (its stable identity — the belief graph
+// node + wiki page share it), not a page id, since the graph is rebuilt and node
+// ids regenerate. Synced as ciphertext (user-authored, last-write-wins by
+// updated_at) so a reframe survives a device switch.
+export const migration013: Migration = {
+  version: 13,
+  name: 'belief_reframes',
+  statements: [
+    `CREATE TABLE belief_reframes (
+      id               TEXT PRIMARY KEY,
+      belief           TEXT NOT NULL,
+      evidence_for     TEXT NOT NULL DEFAULT '',
+      evidence_against TEXT NOT NULL DEFAULT '',
+      balanced_thought TEXT NOT NULL,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL
+    )`,
+    `CREATE INDEX idx_belief_reframes_belief ON belief_reframes (belief)`,
+  ],
+}

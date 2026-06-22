@@ -37,6 +37,8 @@ describe('SYNCED_TABLES', () => {
       'challenges',
       // user intent, not derivable from entries — must travel between devices
       'graph_node_dismissals',
+      // user-authored belief reframes — must travel between devices
+      'belief_reframes',
     ])
   })
 
