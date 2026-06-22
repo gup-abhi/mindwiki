@@ -6,12 +6,14 @@ import { dismissNode } from '@/services/storage/graph'
 
 const mockUseGraph = jest.fn()
 const mockRefresh = jest.fn()
+const mockUseNodeContext = jest.fn(() => ({ context: null, loading: false }))
 const mockUseNodeDismissals = jest.fn(() => ({
   dismissals: [] as Array<{ id: string; type: string; label: string; dismissed_at: number; updated_at: number }>,
   refresh: jest.fn(),
 }))
 jest.mock('@/hooks/useGraph', () => ({
   useGraph: (...a: unknown[]) => mockUseGraph(...a),
+  useNodeContext: (...a: unknown[]) => mockUseNodeContext(...a),
   useNodeDismissals: () => mockUseNodeDismissals(),
 }))
 
@@ -48,6 +50,7 @@ const edges = [{ id: 'e1', source_id: 'n1', target_id: 'n2', weight: 2, created_
 describe('GraphScreen', () => {
   beforeEach(() => {
     mockUseGraph.mockReturnValue({ nodes, edges, layout: new Map(), refresh: mockRefresh })
+    mockUseNodeContext.mockReturnValue({ context: null, loading: false })
     mockUseNodeDismissals.mockReturnValue({ dismissals: [], refresh: jest.fn() })
     mockPush.mockReset()
     mockRefresh.mockReset()
@@ -65,6 +68,24 @@ describe('GraphScreen', () => {
     render(<GraphScreen />)
     fireEvent.press(screen.getAllByTestId('graph-node')[0])
     expect(screen.getByText('emotion · appeared 3 times')).toBeTruthy()
+  })
+
+  it('lists the pages and entries behind a tapped node and navigates to them', () => {
+    mockUseNodeContext.mockReturnValue({
+      context: {
+        pages: [{ id: 'p1', title: 'Anxiety', category: 'Emotions' }],
+        entries: [{ id: 'en1', situation: 'Big presentation', created_at: 0 }],
+      },
+      loading: false,
+    })
+    render(<GraphScreen />)
+    fireEvent.press(screen.getAllByTestId('graph-node')[0])
+
+    fireEvent.press(screen.getByTestId('graph-node-page'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+
+    fireEvent.press(screen.getByTestId('graph-node-entry'))
+    expect(mockPush).toHaveBeenCalledWith('/entries/en1')
   })
 
   it('shows an empty state with no nodes', () => {

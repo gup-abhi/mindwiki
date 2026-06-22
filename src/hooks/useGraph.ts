@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/services/storage/graph'
 import { computeLayout, type Point } from '@/services/graph/layout'
 import { rebuildGraph } from '@/services/graph/engine'
+import { contextForNode, type NodeContext } from '@/services/graph/node-context'
 import { useSyncStore } from '@/store/sync.store'
 
 /** Loads the graph and computes node positions for a canvas of width x height. */
@@ -43,6 +44,32 @@ export function useGraph(width: number, height: number) {
   )
 
   return { nodes, edges, layout, refresh }
+}
+
+/** The entries + wiki pages behind a selected node, reloaded when it changes.
+ *  Null when no node is selected; empty lists while loading or on lookup error. */
+export function useNodeContext(node: GraphNode | null) {
+  const [context, setContext] = useState<NodeContext | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!node) {
+      setContext(null)
+      return
+    }
+    let active = true
+    setLoading(true)
+    contextForNode(node).then((res) => {
+      if (!active) return
+      setContext(res.success ? res.data : { entries: [], pages: [] })
+      setLoading(false)
+    })
+    return () => {
+      active = false
+    }
+  }, [node])
+
+  return { context, loading }
 }
 
 /** Nodes the user has dropped from the graph; restore brings them back. */

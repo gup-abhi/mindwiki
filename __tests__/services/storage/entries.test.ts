@@ -5,6 +5,8 @@ import {
   listEntries,
   applyTags,
   deleteEntry,
+  listEntriesByEmotion,
+  listEntriesByTopic,
 } from '@/services/storage/entries'
 
 let mockUuidCounter = 0
@@ -56,6 +58,17 @@ function createFakeDb() {
       if (/^DELETE FROM entries WHERE id/.test(sql)) {
         const existed = rows.delete(String(params[0]))
         return { rows: [], rowsAffected: existed ? 1 : 0 }
+      }
+      const byTag = /^SELECT \* FROM entries WHERE (emotion|distortion|topic) = \? COLLATE NOCASE AND source = 'journal' ORDER BY created_at DESC/.exec(
+        sql
+      )
+      if (byTag) {
+        const col = byTag[1]
+        const value = String(params[0]).toLowerCase()
+        const all = [...rows.values()]
+          .filter((r) => r.source === 'journal' && String(r[col] ?? '').toLowerCase() === value)
+          .sort((a, b) => Number(b.created_at) - Number(a.created_at))
+        return { rows: all, rowsAffected: 0 }
       }
       throw new Error(`unhandled SQL: ${sql}`)
     },
@@ -113,6 +126,39 @@ describe('storage/entries CRUD', () => {
       expect(result.data).toHaveLength(1)
       expect(result.data[0].situation).toBe('journaled')
     }
+  })
+
+  it('lists entries behind an emotion node, newest first, journal-only', async () => {
+    const { db, rows } = createFakeDb()
+    const a = await createEntry({ mood: 2, situation: 'older', thought: 't' }, db)
+    const b = await createEntry({ mood: 2, situation: 'newer', thought: 't' }, db)
+    const reflect = await createEntry(
+      { mood: 2, situation: 'chat', thought: '', source: 'reflect' },
+      db
+    )
+    // Pin created_at so ordering is deterministic (createEntry uses Date.now()).
+    if (a.success) rows.get(a.data.id)!.created_at = 100
+    if (b.success) rows.get(b.data.id)!.created_at = 200
+    const tag = { distortion: 'none', mood_score: 0.2, topic: 'work' }
+    if (a.success) await applyTags(a.data.id, { emotion: 'Anxiety', ...tag }, db)
+    if (b.success) await applyTags(b.data.id, { emotion: 'anxiety', ...tag }, db)
+    if (reflect.success) await applyTags(reflect.data.id, { emotion: 'anxiety', ...tag }, db)
+
+    const res = await listEntriesByEmotion('anxiety', db) // case-insensitive
+    expect(res.success).toBe(true)
+    if (res.success) {
+      expect(res.data.map((e) => e.situation)).toEqual(['newer', 'older']) // reflect excluded, newest first
+    }
+  })
+
+  it('lists entries behind a topic node', async () => {
+    const { db } = createFakeDb()
+    const e = await createEntry({ mood: 3, situation: 'standup', thought: 't' }, db)
+    if (e.success) {
+      await applyTags(e.data.id, { emotion: 'calm', distortion: 'none', mood_score: 0.6, topic: 'Work' }, db)
+    }
+    const res = await listEntriesByTopic('work', db)
+    expect(res.success && res.data).toHaveLength(1)
   })
 
   it('reads a created entry back; returns null for a missing id', async () => {

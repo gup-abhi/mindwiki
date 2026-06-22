@@ -5,10 +5,14 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, Vi
 import { Screen } from '@/components/ui'
 import { Graph3D } from '@/components/graph/Graph3D'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
-import { useGraph, useNodeDismissals } from '@/hooks/useGraph'
+import { useGraph, useNodeContext, useNodeDismissals } from '@/hooks/useGraph'
 import { dismissNode, type GraphNode, type NodeType } from '@/services/storage/graph'
 
 type Filter = NodeType | 'all'
+
+function formatShortDate(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
 
 export default function GraphScreen() {
   const { width, height } = useWindowDimensions()
@@ -29,6 +33,7 @@ export default function GraphScreen() {
   const { dismissals, refresh: refreshHidden } = useNodeDismissals()
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<GraphNode | null>(null)
+  const { context } = useNodeContext(selected)
 
   const presentTypes = useMemo(() => Array.from(new Set(nodes.map((n) => n.type))), [nodes])
 
@@ -115,6 +120,55 @@ export default function GraphScreen() {
             {selected.type} · appeared {selected.frequency}{' '}
             {selected.frequency === 1 ? 'time' : 'times'}
           </Text>
+
+          <ScrollView style={styles.cardScroll} showsVerticalScrollIndicator={false}>
+            {context && context.pages.length > 0 && (
+              <View style={styles.cardSection}>
+                <Text style={styles.cardSectionLabel}>Pages it shaped</Text>
+                {context.pages.map((p) => (
+                  <Pressable
+                    key={p.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open the ${p.title} page`}
+                    onPress={() => router.push(`/wiki/${p.id}`)}
+                    style={styles.linkRow}
+                    testID="graph-node-page"
+                  >
+                    <Text style={styles.linkTitle} numberOfLines={1}>
+                      {p.title}
+                    </Text>
+                    <Text style={styles.linkChevron}>›</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {context && context.entries.length > 0 && (
+              <View style={styles.cardSection}>
+                <Text style={styles.cardSectionLabel}>
+                  {context.entries.length === 1 ? 'Entry behind it' : 'Entries behind it'}
+                </Text>
+                {context.entries.slice(0, 6).map((e) => (
+                  <Pressable
+                    key={e.id}
+                    accessibilityRole="button"
+                    onPress={() => router.push(`/entries/${e.id}`)}
+                    style={styles.linkRow}
+                    testID="graph-node-entry"
+                  >
+                    <Text style={styles.linkTitle} numberOfLines={1}>
+                      {e.situation.trim() || 'Mood check-in'}
+                    </Text>
+                    <Text style={styles.linkDate}>{formatShortDate(e.created_at)}</Text>
+                  </Pressable>
+                ))}
+                {context.entries.length > 6 && (
+                  <Text style={styles.cardMore}>+{context.entries.length - 6} more</Text>
+                )}
+              </View>
+            )}
+          </ScrollView>
+
           <View style={styles.cardActions}>
             <Pressable onPress={() => confirmDrop(selected)} testID="graph-drop">
               <Text style={styles.cardDrop}>Remove from graph</Text>
@@ -161,6 +215,29 @@ const makeStyles = (t: Theme) =>
     },
     cardTitle: { fontSize: 18, fontFamily: t.fontFamily.serifSemibold, color: t.colors.textPrimary },
     cardMeta: { fontSize: 14, fontFamily: t.fontFamily.uiRegular, color: t.colors.textSecondary, marginTop: t.spacing.xs },
+    cardScroll: { maxHeight: 220 },
+    cardSection: { marginTop: t.spacing.md },
+    cardSectionLabel: {
+      fontSize: 12,
+      fontFamily: t.fontFamily.uiSemibold,
+      color: t.colors.accent,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: t.spacing.xs,
+    },
+    linkRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: t.spacing.sm,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: t.colors.surfaceAlt,
+      gap: t.spacing.md,
+    },
+    linkTitle: { flex: 1, fontSize: 15, fontFamily: t.fontFamily.uiRegular, color: t.colors.textPrimary },
+    linkChevron: { fontSize: 18, color: t.colors.accent },
+    linkDate: { fontSize: 13, fontFamily: t.fontFamily.uiRegular, color: t.colors.textMuted },
+    cardMore: { fontSize: 13, fontFamily: t.fontFamily.uiRegular, color: t.colors.textMuted, marginTop: t.spacing.sm },
     cardActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: t.spacing.md },
     cardDrop: { fontSize: 15, fontFamily: t.fontFamily.uiSemibold, color: t.colors.danger },
     cardClose: { fontSize: 15, fontFamily: t.fontFamily.uiSemibold, color: t.colors.accent },

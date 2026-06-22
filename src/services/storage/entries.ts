@@ -3,6 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
+import { type EntityType } from './entities'
 import { enqueueUpsert } from './sync-queue'
 
 /** Where an entry came from: the CBT journal flow, or a Reflect-chat message. */
@@ -185,6 +186,64 @@ export function countEntriesByDistortion(label: string, db: SqliteDatabase = get
 
 export function countEntriesByTopic(label: string, db: SqliteDatabase = getDb()): Promise<Result<number>> {
   return countEntriesByColumn('topic', label, db)
+}
+
+/**
+ * List journal entries whose tag column equals `value` (case-insensitive),
+ * newest first — the entries behind an emotion/distortion/situation graph node.
+ * Reflect-chat entries are excluded (they never surface as journal entries).
+ * `column` is a fixed internal literal, never user input.
+ */
+async function listEntriesByColumn(
+  column: 'emotion' | 'distortion' | 'topic',
+  value: string,
+  db: SqliteDatabase
+): Promise<Result<Entry[]>> {
+  try {
+    const res = await db.execute(
+      `SELECT * FROM entries WHERE ${column} = ? COLLATE NOCASE AND source = 'journal' ORDER BY created_at DESC`,
+      [value]
+    )
+    return ok(res.rows.map(rowToEntry))
+  } catch (e) {
+    return err('ENTRY_LIST_BY_TAG_FAILED', 'Failed to list entries by tag', e)
+  }
+}
+
+export function listEntriesByEmotion(label: string, db: SqliteDatabase = getDb()): Promise<Result<Entry[]>> {
+  return listEntriesByColumn('emotion', label, db)
+}
+
+export function listEntriesByDistortion(label: string, db: SqliteDatabase = getDb()): Promise<Result<Entry[]>> {
+  return listEntriesByColumn('distortion', label, db)
+}
+
+export function listEntriesByTopic(label: string, db: SqliteDatabase = getDb()): Promise<Result<Entry[]>> {
+  return listEntriesByColumn('topic', label, db)
+}
+
+/**
+ * List journal entries that mention an entity (person/place/activity), newest
+ * first — the entries behind a person/place/activity graph node. Reflect-chat
+ * entries are excluded, matching listEntriesByColumn.
+ */
+export async function listEntriesForEntity(
+  type: EntityType,
+  label: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<Entry[]>> {
+  try {
+    const res = await db.execute(
+      `SELECT e.* FROM entries e
+         JOIN entry_entities ee ON ee.entry_id = e.id
+        WHERE ee.type = ? AND ee.label = ? COLLATE NOCASE AND e.source = 'journal'
+        ORDER BY e.created_at DESC`,
+      [type, label]
+    )
+    return ok(res.rows.map(rowToEntry))
+  } catch (e) {
+    return err('ENTRY_LIST_BY_ENTITY_FAILED', 'Failed to list entries by entity', e)
+  }
 }
 
 export async function deleteEntry(
