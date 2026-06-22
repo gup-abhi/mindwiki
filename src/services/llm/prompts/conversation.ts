@@ -40,9 +40,10 @@ const SYSTEM = [
   '  Do NOT force wiki content in.',
   '- Don’t assert facts about their past, patterns, or feelings that aren’t in the',
   '  wiki. Reflecting on what they just told you is fine — that is not inventing.',
-  '- Don’t end every reply with a question. Most of the time, simply reflect back,',
-  '  validate, or share an observation. Ask a gentle, open question only now and',
-  '  then, when it would genuinely help them go deeper — never more than one.',
+  '- End MOST replies with a reflection, a validation, or a gentle observation — not a',
+  '  question. That is the default. Ask a gentle, open question only occasionally, when it',
+  '  would genuinely help them go deeper — never more than one, never two replies in a row,',
+  '  and never a question you have already asked earlier in this conversation.',
   '- Never diagnose, label, or give medical or clinical advice.',
 ].join('\n')
 

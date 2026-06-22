@@ -21,9 +21,12 @@ describe('buildConversationMessages', () => {
     expect(system.content).not.toMatch(/don't have enough in (their|your) wiki/i)
   })
 
-  it('discourages ending every reply with a question', () => {
+  it('discourages ending every reply with a question, and re-asking', () => {
     const [system] = buildConversationMessages({ history: [], message: 'hi', context: empty })
-    expect(system.content).toMatch(/don’t end every reply with a question/i)
+    expect(system.content).toMatch(/end most replies/i)
+    expect(system.content).toMatch(/not a\s+question/i)
+    expect(system.content).toMatch(/never two replies in a row/i)
+    expect(system.content).toMatch(/already asked/i)
   })
 
   it('carries the reflective technique and the distortion guide (with examples) in the system prompt', () => {
