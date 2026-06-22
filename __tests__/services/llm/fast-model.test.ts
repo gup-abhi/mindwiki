@@ -19,6 +19,15 @@ describe('buildCrisisPrompt', () => {
     // the deep-model signals must NOT be on the fast path anymore
     expect(p).not.toMatch(/emotion|distortion|topic|activities/)
   })
+
+  it('calibrates against false positives — everyday distress should score low', () => {
+    const p = buildCrisisPrompt({ situation: 'a meeting', thought: 'I will fail' })
+    expect(p).toContain('Calibration')
+    // anchors everyday anxiety/self-criticism (no self-harm mention) near zero
+    expect(p).toMatch(/anxiety[\s\S]*0\.0–0\.1|0\.0–0\.1[\s\S]*anxiety/)
+    // and reserves high scores for genuine self-harm/suicide signals
+    expect(p).toMatch(/0\.9–1\.0/)
+  })
 })
 
 describe('scoreCrisis', () => {

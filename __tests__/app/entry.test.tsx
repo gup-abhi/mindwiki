@@ -75,7 +75,7 @@ describe('EntryScreen (free-write)', () => {
     )
   })
 
-  it('routes to the crisis screen when a crisis tier is detected', async () => {
+  it('routes to the crisis screen when a confident crisis tier is detected', async () => {
     mockProcessEntry.mockResolvedValue({
       tagged: true,
       crisis: { tier: 3, confidence: 0.9, keywordMatch: true },
@@ -87,6 +87,24 @@ describe('EntryScreen (free-write)', () => {
 
     await waitFor(() =>
       expect(mockReplace).toHaveBeenCalledWith({ pathname: '/crisis', params: { tier: '3' } })
+    )
+  })
+
+  it('does NOT open the crisis screen for a low-confidence tier-1 signal — saves normally', async () => {
+    mockProcessEntry.mockResolvedValue({
+      tagged: true,
+      crisis: { tier: 1, confidence: 0.35, keywordMatch: false },
+    })
+    render(<EntryScreen />)
+    fireEvent.press(screen.getByTestId('mood-2'))
+    fireEvent.changeText(screen.getByTestId('entry-body'), 'I will mess up the presentation')
+    fireEvent.press(screen.getByTestId('entry-save'))
+
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith({ pathname: '/saved', params: { mood: '2' } })
+    )
+    expect(mockReplace).not.toHaveBeenCalledWith(
+      expect.objectContaining({ pathname: '/crisis' })
     )
   })
 })

@@ -28,7 +28,12 @@ export default function EntryScreen() {
       return
     }
     haptics.success()
-    if (result.data.crisis.tier > 0) {
+    // Only a confident signal (tier 2+) or an explicit keyword match (always tier 3)
+    // takes over with the crisis screen. Tier 1 (confidence 0.30–0.59) is a soft,
+    // low-confidence signal — too noisy from the small model to justify an
+    // interstitial — so it saves normally; the /saved screen still offers a breather
+    // on a low-mood day.
+    if (result.data.crisis.tier >= 2) {
       router.replace({ pathname: '/crisis', params: { tier: String(result.data.crisis.tier) } })
     } else {
       // Pass the mood so the confirmation can gently offer a breather on a low day.
