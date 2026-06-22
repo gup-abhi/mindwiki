@@ -308,3 +308,30 @@ export const migration011: Migration = {
     )`,
   ],
 }
+
+// Migration 012 — belief/behavior entities. The deep model now also extracts the
+// underlying beliefs and recurring behaviors from an entry; they flow through the
+// same entry_entities path as people/places/activities (graph_nodes already
+// allows the 'belief'/'behavior' types since migration 003). SQLite can't ALTER a
+// CHECK in place, so the (source-data) table is rebuilt preserving its rows: the
+// old indexes are dropped with the old table, then recreated on the new one.
+export const migration012: Migration = {
+  version: 12,
+  name: 'entity_beliefs_behaviors',
+  statements: [
+    `ALTER TABLE entry_entities RENAME TO entry_entities_old`,
+    `CREATE TABLE entry_entities (
+      id         TEXT PRIMARY KEY,
+      entry_id   TEXT NOT NULL REFERENCES entries(id),
+      type       TEXT NOT NULL CHECK (type IN ('person','place','activity','belief','behavior')),
+      label      TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE (entry_id, type, label)
+    )`,
+    `INSERT INTO entry_entities (id, entry_id, type, label, created_at)
+       SELECT id, entry_id, type, label, created_at FROM entry_entities_old`,
+    `DROP TABLE entry_entities_old`,
+    `CREATE INDEX idx_entry_entities_type_label ON entry_entities (type, label)`,
+    `CREATE INDEX idx_entry_entities_entry ON entry_entities (entry_id)`,
+  ],
+}

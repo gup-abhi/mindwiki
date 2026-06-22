@@ -34,6 +34,8 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
     ...ex.people.map((label) => ({ type: 'person' as const, label })),
     ...ex.places.map((label) => ({ type: 'place' as const, label })),
     ...ex.activities.map((label) => ({ type: 'activity' as const, label })),
+    ...ex.beliefs.map((label) => ({ type: 'belief' as const, label })),
+    ...ex.behaviors.map((label) => ({ type: 'behavior' as const, label })),
   ]
   await setEntitiesForEntry(entry.id, entities)
 

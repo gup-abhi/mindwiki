@@ -241,6 +241,29 @@ describe('extractEntry', () => {
     }
   })
 
+  it('normalizes extracted beliefs and behaviors (and defaults them to [])', async () => {
+    mockSynthesise.mockResolvedValue({
+      text:
+        '{"emotion":"Anxiety","distortion":"none","distortion_confidence":0.0,"mood_score":0.3,' +
+        '"topic":"Work","beliefs":["i am not good enough.","none"],"behaviors":["  avoidance "]}',
+    })
+    const result = await extractEntry(exInput)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.beliefs).toEqual(['I am not good enough']) // capitalized, trailing '.'/'none' dropped
+      expect(result.data.behaviors).toEqual(['Avoidance'])
+    }
+  })
+
+  it('defaults beliefs/behaviors to [] when the model omits them', async () => {
+    mockSynthesise.mockResolvedValue({
+      text: '{"emotion":"Anxiety","distortion":"none","distortion_confidence":0.0,"mood_score":0.3,"topic":"Work"}',
+    })
+    const result = await extractEntry(exInput)
+    expect(result.success && result.data.beliefs).toEqual([])
+    expect(result.success && result.data.behaviors).toEqual([])
+  })
+
   it('fails with EXTRACT_PARSE_FAILED when the model returns no JSON', async () => {
     mockSynthesise.mockResolvedValue({ text: 'I think this is anxiety.' })
     const result = await extractEntry(exInput)

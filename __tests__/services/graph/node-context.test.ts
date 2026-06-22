@@ -93,6 +93,12 @@ describe('contextForNode', () => {
 
     await contextForNode(node({ type: 'place', label: 'Office' }))
     expect(mockEntity).toHaveBeenCalledWith('place', 'Office')
+
+    await contextForNode(node({ type: 'belief', label: 'I am not good enough' }))
+    expect(mockEntity).toHaveBeenCalledWith('belief', 'I am not good enough')
+
+    await contextForNode(node({ type: 'behavior', label: 'Avoidance' }))
+    expect(mockEntity).toHaveBeenCalledWith('behavior', 'Avoidance')
   })
 
   it('returns the entries behind the node', async () => {
@@ -101,11 +107,12 @@ describe('contextForNode', () => {
     expect(res.success && res.data.entries.map((e) => e.id)).toEqual(['a', 'b'])
   })
 
-  it('belief/behavior nodes have no backing entries and query nothing', async () => {
+  it('surfaces the entries behind a belief node via the entity lookup', async () => {
+    mockEntity.mockResolvedValue(ok([entry({ id: 'b1' })]))
     const res = await contextForNode(node({ type: 'belief', label: 'I am a failure' }))
-    expect(res.success && res.data.entries).toEqual([])
+    expect(mockEntity).toHaveBeenCalledWith('belief', 'I am a failure')
+    expect(res.success && res.data.entries.map((e) => e.id)).toEqual(['b1'])
     expect(mockEmotion).not.toHaveBeenCalled()
-    expect(mockEntity).not.toHaveBeenCalled()
   })
 
   it('surfaces the exact same-titled page first', async () => {

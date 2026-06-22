@@ -3,9 +3,11 @@ import { type Result, ok, err } from '@/types/result'
 import { type SqliteDatabase, getDb } from './db'
 import { enqueueUpsert } from './sync-queue'
 
-// Concrete entities pulled from an entry by the fast model. A subset of the
-// graph NodeType union (see services/storage/graph.ts).
-export type EntityType = 'person' | 'place' | 'activity'
+// Signals pulled from an entry by the deep model. A subset of the graph NodeType
+// union (see services/storage/graph.ts): concrete entities (person/place/
+// activity) plus the cognitive signals (belief/behavior) — all share this
+// type+label+entry_id shape and the recurrence/graph machinery.
+export type EntityType = 'person' | 'place' | 'activity' | 'belief' | 'behavior'
 
 export interface EntryEntity {
   id: string

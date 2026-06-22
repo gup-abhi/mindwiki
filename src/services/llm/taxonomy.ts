@@ -193,3 +193,25 @@ export function normalizeEntities(raw: string[]): string[] {
   }
   return out
 }
+
+/**
+ * Clean a raw list of cognitive-signal phrases (beliefs / behaviors) from the
+ * model: trim, collapse whitespace, strip trailing punctuation, drop blanks /
+ * 'none', capitalize the first letter, de-dupe case-insensitively, cap at `max`.
+ * Unlike normalizeEntities it keeps the full phrase (no leading-article strip, no
+ * Title-casing) — a belief is a sentence, not a noun. Recurrence still matches by
+ * lowercased label, so casing never fragments a node.
+ */
+export function normalizePhrases(raw: string[], max = 2): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const cleaned = item.trim().replace(/\s+/g, ' ').replace(/[.\s]+$/, '')
+    const key = cleaned.toLowerCase()
+    if (!cleaned || key === 'none' || seen.has(key)) continue
+    seen.add(key)
+    out.push(cleaned.charAt(0).toUpperCase() + cleaned.slice(1))
+    if (out.length >= max) break
+  }
+  return out
+}

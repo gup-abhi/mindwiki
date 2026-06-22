@@ -51,6 +51,8 @@ const extract = (over: Record<string, unknown> = {}) =>
     people: [],
     places: [],
     activities: [],
+    beliefs: [],
+    behaviors: [],
     ...over,
   })
 
@@ -123,6 +125,21 @@ describe('processEntry', () => {
     )
     expect(mockBegin).toHaveBeenCalledTimes(1)
     expect(mockEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it('persists extracted beliefs and behaviors as typed entity rows', async () => {
+    mockScoreCrisis.mockResolvedValue(crisis(0.1))
+    mockExtractEntry.mockResolvedValue(
+      extract({ beliefs: ['I am not good enough'], behaviors: ['Avoidance'] })
+    )
+
+    await processEntry(entry())
+    await flush()
+
+    expect(mockSetEntities).toHaveBeenCalledWith('e1', [
+      { type: 'belief', label: 'I am not good enough' },
+      { type: 'behavior', label: 'Avoidance' },
+    ])
   })
 
   it('does not touch the knowledge base when the deep extract fails', async () => {

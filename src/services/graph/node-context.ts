@@ -25,9 +25,8 @@ export interface NodeContext {
 }
 
 // The entries behind a node depend on its type: emotion/distortion/situation map
-// to entry tag columns; person/place/activity map to extracted entities.
-// belief/behavior are in the NodeType union but aren't produced by the pipeline
-// yet — they have no backing entries.
+// to entry tag columns; person/place/activity/belief/behavior map to extracted
+// entities (entry_entities rows).
 function entriesForNode(node: GraphNode): Promise<Result<Entry[]>> {
   switch (node.type) {
     case 'emotion':
@@ -39,6 +38,8 @@ function entriesForNode(node: GraphNode): Promise<Result<Entry[]>> {
     case 'person':
     case 'place':
     case 'activity':
+    case 'belief':
+    case 'behavior':
       return listEntriesForEntity(node.type, node.label)
     default:
       return Promise.resolve(ok([]))

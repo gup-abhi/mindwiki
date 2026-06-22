@@ -3,6 +3,7 @@ import {
   canonicalizeDistortion,
   canonicalizeLabel,
   normalizeEntities,
+  normalizePhrases,
 } from '@/services/llm/taxonomy'
 
 describe('controlled vocabulary', () => {
@@ -35,5 +36,25 @@ describe('normalizeEntities', () => {
     expect(
       normalizeEntities(['  the app ', 'App', 'none', 'I', 'bob', 'carol', 'dave'])
     ).toEqual(['App', 'Bob', 'Carol']) // "the app"==="App" dup, none/I dropped, capped at 3
+  })
+})
+
+describe('normalizePhrases', () => {
+  it('trims, strips trailing punctuation, capitalizes, dedupes, drops none, caps at 2', () => {
+    expect(
+      normalizePhrases([
+        '  i am not good enough. ',
+        'I am not good enough', // dup (case/punctuation)
+        'none',
+        'I have to be perfect',
+        'People will leave', // 3rd → dropped by cap
+      ])
+    ).toEqual(['I am not good enough', 'I have to be perfect'])
+  })
+
+  it('keeps the full phrase — no leading-article strip (unlike normalizeEntities)', () => {
+    expect(normalizePhrases(['my worth depends on others'])).toEqual([
+      'My worth depends on others',
+    ])
   })
 })

@@ -1,5 +1,5 @@
 import { type SqliteDatabase } from '@/services/storage/db'
-import { runMigrations, type Migration } from '@/services/storage/migrations'
+import { runMigrations, MIGRATIONS, type Migration } from '@/services/storage/migrations'
 
 // Fake DB that tracks schema_migrations state so we can verify idempotency.
 function createFakeDb() {
@@ -63,5 +63,21 @@ describe('storage/migrations runner', () => {
     expect(result.success).toBe(true)
     if (result.success) expect(result.data).toEqual([2])
     expect(applied).toEqual([1, 2])
+  })
+})
+
+describe('registry', () => {
+  it('has unique, ascending versions', () => {
+    const versions = MIGRATIONS.map((m) => m.version)
+    expect(versions).toEqual([...versions].sort((a, b) => a - b))
+    expect(new Set(versions).size).toBe(versions.length)
+  })
+
+  it('registers migration 012 widening entry_entities to belief/behavior', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 12)
+    expect(m).toBeDefined()
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain("'belief','behavior'")
+    expect(sql).toContain('entry_entities') // table rebuilt, not dropped
   })
 })

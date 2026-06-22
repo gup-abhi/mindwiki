@@ -17,6 +17,11 @@ export const EntryExtractSchema = z.object({
   people: z.array(z.string()).default([]).catch([]),
   places: z.array(z.string()).default([]).catch([]),
   activities: z.array(z.string()).default([]).catch([]),
+  // Cognitive signals → entry_entities rows + graph nodes (belief/behavior).
+  // Short canonical phrases so they recur (the recurrence gate matches by label).
+  // Tolerant like the entity lists: a bad value yields no node, never a failure.
+  beliefs: z.array(z.string()).default([]).catch([]),
+  behaviors: z.array(z.string()).default([]).catch([]),
 })
 
 export type EntryExtract = z.infer<typeof EntryExtractSchema>

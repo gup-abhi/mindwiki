@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -177,5 +177,17 @@ describe('migration 007 (pursuits)', () => {
     expect(MIGRATIONS[10].version).toBe(11)
     expect(MIGRATIONS[10].name).toBe('graph_node_dismissal')
     expect(MIGRATIONS[10].statements.some((s) => s.includes('CREATE TABLE graph_node_dismissals'))).toBe(true)
+  })
+
+  it('is registered as version 12 and rebuilds entry_entities with belief/behavior, preserving rows', () => {
+    expect(MIGRATIONS[11].version).toBe(12)
+    expect(MIGRATIONS[11].name).toBe('entity_beliefs_behaviors')
+    const stmts = MIGRATIONS[11].statements
+    // rebuilt (not dropped): rename → recreate with widened CHECK → copy → drop old
+    const recreate = stmts.find((s) => s.includes('CREATE TABLE entry_entities '))
+    expect(recreate).toContain("'belief','behavior'")
+    expect(stmts.some((s) => /INSERT INTO entry_entities[\s\S]*SELECT/.test(s))).toBe(true)
+    // indexes recreated on the new table
+    expect(stmts.some((s) => s.includes('CREATE INDEX idx_entry_entities_type_label'))).toBe(true)
   })
 })

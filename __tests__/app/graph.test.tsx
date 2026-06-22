@@ -6,7 +6,7 @@ import { dismissNode } from '@/services/storage/graph'
 
 const mockUseGraph = jest.fn()
 const mockRefresh = jest.fn()
-const mockUseNodeContext = jest.fn(() => ({ context: null, loading: false }))
+const mockUseNodeContext = jest.fn()
 const mockUseNodeDismissals = jest.fn(() => ({
   dismissals: [] as Array<{ id: string; type: string; label: string; dismissed_at: number; updated_at: number }>,
   refresh: jest.fn(),

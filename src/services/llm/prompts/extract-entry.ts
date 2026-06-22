@@ -18,7 +18,7 @@ export interface ExtractPromptInput {
 export function buildExtractPrompt({ situation, thought, behavior, closing_note }: ExtractPromptInput): string {
   const lines = [
     'You analyze a journal entry and output ONLY a JSON object — no prose, no markdown.',
-    'Schema: {"emotion": string, "distortion": string, "distortion_confidence": number, "mood_score": number, "topic": string, "people": string[], "places": string[], "activities": string[]}',
+    'Schema: {"emotion": string, "distortion": string, "distortion_confidence": number, "mood_score": number, "topic": string, "people": string[], "places": string[], "activities": string[], "beliefs": string[], "behaviors": string[]}',
     `- emotion: the single closest from this list ONLY: ${EMOTIONS.join(', ')}.`,
     `- distortion: the single closest from this list ONLY, or "none" if the thinking is`,
     `  not actually distorted: ${DISTORTIONS.join(', ')}.`,
@@ -33,6 +33,13 @@ export function buildExtractPrompt({ situation, thought, behavior, closing_note 
     '- activities: concrete things the writer is doing, building, or using — projects, apps,',
     '  habits, events (e.g. "App", "Marathon training", "Standup"). [] if none.',
     'For people/places/activities: concrete nouns only, at most 3 each, short labels, no sentences.',
+    '- beliefs: the underlying core belief the entry reveals about the writer or their world',
+    '  (e.g. "I am not good enough", "I have to be perfect", "People will leave"). Phrase it as a',
+    '  SHORT, GENERAL, reusable statement — NOT this specific situation — so the SAME belief',
+    '  recurs across entries. At most 2. [] if none is clearly expressed.',
+    '- behaviors: a recurring way the writer RESPONDS, named as a short general pattern',
+    '  (e.g. "Avoidance", "Overworking", "Withdrawing", "People-pleasing"). 1-2 words. At most 2.',
+    '  [] if no clear behavioral response.',
     '',
     distortionGuide(),
     '',
