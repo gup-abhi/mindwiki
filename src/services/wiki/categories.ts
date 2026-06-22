@@ -4,6 +4,8 @@
 export const CATEGORY_ORDER = [
   'emotion',
   'distortion',
+  'belief',
+  'behavior',
   'theme',
   'person',
   'place',
@@ -14,6 +16,8 @@ export const CATEGORY_ORDER = [
 export const CATEGORY_LABEL: Record<string, string> = {
   emotion: 'Emotions',
   distortion: 'Distortions',
+  belief: 'Beliefs',
+  behavior: 'Behaviours',
   theme: 'Themes',
   person: 'People',
   place: 'Places',
