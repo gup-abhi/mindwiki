@@ -2,6 +2,7 @@ import {
   canonicalizeEmotion,
   canonicalizeDistortion,
   canonicalizeLabel,
+  singularizeLabel,
   normalizeEntities,
   normalizePhrases,
 } from '@/services/llm/taxonomy'
@@ -36,6 +37,32 @@ describe('normalizeEntities', () => {
     expect(
       normalizeEntities(['  the app ', 'App', 'none', 'I', 'bob', 'carol', 'dave'])
     ).toEqual(['App', 'Bob', 'Carol']) // "the app"==="App" dup, none/I dropped, capped at 3
+  })
+})
+
+describe('singularizeLabel', () => {
+  it('collapses common plurals so near-duplicate topics merge to one page', () => {
+    expect(singularizeLabel('Relationships')).toBe('Relationship')
+    expect(singularizeLabel('relationships')).toBe('relationship')
+    expect(singularizeLabel('Feelings')).toBe('Feeling')
+    expect(singularizeLabel('Boundaries')).toBe('Boundary') // -ies → -y
+    expect(singularizeLabel('Finances')).toBe('Finance')
+  })
+
+  it('only touches the last word of a multi-word topic', () => {
+    expect(singularizeLabel('Work relationships')).toBe('Work relationship')
+    expect(singularizeLabel('Job hunting')).toBe('Job hunting') // not plural
+  })
+
+  it('leaves already-singular and ambiguous words untouched (precision over recall)', () => {
+    for (const w of ['Stress', 'Sadness', 'Status', 'Crisis', 'Focus']) {
+      expect(singularizeLabel(w)).toBe(w)
+    }
+    // ambiguous sibilant "-es" (house/stress shape) — left rather than mangled
+    expect(singularizeLabel('Wishes')).toBe('Wishes')
+    expect(singularizeLabel('Boxes')).toBe('Boxes')
+    // too short to risk
+    expect(singularizeLabel('Is')).toBe('Is')
   })
 })
 

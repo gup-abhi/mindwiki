@@ -28,6 +28,7 @@ export function buildExtractPrompt({ situation, thought, behavior, closing_note 
     '- topic: a short, CONCRETE 1-3 word theme naming what the entry is really about',
     '  (e.g. "App", "Job hunting", "Sister"). Be consistent — the SAME subject across',
     '  entries must get the SAME topic, so it accumulates rather than fragmenting.',
+    '  Use the SINGULAR form ("Relationship", not "Relationships").',
     '- people: specific named people (e.g. "Sarah", "Manager"). Never the writer. [] if none.',
     '- places: specific places (e.g. "Office", "Gym"). [] if none.',
     '- activities: concrete things the writer is doing, building, or using — projects, apps,',

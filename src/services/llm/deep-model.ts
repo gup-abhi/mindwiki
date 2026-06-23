@@ -24,7 +24,7 @@ import { buildReframePrompt, type ReframePromptInput } from './prompts/reframe-s
 import { ReframeSuggestionSchema } from './schemas/reframe.schema'
 import { buildExtractPrompt, type ExtractPromptInput } from './prompts/extract-entry'
 import { EntryExtractSchema, type EntryExtract } from './schemas/entry-extract.schema'
-import { canonicalizeEmotion, canonicalizeDistortion, canonicalizeLabel, normalizeEntities, normalizePhrases } from './taxonomy'
+import { canonicalizeEmotion, canonicalizeDistortion, canonicalizeLabel, singularizeLabel, normalizeEntities, normalizePhrases } from './taxonomy'
 
 // Below this confidence we don't trust the distortion call enough to record it —
 // a shaky distortion would otherwise seed a (gated, but still) graph node and
@@ -109,7 +109,7 @@ export async function extractEntry(input: ExtractPromptInput): Promise<Result<En
     distortion,
     distortion_confidence: parsed.data.distortion_confidence,
     mood_score: parsed.data.mood_score,
-    topic: canonicalizeLabel(parsed.data.topic),
+    topic: singularizeLabel(canonicalizeLabel(parsed.data.topic)),
     people: normalizeEntities(parsed.data.people),
     places: normalizeEntities(parsed.data.places),
     activities: normalizeEntities(parsed.data.activities),

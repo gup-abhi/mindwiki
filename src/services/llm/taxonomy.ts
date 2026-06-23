@@ -171,6 +171,40 @@ export function canonicalizeLabel(raw: string): string {
   return titleCase(stripped)
 }
 
+// Common nouns that end in "s" but are already singular — never de-pluralize.
+const ALREADY_SINGULAR = new Set([
+  'stress', 'sadness', 'happiness', 'loneliness', 'awareness', 'kindness',
+  'illness', 'business', 'progress', 'focus', 'status', 'crisis', 'news',
+  'series', 'species',
+])
+
+// Conservative English singularizer for the last word of a label. Tuned for
+// precision over recall: it collapses the common plural shapes and otherwise
+// leaves the word untouched — it never strips an ending it can't reverse cleanly,
+// so it won't mangle "stress" → "stres" or "boxes" → "boxe".
+function singularizeWord(word: string): string {
+  const lower = word.toLowerCase()
+  if (lower.length <= 3 || ALREADY_SINGULAR.has(lower)) return word
+  if (/(ss|us|is|ous)$/.test(lower)) return word // stress, status, crisis, anxious
+  if (/ies$/.test(lower)) return word.slice(0, -3) + 'y' // boundaries → boundary
+  if (/(ses|xes|zes|ches|shes)$/.test(lower)) return word // ambiguous (house/stress) — leave
+  if (/s$/.test(lower)) return word.slice(0, -1) // relationships → relationship
+  return word
+}
+
+/**
+ * Singularize the last word of an (already canonicalized) free-text topic so
+ * near-duplicates collapse to one wiki page + graph node ("Relationships" and
+ * "Relationship" → "Relationship"). Topic only — NOT applied to person/place
+ * names, where stripping a trailing "s" would mangle proper nouns ("Athens").
+ */
+export function singularizeLabel(label: string): string {
+  const i = label.lastIndexOf(' ')
+  return i === -1
+    ? singularizeWord(label)
+    : label.slice(0, i + 1) + singularizeWord(label.slice(i + 1))
+}
+
 // The writer is never an extracted "person"; drop self-references the model
 // sometimes emits.
 const FIRST_PERSON = new Set(['i', 'me', 'my', 'myself', 'we', 'us', 'mine', 'none'])
