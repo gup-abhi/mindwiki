@@ -152,6 +152,10 @@ export default function EntryDetailScreen() {
   const extraPages = lineage.filter((p) => !taggedLabels.has(p.title.trim().toLowerCase()))
   const hasLinks = lineage.length > 0
 
+  // Deep link into the graph, focused on the entry's primary concept (its theme,
+  // else its emotion) — only a node that recurred will actually be focused there.
+  const graphFocus = entry.topic?.trim() || entry.emotion?.trim() || null
+
   return (
     <Screen scroll>
       <Text variant="label" color="accent" onPress={() => router.back()}>
@@ -195,6 +199,20 @@ export default function EntryDetailScreen() {
         <Text variant="caption" color="textMuted" style={styles.linkHint}>
           Tap a highlighted tag to open the page it shaped.
         </Text>
+      ) : null}
+
+      {graphFocus ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`See ${graphFocus} in your graph`}
+          onPress={() => router.push({ pathname: '/graph', params: { focus: graphFocus } })}
+          style={styles.graphLink}
+          testID="entry-graph-link"
+        >
+          <Text variant="label" color="accent">
+            See “{graphFocus}” in your graph ›
+          </Text>
+        </Pressable>
       ) : null}
 
       {related.length > 0 ? (
@@ -261,6 +279,7 @@ const makeStyles = (t: Theme) =>
     },
     tagLink: { backgroundColor: t.colors.accentMuted },
     linkHint: { marginTop: t.spacing.sm },
+    graphLink: { marginTop: t.spacing.lg },
     linkSection: { marginTop: t.spacing['2xl'] },
     linkRow: { paddingVertical: t.spacing.sm },
     nav: {

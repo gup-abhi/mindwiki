@@ -99,6 +99,20 @@ describe('EntryDetailScreen', () => {
     expect(mockPush).toHaveBeenCalledWith('/wiki/p9')
   })
 
+  it('deep-links into the graph focused on the entry’s primary concept (topic)', () => {
+    mockUseEntry.mockReturnValue({ entry, loading: false })
+    render(<EntryDetailScreen />)
+    fireEvent.press(screen.getByTestId('entry-graph-link'))
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/graph', params: { focus: 'Work' } })
+  })
+
+  it('falls back to the emotion for the graph link when there is no topic', () => {
+    mockUseEntry.mockReturnValue({ entry: make({ topic: null }), loading: false })
+    render(<EntryDetailScreen />)
+    fireEvent.press(screen.getByTestId('entry-graph-link'))
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/graph', params: { focus: 'anxiety' } })
+  })
+
   it('shows a not-found state when the entry is missing', () => {
     mockUseEntry.mockReturnValue({ entry: null, loading: false })
     render(<EntryDetailScreen />)

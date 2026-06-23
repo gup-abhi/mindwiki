@@ -21,7 +21,11 @@ jest.mock('@/services/storage/graph', () => ({ dismissNode: jest.fn() }))
 const mockDismissNode = dismissNode as jest.Mock
 
 const mockPush = jest.fn()
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }))
+let mockParams: Record<string, string> = {}
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockPush }),
+  useLocalSearchParams: () => mockParams,
+}))
 
 // The 3D graph runs in a WebView, which can't render under the test runner. Stub
 // it with a pressable per node so we can still exercise the screen's filtering
@@ -55,6 +59,7 @@ describe('GraphScreen', () => {
     mockPush.mockReset()
     mockRefresh.mockReset()
     mockDismissNode.mockReset().mockResolvedValue({ success: true })
+    mockParams = {}
   })
 
   it('renders filter pills and a node per visible node', () => {
@@ -62,6 +67,18 @@ describe('GraphScreen', () => {
     expect(screen.getByText('all')).toBeTruthy()
     expect(screen.getByText('emotion')).toBeTruthy()
     expect(screen.getAllByTestId('graph-node')).toHaveLength(2)
+  })
+
+  it('focuses a node from a deep-link focus param (case-insensitive)', () => {
+    mockParams = { focus: 'work' }
+    render(<GraphScreen />)
+    expect(screen.getByText('situation · appeared 1 time')).toBeTruthy()
+  })
+
+  it('ignores a focus param that matches no node', () => {
+    mockParams = { focus: 'nonexistent' }
+    render(<GraphScreen />)
+    expect(screen.queryByText(/appeared/)).toBeNull()
   })
 
   it('shows a node detail card on tap', () => {

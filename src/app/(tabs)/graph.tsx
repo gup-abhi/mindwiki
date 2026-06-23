@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useRouter } from 'expo-router'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 
 import { Screen } from '@/components/ui'
@@ -34,6 +34,22 @@ export default function GraphScreen() {
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<GraphNode | null>(null)
   const { context } = useNodeContext(selected)
+
+  // Deep link from an entry: /graph?focus=<label> opens the graph focused on that
+  // concept's node. Applied once per distinct focus value (a ref guard) so it
+  // doesn't re-assert after the user taps elsewhere; degrades to a no-op when the
+  // concept hasn't formed a node yet (it never recurred).
+  const { focus } = useLocalSearchParams<{ focus?: string }>()
+  const appliedFocus = useRef<string | null>(null)
+  useEffect(() => {
+    if (!focus || nodes.length === 0 || appliedFocus.current === focus) return
+    const node = nodes.find((n) => n.label.toLowerCase() === focus.toLowerCase())
+    if (node) {
+      setFilter('all')
+      setSelected(node)
+      appliedFocus.current = focus
+    }
+  }, [focus, nodes])
 
   const presentTypes = useMemo(() => Array.from(new Set(nodes.map((n) => n.type))), [nodes])
 
