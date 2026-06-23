@@ -1,6 +1,6 @@
 import { type SqliteDatabase, getDb } from '@/services/storage/db'
 import { enqueueUpsert } from '@/services/storage/sync-queue'
-import { listPages, dismissPage } from '@/services/storage/wiki'
+import { listPages } from '@/services/storage/wiki'
 import { canonicalizeLabel, singularizeLabel } from '@/services/llm/taxonomy'
 import { rebuildGraph } from '@/services/graph/engine'
 import { type Result, ok, err } from '@/types/result'
@@ -15,8 +15,9 @@ function canonicalTopic(raw: string): string {
  * (e.g. "relationship" + "relationships" as two pages/nodes):
  *   1. Re-derive every entry's `topic` to its singular canonical form.
  *   2. Merge active theme wiki pages that collapse to the same topic — keep the
- *      richest as survivor (retitled to the canonical form), soft-DISMISS the
- *      rest (reversible; nothing is deleted).
+ *      richest as survivor (retitled to the canonical form) and mark the rest
+ *      merged_into it (consolidated, not user-dropped — so they don't show in
+ *      "Dropped insights"; nothing is deleted).
  *   3. Rebuild the graph (derived from entries.topic) so nodes collapse too.
  * Only `theme` pages are touched — never emotion/distortion (controlled vocab)
  * or person/place (proper nouns). Best-effort; never throws.
@@ -72,7 +73,12 @@ export async function dedupeTopics(
           await enqueueUpsert('wiki_pages', survivor.id, db)
         }
         for (const dup of pages.slice(1)) {
-          await dismissPage(dup.id, db)
+          await db.execute('UPDATE wiki_pages SET merged_into = ?, updated_at = ? WHERE id = ?', [
+            survivor.id,
+            Date.now(),
+            dup.id,
+          ])
+          await enqueueUpsert('wiki_pages', dup.id, db)
           pagesMerged++
         }
       }

@@ -26,6 +26,10 @@ export interface WikiPage {
   /** When the user last rewrote this page in their own words; null once the AI
    * has re-synthesized over it. */
   corrected_at: number | null
+  /** When this page was merged into another (topic de-dup): holds the survivor's
+   * id. Hidden from both the active wiki and "Dropped insights" — it was
+   * consolidated, not dropped by the user. Null for normal pages. */
+  merged_into: string | null
 }
 
 export interface NewWikiPage {
@@ -54,6 +58,7 @@ function rowToPage(row: Record<string, unknown>): WikiPage {
     updated_at: Number(row.updated_at),
     dismissed_at: row.dismissed_at == null ? null : Number(row.dismissed_at),
     corrected_at: row.corrected_at == null ? null : Number(row.corrected_at),
+    merged_into: row.merged_into == null ? null : String(row.merged_into),
   }
 }
 
@@ -74,6 +79,7 @@ export async function createPage(
     updated_at: now,
     dismissed_at: null,
     corrected_at: null,
+    merged_into: null,
   }
   try {
     await db.execute(
@@ -139,7 +145,7 @@ export async function deleteEmptyPages(db: SqliteDatabase = getDb()): Promise<Re
 export async function listPages(db: SqliteDatabase = getDb()): Promise<Result<WikiPage[]>> {
   try {
     const res = await db.execute(
-      'SELECT * FROM wiki_pages WHERE dismissed_at IS NULL ORDER BY updated_at DESC'
+      'SELECT * FROM wiki_pages WHERE dismissed_at IS NULL AND merged_into IS NULL ORDER BY updated_at DESC'
     )
     return ok(res.rows.map(rowToPage))
   } catch (e) {
@@ -153,7 +159,7 @@ export async function listDismissedPages(
 ): Promise<Result<WikiPage[]>> {
   try {
     const res = await db.execute(
-      'SELECT * FROM wiki_pages WHERE dismissed_at IS NOT NULL ORDER BY dismissed_at DESC'
+      'SELECT * FROM wiki_pages WHERE dismissed_at IS NOT NULL AND merged_into IS NULL ORDER BY dismissed_at DESC'
     )
     return ok(res.rows.map(rowToPage))
   } catch (e) {

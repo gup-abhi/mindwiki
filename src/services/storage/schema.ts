@@ -358,3 +358,15 @@ export const migration013: Migration = {
     `CREATE INDEX idx_belief_reframes_belief ON belief_reframes (belief)`,
   ],
 }
+
+// Migration 014 — page merge marker. When topic de-duplication collapses
+// "relationships" into "relationship", the losing page is consolidated, not
+// rejected by the user — so it must NOT appear in "Dropped insights" (that list
+// is for pages the user dropped). merged_into holds the survivor's id and hides
+// the page from both the active wiki and the dismissed list. Synced so the merge
+// propagates between devices.
+export const migration014: Migration = {
+  version: 14,
+  name: 'wiki_page_merge',
+  statements: [`ALTER TABLE wiki_pages ADD COLUMN merged_into TEXT`],
+}

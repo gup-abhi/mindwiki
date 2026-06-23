@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -198,5 +198,13 @@ describe('migration 007 (pursuits)', () => {
     expect(stmts.some((s) => s.includes('CREATE TABLE belief_reframes'))).toBe(true)
     const create = stmts.find((s) => s.includes('CREATE TABLE belief_reframes'))
     expect(create).toContain('balanced_thought')
+  })
+
+  it('is registered as version 14 and adds the wiki_pages merged_into column', () => {
+    expect(MIGRATIONS[13].version).toBe(14)
+    expect(MIGRATIONS[13].name).toBe('wiki_page_merge')
+    expect(MIGRATIONS[13].statements).toEqual([
+      'ALTER TABLE wiki_pages ADD COLUMN merged_into TEXT',
+    ])
   })
 })

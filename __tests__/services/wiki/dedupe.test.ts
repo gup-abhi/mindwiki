@@ -1,13 +1,10 @@
 import { type SqliteDatabase } from '@/services/storage/db'
 import { dedupeTopics } from '@/services/wiki/dedupe'
-import { listPages, dismissPage, type WikiPage } from '@/services/storage/wiki'
+import { listPages, type WikiPage } from '@/services/storage/wiki'
 import { enqueueUpsert } from '@/services/storage/sync-queue'
 import { rebuildGraph } from '@/services/graph/engine'
 
-jest.mock('@/services/storage/wiki', () => ({
-  listPages: jest.fn(),
-  dismissPage: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
-}))
+jest.mock('@/services/storage/wiki', () => ({ listPages: jest.fn() }))
 jest.mock('@/services/storage/sync-queue', () => ({
   enqueueUpsert: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
 }))
@@ -16,7 +13,6 @@ jest.mock('@/services/graph/engine', () => ({
 }))
 
 const mockListPages = listPages as jest.Mock
-const mockDismiss = dismissPage as jest.Mock
 const mockRebuild = rebuildGraph as jest.Mock
 
 const page = (over: Partial<WikiPage>): WikiPage => ({
@@ -31,13 +27,15 @@ const page = (over: Partial<WikiPage>): WikiPage => ({
   updated_at: 0,
   dismissed_at: null,
   corrected_at: null,
+  merged_into: null,
   ...over,
 })
 
-// Fake DB backing the raw queries dedupeTopics issues against entries/wiki_pages.
+// Fake DB backing the raw queries dedupeTopics issues.
 function createFakeDb() {
   const entries = new Map<string, { id: string; topic: string }>()
   const titleUpdates: Array<{ id: string; title: string }> = []
+  const merges: Array<{ id: string; into: string }> = []
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
       if (/^SELECT id, topic FROM entries/.test(sql)) {
@@ -54,6 +52,11 @@ function createFakeDb() {
         titleUpdates.push({ id: String(id), title: String(title) })
         return { rows: [], rowsAffected: 1 }
       }
+      if (/^UPDATE wiki_pages SET merged_into/.test(sql)) {
+        const [into, , id] = params as string[]
+        merges.push({ id: String(id), into: String(into) })
+        return { rows: [], rowsAffected: 1 }
+      }
       throw new Error(`unhandled SQL: ${sql}`)
     },
     async transaction(fn) {
@@ -61,13 +64,12 @@ function createFakeDb() {
     },
     close() {},
   }
-  return { db, entries, titleUpdates }
+  return { db, entries, titleUpdates, merges }
 }
 
 describe('dedupeTopics', () => {
   beforeEach(() => {
     mockListPages.mockReset().mockResolvedValue({ success: true, data: [] })
-    mockDismiss.mockClear()
     mockRebuild.mockClear()
     ;(enqueueUpsert as jest.Mock).mockClear()
   })
@@ -86,8 +88,8 @@ describe('dedupeTopics', () => {
     expect(mockRebuild).toHaveBeenCalled()
   })
 
-  it('keeps the singular page and dismisses the plural duplicate', async () => {
-    const { db } = createFakeDb()
+  it('keeps the singular page and merges the plural duplicate into it', async () => {
+    const { db, merges } = createFakeDb()
     mockListPages.mockResolvedValue({
       success: true,
       data: [
@@ -100,12 +102,11 @@ describe('dedupeTopics', () => {
 
     // survivor is the canonically-titled page even though the plural is richer
     expect(res.success && res.data.pagesMerged).toBe(1)
-    expect(mockDismiss).toHaveBeenCalledTimes(1)
-    expect(mockDismiss).toHaveBeenCalledWith('plural', db)
+    expect(merges).toEqual([{ id: 'plural', into: 'singular' }])
   })
 
   it('retitles the survivor when no page is already singular', async () => {
-    const { db, titleUpdates } = createFakeDb()
+    const { db, titleUpdates, merges } = createFakeDb()
     mockListPages.mockResolvedValue({
       success: true,
       data: [
@@ -117,11 +118,11 @@ describe('dedupeTopics', () => {
     await dedupeTopics(db)
 
     expect(titleUpdates).toContainEqual({ id: 'a', title: 'Relationship' })
-    expect(mockDismiss).toHaveBeenCalledWith('b', db)
+    expect(merges).toEqual([{ id: 'b', into: 'a' }])
   })
 
   it('leaves non-theme pages alone (emotions/people never singularize)', async () => {
-    const { db } = createFakeDb()
+    const { db, merges } = createFakeDb()
     mockListPages.mockResolvedValue({
       success: true,
       data: [
@@ -132,6 +133,6 @@ describe('dedupeTopics', () => {
 
     const res = await dedupeTopics(db)
     expect(res.success && res.data.pagesMerged).toBe(0)
-    expect(mockDismiss).not.toHaveBeenCalled()
+    expect(merges).toEqual([])
   })
 })
