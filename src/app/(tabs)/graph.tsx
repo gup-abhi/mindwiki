@@ -55,7 +55,7 @@ export default function GraphScreen() {
 
   const confirmDrop = (node: GraphNode) => {
     Alert.alert(
-      `Remove “${node.label}” from your graph?`,
+      `Remove “${node.label}” from your connections?`,
       'It’ll stop shaping your reflections and won’t reappear from new entries. You can restore it anytime from Hidden.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -110,7 +110,7 @@ export default function GraphScreen() {
       {nodes.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyText}>
-            No graph yet — write entries and your emotions, themes, and patterns will connect here.
+            No connections yet — write entries and your emotions, themes, and patterns will connect here.
           </Text>
         </View>
       ) : (
@@ -187,7 +187,7 @@ export default function GraphScreen() {
 
           <View style={styles.cardActions}>
             <Pressable onPress={() => confirmDrop(selected)} testID="graph-drop">
-              <Text style={styles.cardDrop}>Remove from graph</Text>
+              <Text style={styles.cardDrop}>Remove from connections</Text>
             </Pressable>
             <Pressable onPress={() => setSelected(null)}>
               <Text style={styles.cardClose}>Close</Text>

@@ -42,7 +42,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="graph"
         options={{
-          title: 'Graph',
+          title: 'Connections',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'git-network' : 'git-network-outline'} color={color} size={size} />
           ),

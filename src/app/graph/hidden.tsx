@@ -20,14 +20,14 @@ export default function HiddenNodesScreen() {
           onPress={() => router.back()}
           testID="hidden-back"
         />
-        <Text variant="title">Hidden from graph</Text>
+        <Text variant="title">Hidden from connections</Text>
         <View style={styles.spacer} />
       </View>
 
       {dismissals.length === 0 ? (
         <View style={styles.empty}>
           <Text variant="body" color="textMuted" style={styles.emptyText}>
-            Nothing hidden. Nodes you remove from the graph show up here, and you can
+            Nothing hidden. Nodes you remove from your connections show up here, and you can
             bring them back anytime.
           </Text>
         </View>

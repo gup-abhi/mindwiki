@@ -152,8 +152,8 @@ export default function EntryDetailScreen() {
   const extraPages = lineage.filter((p) => !taggedLabels.has(p.title.trim().toLowerCase()))
   const hasLinks = lineage.length > 0
 
-  // Deep link into the graph, focused on the entry's primary concept (its theme,
-  // else its emotion) — only a node that recurred will actually be focused there.
+  // Deep link into the connections view, focused on the entry's primary concept
+  // (its theme, else its emotion) — only a node that recurred is focused there.
   const graphFocus = entry.topic?.trim() || entry.emotion?.trim() || null
 
   return (
@@ -204,13 +204,13 @@ export default function EntryDetailScreen() {
       {graphFocus ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`See ${graphFocus} in your graph`}
+          accessibilityLabel={`See ${graphFocus} in your connections`}
           onPress={() => router.push({ pathname: '/graph', params: { focus: graphFocus } })}
           style={styles.graphLink}
           testID="entry-graph-link"
         >
           <Text variant="label" color="accent">
-            See “{graphFocus}” in your graph ›
+            See “{graphFocus}” in your connections ›
           </Text>
         </Pressable>
       ) : null}

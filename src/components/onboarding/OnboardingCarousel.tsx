@@ -42,7 +42,7 @@ const SLIDES: readonly Slide[] = [
   {
     icon: 'stats-chart-outline',
     title: 'See the patterns',
-    body: 'Mood trends, a weekly digest, and a graph that connects what keeps coming up for you.',
+    body: 'Mood trends, a weekly digest, and connections between what keeps coming up for you.',
   },
   {
     icon: 'lock-closed-outline',

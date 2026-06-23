@@ -108,7 +108,7 @@ describe('GraphScreen', () => {
   it('shows an empty state with no nodes', () => {
     mockUseGraph.mockReturnValue({ nodes: [], edges: [], layout: new Map(), refresh: mockRefresh })
     render(<GraphScreen />)
-    expect(screen.getByText(/No graph yet/)).toBeTruthy()
+    expect(screen.getByText(/No connections yet/)).toBeTruthy()
   })
 
   it('drops a node from the detail card after confirming', () => {
