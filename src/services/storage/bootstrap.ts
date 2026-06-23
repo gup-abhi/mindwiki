@@ -1,9 +1,16 @@
 import { CryptoModule } from '@/native/CryptoModule'
 import { rebuildGraph } from '@/services/graph/engine'
+import { dedupeTopics } from '@/services/wiki/dedupe'
 import { type Result, ok, err } from '@/types/result'
 
 import { initDb } from './db'
 import { migrate } from './migrations'
+import { getSetting, setSetting } from './settings'
+
+// One-time topic de-duplication (collapse plural/singular wiki pages + nodes).
+// Guarded by a settings flag so it runs once per device, after singularization
+// shipped. Bumping the suffix would re-run it.
+const DEDUPE_TOPICS_FLAG = 'maintenance:dedupe_topics_v1'
 
 /**
  * App-startup storage init: fetch the master key from the keystore, open the
@@ -29,6 +36,15 @@ export async function initStorage(): Promise<Result<void>> {
   // single-device user (who never pulls a sync delta) doesn't lose their graph.
   // Best-effort — a rebuild failure must not block storage init.
   if (migrated.data.includes(3)) await rebuildGraph()
+
+  // One-time cleanup of pre-singularization topic duplicates. Runs once (flag),
+  // best-effort — a failure must not block storage init, and it'll retry next
+  // launch since the flag is only set on success.
+  const deduped = await getSetting(DEDUPE_TOPICS_FLAG)
+  if (!(deduped.success && deduped.data)) {
+    const res = await dedupeTopics()
+    if (res.success) await setSetting(DEDUPE_TOPICS_FLAG, '1')
+  }
 
   return ok(undefined)
 }
