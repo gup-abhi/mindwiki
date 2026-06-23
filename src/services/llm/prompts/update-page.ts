@@ -8,6 +8,9 @@ export interface UpdatePageInput {
   thought: string
   /** Canonical distortion tag for the entry (optional) — grounds the synthesis. */
   distortion?: string | null
+  /** The writer's latest balanced reframe of this belief (belief pages only) — so
+   *  the page reflects how they're revising the belief, not just restating it. */
+  reframe?: string | null
 }
 
 // The house style every wiki page is written in. Shared by first-time synthesis,
@@ -34,6 +37,7 @@ export function buildUpdatePagePrompt({
   situation,
   thought,
   distortion,
+  reframe,
 }: UpdatePageInput): string {
   const existing = existingContent.trim()
   // Present the new material as one reflection. Labelled "Situation:/Thought:"
@@ -43,12 +47,20 @@ export function buildUpdatePagePrompt({
   // KB grounding as a single instruction line (never a labelled data block —
   // those leak into the page). Empty when there's no distortion.
   const hint = synthesisHint(distortion)
+  // A belief the writer has reframed: fold their revised view in as a single
+  // instruction line (not a labelled data block — those leak), so the page reads
+  // as a belief they're actively working through rather than one they accept.
+  const reframeLine =
+    reframe && reframe.trim()
+      ? `The writer has been actively challenging this belief and now holds a more balanced view: "${reframe.trim()}". Let the page reflect that they are revising this belief, not that they fully accept it. Do not copy this line verbatim.`
+      : ''
   return [
     `You maintain a personal wiki page titled "${title}"${category ? ` (${category})` : ''}.`,
     'Weave the new reflection below into the page. Synthesize — merge its insight into the',
     'existing understanding rather than appending or restating it.',
     ...PAGE_STYLE,
     ...(hint ? [hint] : []),
+    ...(reframeLine ? [reframeLine] : []),
     'Do NOT copy the reflection word-for-word. Output ONLY the page content, no preamble.',
     '',
     existing ? `Current page:\n${existing}` : 'The page is currently empty — write the first version.',

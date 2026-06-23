@@ -1,6 +1,7 @@
 import { synthesizePage, regeneratePage } from '@/services/llm/deep-model'
 import { type Entry } from '@/services/storage/entries'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
+import { listReframesForBelief } from '@/services/storage/reframes'
 import {
   getPageByTitle,
   createPage,
@@ -94,13 +95,22 @@ export async function updateWikiForEntry(
     // A dropped page was flagged as inaccurate — don't build on its content.
     // Regenerate from scratch on this entry; updatePage then clears the flag.
     const baseContent = page && page.dismissed_at == null ? page.content : ''
+    const category = page?.category ?? topic.category
+    // For a belief page, fold in the writer's latest reframe so the synthesis
+    // reflects how they're revising the belief — not just restating it.
+    let reframe: string | null = null
+    if (category === 'belief') {
+      const rf = await listReframesForBelief(topic.title)
+      if (rf.success && rf.data.length > 0) reframe = rf.data[0].balanced_thought
+    }
     const synth = await synthesizePage({
       title: topic.title,
-      category: page?.category ?? topic.category,
+      category,
       existingContent: baseContent,
       situation: entry.situation,
       thought: entry.thought,
       distortion: entry.distortion,
+      reframe,
     })
     if (!synth.success) {
       if (__DEV__) console.log(`[wiki] synth failed: ${synth.error.code}`)

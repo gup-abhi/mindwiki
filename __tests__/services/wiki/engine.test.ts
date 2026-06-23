@@ -13,6 +13,7 @@ import {
   type WikiPage,
 } from '@/services/storage/wiki'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
+import { listReframesForBelief } from '@/services/storage/reframes'
 import { type Entry } from '@/services/storage/entries'
 import { ok, err } from '@/types/result'
 
@@ -27,6 +28,7 @@ jest.mock('@/services/storage/entities', () => ({
   listEntitiesForEntry: jest.fn(),
   countEntriesForEntity: jest.fn(),
 }))
+jest.mock('@/services/storage/reframes', () => ({ listReframesForBelief: jest.fn() }))
 
 const mockSynth = synthesizePage as jest.Mock
 const mockRegen = regeneratePage as jest.Mock
@@ -36,6 +38,7 @@ const mockCreate = createPage as jest.Mock
 const mockUpdate = updatePage as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
 const mockCountEntity = countEntriesForEntity as jest.Mock
+const mockListReframes = listReframesForBelief as jest.Mock
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -93,6 +96,7 @@ describe('updateWikiForEntry', () => {
     mockUpdate.mockResolvedValue(ok({}))
     mockListEntities.mockResolvedValue(ok([])) // no entities by default
     mockCountEntity.mockResolvedValue(ok(0))
+    mockListReframes.mockReset().mockResolvedValue(ok([])) // no reframes by default
   })
 
   it('creates a new page when none exists, then synthesizes and updates it', async () => {
@@ -183,6 +187,49 @@ describe('updateWikiForEntry', () => {
     const second = await updateWikiForEntry(entry({ distortion: 'none' }))
     expect(mockCreate).toHaveBeenCalledWith({ title: 'Sarah', category: 'person' })
     expect(second.success && second.data).toEqual(['Anxiety', 'Sarah'])
+  })
+
+  it('folds the writer’s latest reframe into a belief page synthesis', async () => {
+    mockGetByTitle.mockResolvedValue(ok(null))
+    mockCreate.mockImplementation(async (input) =>
+      ok({ id: input.title, title: input.title, category: input.category, content: '' })
+    )
+    mockListEntities.mockResolvedValue(
+      ok([{ id: 'b1', entry_id: 'e1', type: 'belief', label: 'I am not good enough', created_at: 0 }])
+    )
+    mockCountEntity.mockResolvedValue(ok(2)) // recurred → earns a page
+    mockListReframes.mockResolvedValue(
+      ok([
+        {
+          id: 'r1',
+          belief: 'I am not good enough',
+          evidence_for: '',
+          evidence_against: '',
+          balanced_thought: 'I can be nervous and still capable',
+          created_at: 2,
+          updated_at: 2,
+        },
+      ])
+    )
+
+    await updateWikiForEntry(entry({ distortion: 'none' }))
+
+    expect(mockListReframes).toHaveBeenCalledWith('I am not good enough')
+    expect(mockSynth).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'I am not good enough',
+        category: 'belief',
+        reframe: 'I can be nervous and still capable',
+      })
+    )
+  })
+
+  it('does not look up reframes for non-belief pages', async () => {
+    mockGetByTitle.mockResolvedValue(ok({ id: 'p9', title: 'Anxiety', category: 'emotion', content: 'old' }))
+
+    await updateWikiForEntry(entry({ distortion: 'none' }))
+
+    expect(mockListReframes).not.toHaveBeenCalled()
   })
 })
 

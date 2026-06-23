@@ -26,4 +26,20 @@ describe('buildUpdatePagePrompt — KB grounding', () => {
     expect(prompt).toMatch(/personal wiki page titled "Work"/)
     expect(prompt).not.toMatch(/tends toward/i)
   })
+
+  it('folds in the writer’s reframe as an instruction (belief pages)', () => {
+    const prompt = buildUpdatePagePrompt({
+      ...base,
+      category: 'belief',
+      reframe: 'I can be nervous and still capable',
+    })
+    expect(prompt).toMatch(/more balanced view/i)
+    expect(prompt).toContain('I can be nervous and still capable')
+    expect(prompt).toMatch(/revising this belief/i)
+  })
+
+  it('adds no reframe line when there is no reframe', () => {
+    const prompt = buildUpdatePagePrompt(base)
+    expect(prompt).not.toMatch(/more balanced view/i)
+  })
 })
