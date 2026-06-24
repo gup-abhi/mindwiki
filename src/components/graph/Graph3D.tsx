@@ -166,7 +166,7 @@ export function buildGraphHtml(
     '  });',
     '  return ids;',
     '}',
-    'function render(){',
+    'function render(shouldFit){',
     '  var ns;',
     '  if (FOCUS != null) {',
     '    var keep = neighborIds(FOCUS);',
@@ -183,14 +183,14 @@ export function buildGraphHtml(
     '  });',
     '  CURRENT = ns; buildLabels(ns);',
     '  G.graphData({ nodes: ns, links: ls });',
-    // A new subset (filter or focused neighbourhood) re-arms the one-shot fit, so it
-    // fills the screen instead of staying at the previous zoom. onEngineStop fits
-    // once the reheated layout settles; the guarded fallback covers an instant stop.
-    '  pendingFit = true;',
-    '  setTimeout(fit, 600);',
+    // Only an explicit filter change re-frames the camera. Focusing/unfocusing a
+    // node (tapping it, then closing the card) must NOT move the camera, or exiting
+    // a node would yank the view back to fit-all. onEngineStop fits once when armed;
+    // the guarded fallback covers an instant engine stop.
+    '  if (shouldFit) { pendingFit = true; setTimeout(fit, 600); }',
     '}',
-    'window.applyFilter = function(type){ FILTER = type; render(); };',
-    'window.focusNode = function(id){ FOCUS = id; render(); };',
+    'window.applyFilter = function(type){ FILTER = type; render(true); };',
+    'window.focusNode = function(id){ FOCUS = id; render(false); };',
     "post({ type: 'ready' });",
   ].join('\n')
 
