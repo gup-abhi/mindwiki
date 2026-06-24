@@ -83,6 +83,15 @@ describe('QueryScreen (reflective conversation)', () => {
     expect(mockOpenStarter).toHaveBeenCalledWith('What patterns show up around Work?')
   })
 
+  it('seeds the composer from a feeling chip (does not send yet)', () => {
+    mockUse.mockReturnValue(base)
+    render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('feeling-chip-Anxious'))
+    // the chip pre-fills the composer with an editable starter, without sending
+    expect(screen.getByTestId('composer-input').props.value).toBe('I’ve been feeling anxious lately.')
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
   it('renders the conversation turns once a thread exists', () => {
     mockUse.mockReturnValue({
       ...base,

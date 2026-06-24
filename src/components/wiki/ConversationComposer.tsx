@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { StyleSheet, TextInput, View } from 'react-native'
 
 import { IconButton } from '@/components/ui'
@@ -7,6 +7,11 @@ import { type Theme, useTheme, useThemedStyles } from '@/theme'
 interface Props {
   sending: boolean
   onSend: (text: string) => void
+}
+
+/** Imperative API: lets the screen pre-fill the composer (e.g. from a feeling chip). */
+export interface ConversationComposerHandle {
+  seed: (text: string) => void
 }
 
 // Grows from one line up to a few, then scrolls internally.
@@ -18,11 +23,22 @@ const MAX_HEIGHT = 120
  * is multiline so long messages wrap and the field expands with the content
  * (capped at MAX_HEIGHT, then it scrolls). Disabled while a reply streams.
  */
-export function ConversationComposer({ sending, onSend }: Props) {
+export const ConversationComposer = forwardRef<ConversationComposerHandle, Props>(
+  function ConversationComposer({ sending, onSend }, ref) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
+  const inputRef = useRef<TextInput>(null)
   const [text, setText] = useState('')
   const [height, setHeight] = useState(MIN_HEIGHT)
+
+  // Pre-fill the field and focus it, so a chip tap drops the user straight into
+  // an editable message rather than a blank box. Does not send.
+  useImperativeHandle(ref, () => ({
+    seed: (seedText: string) => {
+      setText(seedText)
+      inputRef.current?.focus()
+    },
+  }))
 
   const submit = () => {
     const trimmed = text.trim()
@@ -35,6 +51,7 @@ export function ConversationComposer({ sending, onSend }: Props) {
   return (
     <View style={styles.row}>
       <TextInput
+        ref={inputRef}
         style={[styles.input, { height }]}
         value={text}
         onChangeText={setText}
@@ -58,7 +75,7 @@ export function ConversationComposer({ sending, onSend }: Props) {
       />
     </View>
   )
-}
+})
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
