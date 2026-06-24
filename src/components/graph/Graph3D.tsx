@@ -89,8 +89,11 @@ export function buildGraphHtml(
     "G.d3Force('charge').strength(-180);",
     "G.d3Force('link').distance(60).strength(0.3);",
     'G.graphData(DATA);',
-    // Zoom the camera to fit the currently loaded (visible) nodes, with padding.
-    'function fit(){ if (CURRENT && CURRENT.length) { G.zoomToFit(600, 70); } }',
+    // Auto-fit is armed for one shot per view change (initial load, filter, focus)
+    // and disarmed the moment the user touches the camera — so we frame the graph
+    // for them on open but never yank it back while they're reading/exploring.
+    'var pendingFit = true;',
+    'function fit(){ if (pendingFit && CURRENT && CURRENT.length) { pendingFit = false; G.zoomToFit(600, 70); } }',
     'function size(){ G.width(window.innerWidth).height(window.innerHeight); }',
     "size(); window.addEventListener('resize', size);",
     // Gesture mapping (Maps-style): one finger pans/moves the graph in the screen
@@ -99,6 +102,9 @@ export function buildGraphHtml(
     'var ctrl = G.controls();',
     'ctrl.enablePan = true; ctrl.screenSpacePanning = true;',
     'ctrl.touches.ONE = 1; ctrl.touches.TWO = 3;',
+    // The user grabbing the camera (pointer/touch/wheel down) cancels a pending
+    // auto-fit, so a late engine settle never resets the view out from under them.
+    "ctrl.addEventListener('start', function(){ pendingFit = false; });",
     // Always-on labels: an HTML overlay (one element per node) projected onto the
     // canvas each frame via graph2ScreenCoords. Crisp text, themeable, and no
     // extra library — sprites would need a second three.js instance.
@@ -171,10 +177,11 @@ export function buildGraphHtml(
     '  });',
     '  CURRENT = ns; buildLabels(ns);',
     '  G.graphData({ nodes: ns, links: ls });',
-    // Re-frame on the new subset (a filter or a focused neighbourhood) so it fills
-    // the screen instead of staying at the previous zoom. onEngineStop also fits,
-    // but this makes the reframe feel immediate.
-    '  setTimeout(fit, 400);',
+    // A new subset (filter or focused neighbourhood) re-arms the one-shot fit, so it
+    // fills the screen instead of staying at the previous zoom. onEngineStop fits
+    // once the reheated layout settles; the guarded fallback covers an instant stop.
+    '  pendingFit = true;',
+    '  setTimeout(fit, 600);',
     '}',
     'window.applyFilter = function(type){ FILTER = type; render(); };',
     'window.focusNode = function(id){ FOCUS = id; render(); };',
