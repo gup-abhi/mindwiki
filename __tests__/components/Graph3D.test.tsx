@@ -56,6 +56,14 @@ describe('buildGraphHtml', () => {
     // node-focus (show a node + its neighbors) driven from RN
     expect(html).toContain('focusNode')
     expect(html).toContain('neighborIds')
+    // auto-frames the camera to the content (no manual pinch-zoom on open)
+    expect(html).toContain('zoomToFit')
+    expect(html).toContain('onEngineStop')
+    // forces tuned to spread clusters apart on a phone canvas
+    expect(html).toContain("d3Force('charge').strength(-180)")
+    expect(html).toContain("d3Force('link').distance(60)")
+    // labels are de-cluttered (overlapping ones suppressed each frame)
+    expect(html).toContain('placed.push')
     // one-finger pan enabled (ctrl.touches.ONE = 1)
     expect(html).toContain('screenSpacePanning')
     expect(html).toContain('ctrl.touches.ONE = 1')

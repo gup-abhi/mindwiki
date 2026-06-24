@@ -64,17 +64,33 @@ export function buildGraphHtml(
     "const el = document.getElementById('graph');",
     "const G = ForceGraph3D({ controlType: 'orbit' })(el)",
     '  .backgroundColor(BG)',
-    '  .graphData(DATA)',
     "  .nodeVal('val')",
     "  .nodeColor(function(n){ return COLORS[n.type] || '#888888'; })",
     '  .nodeOpacity(0.95)',
+    '  .nodeRelSize(5)',
     '  .nodeResolution(12)',
     '  .linkColor(function(){ return EDGE; })',
     '  .linkOpacity(0.5)',
     '  .linkWidth(function(l){ return Math.min(l.weight, 4) * 0.4; })',
     '  .showNavInfo(false)',
+    // Pre-settle the layout before the first paint and stop after a bounded run,
+    // so the graph appears already spread out rather than visibly untangling.
+    '  .warmupTicks(60)',
+    '  .cooldownTicks(120)',
+    '  .d3VelocityDecay(0.3)',
     "  .onNodeClick(function(n){ post({ type: 'node', id: n.id }); })",
-    "  .onBackgroundClick(function(){ post({ type: 'bg' }); });",
+    "  .onBackgroundClick(function(){ post({ type: 'bg' }); })",
+    // Frame the camera to the content once the layout settles. Without this the
+    // graph opens as a tiny clump and the user has to pinch-zoom in by hand.
+    '  .onEngineStop(function(){ fit(); });',
+    // Spread nodes apart so clusters breathe on a phone-sized canvas: stronger
+    // repulsion and longer, softer links than the desktop-tuned d3 defaults. Set
+    // before graphData so the warmup ticks already use them.
+    "G.d3Force('charge').strength(-180);",
+    "G.d3Force('link').distance(60).strength(0.3);",
+    'G.graphData(DATA);',
+    // Zoom the camera to fit the currently loaded (visible) nodes, with padding.
+    'function fit(){ if (CURRENT && CURRENT.length) { G.zoomToFit(600, 70); } }',
     'function size(){ G.width(window.innerWidth).height(window.innerHeight); }',
     "size(); window.addEventListener('resize', size);",
     // Gesture mapping (Maps-style): one finger pans/moves the graph in the screen
@@ -97,11 +113,27 @@ export function buildGraphHtml(
     '    labelsEl.appendChild(d); labelMap[n.id] = d;',
     '  });',
     '}',
+    // Draw labels biggest-node-first and hide any that fall off-screen/behind the
+    // camera or would overprint a label already placed this frame. That keeps the
+    // important labels readable instead of a pile-up. When a node is focused the
+    // visible set is small, so show all of its labels unconditionally.
     'function updateLabels(){',
-    '  for (var i = 0; i < CURRENT.length; i++){',
-    '    var n = CURRENT[i]; var el2 = labelMap[n.id]; if(!el2) continue;',
+    '  var placed = [];',
+    '  var order = CURRENT.slice().sort(function(a, b){ return (b.val || 1) - (a.val || 1); });',
+    '  for (var i = 0; i < order.length; i++){',
+    '    var n = order[i]; var el2 = labelMap[n.id]; if(!el2) continue;',
     "    if(n.x === undefined){ el2.style.opacity = '0'; continue; }",
     '    var c = G.graph2ScreenCoords(n.x, n.y, n.z);',
+    "    if(!c || c.x < 0 || c.y < 0 || c.x > window.innerWidth || c.y > window.innerHeight){ el2.style.opacity = '0'; continue; }",
+    '    var w = el2.offsetWidth || (n.label.length * 6); var h = el2.offsetHeight || 14;',
+    '    var x = c.x - w / 2; var y = (c.y - 14) - h / 2;',
+    '    var hit = false;',
+    '    if (FOCUS == null) {',
+    '      for (var j = 0; j < placed.length; j++){ var p = placed[j];',
+    '        if (x < p.x + p.w && x + w > p.x && y < p.y + p.h && y + h > p.y){ hit = true; break; } }',
+    '    }',
+    "    if (hit){ el2.style.opacity = '0'; continue; }",
+    '    placed.push({ x: x, y: y, w: w, h: h });',
     "    el2.style.opacity = '1';",
     "    el2.style.transform = 'translate(-50%,-50%) translate(' + c.x + 'px,' + (c.y - 14) + 'px)';",
     '  }',
@@ -139,6 +171,10 @@ export function buildGraphHtml(
     '  });',
     '  CURRENT = ns; buildLabels(ns);',
     '  G.graphData({ nodes: ns, links: ls });',
+    // Re-frame on the new subset (a filter or a focused neighbourhood) so it fills
+    // the screen instead of staying at the previous zoom. onEngineStop also fits,
+    // but this makes the reframe feel immediate.
+    '  setTimeout(fit, 400);',
     '}',
     'window.applyFilter = function(type){ FILTER = type; render(); };',
     'window.focusNode = function(id){ FOCUS = id; render(); };',
