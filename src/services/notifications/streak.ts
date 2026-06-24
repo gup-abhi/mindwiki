@@ -1,7 +1,7 @@
 const DAY_MS = 86_400_000
 
 /** Local-calendar day index for a timestamp (days since epoch at local midnight). */
-function dayIndex(ts: number): number {
+export function dayIndex(ts: number): number {
   const d = new Date(ts)
   return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY_MS)
 }

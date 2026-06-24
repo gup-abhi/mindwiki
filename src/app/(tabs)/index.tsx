@@ -14,7 +14,7 @@ import { useEntries } from '@/hooks/useEntries'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
 import { computeStreak, weekActivity } from '@/services/notifications/streak'
-import { streakStage } from '@/services/notifications/stage'
+import { homeMessage } from '@/services/notifications/home-message'
 import { StreakCard } from '@/components/StreakCard'
 import { generateDigest } from '@/services/digest/generator'
 
@@ -31,7 +31,10 @@ export default function Home() {
     [entries]
   )
   const week = useMemo(() => weekActivity(entries.map((e) => e.created_at), Date.now()), [entries])
-  const stage = useMemo(() => streakStage(journalStreak.current), [journalStreak])
+  const headline = useMemo(
+    () => homeMessage(entries.map((e) => e.created_at), Date.now()),
+    [entries]
+  )
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
 
   // Filter the timeline by emotion (the primary tag) and an inline text search.
@@ -83,7 +86,7 @@ export default function Home() {
               current={journalStreak.current}
               longest={journalStreak.longest}
               week={week}
-              headline={stage.headline}
+              headline={headline}
               entries={count}
               insights={pages.length}
               onPress={() => router.push('/trends')}

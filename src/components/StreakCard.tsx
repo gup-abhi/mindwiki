@@ -9,7 +9,7 @@ interface StreakCardProps {
   current: number
   longest: number
   week: DayCell[]
-  /** Encouraging one-liner from streakStage(). */
+  /** Contextual one-liner from homeMessage(). */
   headline: string
   /** Lifetime totals, folded in as the card's footer. */
   entries: number
