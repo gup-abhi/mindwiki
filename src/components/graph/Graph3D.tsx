@@ -67,7 +67,7 @@ export function buildGraphHtml(
     "  .nodeVal('val')",
     "  .nodeColor(function(n){ return COLORS[n.type] || '#888888'; })",
     '  .nodeOpacity(0.95)',
-    '  .nodeRelSize(5)',
+    '  .nodeRelSize(4)',
     '  .nodeResolution(12)',
     '  .linkColor(function(){ return EDGE; })',
     '  .linkOpacity(0.5)',
@@ -86,8 +86,8 @@ export function buildGraphHtml(
     // Spread nodes apart so clusters breathe on a phone-sized canvas: stronger
     // repulsion and longer, softer links than the desktop-tuned d3 defaults. Set
     // before graphData so the warmup ticks already use them.
-    "G.d3Force('charge').strength(-180);",
-    "G.d3Force('link').distance(60).strength(0.3);",
+    "G.d3Force('charge').strength(-260);",
+    "G.d3Force('link').distance(95).strength(0.2);",
     'G.graphData(DATA);',
     // Auto-fit is armed for one shot per view change (initial load, filter, focus)
     // and disarmed the moment the user touches the camera — so we frame the graph
@@ -132,7 +132,9 @@ export function buildGraphHtml(
     '    var c = G.graph2ScreenCoords(n.x, n.y, n.z);',
     "    if(!c || c.x < 0 || c.y < 0 || c.x > window.innerWidth || c.y > window.innerHeight){ el2.style.opacity = '0'; continue; }",
     '    var w = el2.offsetWidth || (n.label.length * 6); var h = el2.offsetHeight || 14;',
-    '    var x = c.x - w / 2; var y = (c.y - 14) - h / 2;',
+    // Lift the label clear of the node sphere, more for bigger (more frequent) nodes.
+    '    var off = 16 + Math.cbrt(n.val || 1) * 8;',
+    '    var x = c.x - w / 2; var y = (c.y - off) - h / 2;',
     '    var hit = false;',
     '    if (FOCUS == null) {',
     '      for (var j = 0; j < placed.length; j++){ var p = placed[j];',
@@ -141,7 +143,7 @@ export function buildGraphHtml(
     "    if (hit){ el2.style.opacity = '0'; continue; }",
     '    placed.push({ x: x, y: y, w: w, h: h });',
     "    el2.style.opacity = '1';",
-    "    el2.style.transform = 'translate(-50%,-50%) translate(' + c.x + 'px,' + (c.y - 14) + 'px)';",
+    "    el2.style.transform = 'translate(-50%,-50%) translate(' + c.x + 'px,' + (c.y - off) + 'px)';",
     '  }',
     '  requestAnimationFrame(updateLabels);',
     '}',

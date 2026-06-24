@@ -60,8 +60,8 @@ describe('buildGraphHtml', () => {
     expect(html).toContain('zoomToFit')
     expect(html).toContain('onEngineStop')
     // forces tuned to spread clusters apart on a phone canvas
-    expect(html).toContain("d3Force('charge').strength(-180)")
-    expect(html).toContain("d3Force('link').distance(60)")
+    expect(html).toContain("d3Force('charge').strength(-260)")
+    expect(html).toContain("d3Force('link').distance(95)")
     // labels are de-cluttered (overlapping ones suppressed each frame)
     expect(html).toContain('placed.push')
     // one-finger pan enabled (ctrl.touches.ONE = 1)
