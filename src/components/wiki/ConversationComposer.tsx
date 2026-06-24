@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, TextInput, View } from 'react-native'
 
 import { IconButton } from '@/components/ui'
@@ -7,11 +7,9 @@ import { type Theme, useTheme, useThemedStyles } from '@/theme'
 interface Props {
   sending: boolean
   onSend: (text: string) => void
-}
-
-/** Imperative API: lets the screen pre-fill the composer (e.g. from a feeling chip). */
-export interface ConversationComposerHandle {
-  seed: (text: string) => void
+  /** When this changes, pre-fill the field with its text and focus it (e.g. from
+   *  a feeling chip). The nonce makes re-tapping the same text re-seed/refocus. */
+  seed?: { text: string; nonce: number } | null
 }
 
 // Grows from one line up to a few, then scrolls internally.
@@ -23,8 +21,7 @@ const MAX_HEIGHT = 120
  * is multiline so long messages wrap and the field expands with the content
  * (capped at MAX_HEIGHT, then it scrolls). Disabled while a reply streams.
  */
-export const ConversationComposer = forwardRef<ConversationComposerHandle, Props>(
-  function ConversationComposer({ sending, onSend }, ref) {
+export function ConversationComposer({ sending, onSend, seed }: Props) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const inputRef = useRef<TextInput>(null)
@@ -33,12 +30,11 @@ export const ConversationComposer = forwardRef<ConversationComposerHandle, Props
 
   // Pre-fill the field and focus it, so a chip tap drops the user straight into
   // an editable message rather than a blank box. Does not send.
-  useImperativeHandle(ref, () => ({
-    seed: (seedText: string) => {
-      setText(seedText)
-      inputRef.current?.focus()
-    },
-  }))
+  useEffect(() => {
+    if (!seed) return
+    setText(seed.text)
+    inputRef.current?.focus()
+  }, [seed])
 
   const submit = () => {
     const trimmed = text.trim()
@@ -75,7 +71,7 @@ export const ConversationComposer = forwardRef<ConversationComposerHandle, Props
       />
     </View>
   )
-})
+}
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({

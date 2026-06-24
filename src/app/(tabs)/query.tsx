@@ -12,10 +12,7 @@ import {
 } from 'react-native'
 
 import { Card, IconButton, Screen, Text } from '@/components/ui'
-import {
-  ConversationComposer,
-  type ConversationComposerHandle,
-} from '@/components/wiki/ConversationComposer'
+import { ConversationComposer } from '@/components/wiki/ConversationComposer'
 import { MessageBubble } from '@/components/wiki/MessageBubble'
 import { useConversation } from '@/hooks/useConversation'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
@@ -41,7 +38,7 @@ export default function QueryScreen() {
   const { messages, streaming, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
     useConversation(initial)
   const scrollRef = useRef<ScrollView>(null)
-  const composerRef = useRef<ConversationComposerHandle>(null)
+  const [composerSeed, setComposerSeed] = useState<{ text: string; nonce: number } | null>(null)
   const isEmpty = messages.length === 0
   const [tab, setTab] = useState<'start' | 'history'>('start')
 
@@ -155,7 +152,9 @@ export default function QueryScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`Start a chat: ${c.label}`}
                         style={styles.chip}
-                        onPress={() => composerRef.current?.seed(c.seed)}
+                        onPress={() =>
+                          setComposerSeed((s) => ({ text: c.seed, nonce: (s?.nonce ?? 0) + 1 }))
+                        }
                         testID={`feeling-chip-${c.label}`}
                       >
                         <Text variant="label" color="textSecondary">
@@ -224,7 +223,7 @@ export default function QueryScreen() {
           )}
         </ScrollView>
 
-        <ConversationComposer ref={composerRef} sending={sending} onSend={send} />
+        <ConversationComposer sending={sending} onSend={send} seed={composerSeed} />
       </KeyboardAvoidingView>
     </Screen>
   )

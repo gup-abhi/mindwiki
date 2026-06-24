@@ -1,10 +1,6 @@
-import { createRef } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react-native'
+import { fireEvent, render, screen } from '@testing-library/react-native'
 
-import {
-  ConversationComposer,
-  type ConversationComposerHandle,
-} from '@/components/wiki/ConversationComposer'
+import { ConversationComposer } from '@/components/wiki/ConversationComposer'
 
 describe('ConversationComposer', () => {
   it('sends the trimmed text and clears the field', () => {
@@ -24,11 +20,16 @@ describe('ConversationComposer', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
-  it('seed() pre-fills the input without sending', () => {
-    const ref = createRef<ConversationComposerHandle>()
+  it('seed prop pre-fills the input without sending', () => {
     const onSend = jest.fn()
-    render(<ConversationComposer ref={ref} sending={false} onSend={onSend} />)
-    act(() => ref.current?.seed('I’ve been feeling anxious lately.'))
+    const { rerender } = render(<ConversationComposer sending={false} onSend={onSend} seed={null} />)
+    rerender(
+      <ConversationComposer
+        sending={false}
+        onSend={onSend}
+        seed={{ text: 'I’ve been feeling anxious lately.', nonce: 1 }}
+      />
+    )
     expect(screen.getByTestId('composer-input').props.value).toBe('I’ve been feeling anxious lately.')
     expect(onSend).not.toHaveBeenCalled()
   })
