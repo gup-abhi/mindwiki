@@ -116,6 +116,7 @@ export function buildGraphHtml(
     '  labelMap = {};',
     '  ns.forEach(function(n){',
     "    var d = document.createElement('div'); d.className = 'lbl'; d.textContent = n.label;",
+    "    d.onclick = function(){ post({ type: 'node', id: n.id }); };",
     '    labelsEl.appendChild(d); labelMap[n.id] = d;',
     '  });',
     '}',
@@ -128,6 +129,9 @@ export function buildGraphHtml(
     '  var order = CURRENT.slice().sort(function(a, b){ return (b.val || 1) - (a.val || 1); });',
     '  for (var i = 0; i < order.length; i++){',
     '    var n = order[i]; var el2 = labelMap[n.id]; if(!el2) continue;',
+    // Default to non-interactive each frame; only a visible label is a tap target,
+    // so a hidden (off-screen/overlapping) label never silently swallows a tap.
+    "    el2.style.pointerEvents = 'none';",
     "    if(n.x === undefined){ el2.style.opacity = '0'; continue; }",
     '    var c = G.graph2ScreenCoords(n.x, n.y, n.z);',
     "    if(!c || c.x < 0 || c.y < 0 || c.x > window.innerWidth || c.y > window.innerHeight){ el2.style.opacity = '0'; continue; }",
@@ -142,7 +146,7 @@ export function buildGraphHtml(
     '    }',
     "    if (hit){ el2.style.opacity = '0'; continue; }",
     '    placed.push({ x: x, y: y, w: w, h: h });',
-    "    el2.style.opacity = '1';",
+    "    el2.style.opacity = '1'; el2.style.pointerEvents = 'auto';",
     "    el2.style.transform = 'translate(-50%,-50%) translate(' + c.x + 'px,' + (c.y - off) + 'px)';",
     '  }',
     '  requestAnimationFrame(updateLabels);',
@@ -201,7 +205,9 @@ export function buildGraphHtml(
     'font-size:11px;font-weight:600;color:' + labelColor + ';',
     // A background pill keeps labels readable over any node color — a text
     // shadow in the bg color does nothing once the label sits on a node.
-    'background:' + hexToRgba(backgroundColor, 0.82) + ';padding:1px 5px;border-radius:7px;will-change:transform;}',
+    // pointer-events:auto makes the label itself a tap target for its node — small
+    // nodes have a tiny sphere that's hard to hit, but the label is easy.
+    'background:' + hexToRgba(backgroundColor, 0.82) + ';padding:3px 7px;border-radius:7px;will-change:transform;pointer-events:auto;cursor:pointer;}',
     '</style>',
     '</head><body>',
     '<div id="graph"></div>',

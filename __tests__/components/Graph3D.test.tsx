@@ -64,6 +64,9 @@ describe('buildGraphHtml', () => {
     expect(html).toContain("d3Force('link').distance(95)")
     // labels are de-cluttered (overlapping ones suppressed each frame)
     expect(html).toContain('placed.push')
+    // labels double as tap targets so small nodes are still selectable
+    expect(html).toContain('d.onclick')
+    expect(html).toContain('pointer-events:auto')
     // one-finger pan enabled (ctrl.touches.ONE = 1)
     expect(html).toContain('screenSpacePanning')
     expect(html).toContain('ctrl.touches.ONE = 1')
