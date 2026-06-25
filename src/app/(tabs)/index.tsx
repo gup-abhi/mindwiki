@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { Pressable, ScrollView, SectionList, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
@@ -12,11 +12,18 @@ import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
 import { useChallenge } from '@/hooks/useChallenge'
 import { useEntries } from '@/hooks/useEntries'
 import { useWikiPages } from '@/hooks/useWiki'
+import { useStreakFreezes } from '@/hooks/useStreakFreezes'
 import { useWikiStore } from '@/store/wiki.store'
-import { computeStreak, weekActivity } from '@/services/notifications/streak'
+import { computeStreak, streakRescue, weekActivity } from '@/services/notifications/streak'
 import { homeMessage } from '@/services/notifications/home-message'
 import { StreakCard } from '@/components/StreakCard'
+import { StreakRescueModal } from '@/components/StreakRescueModal'
 import { generateDigest } from '@/services/digest/generator'
+
+// The streak-rescue popup interrupts at most once per app launch (it reappears on
+// the next launch if the streak is still salvageable). Module scope so it survives
+// re-mounting the Home screen within a session.
+let rescuePromptShown = false
 
 export default function Home() {
   const router = useRouter()
@@ -25,17 +32,32 @@ export default function Home() {
   const { entries, count } = useEntries()
   const { pages } = useWikiPages()
   const { challenge, streak, doneToday, checkIn } = useChallenge()
+  const { frozenDays, useFreezes } = useStreakFreezes()
   const synthesizing = useWikiStore((s) => s.pending > 0)
+  const timestamps = useMemo(() => entries.map((e) => e.created_at), [entries])
   const journalStreak = useMemo(
-    () => computeStreak(entries.map((e) => e.created_at), Date.now()),
-    [entries]
+    () => computeStreak(timestamps, Date.now(), frozenDays),
+    [timestamps, frozenDays]
   )
-  const week = useMemo(() => weekActivity(entries.map((e) => e.created_at), Date.now()), [entries])
+  const week = useMemo(() => weekActivity(timestamps, Date.now(), frozenDays), [timestamps, frozenDays])
   const headline = useMemo(
-    () => homeMessage(entries.map((e) => e.created_at), Date.now()),
-    [entries]
+    () => homeMessage(timestamps, Date.now(), frozenDays),
+    [timestamps, frozenDays]
+  )
+  const rescue = useMemo(
+    () => streakRescue(timestamps, Date.now(), frozenDays),
+    [timestamps, frozenDays]
   )
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
+
+  // Offer to save an at-risk streak once per launch.
+  const [rescueOpen, setRescueOpen] = useState(false)
+  useEffect(() => {
+    if (rescue.atRisk && !rescuePromptShown) {
+      rescuePromptShown = true
+      setRescueOpen(true)
+    }
+  }, [rescue.atRisk])
 
   // Filter the timeline by emotion (the primary tag) and an inline text search.
   // Lifetime stats above stay on the full set; only the list below is filtered.
@@ -89,6 +111,7 @@ export default function Home() {
               headline={headline}
               entries={count}
               insights={pages.length}
+              freezesAvailable={journalStreak.freezesAvailable}
               onPress={() => router.push('/trends')}
             />
             <ModelDownloadCard />
@@ -213,6 +236,17 @@ export default function Home() {
       >
         <Ionicons name="add" size={30} color={theme.colors.primaryText} />
       </Pressable>
+
+      <StreakRescueModal
+        visible={rescueOpen}
+        streakLength={rescue.streakLength}
+        freezesNeeded={rescue.freezesNeeded}
+        onUse={() => {
+          void useFreezes(rescue.daysToFreeze)
+          setRescueOpen(false)
+        }}
+        onDismiss={() => setRescueOpen(false)}
+      />
     </Screen>
   )
 }

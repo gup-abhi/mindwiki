@@ -14,6 +14,8 @@ interface StreakCardProps {
   /** Lifetime totals, folded in as the card's footer. */
   entries: number
   insights: number
+  /** Freezes the user currently holds — each covers one missed day. */
+  freezesAvailable: number
   /** Tapping the card opens the Trends screen. */
   onPress?: () => void
 }
@@ -23,7 +25,7 @@ const count = (n: number, singular: string, plural: string) =>
 
 /** Home streak summary: the live count, the record to beat, a Mon→Sun strip
  * showing the week, and lifetime entry/insight totals. */
-export function StreakCard({ current, longest, week, headline, entries, insights, onPress }: StreakCardProps) {
+export function StreakCard({ current, longest, week, headline, entries, insights, freezesAvailable, onPress }: StreakCardProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   return (
@@ -42,6 +44,16 @@ export function StreakCard({ current, longest, week, headline, entries, insights
           ) : null}
         </View>
         <View style={styles.topRight}>
+          {freezesAvailable > 0 ? (
+            <View style={styles.best} testID="streak-freezes">
+              <Text variant="caption" color="textMuted">
+                Freezes
+              </Text>
+              <Text variant="subtitle" color="textSecondary">
+                ❄ {freezesAvailable}
+              </Text>
+            </View>
+          ) : null}
           {longest > 0 ? (
             <View style={styles.best}>
               <Text variant="caption" color="textMuted">

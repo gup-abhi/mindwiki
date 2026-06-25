@@ -18,6 +18,7 @@ export type SyncTable =
   | 'challenges'
   | 'graph_node_dismissals'
   | 'belief_reframes'
+  | 'streak_freezes'
 
 export const SYNCED_TABLES: SyncTable[] = [
   'entries',
@@ -28,6 +29,7 @@ export const SYNCED_TABLES: SyncTable[] = [
   'challenges',
   'graph_node_dismissals',
   'belief_reframes',
+  'streak_freezes',
 ]
 
 export interface Versioned {

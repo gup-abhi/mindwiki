@@ -39,6 +39,8 @@ describe('SYNCED_TABLES', () => {
       'graph_node_dismissals',
       // user-authored belief reframes — must travel between devices
       'belief_reframes',
+      // user-chosen streak freezes — the streak derives from entries ∪ these days
+      'streak_freezes',
     ])
   })
 

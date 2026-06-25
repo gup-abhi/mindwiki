@@ -74,6 +74,10 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
+  streak_freezes: {
+    columns: ['id', 'day_index', 'frozen_at', 'updated_at'],
+    updatedAt: (r) => Number(r.updated_at) || 0,
+  },
 }
 
 function isSyncTable(t: string): t is SyncTable {

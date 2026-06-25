@@ -15,7 +15,11 @@ const MILESTONES = [100, 50, 25, 10]
 // active day was at least this many days before today.
 const COMEBACK_GAP = 3
 
-export function homeMessage(timestamps: number[], now: number): string {
+export function homeMessage(
+  timestamps: number[],
+  now: number,
+  frozenDays: Set<number> = new Set()
+): string {
   const today = dayIndex(now)
   const present = new Set(timestamps.map(dayIndex))
   const totalActiveDays = present.size
@@ -24,7 +28,7 @@ export function homeMessage(timestamps: number[], now: number): string {
   if (totalActiveDays === 0) return 'Start your story — write your first entry today.'
 
   const wroteToday = present.has(today)
-  const { current } = computeStreak(timestamps, now)
+  const { current } = computeStreak(timestamps, now, frozenDays)
 
   // Active days within the last 7 calendar days (inclusive of today).
   let activeThisWeek = 0

@@ -370,3 +370,20 @@ export const migration014: Migration = {
   name: 'wiki_page_merge',
   statements: [`ALTER TABLE wiki_pages ADD COLUMN merged_into TEXT`],
 }
+
+// Migration 015 — streak freezes. A freeze the user deliberately spends to save a
+// streak after a missed day. One row per frozen day (id = the day index). The
+// streak count is derived from entries ∪ these days, so the choice must persist
+// and sync. Additive — like graph_node_dismissals, it travels last-write-wins.
+export const migration015: Migration = {
+  version: 15,
+  name: 'streak_freezes',
+  statements: [
+    `CREATE TABLE streak_freezes (
+      id         TEXT PRIMARY KEY,
+      day_index  INTEGER NOT NULL,
+      frozen_at  INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+  ],
+}

@@ -14,6 +14,10 @@ jest.mock('expo-router', () => ({
   },
 }))
 jest.mock('@/services/storage/entries', () => ({ listEntries: jest.fn() }))
+jest.mock('@/services/storage/streak-freezes', () => ({
+  listFrozenDays: jest.fn(() => Promise.resolve({ success: true, data: new Set() })),
+  freezeDays: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
+}))
 jest.mock('@/hooks/useRecoverySetup', () => ({
   useRecoverySetup: () => ({
     needsSetup: false,
