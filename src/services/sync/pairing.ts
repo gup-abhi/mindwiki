@@ -9,9 +9,12 @@ import { saveTokens } from '@/services/auth/token-store'
 import { useAuthStore } from '@/store/auth.store'
 import { type Result, ok, err } from '@/types/result'
 
-/** A human-recognizable label for this device, for the owner's pairing log. */
+/**
+ * A label for this device in the owner's pairing log. Prefer the hardware model
+ * (e.g. "iPhone 15 Pro", "Pixel 7") over the user-editable device name.
+ */
 function deviceLabel(): string {
-  return Device.deviceName || Device.modelName || `${Platform.OS} device`
+  return Device.modelName || Device.deviceName || `${Platform.OS} device`
 }
 
 interface PairingPayload {

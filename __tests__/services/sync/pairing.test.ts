@@ -85,7 +85,7 @@ describe('redeemPairing', () => {
     expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
     expect(body.code).toBe('pair-code')
-    expect(body.device_label).toBe('Test Device') // labels the owner's pairing log
+    expect(body.device_label).toBe('Test Model') // hardware model, not the user-editable device name
     expect(body.device_id).toBe('dev-1') // stable id so logout can remove this row
     expect(body).not.toHaveProperty('key') // master key NOT sent to the server
   })

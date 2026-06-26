@@ -82,7 +82,7 @@ describe('register', () => {
     expect(body.key_escrow.salt).toBeTruthy()
     expect(body.recovery_hash).toMatch(/^[0-9a-f]{64}$/) // second escrow credential
     expect(body.recovery_escrow.encrypted_key).toBeTruthy()
-    expect(body.device_label).toBe('Test Device') // registering device shows in the owner's devices list
+    expect(body.device_label).toBe('Test Model') // hardware model, not the user-editable device name
     expect(body.platform).toBeTruthy()
     expect(body.device_id).toBe('dev-1') // stable id so logout can remove this exact row
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
@@ -125,7 +125,7 @@ describe('loginNewDevice', () => {
 
     expect(res).toEqual({ success: true, data: { accountId: 'acc1' } })
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
-    expect(body.device_label).toBe('Test Device') // labels this device in the owner's paired-devices log
+    expect(body.device_label).toBe('Test Model') // hardware model, not the user-editable device name
     expect(body.platform).toBeTruthy()
     expect(body.device_id).toBe('dev-1')
     expect(mockDerive).toHaveBeenCalledWith('password', '00')

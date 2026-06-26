@@ -24,9 +24,13 @@ async function randomHex(bytes: number): Promise<string> {
   return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** A human-recognizable label for this device, for the owner's paired-devices log. */
+/**
+ * A label for this device in the owner's paired-devices log. Prefer the hardware
+ * model (e.g. "iPhone 15 Pro", "Pixel 7") over the user-editable device name, so
+ * the list stays recognizable and stable.
+ */
 function deviceLabel(): string {
-  return Device.deviceName || Device.modelName || `${Platform.OS} device`
+  return Device.modelName || Device.deviceName || `${Platform.OS} device`
 }
 
 interface AuthResponse {
