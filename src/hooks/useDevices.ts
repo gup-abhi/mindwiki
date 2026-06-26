@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { listDevices, type PairedDevice } from '@/services/auth/devices'
+import { listDevices, removeDevice, type PairedDevice } from '@/services/auth/devices'
 
 /** Loads the account's paired-device log for the Settings screen. */
 export function useDevices() {
@@ -14,9 +14,18 @@ export function useDevices() {
     if (res.success) setDevices(res.data)
   }, [])
 
+  // Remove a device (e.g. a stale/old row) and reload.
+  const remove = useCallback(
+    async (id: string) => {
+      const res = await removeDevice(id)
+      if (res.success) await refresh()
+    },
+    [refresh]
+  )
+
   useEffect(() => {
     void refresh()
   }, [refresh])
 
-  return { devices, loading, refresh }
+  return { devices, loading, refresh, remove }
 }

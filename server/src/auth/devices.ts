@@ -61,3 +61,10 @@ export async function handleListDevices(
     ((await env.AUTH_KV.get(`devices:${accountId}`, 'json')) as PairedDevice[] | null) ?? []
   return Response.json({ devices })
 }
+
+/** Remove a device from the account's list by id (authenticated). */
+export async function handleRemoveDevice(req: Request, env: Env, accountId: string): Promise<Response> {
+  const { device_id } = await req.json<{ device_id?: string }>()
+  if (device_id) await removePairedDevice(env, accountId, device_id)
+  return new Response(null, { status: 204 })
+}

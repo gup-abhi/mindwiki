@@ -36,7 +36,7 @@ beforeEach(() => {
   mockRecovery.mockReturnValue(recoveryBase)
   mockAuth.mockReturnValue({ logout })
   mockBiometric.mockReturnValue({ enabled: true, capable: true, toggle: toggleLock })
-  mockDevices.mockReturnValue({ devices: [], loading: false, refresh: jest.fn() })
+  mockDevices.mockReturnValue({ devices: [], loading: false, refresh: jest.fn(), remove: jest.fn() })
 })
 
 describe('Settings', () => {
@@ -109,9 +109,23 @@ describe('Settings', () => {
       devices: [{ id: 'd1', label: 'Pixel 7', platform: 'android', paired_at: Date.now() }],
       loading: false,
       refresh: jest.fn(),
+      remove: jest.fn(),
     })
     render(<Settings />)
     expect(screen.getByText('Pixel 7')).toBeTruthy()
+  })
+
+  it('removes a stale device from the list', () => {
+    const remove = jest.fn()
+    mockDevices.mockReturnValue({
+      devices: [{ id: 'd1', label: 'Pixel 7', platform: 'android', paired_at: Date.now() }],
+      loading: false,
+      refresh: jest.fn(),
+      remove,
+    })
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-device-remove'))
+    expect(remove).toHaveBeenCalledWith('d1')
   })
 
   it('shows an empty state when no other devices have paired', () => {

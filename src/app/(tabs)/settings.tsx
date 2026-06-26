@@ -35,7 +35,7 @@ export default function Settings() {
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
   const { preference, setPreference } = useThemePreference()
   const { enabled: lockEnabled, capable: lockCapable, toggle: toggleLock } = useBiometricLock()
-  const { devices, loading: devicesLoading, refresh: refreshDevices } = useDevices()
+  const { devices, loading: devicesLoading, refresh: refreshDevices, remove: removeDevice } = useDevices()
   const { logout } = useAuth()
 
   return (
@@ -192,9 +192,18 @@ export default function Settings() {
           devices.map((d) => (
             <View key={d.id} style={styles.row} testID="settings-device">
               <Text variant="bodyStrong">{d.label}</Text>
-              <Text variant="caption" color="textSecondary">
-                {timeAgo(d.paired_at)}
-              </Text>
+              <View style={styles.deviceMeta}>
+                <Text variant="caption" color="textSecondary">
+                  {timeAgo(d.paired_at)}
+                </Text>
+                <IconButton
+                  name="close"
+                  size={18}
+                  onPress={() => void removeDevice(d.id)}
+                  accessibilityLabel={`Remove ${d.label}`}
+                  testID="settings-device-remove"
+                />
+              </View>
             </View>
           ))
         )}
@@ -227,6 +236,7 @@ const makeStyles = (t: Theme) =>
       marginBottom: t.spacing.sm,
     },
     sectionLabel: { textTransform: 'uppercase' },
+    deviceMeta: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
     appearance: { flexDirection: 'row', gap: t.spacing.sm },
     row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: t.spacing.xs },
     lockText: { flex: 1, paddingRight: t.spacing.md },
