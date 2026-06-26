@@ -1,7 +1,7 @@
 import { Modal, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 
-import { Button, Card, Chip, Screen, Text } from '@/components/ui'
+import { Button, Card, Chip, IconButton, Screen, Text } from '@/components/ui'
 import { type Theme, type ThemePreference, useThemePreference, useThemedStyles } from '@/theme'
 import { DevStreakDebug } from '@/components/DevStreakDebug'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
@@ -35,7 +35,7 @@ export default function Settings() {
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
   const { preference, setPreference } = useThemePreference()
   const { enabled: lockEnabled, capable: lockCapable, toggle: toggleLock } = useBiometricLock()
-  const { devices, loading: devicesLoading } = useDevices()
+  const { devices, loading: devicesLoading, refresh: refreshDevices } = useDevices()
   const { logout } = useAuth()
 
   return (
@@ -171,9 +171,18 @@ export default function Settings() {
           Show a QR to sign in on another device without your password.
         </Text>
       </Card>
-      <Text variant="label" color="textMuted" style={styles.section}>
-        Paired devices
-      </Text>
+      <View style={styles.sectionRow}>
+        <Text variant="label" color="textMuted" style={styles.sectionLabel}>
+          Paired devices
+        </Text>
+        <IconButton
+          name="refresh"
+          size={18}
+          onPress={() => void refreshDevices()}
+          accessibilityLabel="Refresh paired devices"
+          testID="settings-devices-refresh"
+        />
+      </View>
       <Card variant="sunken">
         {devices.length === 0 ? (
           <Text variant="body" color="textSecondary">
@@ -210,6 +219,14 @@ export default function Settings() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     section: { marginTop: t.spacing['2xl'], marginBottom: t.spacing.sm, textTransform: 'uppercase' },
+    sectionRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: t.spacing['2xl'],
+      marginBottom: t.spacing.sm,
+    },
+    sectionLabel: { textTransform: 'uppercase' },
     appearance: { flexDirection: 'row', gap: t.spacing.sm },
     row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: t.spacing.xs },
     lockText: { flex: 1, paddingRight: t.spacing.md },

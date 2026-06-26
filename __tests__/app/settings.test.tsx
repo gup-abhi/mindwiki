@@ -119,6 +119,14 @@ describe('Settings', () => {
     expect(screen.getByText('No other devices have paired.')).toBeTruthy()
   })
 
+  it('refreshes the paired-devices list', () => {
+    const refresh = jest.fn()
+    mockDevices.mockReturnValue({ devices: [], loading: false, refresh })
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-devices-refresh'))
+    expect(refresh).toHaveBeenCalled()
+  })
+
   it('offers the System/Light/Dark appearance options', () => {
     render(<Settings />)
     expect(screen.getByTestId('appearance-system')).toBeTruthy()
