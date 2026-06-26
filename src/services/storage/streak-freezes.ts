@@ -45,3 +45,16 @@ export async function freezeDays(
     return err('STREAK_FREEZE_WRITE_FAILED', 'Failed to freeze days', e)
   }
 }
+
+/**
+ * Delete all frozen days locally. Dev/testing only — lets you reset the freeze
+ * state without fighting the device clock. Local-only (no sync delete tombstone).
+ */
+export async function clearFrozenDays(db: SqliteDatabase = getDb()): Promise<Result<void>> {
+  try {
+    await db.execute('DELETE FROM streak_freezes')
+    return ok(undefined)
+  } catch (e) {
+    return err('STREAK_FREEZE_CLEAR_FAILED', 'Failed to clear frozen days', e)
+  }
+}

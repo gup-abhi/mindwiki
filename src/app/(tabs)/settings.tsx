@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router'
 
 import { Button, Card, Chip, Screen, Text } from '@/components/ui'
 import { type Theme, type ThemePreference, useThemePreference, useThemedStyles } from '@/theme'
+import { DevStreakDebug } from '@/components/DevStreakDebug'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
 import { useBiometricLock } from '@/hooks/useBiometricLock'
@@ -189,6 +190,15 @@ export default function Settings() {
           ))
         )}
       </Card>
+
+      {__DEV__ && (
+        <>
+          <Text variant="label" color="textMuted" style={styles.section}>
+            Developer
+          </Text>
+          <DevStreakDebug />
+        </>
+      )}
 
       <View style={styles.logout}>
         <Button title="Log out" variant="destructive" fullWidth onPress={() => logout()} testID="settings-logout" />

@@ -1,5 +1,5 @@
 import { type SqliteDatabase } from '@/services/storage/db'
-import { freezeDays, listFrozenDays } from '@/services/storage/streak-freezes'
+import { clearFrozenDays, freezeDays, listFrozenDays } from '@/services/storage/streak-freezes'
 import { enqueueUpsert } from '@/services/storage/sync-queue'
 
 jest.mock('@/services/storage/sync-queue', () => ({
@@ -21,6 +21,11 @@ function createFakeDb() {
       }
       if (/^SELECT day_index FROM streak_freezes/.test(sql)) {
         return { rows: [...rows.values()].map((r) => ({ day_index: r.day_index })), rowsAffected: 0 }
+      }
+      if (/^DELETE FROM streak_freezes/.test(sql)) {
+        const n = rows.size
+        rows.clear()
+        return { rows: [], rowsAffected: n }
       }
       throw new Error(`unhandled SQL: ${sql}`)
     },
@@ -57,6 +62,14 @@ describe('streak-freezes storage', () => {
 
   it('returns an empty set when nothing is frozen', async () => {
     const { db } = createFakeDb()
+    const list = await listFrozenDays(db)
+    expect(list.success && list.data).toEqual(new Set())
+  })
+
+  it('clears all frozen days (dev reset)', async () => {
+    const { db } = createFakeDb()
+    await freezeDays([19_900, 19_901], db)
+    await clearFrozenDays(db)
     const list = await listFrozenDays(db)
     expect(list.success && list.data).toEqual(new Set())
   })

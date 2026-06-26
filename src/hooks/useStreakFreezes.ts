@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
-import { freezeDays, listFrozenDays } from '@/services/storage/streak-freezes'
+import { clearFrozenDays, freezeDays, listFrozenDays } from '@/services/storage/streak-freezes'
 import { useSyncStore } from '@/store/sync.store'
 
 /**
@@ -34,5 +34,12 @@ export function useStreakFreezes() {
     [refresh]
   )
 
-  return { frozenDays, useFreezes, refresh }
+  // Dev/testing only: wipe all frozen days so the freeze state can be re-tested
+  // without changing the device clock.
+  const clearFrozen = useCallback(async () => {
+    await clearFrozenDays()
+    await refresh()
+  }, [refresh])
+
+  return { frozenDays, useFreezes, clearFrozen, refresh }
 }

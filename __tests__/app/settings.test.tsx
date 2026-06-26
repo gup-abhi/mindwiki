@@ -15,6 +15,8 @@ jest.mock('@/hooks/useRecoverySetup', () => ({ useRecoverySetup: jest.fn() }))
 jest.mock('@/hooks/useAuth', () => ({ useAuth: jest.fn() }))
 jest.mock('@/hooks/useBiometricLock', () => ({ useBiometricLock: jest.fn() }))
 jest.mock('@/hooks/useDevices', () => ({ useDevices: jest.fn() }))
+// Dev-only panel (data-backed); not under test here.
+jest.mock('@/components/DevStreakDebug', () => ({ DevStreakDebug: () => null }))
 
 const mockSyncStatus = useSyncStatus as jest.Mock
 const mockRecovery = useRecoverySetup as jest.Mock
