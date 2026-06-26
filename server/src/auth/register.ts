@@ -12,6 +12,7 @@ interface RegisterBody {
   recovery_escrow: { encrypted_key: string }
   device_label?: string
   platform?: string
+  device_id?: string
 }
 
 export async function handleRegister(req: Request, env: Env): Promise<Response> {
@@ -67,7 +68,7 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
   )
 
   // Log the registering device so the account owner sees it in their devices list.
-  await recordPairedDevice(env, accountId, body.device_label ?? 'New device', body.platform ?? 'unknown')
+  await recordPairedDevice(env, accountId, body.device_label ?? 'New device', body.platform ?? 'unknown', body.device_id)
 
   const { accessToken, refreshToken } = await issueTokens(accountId, env)
   return Response.json({ account_id: accountId, access_token: accessToken, refresh_token: refreshToken })

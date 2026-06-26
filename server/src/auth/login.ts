@@ -5,11 +5,12 @@ import { issueTokens } from './tokens'
 import { recordPairedDevice } from './devices'
 
 export async function handleLogin(req: Request, env: Env): Promise<Response> {
-  const { email, password_hash, device_label, platform } = await req.json<{
+  const { email, password_hash, device_label, platform, device_id } = await req.json<{
     email: string
     password_hash: string
     device_label?: string
     platform?: string
+    device_id?: string
   }>()
 
   const emailRecord = (await env.AUTH_KV.get(`email:${email.toLowerCase()}`, 'json')) as {
@@ -29,7 +30,7 @@ export async function handleLogin(req: Request, env: Env): Promise<Response> {
 
   // Log this device so it shows up in the owner's paired-devices list, the same
   // way redeeming a pairing code does.
-  await recordPairedDevice(env, emailRecord.account_id, device_label ?? 'New device', platform ?? 'unknown')
+  await recordPairedDevice(env, emailRecord.account_id, device_label ?? 'New device', platform ?? 'unknown', device_id)
 
   const { accessToken, refreshToken } = await issueTokens(emailRecord.account_id, env)
 

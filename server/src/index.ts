@@ -1,6 +1,7 @@
 import { handleRegister } from './auth/register'
 import { handleChangePassword } from './auth/change-password'
 import { handleLogin } from './auth/login'
+import { handleLogout } from './auth/logout'
 import { handlePairStart, handlePairRedeem } from './auth/pair'
 import { handleListDevices } from './auth/devices'
 import { handleRecover } from './auth/recover'
@@ -33,6 +34,7 @@ export default {
       return handleChangePassword(req, env, accountId)
     if (method === 'GET' && path === '/auth/recovery') return handleRecoveryStatus(req, env, accountId)
     if (method === 'POST' && path === '/auth/recovery') return handleSetRecovery(req, env, accountId)
+    if (method === 'POST' && path === '/auth/logout') return handleLogout(req, env, accountId)
     if (method === 'POST' && path === '/auth/pair/start') return handlePairStart(req, env, accountId)
     if (method === 'GET' && path === '/auth/devices') return handleListDevices(req, env, accountId)
     if (method === 'GET' && path.endsWith('/delta')) return handleDelta(req, env, accountId, url)

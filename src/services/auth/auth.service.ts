@@ -9,6 +9,7 @@ import { type Result, ok, err } from '@/types/result'
 
 import { authenticatedFetch } from './api-client'
 import { API_URL } from './config'
+import { getDeviceId } from './device-id'
 import { hashPassword, wrapMasterKey, unwrapMasterKey } from './crypto'
 import {
   generateRecoveryPhrase,
@@ -72,6 +73,7 @@ export async function register(
         recovery_escrow: { encrypted_key: recoveryWrapped.data },
         device_label: deviceLabel(),
         platform: Platform.OS,
+        device_id: await getDeviceId(),
       }),
     })
     if (res.status === 409) {
@@ -105,6 +107,7 @@ export async function loginNewDevice(email: string, password: string): Promise<R
         password_hash: hashPassword(password),
         device_label: deviceLabel(),
         platform: Platform.OS,
+        device_id: await getDeviceId(),
       }),
     })
     // 401 = the server rejected the email/password pair (unknown email or bad
@@ -256,6 +259,19 @@ export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: stri
  * no residual journal data after logout). Re-login re-pulls from the server.
  */
 export async function logout(): Promise<void> {
+  // Best-effort: drop this device from the owner's paired-devices list. Runs
+  // while the session is still valid (before clearTokens) and never blocks
+  // logout — if offline, the local wipe still proceeds and the row simply
+  // lingers until the next sign-in/out.
+  try {
+    await authenticatedFetch('/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({ device_id: await getDeviceId() }),
+    })
+  } catch {
+    // ignore — local logout must always succeed
+  }
+
   await clearTokens()
   deleteDatabase()
   await CryptoModule.deleteKeyFromKeychain()

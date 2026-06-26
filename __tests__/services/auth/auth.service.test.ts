@@ -36,6 +36,8 @@ jest.mock('@/services/auth/token-store', () => ({
   clearTokens: jest.fn(),
   getTokens: jest.fn(),
 }))
+// Stable per-device id; mocked so register/login/logout send a known value.
+jest.mock('@/services/auth/device-id', () => ({ getDeviceId: jest.fn(() => Promise.resolve('dev-1')) }))
 
 const mockGetKey = CryptoModule.getKeyFromKeychain as jest.Mock
 const mockDerive = CryptoModule.deriveKey as jest.Mock
@@ -82,6 +84,7 @@ describe('register', () => {
     expect(body.recovery_escrow.encrypted_key).toBeTruthy()
     expect(body.device_label).toBe('Test Device') // registering device shows in the owner's devices list
     expect(body.platform).toBeTruthy()
+    expect(body.device_id).toBe('dev-1') // stable id so logout can remove this exact row
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     // auth state is deferred until the user acknowledges the recovery phrase
     expect(useAuthStore.getState().status).not.toBe('authenticated')
@@ -124,6 +127,7 @@ describe('loginNewDevice', () => {
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
     expect(body.device_label).toBe('Test Device') // labels this device in the owner's paired-devices log
     expect(body.platform).toBeTruthy()
+    expect(body.device_id).toBe('dev-1')
     expect(mockDerive).toHaveBeenCalledWith('password', '00')
     expect(mockSetKey).toHaveBeenCalledWith(MASTER) // account key installed
     expect(useAuthStore.getState().status).toBe('authenticated')
@@ -296,13 +300,31 @@ describe('hydrateAuth', () => {
 describe('logout', () => {
   it('wipes local state: clears tokens, deletes the DB + master key, unauthenticates', async () => {
     useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(204))
 
     await logout()
 
+    // Best-effort: removes this device from the owner's paired-devices list.
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0]
+    expect(url).toMatch(/\/auth\/logout$/)
+    expect(JSON.parse(init.body).device_id).toBe('dev-1')
     // Account isolation: the next account on this device must not inherit the
     // previous account's master key or database.
     expect(mockClear).toHaveBeenCalled()
     expect(mockDeleteDb).toHaveBeenCalled()
+    expect(mockDeleteKey).toHaveBeenCalled()
+    expect(useAuthStore.getState().status).toBe('unauthenticated')
+  })
+
+  it('still wipes local state when the server logout call fails (offline)', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockRejectedValue(new Error('offline'))
+
+    await logout()
+
+    expect(mockClear).toHaveBeenCalled()
     expect(mockDeleteKey).toHaveBeenCalled()
     expect(useAuthStore.getState().status).toBe('unauthenticated')
   })

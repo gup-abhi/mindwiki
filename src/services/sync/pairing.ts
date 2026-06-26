@@ -4,6 +4,7 @@ import * as Device from 'expo-device'
 import { CryptoModule } from '@/native/CryptoModule'
 import { authenticatedFetch } from '@/services/auth/api-client'
 import { API_URL } from '@/services/auth/config'
+import { getDeviceId } from '@/services/auth/device-id'
 import { saveTokens } from '@/services/auth/token-store'
 import { useAuthStore } from '@/store/auth.store'
 import { type Result, ok, err } from '@/types/result'
@@ -71,9 +72,14 @@ export async function redeemPairing(raw: string): Promise<Result<{ accountId: st
     const res = await fetch(`${API_URL}/auth/pair/redeem`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // Send a device label for the owner's pairing log. The master key still
-      // never touches the server — it travels only in the QR.
-      body: JSON.stringify({ code: parsed.data.code, device_label: deviceLabel(), platform: Platform.OS }),
+      // Send a device label + stable id for the owner's pairing log. The master
+      // key still never touches the server — it travels only in the QR.
+      body: JSON.stringify({
+        code: parsed.data.code,
+        device_label: deviceLabel(),
+        platform: Platform.OS,
+        device_id: await getDeviceId(),
+      }),
     })
     if (!res.ok) return err('PAIR_REDEEM_FAILED', `Pairing failed (${res.status})`)
 

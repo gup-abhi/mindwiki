@@ -27,10 +27,11 @@ export async function handlePairStart(
  * can read ciphertext but cannot decrypt without the master key (carried in the QR).
  */
 export async function handlePairRedeem(req: Request, env: Env): Promise<Response> {
-  const { code, device_label, platform } = await req.json<{
+  const { code, device_label, platform, device_id } = await req.json<{
     code: string
     device_label?: string
     platform?: string
+    device_id?: string
   }>()
 
   const rec = (await env.AUTH_KV.get(`pair:${code}`, 'json')) as { account_id: string } | null
@@ -38,7 +39,7 @@ export async function handlePairRedeem(req: Request, env: Env): Promise<Response
   await env.AUTH_KV.delete(`pair:${code}`) // one-time use
 
   // Log the new device so the owner can see (and notice) what paired.
-  await recordPairedDevice(env, rec.account_id, device_label ?? 'New device', platform ?? 'unknown')
+  await recordPairedDevice(env, rec.account_id, device_label ?? 'New device', platform ?? 'unknown', device_id)
 
   const { accessToken, refreshToken } = await issueTokens(rec.account_id, env)
   return Response.json({
