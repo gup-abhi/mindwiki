@@ -2,9 +2,15 @@ import { compare } from 'bcryptjs'
 
 import type { Env } from '../types'
 import { issueTokens } from './tokens'
+import { recordPairedDevice } from './devices'
 
 export async function handleLogin(req: Request, env: Env): Promise<Response> {
-  const { email, password_hash } = await req.json<{ email: string; password_hash: string }>()
+  const { email, password_hash, device_label, platform } = await req.json<{
+    email: string
+    password_hash: string
+    device_label?: string
+    platform?: string
+  }>()
 
   const emailRecord = (await env.AUTH_KV.get(`email:${email.toLowerCase()}`, 'json')) as {
     account_id: string
@@ -20,6 +26,11 @@ export async function handleLogin(req: Request, env: Env): Promise<Response> {
   if (!valid) return new Response('Invalid credentials', { status: 401 })
 
   const escrow = await env.AUTH_KV.get(`escrow:${emailRecord.account_id}`, 'json')
+
+  // Log this device so it shows up in the owner's paired-devices list, the same
+  // way redeeming a pairing code does.
+  await recordPairedDevice(env, emailRecord.account_id, device_label ?? 'New device', platform ?? 'unknown')
+
   const { accessToken, refreshToken } = await issueTokens(emailRecord.account_id, env)
 
   return Response.json({

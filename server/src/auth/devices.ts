@@ -11,10 +11,13 @@ export interface PairedDevice {
 const MAX_DEVICES = 50
 
 /**
- * Append a device to the account's pairing log (newest first). Called when a
- * pairing code is redeemed so the original owner can see — and notice — every
- * device that has paired. Label/platform are plaintext account metadata (like the
- * email), never user content, so this is not part of the E2E record sync.
+ * Record a device on the account's log (newest first). Called when a pairing
+ * code is redeemed or a device signs in directly, so the owner can see — and
+ * notice — every device on the account. Re-signing in on the same device (label
+ * + platform) refreshes its timestamp instead of appending a duplicate (logout
+ * wipes local state, so re-login looks like a new device each time). Label/
+ * platform are plaintext account metadata (like the email), never user content,
+ * so this is not part of the E2E record sync.
  */
 export async function recordPairedDevice(
   env: Env,
@@ -24,13 +27,17 @@ export async function recordPairedDevice(
 ): Promise<void> {
   const key = `devices:${accountId}`
   const existing = ((await env.AUTH_KV.get(key, 'json')) as PairedDevice[] | null) ?? []
+  const cleanLabel = label.trim().slice(0, 80) || 'Unknown device'
+  const cleanPlatform = platform.trim().slice(0, 20) || 'unknown'
+  const prior = existing.find((d) => d.label === cleanLabel && d.platform === cleanPlatform)
   const entry: PairedDevice = {
-    id: crypto.randomUUID(),
-    label: label.trim().slice(0, 80) || 'Unknown device',
-    platform: platform.trim().slice(0, 20) || 'unknown',
+    id: prior?.id ?? crypto.randomUUID(),
+    label: cleanLabel,
+    platform: cleanPlatform,
     paired_at: Date.now(),
   }
-  const next = [entry, ...existing].slice(0, MAX_DEVICES)
+  const rest = existing.filter((d) => d.id !== entry.id)
+  const next = [entry, ...rest].slice(0, MAX_DEVICES)
   await env.AUTH_KV.put(key, JSON.stringify(next))
 }
 

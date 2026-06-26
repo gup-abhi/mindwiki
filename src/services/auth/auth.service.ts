@@ -1,4 +1,6 @@
+import { Platform } from 'react-native'
 import { getRandomBytesAsync } from 'expo-crypto'
+import * as Device from 'expo-device'
 
 import { CryptoModule } from '@/native/CryptoModule'
 import { deleteDatabase } from '@/services/storage/db'
@@ -19,6 +21,11 @@ import { getTokens, saveTokens, clearTokens } from './token-store'
 async function randomHex(bytes: number): Promise<string> {
   const arr = await getRandomBytesAsync(bytes)
   return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** A human-recognizable label for this device, for the owner's paired-devices log. */
+function deviceLabel(): string {
+  return Device.deviceName || Device.modelName || `${Platform.OS} device`
 }
 
 interface AuthResponse {
@@ -63,6 +70,8 @@ export async function register(
         key_escrow: { encrypted_key: wrapped.data, salt },
         recovery_hash: recoveryHash(recoveryPhrase),
         recovery_escrow: { encrypted_key: recoveryWrapped.data },
+        device_label: deviceLabel(),
+        platform: Platform.OS,
       }),
     })
     if (res.status === 409) {
@@ -91,7 +100,12 @@ export async function loginNewDevice(email: string, password: string): Promise<R
     const res = await fetch(`${API_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password_hash: hashPassword(password) }),
+      body: JSON.stringify({
+        email,
+        password_hash: hashPassword(password),
+        device_label: deviceLabel(),
+        platform: Platform.OS,
+      }),
     })
     // 401 = the server rejected the email/password pair (unknown email or bad
     // password). Surface a friendly message; keep the status for other failures.

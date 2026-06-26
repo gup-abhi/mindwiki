@@ -80,6 +80,8 @@ describe('register', () => {
     expect(body.key_escrow.salt).toBeTruthy()
     expect(body.recovery_hash).toMatch(/^[0-9a-f]{64}$/) // second escrow credential
     expect(body.recovery_escrow.encrypted_key).toBeTruthy()
+    expect(body.device_label).toBe('Test Device') // registering device shows in the owner's devices list
+    expect(body.platform).toBeTruthy()
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     // auth state is deferred until the user acknowledges the recovery phrase
     expect(useAuthStore.getState().status).not.toBe('authenticated')
@@ -119,6 +121,9 @@ describe('loginNewDevice', () => {
     const res = await loginNewDevice('a@b.com', 'password')
 
     expect(res).toEqual({ success: true, data: { accountId: 'acc1' } })
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
+    expect(body.device_label).toBe('Test Device') // labels this device in the owner's paired-devices log
+    expect(body.platform).toBeTruthy()
     expect(mockDerive).toHaveBeenCalledWith('password', '00')
     expect(mockSetKey).toHaveBeenCalledWith(MASTER) // account key installed
     expect(useAuthStore.getState().status).toBe('authenticated')

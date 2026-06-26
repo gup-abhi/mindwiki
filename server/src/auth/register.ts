@@ -2,6 +2,7 @@ import { hash } from 'bcryptjs'
 
 import type { Env } from '../types'
 import { issueTokens } from './tokens'
+import { recordPairedDevice } from './devices'
 
 interface RegisterBody {
   email?: string
@@ -9,6 +10,8 @@ interface RegisterBody {
   key_escrow: { encrypted_key: string; salt: string }
   recovery_hash: string // SHA-256(recovery phrase) hex — computed client-side
   recovery_escrow: { encrypted_key: string }
+  device_label?: string
+  platform?: string
 }
 
 export async function handleRegister(req: Request, env: Env): Promise<Response> {
@@ -62,6 +65,9 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
       updated_at: now,
     })
   )
+
+  // Log the registering device so the account owner sees it in their devices list.
+  await recordPairedDevice(env, accountId, body.device_label ?? 'New device', body.platform ?? 'unknown')
 
   const { accessToken, refreshToken } = await issueTokens(accountId, env)
   return Response.json({ account_id: accountId, access_token: accessToken, refresh_token: refreshToken })
