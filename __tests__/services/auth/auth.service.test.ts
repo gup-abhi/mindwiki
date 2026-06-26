@@ -14,6 +14,7 @@ import { saveTokens, getTokens, clearTokens } from '@/services/auth/token-store'
 import { deleteDatabase } from '@/services/storage/db'
 import { CryptoModule } from '@/native/CryptoModule'
 import { useAuthStore } from '@/store/auth.store'
+import { useSyncStore } from '@/store/sync.store'
 
 jest.mock('expo-crypto', () => ({
   // Non-deterministic so generated recovery phrases differ between calls.
@@ -59,6 +60,7 @@ const resp = (status: number, body: unknown = {}) => ({
 beforeEach(() => {
   jest.clearAllMocks()
   useAuthStore.setState({ status: 'loading', accountId: null })
+  useSyncStore.setState({ restoring: false })
   global.fetch = jest.fn()
   mockGetKey.mockResolvedValue(MASTER)
   mockDerive.mockResolvedValue(WRAP)
@@ -131,6 +133,7 @@ describe('loginNewDevice', () => {
     expect(mockDerive).toHaveBeenCalledWith('password', '00')
     expect(mockSetKey).toHaveBeenCalledWith(MASTER) // account key installed
     expect(useAuthStore.getState().status).toBe('authenticated')
+    expect(useSyncStore.getState().restoring).toBe(true) // banner shows while the first pull lands
   })
 
   it('fails with the wrong password (escrow cannot be unwrapped)', async () => {

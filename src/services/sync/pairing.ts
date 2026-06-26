@@ -7,6 +7,7 @@ import { API_URL } from '@/services/auth/config'
 import { getDeviceId } from '@/services/auth/device-id'
 import { saveTokens } from '@/services/auth/token-store'
 import { useAuthStore } from '@/store/auth.store'
+import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
 
 /**
@@ -93,6 +94,8 @@ export async function redeemPairing(raw: string): Promise<Result<{ accountId: st
     }
     await CryptoModule.setKeyInKeychain(parsed.data.key)
     await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
+    // Paired device starts empty until the first pull — reassure the user.
+    useSyncStore.getState().beginRestore()
     useAuthStore.getState().setAuthenticated(data.account_id)
     return ok({ accountId: data.account_id })
   } catch (e) {

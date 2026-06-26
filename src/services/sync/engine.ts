@@ -240,15 +240,24 @@ export async function sync(): Promise<Result<{ pushed: number; pulled: number }>
     return err('NO_MASTER_KEY', 'Master key unavailable', e)
   }
 
-  const db = getDb()
-  // One-time: enqueue any data written before sync existed, so the first sync
-  // uploads the existing journal (not just new entries).
-  await backfillSyncQueue(SYNCED_TABLES, db)
-  const pushed = await pushPending(masterKeyHex, tokens.accountId, db)
-  if (!pushed.success) return pushed
-  const pulled = await pullDelta(masterKeyHex, tokens.accountId, db)
-  if (!pulled.success) return pulled
+  const store = useSyncStore.getState()
+  store.setSyncing(true)
+  try {
+    const db = getDb()
+    // One-time: enqueue any data written before sync existed, so the first sync
+    // uploads the existing journal (not just new entries).
+    await backfillSyncQueue(SYNCED_TABLES, db)
+    const pushed = await pushPending(masterKeyHex, tokens.accountId, db)
+    if (!pushed.success) return pushed
+    const pulled = await pullDelta(masterKeyHex, tokens.accountId, db)
+    if (!pulled.success) return pulled
 
-  await setSetting(LAST_SYNCED_KEY, String(Date.now()), db)
-  return ok({ pushed: pushed.data, pulled: pulled.data })
+    await setSetting(LAST_SYNCED_KEY, String(Date.now()), db)
+    // The first successful pull after a login/pair has landed — stop showing the
+    // "restoring your data" UI.
+    store.endRestore()
+    return ok({ pushed: pushed.data, pulled: pulled.data })
+  } finally {
+    store.setSyncing(false)
+  }
 }

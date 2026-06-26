@@ -5,6 +5,7 @@ import * as Device from 'expo-device'
 import { CryptoModule } from '@/native/CryptoModule'
 import { deleteDatabase } from '@/services/storage/db'
 import { useAuthStore } from '@/store/auth.store'
+import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
 
 import { authenticatedFetch } from './api-client'
@@ -128,6 +129,9 @@ export async function loginNewDevice(email: string, password: string): Promise<R
 
     await CryptoModule.setKeyInKeychain(masterKey.data)
     await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
+    // Signing in on a new device: the encrypted DB is empty until the first pull.
+    // Flag a restore so the UI reassures the user their data is on its way.
+    useSyncStore.getState().beginRestore()
     useAuthStore.getState().setAuthenticated(data.account_id)
     return ok({ accountId: data.account_id })
   } catch (e) {

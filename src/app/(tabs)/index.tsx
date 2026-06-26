@@ -18,6 +18,7 @@ import { computeStreak, streakRescue, weekActivity } from '@/services/notificati
 import { homeMessage } from '@/services/notifications/home-message'
 import { StreakCard } from '@/components/StreakCard'
 import { StreakRescueModal } from '@/components/StreakRescueModal'
+import { SyncBanner } from '@/components/SyncBanner'
 import { generateDigest } from '@/services/digest/generator'
 
 // The streak-rescue popup interrupts at most once per app launch (it reappears on
@@ -104,6 +105,7 @@ export default function Home() {
         )}
         ListHeaderComponent={
           <View style={styles.header}>
+            <SyncBanner />
             <StreakCard
               current={journalStreak.current}
               longest={journalStreak.longest}

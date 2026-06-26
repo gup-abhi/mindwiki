@@ -6,6 +6,7 @@ import {
 import { CryptoModule } from '@/native/CryptoModule'
 import { saveTokens, getTokens } from '@/services/auth/token-store'
 import { useAuthStore } from '@/store/auth.store'
+import { useSyncStore } from '@/store/sync.store'
 
 jest.mock('@/native/CryptoModule', () => ({
   CryptoModule: { getKeyFromKeychain: jest.fn(), setKeyInKeychain: jest.fn() },
@@ -32,6 +33,7 @@ const resp = (status: number, body: unknown = {}) => ({
 beforeEach(() => {
   jest.clearAllMocks()
   useAuthStore.setState({ status: 'loading', accountId: null })
+  useSyncStore.setState({ restoring: false })
   global.fetch = jest.fn()
   mockGetKey.mockResolvedValue(MASTER)
 })
@@ -83,6 +85,7 @@ describe('redeemPairing', () => {
     expect(mockSetKey).toHaveBeenCalledWith(MASTER)
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
+    expect(useSyncStore.getState().restoring).toBe(true) // banner shows while the first pull lands
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
     expect(body.code).toBe('pair-code')
     expect(body.device_label).toBe('Test Model') // hardware model, not the user-editable device name
