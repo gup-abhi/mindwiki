@@ -21,6 +21,7 @@
  */
 import { buildContext, respond } from '@/services/wiki/conversation'
 import { type WikiPage } from '@/services/storage/wiki'
+import { type GraphNode, type GraphEdge } from '@/services/storage/graph'
 import { LLMBridge } from '@/native/LLMBridge'
 
 jest.mock('@/native/LLMBridge', () => ({
@@ -200,5 +201,32 @@ describe('respond pipeline (LLM mocked)', () => {
     })
     expect(res.success).toBe(false)
     if (!res.success) expect(res.error.code).toBe('CONVERSE_VALIDATION_FAILED')
+  })
+})
+
+function gnode(id: string, label: string, type: GraphNode['type'] = 'person'): GraphNode {
+  return { id, type, label, frequency: 5, created_at: 1, updated_at: 1 }
+}
+function gedge(source_id: string, target_id: string): GraphEdge {
+  return { id: `${source_id}-${target_id}`, source_id, target_id, weight: 5, created_at: 1, updated_at: 1 }
+}
+
+describe('graph-aware query expansion (buildContext)', () => {
+  // A page that shares no words with "my boss again", but is the theme the graph
+  // connects "boss" to.
+  const PAGES = [page('Criticism', 'Replays feedback from managers and braces for the worst.')]
+  const nodes = [gnode('n1', 'boss', 'person'), gnode('n2', 'criticism', 'emotion')]
+  const edges = [gedge('n1', 'n2')]
+
+  it('grounds via a graph-connected theme the message shares no words with', () => {
+    // No graph → nothing to expand, the page stays below the relevance floor.
+    expect(buildContext('my boss again', PAGES, [], []).sources).toEqual([])
+    // With boss→criticism, the query expands to include "criticism" and the page grounds.
+    const { sources } = buildContext('my boss again', PAGES, nodes, edges)
+    expect(sources.map((p) => p.title)).toContain('Criticism')
+  })
+
+  it('does not expand when the message names no graph node', () => {
+    expect(buildContext('pancakes for breakfast', PAGES, nodes, edges).sources).toEqual([])
   })
 })
