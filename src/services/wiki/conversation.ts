@@ -7,7 +7,7 @@ import { type WikiPage } from '@/services/storage/wiki'
 import { type ChatMessage } from '@/native/LLMBridge'
 import { type Result, ok } from '@/types/result'
 
-import { rankPages, rankPagesHybrid, type QueryEmbeddings } from './search'
+import { rankPages, rankPagesHybrid, queryTerms, type QueryEmbeddings } from './search'
 import { buildQueryEmbeddings } from './embeddings'
 
 export interface ConversationReply {
@@ -55,6 +55,49 @@ function retrievalQuery(history: ChatMessage[], message: string): string {
   return [...recentUser, message].join(' ')
 }
 
+// Cap how many associative terms the graph can add, so a hub node with many
+// edges can't flood the query and drown the message's own words.
+const MAX_EXPANSION_TERMS = 5
+
+/**
+ * Widen the ranking query with associative terms from the user's graph. For each
+ * graph node the message actually names, add its strongest 1-hop neighbours'
+ * labels — so in a dense graph a message can ground in pages about *connected*
+ * themes it shares no words with ("my boss again" → also rank a "Criticism"
+ * page). Lexical-only by design: the embedding query stays the literal message
+ * (semantics are already covered there); this only widens term overlap. Pure.
+ */
+function expandWithGraph(query: string, nodes: GraphNode[], edges: GraphEdge[]): string {
+  const terms = new Set(queryTerms(query))
+  if (terms.size === 0 || nodes.length === 0) return query
+
+  // Nodes the query names: every meaningful token of the label is present (so a
+  // multi-word label only matches when fully referenced — avoids over-expanding).
+  const named = nodes.filter((n) => {
+    const labelTokens = queryTerms(n.label)
+    return labelTokens.length > 0 && labelTokens.every((t) => terms.has(t))
+  })
+  if (named.length === 0) return query
+
+  const byFreq = new Map<string, number>() // neighbour label → frequency (ranks it)
+  for (const node of named) {
+    const hood = graphNeighborhood(node.label, nodes, edges, 1)
+    if (!hood) continue
+    for (const nb of hood.neighbors) {
+      const nbTokens = queryTerms(nb.label)
+      if (nbTokens.length === 0 || nbTokens.every((t) => terms.has(t))) continue // already implied
+      byFreq.set(nb.label, Math.max(byFreq.get(nb.label) ?? 0, nb.frequency))
+    }
+  }
+
+  const expansion = [...byFreq.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_EXPANSION_TERMS)
+    .map(([label]) => label)
+
+  return expansion.length ? `${query} ${expansion.join(' ')}` : query
+}
+
 function connectionLine(title: string, nodes: GraphNode[], edges: GraphEdge[]): string | null {
   const hood = graphNeighborhood(title, nodes, edges, 1)
   if (!hood || hood.neighbors.length === 0) return null
@@ -81,10 +124,13 @@ export function buildContext(
   history: ChatMessage[] = [],
   embeddings?: QueryEmbeddings
 ): { context: ConversationContext; sources: WikiPage[] } {
-  const query = retrievalQuery(history, message)
+  const baseQuery = retrievalQuery(history, message)
+  // Graph expansion feeds the LEXICAL query only; embeddings.query (built from
+  // the literal message in respond) is intentionally left as-is.
+  const rankQuery = expandWithGraph(baseQuery, nodes, edges)
   const ranked = embeddings
-    ? rankPagesHybrid(query, pages, embeddings, MAX_PAGES)
-    : rankPages(query, pages, MAX_PAGES)
+    ? rankPagesHybrid(rankQuery, pages, embeddings, MAX_PAGES)
+    : rankPages(rankQuery, pages, MAX_PAGES)
   const sources = ranked.filter((r) => r.score >= MIN_RELEVANCE).map((r) => r.page)
 
   const connections: string[] = []
