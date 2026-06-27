@@ -40,6 +40,19 @@ const MAX_NEIGHBORS = 3
 // real content overlap clears it. Without it the model force-links every
 // message to whatever page shares one common word.
 const MIN_RELEVANCE = 3
+// Recent USER turns folded into the ranking query so a terse latest message
+// ("ugh, again") still carries the thread's signal. User turns only — assistant
+// text would bias retrieval toward wiki content we already injected.
+const RETRIEVAL_TURNS = 2
+
+/** The text to rank pages against: the last few user turns plus the new message. */
+function retrievalQuery(history: ChatMessage[], message: string): string {
+  const recentUser = history
+    .filter((m) => m.role === 'user')
+    .slice(-RETRIEVAL_TURNS)
+    .map((m) => m.content)
+  return [...recentUser, message].join(' ')
+}
 
 function connectionLine(title: string, nodes: GraphNode[], edges: GraphEdge[]): string | null {
   const hood = graphNeighborhood(title, nodes, edges, 1)
@@ -52,18 +65,19 @@ function connectionLine(title: string, nodes: GraphNode[], edges: GraphEdge[]): 
 }
 
 /**
- * Build the grounded context for one turn: rank wiki pages against the latest
- * message and pull short graph-connection lines for the top pages. Pure — the
- * caller supplies pages and graph. Returns the context for the prompt plus the
- * source pages (for citation chips).
+ * Build the grounded context for one turn: rank wiki pages against the recent
+ * thread (last few user turns + the new message) and pull short graph-connection
+ * lines for the top pages. Pure — the caller supplies pages and graph. Returns
+ * the context for the prompt plus the source pages (for citation chips).
  */
 export function buildContext(
   message: string,
   pages: WikiPage[],
   nodes: GraphNode[],
-  edges: GraphEdge[]
+  edges: GraphEdge[],
+  history: ChatMessage[] = []
 ): { context: ConversationContext; sources: WikiPage[] } {
-  const sources = rankPages(message, pages, MAX_PAGES)
+  const sources = rankPages(retrievalQuery(history, message), pages, MAX_PAGES)
     .filter((r) => r.score >= MIN_RELEVANCE)
     .map((r) => r.page)
 
@@ -93,7 +107,7 @@ export async function respond(
   { history, message, pages, nodes, edges, summary }: RespondInput,
   onToken?: (token: string) => void
 ): Promise<Result<ConversationReply>> {
-  const { context, sources } = buildContext(message, pages, nodes, edges)
+  const { context, sources } = buildContext(message, pages, nodes, edges, history)
   const trimmed = history.slice(-MAX_HISTORY_MESSAGES)
 
   const res = await converseFromWiki({ history: trimmed, message, context, summary }, onToken)
