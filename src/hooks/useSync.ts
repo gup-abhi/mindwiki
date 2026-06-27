@@ -14,8 +14,9 @@ const LOCAL_CHANGE_DEBOUNCE_MS = 2000
 // remotely actually contacts the server and discovers it — the server rejects a
 // revoked session on any request, and authenticatedFetch then flips auth to
 // 'unauthenticated' (→ login screen). Without it a continuously-foregrounded,
-// idle device might never make another request and would stay signed in.
-const SESSION_RECHECK_MS = 60_000
+// idle device might never make another request and would stay signed in. Kept
+// short so a remote sign-out takes effect within seconds while the app is open.
+const SESSION_RECHECK_MS = 15_000
 
 /**
  * Opportunistic background sync: runs one push+pull pass when the user is

@@ -120,12 +120,12 @@ describe('useSync', () => {
     })
     mockSync.mockClear()
 
-    act(() => jest.advanceTimersByTime(60_000))
+    act(() => jest.advanceTimersByTime(15_000))
     expect(mockSync).toHaveBeenCalledTimes(1)
     await act(async () => {
       await Promise.resolve() // let sync() settle so the overlap guard clears
     })
-    act(() => jest.advanceTimersByTime(60_000))
+    act(() => jest.advanceTimersByTime(15_000))
     expect(mockSync).toHaveBeenCalledTimes(2)
   })
 
