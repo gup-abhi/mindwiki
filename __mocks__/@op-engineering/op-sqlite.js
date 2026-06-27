@@ -7,5 +7,6 @@ module.exports = {
     execute: jest.fn(async () => ({ rows: [], rowsAffected: 0 })),
     transaction: jest.fn(),
     close: jest.fn(),
+    delete: jest.fn(),
   })),
 }
