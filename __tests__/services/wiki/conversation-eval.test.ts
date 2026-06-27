@@ -171,6 +171,24 @@ describe('respond pipeline (LLM mocked)', () => {
     expect(sources).toEqual([])
   })
 
+  it('grounds a terse message using the recent thread (thread-aware query)', () => {
+    // The latest line carries no signal on its own, but the prior user turn does.
+    const history = [
+      { role: 'user' as const, content: 'I keep bracing for criticism before every work meeting' },
+      { role: 'assistant' as const, content: 'That sounds heavy to carry in.' },
+    ]
+    const lastLine = buildContext('ugh, again today', PAGES, [], [])
+    expect(lastLine.sources).toEqual([]) // no history → terse line grounds nothing
+    const threaded = buildContext('ugh, again today', PAGES, [], [], history)
+    expect(threaded.sources.map((p) => p.title)).toContain('Work anxiety')
+  })
+
+  it('an unrelated thread still grounds nothing', () => {
+    const history = [{ role: 'user' as const, content: 'we went hiking and made pancakes' }]
+    const { sources } = buildContext('it was a nice weekend', PAGES, [], [], history)
+    expect(sources).toEqual([])
+  })
+
   it('fails validation on an empty model reply (no blank turn shown)', async () => {
     mockConverse.mockResolvedValue({ text: '   ' })
     const res = await respond({
