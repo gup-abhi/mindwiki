@@ -9,5 +9,9 @@ module.exports = {
       timings: { predicted_per_second: 0 },
     })),
     release: jest.fn(),
+    gpu: false,
+    reasonNoGPU: '',
+    devices: [],
   })),
+  getBackendDevicesInfo: jest.fn(async () => []),
 }
