@@ -22,6 +22,11 @@ jest.mock('@/store/wiki.store', () => ({
   useWikiStore: { getState: () => ({ begin: mockBegin, end: mockEnd }) },
 }))
 
+const mockBumpRevision = jest.fn()
+jest.mock('@/store/sync.store', () => ({
+  useSyncStore: { getState: () => ({ bumpRevision: mockBumpRevision }) },
+}))
+
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { updateGraphForEntry } from '@/services/graph/engine'
 import { setEntitiesForEntry } from '@/services/storage/entities'
@@ -83,6 +88,7 @@ describe('processEntry', () => {
     mockSetEntities.mockReset()
     mockBegin.mockReset()
     mockEnd.mockReset()
+    mockBumpRevision.mockReset()
     mockApplyTags.mockResolvedValue(ok(undefined))
     mockUpdateWiki.mockResolvedValue(ok([]))
     mockUpdateGraph.mockResolvedValue(ok(undefined))
@@ -125,6 +131,9 @@ describe('processEntry', () => {
     )
     expect(mockBegin).toHaveBeenCalledTimes(1)
     expect(mockEnd).toHaveBeenCalledTimes(1)
+    // tags persisted → bump the data revision so the focused timeline re-reads
+    // and the EntryCard's "tagging…" flips to the real tags without a refocus
+    expect(mockBumpRevision).toHaveBeenCalledTimes(1)
   })
 
   it('persists extracted beliefs and behaviors as typed entity rows', async () => {
@@ -153,6 +162,7 @@ describe('processEntry', () => {
     expect(mockSetEntities).not.toHaveBeenCalled()
     expect(mockUpdateGraph).not.toHaveBeenCalled()
     expect(mockUpdateWiki).not.toHaveBeenCalled()
+    expect(mockBumpRevision).not.toHaveBeenCalled() // nothing changed → no UI refresh
   })
 
   it('still catches an explicit crisis via the keyword net when the crisis score fails', async () => {

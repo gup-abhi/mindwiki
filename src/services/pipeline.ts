@@ -8,6 +8,7 @@ import { getSetting, setSetting } from '@/services/storage/settings'
 import { updateGraphForEntry } from '@/services/graph/engine'
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
+import { useSyncStore } from '@/store/sync.store'
 
 export interface ProcessResult {
   crisis: CrisisAssessment
@@ -38,6 +39,12 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
     ...ex.behaviors.map((label) => ({ type: 'behavior' as const, label })),
   ]
   await setEntitiesForEntry(entry.id, entities)
+
+  // Tags are now persisted. Bump the data revision so any focused screen
+  // (the timeline EntryCard's "tagging…", the graph) re-reads and shows them
+  // immediately — background tagging otherwise only surfaces on the next screen
+  // refocus. Mirrors what a sync pull does.
+  useSyncStore.getState().bumpRevision()
 
   const taggedEntry: Entry = {
     ...entry,
