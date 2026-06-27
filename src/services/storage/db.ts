@@ -31,13 +31,19 @@ let dbInstance: SqliteDatabase | null = null
  * hardcoded, never logged. Call once at app startup.
  */
 export async function initDb(encryptionKey: string): Promise<Result<SqliteDatabase>> {
+  let db: SqliteDatabase | undefined
   try {
-    const db = open({ name: DB_NAME, encryptionKey }) as unknown as SqliteDatabase
+    // op-sqlite's open() is lazy — it doesn't decrypt any pages until the first
+    // query, so a wrong key surfaces here, on the first PRAGMA, not on open().
+    db = open({ name: DB_NAME, encryptionKey }) as unknown as SqliteDatabase
     await db.execute('PRAGMA journal_mode = WAL')
     await db.execute('PRAGMA foreign_keys = ON')
     dbInstance = db
     return ok(db)
   } catch (e) {
+    // Don't leak the lazily-opened native connection when the key doesn't match
+    // — the self-heal path is about to delete this file and reopen.
+    db?.close()
     return err('DB_INIT_FAILED', 'Failed to open encrypted database', e)
   }
 }
@@ -60,13 +66,30 @@ export function closeDb(): void {
 }
 
 /**
- * Delete the encrypted database file and drop the singleton, so the next
- * initDb() recreates an empty DB keyed to whatever master key is current. Used
- * on logout: a different account must never inherit the previous account's local
- * data (the old file is keyed with the old master key and cannot be reused).
+ * Delete the encrypted database file from disk and drop the singleton, so the
+ * next initDb() recreates an empty DB keyed to whatever master key is current.
+ * Used on logout (account isolation: a different account must never inherit the
+ * previous account's local data — the old file is keyed with the old master key
+ * and cannot be reused) and by the storage self-heal when a foreign DB is found.
+ *
+ * Must delete the FILE, not just close a handle: in a dev build a JS reload
+ * resets `dbInstance` to null, and after that the old code deleted nothing and
+ * the stale file survived to brick the next login. When there's no live handle
+ * we open a throwaway one — op-sqlite's open() is lazy, so this removes the file
+ * (and its -wal/-shm) without needing the matching key.
  */
 export function deleteDatabase(): void {
-  if (dbInstance?.delete) dbInstance.delete()
-  else dbInstance?.close()
+  const live = dbInstance
   dbInstance = null
+  if (live?.delete) {
+    live.delete()
+    return
+  }
+  live?.close()
+  try {
+    const handle = open({ name: DB_NAME }) as unknown as SqliteDatabase
+    handle.delete?.()
+  } catch {
+    // best-effort — nothing more we can do about the file from JS
+  }
 }

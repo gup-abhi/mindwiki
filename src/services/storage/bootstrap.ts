@@ -1,11 +1,23 @@
 import { CryptoModule } from '@/native/CryptoModule'
 import { rebuildGraph } from '@/services/graph/engine'
 import { dedupeTopics } from '@/services/wiki/dedupe'
-import { type Result, ok, err } from '@/types/result'
+import { type AppError, type Result, ok, err } from '@/types/result'
 
-import { initDb } from './db'
+import { initDb, deleteDatabase } from './db'
 import { migrate } from './migrations'
 import { getSetting, setSetting } from './settings'
+
+/**
+ * True when opening the DB failed because the file can't be decrypted with the
+ * current key — a foreign DB left by a previous account (logout's wipe was
+ * missed) or genuine corruption. SQLCipher reports this as an hmac/"not a
+ * database"/decrypt error. Deliberately narrow: a transient or IO failure (disk
+ * full, permissions) must NOT match, or we'd wipe good data over a blip.
+ */
+function isDecryptFailure(error: AppError): boolean {
+  const cause = String(error.cause ?? '').toLowerCase()
+  return /hmac|not a database|file is encrypted|decrypt|notadb/.test(cause)
+}
 
 // One-time topic de-duplication (collapse plural/singular wiki pages + nodes).
 // Guarded by a settings flag so it runs once per device, after singularization
@@ -25,8 +37,17 @@ export async function initStorage(): Promise<Result<void>> {
     return err('STORAGE_KEY_FAILED', 'Could not obtain the database key', e)
   }
 
-  const opened = await initDb(key)
-  if (!opened.success) return opened
+  let opened = await initDb(key)
+  if (!opened.success) {
+    // Self-heal a foreign/corrupt DB: it can never be read with the current key,
+    // so wipe it and recreate an empty one. The server is the E2E source of truth
+    // and sync re-pulls the account's data. Without this, a stale DB from a
+    // previous account (whose logout wipe was missed) bricks every launch.
+    if (!isDecryptFailure(opened.error)) return opened
+    deleteDatabase()
+    opened = await initDb(key)
+    if (!opened.success) return opened
+  }
 
   const migrated = await migrate()
   if (!migrated.success) return migrated
