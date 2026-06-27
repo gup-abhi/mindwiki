@@ -21,6 +21,12 @@ mv models/qwen2.5-1.5b-instruct-q4_k_m.gguf models/fast-model.gguf
 huggingface-cli download Qwen/Qwen2.5-3B-Instruct-GGUF \
   qwen2.5-3b-instruct-q4_k_m.gguf --local-dir ./models
 mv models/qwen2.5-3b-instruct-q4_k_m.gguf models/deep-model.gguf
+
+# Embed model (bge-small-en-v1.5 F16, ~67MB) — optional; powers semantic Reflect
+# retrieval. A missing embed model just falls back to lexical ranking.
+huggingface-cli download CompendiumLabs/bge-small-en-v1.5-gguf \
+  bge-small-en-v1.5-f16.gguf --local-dir ./models
+mv models/bge-small-en-v1.5-f16.gguf models/embed-model.gguf
 ```
 
 ## Push to device (Phase -1 demo, Android)

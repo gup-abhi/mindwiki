@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router'
 
 import { type ChatMessage } from '@/native/LLMBridge'
 import { hasCrisisKeyword } from '@/services/crisis/detector'
-import { areModelsReady } from '@/services/llm/model-manager'
+import { areModelsReady, ensureEmbedModel } from '@/services/llm/model-manager'
 import { captureReflectMessage } from '@/services/pipeline'
 import {
   appendMessage,
@@ -18,6 +18,7 @@ import {
 import { listEdges, listNodes, type GraphEdge, type GraphNode } from '@/services/storage/graph'
 import { listPages, type WikiPage } from '@/services/storage/wiki'
 import { respond, updateRunningSummary } from '@/services/wiki/conversation'
+import { backfillStaleEmbeddings } from '@/services/wiki/embeddings'
 import { suggestedQuestions } from '@/services/wiki/query'
 import { useChatStore, type UIMessage } from '@/store/chat.store'
 
@@ -75,11 +76,17 @@ export function useConversation(initialQuestion?: string) {
     useCallback(() => {
       Promise.all([listPages(), listNodes(), listEdges(), listConversations()]).then(
         ([p, n, e, c]) => {
-          setPages(p.success ? p.data : [])
+          const pageList = p.success ? p.data : []
+          setPages(pageList)
           setNodes(n.success ? n.data : [])
           setEdges(e.success ? e.data : [])
           setHistory(c.success ? c.data : [])
           setLoaded(true)
+          // Background, best-effort: make sure the optional embed model is present
+          // (covers users already past onboarding) and bring page vectors up to
+          // date so semantic ranking has something to match against. Failures are
+          // swallowed — Reflect just stays on lexical ranking.
+          void ensureEmbedModel().then(() => backfillStaleEmbeddings(pageList))
         }
       )
     }, [])

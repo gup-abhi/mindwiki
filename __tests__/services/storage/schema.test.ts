@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -212,5 +212,11 @@ describe('migration 007 (pursuits)', () => {
     expect(MIGRATIONS[14].version).toBe(15)
     expect(MIGRATIONS[14].name).toBe('streak_freezes')
     expect(MIGRATIONS[14].statements[0]).toContain('CREATE TABLE streak_freezes')
+  })
+
+  it('is registered as version 16 and creates the page_embeddings table', () => {
+    expect(MIGRATIONS[15].version).toBe(16)
+    expect(MIGRATIONS[15].name).toBe('page_embeddings')
+    expect(MIGRATIONS[15].statements[0]).toContain('CREATE TABLE page_embeddings')
   })
 })

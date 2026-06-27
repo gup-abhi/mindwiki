@@ -23,7 +23,7 @@ describe('useModelDownload', () => {
     await waitFor(() => expect(result.current.ready).toBe(false))
   })
 
-  it('downloads both models then marks ready', async () => {
+  it('downloads the required models plus the embed model then marks ready', async () => {
     const { result } = renderHook(() => useModelDownload())
     await waitFor(() => expect(result.current.ready).toBe(false))
 
@@ -31,14 +31,15 @@ describe('useModelDownload', () => {
       await result.current.download()
     })
 
-    expect(mockDownload).toHaveBeenCalledTimes(2)
+    expect(mockDownload).toHaveBeenCalledTimes(3)
     expect(mockDownload).toHaveBeenNthCalledWith(1, 'fast', expect.any(Function))
     expect(mockDownload).toHaveBeenNthCalledWith(2, 'deep', expect.any(Function))
+    expect(mockDownload).toHaveBeenNthCalledWith(3, 'embed', expect.any(Function))
     expect(result.current.ready).toBe(true)
     expect(result.current.progress).toBe(1)
   })
 
-  it('surfaces an error and stops when a download fails', async () => {
+  it('surfaces an error and stops when a REQUIRED download fails', async () => {
     mockDownload.mockResolvedValueOnce({ success: false, error: { code: 'X', message: 'no' } })
     const { result } = renderHook(() => useModelDownload())
     await waitFor(() => expect(result.current.ready).toBe(false))
@@ -50,5 +51,23 @@ describe('useModelDownload', () => {
     expect(mockDownload).toHaveBeenCalledTimes(1) // stopped after the failure
     expect(result.current.error).toBeTruthy()
     expect(result.current.ready).toBe(false)
+  })
+
+  it('tolerates a failed optional (embed) download — still marks ready', async () => {
+    // fast ✓, deep ✓, embed ✗ — the optional failure must not fail the flow.
+    mockDownload
+      .mockResolvedValueOnce({ success: true, data: true })
+      .mockResolvedValueOnce({ success: true, data: true })
+      .mockResolvedValueOnce({ success: false, error: { code: 'X', message: 'no' } })
+    const { result } = renderHook(() => useModelDownload())
+    await waitFor(() => expect(result.current.ready).toBe(false))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(mockDownload).toHaveBeenCalledTimes(3)
+    expect(result.current.error).toBeNull()
+    expect(result.current.ready).toBe(true)
   })
 })

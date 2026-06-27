@@ -3,7 +3,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { type ModelKind } from '@/native/LLMBridge'
 import { areModelsReady, downloadModel } from '@/services/llm/model-manager'
 
-const ORDER: ModelKind[] = ['fast', 'deep']
+// Required models block app readiness; the embed model is optional (Reflect
+// degrades to lexical ranking without it) so its failure must NOT fail the flow.
+const REQUIRED: ModelKind[] = ['fast', 'deep']
+const ORDER: ModelKind[] = [...REQUIRED, 'embed']
 
 /**
  * Checks whether the on-device AI models are present and drives their download.
@@ -32,12 +35,15 @@ export function useModelDownload() {
     setError(null)
     setProgress(0)
     for (let i = 0; i < ORDER.length; i++) {
-      const res = await downloadModel(ORDER[i], (p) => setProgress((i + p) / ORDER.length))
-      if (!res.success) {
+      const kind = ORDER[i]
+      const res = await downloadModel(kind, (p) => setProgress((i + p) / ORDER.length))
+      if (!res.success && REQUIRED.includes(kind)) {
         setDownloading(false)
         setError('Download failed. Check your connection and try again.')
         return
       }
+      // A failed optional (embed) download is swallowed — Reflect falls back to
+      // lexical ranking and a later ensureEmbedModel() retries.
     }
     setProgress(1)
     setDownloading(false)
