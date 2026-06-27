@@ -111,6 +111,24 @@ describe('useSync', () => {
     expect(mockSync).toHaveBeenCalledTimes(1)
   })
 
+  it('re-syncs on an interval so a remotely signed-out device discovers it', async () => {
+    jest.useFakeTimers()
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc' })
+    renderHook(() => useSync())
+    await act(async () => {
+      await Promise.resolve() // mount sync settles
+    })
+    mockSync.mockClear()
+
+    act(() => jest.advanceTimersByTime(60_000))
+    expect(mockSync).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      await Promise.resolve() // let sync() settle so the overlap guard clears
+    })
+    act(() => jest.advanceTimersByTime(60_000))
+    expect(mockSync).toHaveBeenCalledTimes(2)
+  })
+
   it('ignores background/inactive app-state changes', async () => {
     useAuthStore.setState({ status: 'authenticated', accountId: 'acc' })
     renderHook(() => useSync())

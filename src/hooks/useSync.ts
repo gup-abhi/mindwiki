@@ -10,6 +10,13 @@ import { useSyncStore } from '@/store/sync.store'
 // single push, and let background-generated records settle before syncing.
 const LOCAL_CHANGE_DEBOUNCE_MS = 2000
 
+// Re-sync on this cadence while the app is open so a device that was signed out
+// remotely actually contacts the server and discovers it — the server rejects a
+// revoked session on any request, and authenticatedFetch then flips auth to
+// 'unauthenticated' (→ login screen). Without it a continuously-foregrounded,
+// idle device might never make another request and would stay signed in.
+const SESSION_RECHECK_MS = 60_000
+
 /**
  * Opportunistic background sync: runs one push+pull pass when the user is
  * authenticated — on mount / when the session becomes authenticated, when the
@@ -60,4 +67,13 @@ export function useSync(): void {
     const t = setTimeout(run, LOCAL_CHANGE_DEBOUNCE_MS)
     return () => clearTimeout(t)
   }, [pendingSignal, run])
+
+  // Steady re-check so a remotely signed-out device discovers its session is gone
+  // even if it stays foregrounded and idle (no foreground/connectivity/local
+  // change to otherwise trigger a request).
+  useEffect(() => {
+    if (status !== 'authenticated') return
+    const id = setInterval(run, SESSION_RECHECK_MS)
+    return () => clearInterval(id)
+  }, [status, run])
 }

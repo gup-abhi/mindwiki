@@ -22,7 +22,7 @@ export async function issueTokens(
   const familyId = existingFamilyId ?? crypto.randomUUID()
 
   const accessToken = await sign(
-    { sub: accountId, exp: Math.floor(Date.now() / 1000) + 900, type: 'access' },
+    { sub: accountId, fam: familyId, exp: Math.floor(Date.now() / 1000) + 900, type: 'access' },
     env.JWT_SECRET
   )
 
