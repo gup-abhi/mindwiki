@@ -27,20 +27,20 @@ export async function listDevices(): Promise<Result<PairedDevice[]>> {
 }
 
 /**
- * Remove a device from the account's list by id — lets the owner clear a stale
- * or signed-out device (including old rows from before per-device logout, which
- * can't auto-remove). Requires a session.
+ * Sign another device out by id: the server invalidates that device's session
+ * (it's forced back to login within ~15 min) and drops it from the list. Also
+ * clears stale/legacy rows that have no session to revoke. Requires a session.
  */
-export async function removeDevice(id: string): Promise<Result<void>> {
+export async function logoutDevice(id: string): Promise<Result<void>> {
   try {
-    const res = await authenticatedFetch('/auth/devices/remove', {
+    const res = await authenticatedFetch('/auth/logout', {
       method: 'POST',
       body: JSON.stringify({ device_id: id }),
     })
     if (!res.success) return res
-    if (!res.data.ok) return err('DEVICE_REMOVE_FAILED', `Remove failed (${res.data.status})`)
+    if (!res.data.ok) return err('DEVICE_LOGOUT_FAILED', `Logout failed (${res.data.status})`)
     return ok(undefined)
   } catch (e) {
-    return err('DEVICE_REMOVE_FAILED', 'Remove failed', e)
+    return err('DEVICE_LOGOUT_FAILED', 'Logout failed', e)
   }
 }

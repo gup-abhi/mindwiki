@@ -18,7 +18,7 @@ export async function issueTokens(
   accountId: string,
   env: Env,
   existingFamilyId?: string
-): Promise<{ accessToken: string; refreshToken: string }> {
+): Promise<{ accessToken: string; refreshToken: string; familyId: string }> {
   const familyId = existingFamilyId ?? crypto.randomUUID()
 
   const accessToken = await sign(
@@ -48,5 +48,5 @@ export async function issueTokens(
     )
   }
 
-  return { accessToken, refreshToken }
+  return { accessToken, refreshToken, familyId }
 }

@@ -35,7 +35,13 @@ export default function Settings() {
   const { needsSetup, phrase, busy, error, setup, done } = useRecoverySetup()
   const { preference, setPreference } = useThemePreference()
   const { enabled: lockEnabled, capable: lockCapable, toggle: toggleLock } = useBiometricLock()
-  const { devices, loading: devicesLoading, refresh: refreshDevices, remove: removeDevice } = useDevices()
+  const {
+    devices,
+    loading: devicesLoading,
+    refresh: refreshDevices,
+    currentDeviceId,
+    logoutDevice,
+  } = useDevices()
   const { logout } = useAuth()
 
   return (
@@ -189,23 +195,32 @@ export default function Settings() {
             {devicesLoading ? 'Loading…' : 'No other devices have paired.'}
           </Text>
         ) : (
-          devices.map((d) => (
-            <View key={d.id} style={styles.row} testID="settings-device">
-              <Text variant="bodyStrong">{d.label}</Text>
-              <View style={styles.deviceMeta}>
-                <Text variant="caption" color="textSecondary">
-                  {timeAgo(d.paired_at)}
-                </Text>
-                <IconButton
-                  name="close"
-                  size={18}
-                  onPress={() => void removeDevice(d.id)}
-                  accessibilityLabel={`Remove ${d.label}`}
-                  testID="settings-device-remove"
-                />
+          devices.map((d) => {
+            const isCurrent = d.id === currentDeviceId
+            return (
+              <View key={d.id} style={styles.row} testID="settings-device">
+                <Text variant="bodyStrong">{d.label}</Text>
+                <View style={styles.deviceMeta}>
+                  <Text variant="caption" color="textSecondary">
+                    {timeAgo(d.paired_at)}
+                  </Text>
+                  {isCurrent ? (
+                    <Text variant="caption" color="textMuted">
+                      This device
+                    </Text>
+                  ) : (
+                    <IconButton
+                      name="log-out-outline"
+                      size={18}
+                      onPress={() => void logoutDevice(d.id)}
+                      accessibilityLabel={`Log out ${d.label}`}
+                      testID="settings-device-logout"
+                    />
+                  )}
+                </View>
               </View>
-            </View>
-          ))
+            )
+          })
         )}
       </Card>
 

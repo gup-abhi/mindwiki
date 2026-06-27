@@ -3,7 +3,7 @@ import { handleChangePassword } from './auth/change-password'
 import { handleLogin } from './auth/login'
 import { handleLogout } from './auth/logout'
 import { handlePairStart, handlePairRedeem } from './auth/pair'
-import { handleListDevices, handleRemoveDevice } from './auth/devices'
+import { handleListDevices } from './auth/devices'
 import { handleRecover } from './auth/recover'
 import { handleRecoveryStatus, handleSetRecovery } from './auth/recovery-setup'
 import { handleRefresh } from './auth/refresh'
@@ -37,7 +37,6 @@ export default {
     if (method === 'POST' && path === '/auth/logout') return handleLogout(req, env, accountId)
     if (method === 'POST' && path === '/auth/pair/start') return handlePairStart(req, env, accountId)
     if (method === 'GET' && path === '/auth/devices') return handleListDevices(req, env, accountId)
-    if (method === 'POST' && path === '/auth/devices/remove') return handleRemoveDevice(req, env, accountId)
     if (method === 'GET' && path.endsWith('/delta')) return handleDelta(req, env, accountId, url)
     if (method === 'PUT' && path.startsWith('/sync/')) return handleUpload(req, env, accountId, path)
 

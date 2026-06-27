@@ -36,7 +36,13 @@ beforeEach(() => {
   mockRecovery.mockReturnValue(recoveryBase)
   mockAuth.mockReturnValue({ logout })
   mockBiometric.mockReturnValue({ enabled: true, capable: true, toggle: toggleLock })
-  mockDevices.mockReturnValue({ devices: [], loading: false, refresh: jest.fn(), remove: jest.fn() })
+  mockDevices.mockReturnValue({
+    devices: [],
+    loading: false,
+    refresh: jest.fn(),
+    currentDeviceId: null,
+    logoutDevice: jest.fn(),
+  })
 })
 
 describe('Settings', () => {
@@ -109,23 +115,38 @@ describe('Settings', () => {
       devices: [{ id: 'd1', label: 'Pixel 7', platform: 'android', paired_at: Date.now() }],
       loading: false,
       refresh: jest.fn(),
-      remove: jest.fn(),
+      currentDeviceId: null,
+      logoutDevice: jest.fn(),
     })
     render(<Settings />)
     expect(screen.getByText('Pixel 7')).toBeTruthy()
   })
 
-  it('removes a stale device from the list', () => {
-    const remove = jest.fn()
+  it('logs out another device from the list', () => {
+    const logoutDevice = jest.fn()
     mockDevices.mockReturnValue({
       devices: [{ id: 'd1', label: 'Pixel 7', platform: 'android', paired_at: Date.now() }],
       loading: false,
       refresh: jest.fn(),
-      remove,
+      currentDeviceId: 'other',
+      logoutDevice,
     })
     render(<Settings />)
-    fireEvent.press(screen.getByTestId('settings-device-remove'))
-    expect(remove).toHaveBeenCalledWith('d1')
+    fireEvent.press(screen.getByTestId('settings-device-logout'))
+    expect(logoutDevice).toHaveBeenCalledWith('d1')
+  })
+
+  it('shows no sign-out button for the current device, labels it instead', () => {
+    mockDevices.mockReturnValue({
+      devices: [{ id: 'd1', label: 'Pixel 7', platform: 'android', paired_at: Date.now() }],
+      loading: false,
+      refresh: jest.fn(),
+      currentDeviceId: 'd1',
+      logoutDevice: jest.fn(),
+    })
+    render(<Settings />)
+    expect(screen.queryByTestId('settings-device-logout')).toBeNull()
+    expect(screen.getByText('This device')).toBeTruthy()
   })
 
   it('shows an empty state when no other devices have paired', () => {

@@ -1,4 +1,4 @@
-import { listDevices, removeDevice } from '@/services/auth/devices'
+import { listDevices, logoutDevice } from '@/services/auth/devices'
 import { authenticatedFetch } from '@/services/auth/api-client'
 
 jest.mock('@/services/auth/api-client', () => ({ authenticatedFetch: jest.fn() }))
@@ -22,14 +22,14 @@ describe('listDevices', () => {
   })
 })
 
-describe('removeDevice', () => {
+describe('logoutDevice', () => {
   beforeEach(() => jest.clearAllMocks())
 
-  it('posts the device id to the remove endpoint', async () => {
+  it('posts the device id to the logout endpoint', async () => {
     mockFetch.mockResolvedValue({ success: true, data: { ok: true } })
-    const res = await removeDevice('d1')
+    const res = await logoutDevice('d1')
     expect(res.success).toBe(true)
-    expect(mockFetch).toHaveBeenCalledWith('/auth/devices/remove', {
+    expect(mockFetch).toHaveBeenCalledWith('/auth/logout', {
       method: 'POST',
       body: JSON.stringify({ device_id: 'd1' }),
     })
@@ -37,8 +37,8 @@ describe('removeDevice', () => {
 
   it('fails on a non-ok response', async () => {
     mockFetch.mockResolvedValue({ success: true, data: { ok: false, status: 500 } })
-    const res = await removeDevice('d1')
+    const res = await logoutDevice('d1')
     expect(res.success).toBe(false)
-    if (!res.success) expect(res.error.code).toBe('DEVICE_REMOVE_FAILED')
+    if (!res.success) expect(res.error.code).toBe('DEVICE_LOGOUT_FAILED')
   })
 })

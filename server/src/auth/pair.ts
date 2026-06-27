@@ -38,10 +38,18 @@ export async function handlePairRedeem(req: Request, env: Env): Promise<Response
   if (!rec) return new Response('Invalid or expired pairing code', { status: 401 })
   await env.AUTH_KV.delete(`pair:${code}`) // one-time use
 
-  // Log the new device so the owner can see (and notice) what paired.
-  await recordPairedDevice(env, rec.account_id, device_label ?? 'New device', platform ?? 'unknown', device_id)
+  const { accessToken, refreshToken, familyId } = await issueTokens(rec.account_id, env)
 
-  const { accessToken, refreshToken } = await issueTokens(rec.account_id, env)
+  // Log the new device (with its session family, so it can be signed out
+  // remotely) so the owner can see (and notice) what paired.
+  await recordPairedDevice(
+    env,
+    rec.account_id,
+    device_label ?? 'New device',
+    platform ?? 'unknown',
+    device_id,
+    familyId
+  )
   return Response.json({
     account_id: rec.account_id,
     access_token: accessToken,

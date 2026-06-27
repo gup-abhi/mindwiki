@@ -67,9 +67,18 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
     })
   )
 
-  // Log the registering device so the account owner sees it in their devices list.
-  await recordPairedDevice(env, accountId, body.device_label ?? 'New device', body.platform ?? 'unknown', body.device_id)
+  const { accessToken, refreshToken, familyId } = await issueTokens(accountId, env)
 
-  const { accessToken, refreshToken } = await issueTokens(accountId, env)
+  // Log the registering device (with its session family, so it can be signed out
+  // remotely) so the account owner sees it in their devices list.
+  await recordPairedDevice(
+    env,
+    accountId,
+    body.device_label ?? 'New device',
+    body.platform ?? 'unknown',
+    body.device_id,
+    familyId
+  )
+
   return Response.json({ account_id: accountId, access_token: accessToken, refresh_token: refreshToken })
 }
