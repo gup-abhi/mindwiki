@@ -1,4 +1,4 @@
-import { scoreCrisis } from '@/services/llm/fast-model'
+import { scoreCrisis, expandQueryTerms } from '@/services/llm/fast-model'
 import { buildCrisisPrompt } from '@/services/llm/prompts/crisis-signal'
 import { LLMBridge } from '@/native/LLMBridge'
 
@@ -61,5 +61,42 @@ describe('scoreCrisis', () => {
     const result = await scoreCrisis({ situation: 's', thought: 't' })
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('CRISIS_VALIDATION_FAILED')
+  })
+})
+
+describe('expandQueryTerms', () => {
+  beforeEach(() => mockTag.mockReset())
+
+  it('returns cleaned, capped keywords from the model output', async () => {
+    modelReturns('Here: {"keywords":["overwhelmed","  burnout  ","stress","",""]} ')
+    const result = await expandQueryTerms('everything is too much')
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data).toContain('overwhelmed')
+      expect(result.data).toContain('burnout') // trimmed
+      expect(result.data).not.toContain('') // empties dropped
+      expect(result.data.length).toBeLessThanOrEqual(5) // capped
+    }
+  })
+
+  it('fails with EXPAND_INFERENCE_FAILED when the model throws', async () => {
+    mockTag.mockRejectedValue(new Error('no fast model'))
+    const result = await expandQueryTerms('hi')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('EXPAND_INFERENCE_FAILED')
+  })
+
+  it('fails with EXPAND_PARSE_FAILED when there is no JSON', async () => {
+    modelReturns('sorry, no idea')
+    const result = await expandQueryTerms('hi')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('EXPAND_PARSE_FAILED')
+  })
+
+  it('fails with EXPAND_VALIDATION_FAILED when keywords is not a string array', async () => {
+    modelReturns('{"keywords":"overwhelmed"}')
+    const result = await expandQueryTerms('hi')
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('EXPAND_VALIDATION_FAILED')
   })
 })

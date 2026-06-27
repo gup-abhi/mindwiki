@@ -1,4 +1,5 @@
 import { converseFromWiki, summarizeConversation } from '@/services/llm/deep-model'
+import { expandQueryTerms } from '@/services/llm/fast-model'
 import { type ConversationContext } from '@/services/llm/prompts/conversation'
 import { graphNeighborhood } from '@/services/graph/neighborhood'
 import { setConversationSummary } from '@/services/storage/chat'
@@ -53,6 +54,13 @@ function retrievalQuery(history: ChatMessage[], message: string): string {
     .slice(-RETRIEVAL_TURNS)
     .map((m) => m.content)
   return [...recentUser, message].join(' ')
+}
+
+/** Fast-model query expansion as a best-effort list — [] if the model is missing
+ * or the call fails, so retrieval still runs on graph + embeddings + lexical. */
+async function modelExpansion(query: string): Promise<string[]> {
+  const res = await expandQueryTerms(query)
+  return res.success ? res.data : []
 }
 
 // Cap how many associative terms the graph can add, so a hub node with many
@@ -122,12 +130,17 @@ export function buildContext(
   nodes: GraphNode[],
   edges: GraphEdge[],
   history: ChatMessage[] = [],
-  embeddings?: QueryEmbeddings
+  embeddings?: QueryEmbeddings,
+  expansionTerms: string[] = []
 ): { context: ConversationContext; sources: WikiPage[] } {
   const baseQuery = retrievalQuery(history, message)
-  // Graph expansion feeds the LEXICAL query only; embeddings.query (built from
-  // the literal message in respond) is intentionally left as-is.
-  const rankQuery = expandWithGraph(baseQuery, nodes, edges)
+  // Both expansions feed the LEXICAL query only — graph (associative neighbours)
+  // and HyDE (fast-model alternate keywords). embeddings.query (built from the
+  // literal message in respond) is intentionally left as-is.
+  const graphExpanded = expandWithGraph(baseQuery, nodes, edges)
+  const rankQuery = expansionTerms.length
+    ? `${graphExpanded} ${expansionTerms.join(' ')}`
+    : graphExpanded
   const ranked = embeddings
     ? rankPagesHybrid(rankQuery, pages, embeddings, MAX_PAGES)
     : rankPages(rankQuery, pages, MAX_PAGES)
@@ -159,17 +172,23 @@ export async function respond(
   { history, message, pages, nodes, edges, summary }: RespondInput,
   onToken?: (token: string) => void
 ): Promise<Result<ConversationReply>> {
-  // Semantic ranking is best-effort: embed the same query the lexical ranker
-  // uses and load stored page vectors. Returns null (→ lexical fallback) if the
-  // embed model isn't present or anything goes wrong — never blocks the reply.
-  const embeddings = await buildQueryEmbeddings(retrievalQuery(history, message))
+  // Two best-effort retrieval aids, run in PARALLEL so neither stacks latency on
+  // the other before the reply: (1) embed the query for semantic ranking, (2) ask
+  // the fast model for alternate keywords (HyDE) to widen lexical ranking. Either
+  // failing (model missing, etc.) just drops that aid — never blocks the reply.
+  const q = retrievalQuery(history, message)
+  const [embeddings, expansionTerms] = await Promise.all([
+    buildQueryEmbeddings(q),
+    modelExpansion(q),
+  ])
   const { context, sources } = buildContext(
     message,
     pages,
     nodes,
     edges,
     history,
-    embeddings ?? undefined
+    embeddings ?? undefined,
+    expansionTerms
   )
   const trimmed = history.slice(-MAX_HISTORY_MESSAGES)
 

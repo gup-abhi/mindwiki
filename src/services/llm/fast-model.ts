@@ -2,7 +2,9 @@ import { LLMBridge } from '@/native/LLMBridge'
 import { type Result, ok, err } from '@/types/result'
 
 import { buildCrisisPrompt, type CrisisPromptInput } from './prompts/crisis-signal'
+import { buildExpandQueryPrompt } from './prompts/expand-query'
 import { CrisisSignalSchema, type CrisisSignal } from './schemas/crisis-signal.schema'
+import { ExpandQuerySchema } from './schemas/expand-query.schema'
 
 // Pull the first {...} object out of the model output (it may add stray text).
 function extractJson(text: string): unknown {
@@ -39,4 +41,36 @@ export async function scoreCrisis(input: CrisisPromptInput): Promise<Result<Cris
   if (!parsed.success) return err('CRISIS_VALIDATION_FAILED', 'Crisis output failed schema validation')
 
   return ok(parsed.data)
+}
+
+const MAX_EXPANSION_KEYWORDS = 5
+const MAX_KEYWORD_LEN = 40
+
+/**
+ * Generate a few alternate keywords/phrasings for a Reflect message (HyDE-style
+ * query expansion), to widen lexical retrieval over the wiki. Best-effort: a
+ * model/parse failure returns an error the caller treats as "no expansion", so
+ * retrieval still runs on graph + embeddings. Output is cleaned and capped.
+ * Never logs message text.
+ */
+export async function expandQueryTerms(message: string): Promise<Result<string[]>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.tag(buildExpandQueryPrompt(message), { maxTokens: 48, temperature: 0.2 })
+    raw = output.text
+  } catch (e) {
+    return err('EXPAND_INFERENCE_FAILED', 'Fast model inference failed', e)
+  }
+
+  const json = extractJson(raw)
+  if (json === undefined) return err('EXPAND_PARSE_FAILED', 'No JSON object found in model output')
+
+  const parsed = ExpandQuerySchema.safeParse(json)
+  if (!parsed.success) return err('EXPAND_VALIDATION_FAILED', 'Expand output failed schema validation')
+
+  const terms = parsed.data.keywords
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0 && k.length <= MAX_KEYWORD_LEN)
+    .slice(0, MAX_EXPANSION_KEYWORDS)
+  return ok(terms)
 }

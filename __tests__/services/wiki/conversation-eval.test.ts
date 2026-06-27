@@ -25,7 +25,7 @@ import { type GraphNode, type GraphEdge } from '@/services/storage/graph'
 import { LLMBridge } from '@/native/LLMBridge'
 
 jest.mock('@/native/LLMBridge', () => ({
-  LLMBridge: { converse: jest.fn(), synthesise: jest.fn(), embed: jest.fn() },
+  LLMBridge: { converse: jest.fn(), synthesise: jest.fn(), embed: jest.fn(), tag: jest.fn() },
 }))
 const mockConverse = LLMBridge.converse as jest.Mock
 
@@ -228,5 +228,17 @@ describe('graph-aware query expansion (buildContext)', () => {
 
   it('does not expand when the message names no graph node', () => {
     expect(buildContext('pancakes for breakfast', PAGES, nodes, edges).sources).toEqual([])
+  })
+})
+
+describe('HyDE expansion terms (buildContext)', () => {
+  const PAGES = [page('Work anxiety', 'You tense up before meetings and replay them afterward.')]
+
+  it('grounds via fast-model keywords the message itself lacks', () => {
+    // "feeling off today" shares no words with the page on its own.
+    expect(buildContext('feeling off today', PAGES, [], []).sources).toEqual([])
+    // With HyDE keywords (e.g. the model surfaced "anxiety"), it grounds.
+    const { sources } = buildContext('feeling off today', PAGES, [], [], [], undefined, ['anxiety'])
+    expect(sources.map((p) => p.title)).toContain('Work anxiety')
   })
 })
