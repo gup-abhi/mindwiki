@@ -22,8 +22,21 @@ export async function handleUpload(
     return new Response('Bad Request', { status: 400 })
   }
 
+  const key = `${accountId}/${body.table}/${body.record_id}`
+
+  // Last-write-wins guard: never let an older write overwrite a newer stored
+  // record. Without it a device re-uploading a stale copy it pulled (e.g. an
+  // entry captured before a background tagging pass updated it) moves the record
+  // backwards and silently discards the newer state. Ack as success so the client
+  // still marks it synced and stops retrying.
+  const existing = await env.R2.head(key)
+  const stored = Number(existing?.customMetadata?.updated_at ?? 0)
+  if (body.updated_at < stored) {
+    return new Response('OK', { status: 200 })
+  }
+
   await env.R2.put(
-    `${accountId}/${body.table}/${body.record_id}`,
+    key,
     JSON.stringify({ ciphertext: body.ciphertext, updated_at: body.updated_at }),
     { customMetadata: { updated_at: String(body.updated_at) } }
   )
