@@ -2,7 +2,7 @@ import { initLlama, type LlamaContext } from 'llama.rn'
 
 import { modelLoadPath } from '@/services/llm/model-manager'
 
-export type ModelKind = 'fast' | 'deep'
+export type ModelKind = 'fast' | 'deep' | 'embed'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
 
@@ -43,6 +43,13 @@ export interface ILLMBridge {
     opts: InferenceOptions,
     onToken?: (token: string) => void
   ): Promise<InferenceResult>
+  /**
+   * Embed text into a semantic vector via the dedicated embedding model. Used to
+   * rank wiki pages for Reflect by meaning, not just shared words. Text NEVER
+   * leaves the device. Throws if the embedding model isn't downloaded — callers
+   * must treat embeddings as best-effort and fall back to lexical ranking.
+   */
+  embed(text: string): Promise<number[]>
 }
 
 const contexts: Partial<Record<ModelKind, LlamaContext>> = {}
@@ -69,7 +76,14 @@ async function ensureLoaded(kind: ModelKind): Promise<LlamaContext> {
   if (existing) return existing
   const model = modelLoadPath(kind)
   try {
-    const ctx = await initLlama({ model, n_ctx: 2048 })
+    // The embedding model loads in embedding mode (mean-pooled, L2-normalized so
+    // cosine == dot product) — a context opened this way serves ctx.embedding(),
+    // not completions. A small window is plenty for one page/query.
+    const params =
+      kind === 'embed'
+        ? { model, embedding: true, pooling_type: 'mean' as const, embd_normalize: 2, n_ctx: 512 }
+        : { model, n_ctx: 2048 }
+    const ctx = await initLlama(params)
     contexts[kind] = ctx
     return ctx
   } catch (e) {
@@ -151,6 +165,16 @@ async function runConversation(
   }
 }
 
+async function runEmbed(text: string): Promise<number[]> {
+  const ctx = await ensureLoaded('embed')
+  try {
+    const res = await withModelLock('embed', () => ctx.embedding(text))
+    return res.embedding
+  } catch (e) {
+    throw new Error(`Embedding failed for embed model: ${String(e)}`)
+  }
+}
+
 export const LLMBridge: ILLMBridge = {
   async loadModel(kind) {
     await ensureLoaded(kind)
@@ -163,5 +187,8 @@ export const LLMBridge: ILLMBridge = {
   },
   converse(messages, opts, onToken) {
     return runConversation(messages, opts, onToken)
+  },
+  embed(text) {
+    return runEmbed(text)
   },
 }

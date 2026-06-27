@@ -21,6 +21,14 @@ export const MODELS: Record<ModelKind, ModelSpec> = {
     url: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf',
     approxBytes: 1_900_000_000,
   },
+  // Dedicated sentence-embedding model (bge-small-en-v1.5, 384-dim, F16 ~67MB)
+  // for semantic wiki retrieval in Reflect. Optional — a missing embed model
+  // degrades to lexical ranking, so its download is non-fatal.
+  embed: {
+    filename: 'embed-model.gguf',
+    url: 'https://huggingface.co/CompendiumLabs/bge-small-en-v1.5-gguf/resolve/main/bge-small-en-v1.5-f16.gguf',
+    approxBytes: 67_000_000,
+  },
 }
 
 /**
@@ -46,8 +54,23 @@ export async function isModelDownloaded(kind: ModelKind): Promise<boolean> {
   return info.exists && !info.isDirectory && (info.size ?? 0) > 0
 }
 
+// App readiness gates on the two REQUIRED models only — the embed model is
+// optional (lexical fallback), so a missing or failed embed download never
+// blocks journaling.
 export async function areModelsReady(): Promise<boolean> {
   return (await isModelDownloaded('fast')) && (await isModelDownloaded('deep'))
+}
+
+/**
+ * Best-effort, idempotent fetch of the optional embedding model. New users get
+ * it during the onboarding download; this covers users already past onboarding
+ * (fast+deep present, so the onboarding flow never re-runs). Safe to call often —
+ * it no-ops once the file is present, and a failure is swallowed (embeddings
+ * stay off until a later attempt succeeds).
+ */
+export async function ensureEmbedModel(): Promise<void> {
+  if (await isModelDownloaded('embed')) return
+  await downloadModel('embed') // Result, never throws — ignore failure
 }
 
 /**

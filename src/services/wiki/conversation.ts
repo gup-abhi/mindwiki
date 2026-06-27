@@ -7,7 +7,8 @@ import { type WikiPage } from '@/services/storage/wiki'
 import { type ChatMessage } from '@/native/LLMBridge'
 import { type Result, ok } from '@/types/result'
 
-import { rankPages } from './search'
+import { rankPages, rankPagesHybrid, type QueryEmbeddings } from './search'
+import { buildQueryEmbeddings } from './embeddings'
 
 export interface ConversationReply {
   text: string
@@ -67,19 +68,24 @@ function connectionLine(title: string, nodes: GraphNode[], edges: GraphEdge[]): 
 /**
  * Build the grounded context for one turn: rank wiki pages against the recent
  * thread (last few user turns + the new message) and pull short graph-connection
- * lines for the top pages. Pure — the caller supplies pages and graph. Returns
- * the context for the prompt plus the source pages (for citation chips).
+ * lines for the top pages. Pure — the caller supplies pages and graph. When
+ * `embeddings` is provided, ranking is hybrid (lexical + semantic); otherwise it
+ * falls back to pure lexical. Returns the context for the prompt plus the source
+ * pages (for citation chips).
  */
 export function buildContext(
   message: string,
   pages: WikiPage[],
   nodes: GraphNode[],
   edges: GraphEdge[],
-  history: ChatMessage[] = []
+  history: ChatMessage[] = [],
+  embeddings?: QueryEmbeddings
 ): { context: ConversationContext; sources: WikiPage[] } {
-  const sources = rankPages(retrievalQuery(history, message), pages, MAX_PAGES)
-    .filter((r) => r.score >= MIN_RELEVANCE)
-    .map((r) => r.page)
+  const query = retrievalQuery(history, message)
+  const ranked = embeddings
+    ? rankPagesHybrid(query, pages, embeddings, MAX_PAGES)
+    : rankPages(query, pages, MAX_PAGES)
+  const sources = ranked.filter((r) => r.score >= MIN_RELEVANCE).map((r) => r.page)
 
   const connections: string[] = []
   for (const page of sources.slice(0, MAX_CONNECTION_PAGES)) {
@@ -107,7 +113,18 @@ export async function respond(
   { history, message, pages, nodes, edges, summary }: RespondInput,
   onToken?: (token: string) => void
 ): Promise<Result<ConversationReply>> {
-  const { context, sources } = buildContext(message, pages, nodes, edges, history)
+  // Semantic ranking is best-effort: embed the same query the lexical ranker
+  // uses and load stored page vectors. Returns null (→ lexical fallback) if the
+  // embed model isn't present or anything goes wrong — never blocks the reply.
+  const embeddings = await buildQueryEmbeddings(retrievalQuery(history, message))
+  const { context, sources } = buildContext(
+    message,
+    pages,
+    nodes,
+    edges,
+    history,
+    embeddings ?? undefined
+  )
   const trimmed = history.slice(-MAX_HISTORY_MESSAGES)
 
   const res = await converseFromWiki({ history: trimmed, message, context, summary }, onToken)

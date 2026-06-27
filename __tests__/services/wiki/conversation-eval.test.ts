@@ -24,7 +24,7 @@ import { type WikiPage } from '@/services/storage/wiki'
 import { LLMBridge } from '@/native/LLMBridge'
 
 jest.mock('@/native/LLMBridge', () => ({
-  LLMBridge: { converse: jest.fn(), synthesise: jest.fn() },
+  LLMBridge: { converse: jest.fn(), synthesise: jest.fn(), embed: jest.fn() },
 }))
 const mockConverse = LLMBridge.converse as jest.Mock
 

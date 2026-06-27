@@ -6,6 +6,12 @@ export interface RankedPage {
   score: number
 }
 
+/** The semantic inputs for hybrid ranking: a query vector + per-page vectors. */
+export interface QueryEmbeddings {
+  query: number[]
+  byPage: Map<string, number[]>
+}
+
 // Common words that shouldn't drive relevance.
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'is', 'are', 'am', 'was', 'were', 'be', 'to', 'of', 'and', 'or',
@@ -22,6 +28,25 @@ export function queryTerms(query: string): string[] {
   return [...new Set(tokenize(query).filter((t) => !STOPWORDS.has(t)))]
 }
 
+/** Raw term-overlap score for one page: title matches weigh 5, content by
+ * frequency. No richness boost (callers add it). 0 = no overlap. */
+function lexicalScore(terms: string[], page: WikiPage): number {
+  const titleSet = new Set(tokenize(page.title))
+  const contentCounts = new Map<string, number>()
+  for (const w of tokenize(page.content)) {
+    contentCounts.set(w, (contentCounts.get(w) ?? 0) + 1)
+  }
+
+  let score = 0
+  for (const t of terms) {
+    if (titleSet.has(t)) score += 5
+    score += contentCounts.get(t) ?? 0
+  }
+  return score
+}
+
+const RICHNESS_BOOST = (page: WikiPage): number => Math.min(page.entry_count, 10) * 0.1
+
 /**
  * Rank wiki pages for a query by term overlap: title matches weigh heavily,
  * content matches by frequency, with a small boost for richer pages (entry
@@ -33,20 +58,64 @@ export function rankPages(query: string, pages: WikiPage[], limit = 5): RankedPa
 
   const ranked: RankedPage[] = []
   for (const page of pages) {
-    const titleSet = new Set(tokenize(page.title))
-    const contentCounts = new Map<string, number>()
-    for (const w of tokenize(page.content)) {
-      contentCounts.set(w, (contentCounts.get(w) ?? 0) + 1)
-    }
-
-    let score = 0
-    for (const t of terms) {
-      if (titleSet.has(t)) score += 5
-      score += contentCounts.get(t) ?? 0
-    }
+    const score = lexicalScore(terms, page)
     if (score > 0) {
-      score += Math.min(page.entry_count, 10) * 0.1 // gentle richness boost
-      ranked.push({ page, score })
+      ranked.push({ page, score: score + RICHNESS_BOOST(page) })
+    }
+  }
+
+  return ranked.sort((a, b) => b.score - a.score).slice(0, limit)
+}
+
+/** Cosine similarity of two vectors; 0 for mismatched/empty/zero vectors. */
+export function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0
+  let dot = 0
+  let na = 0
+  let nb = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    na += a[i] * a[i]
+    nb += b[i] * b[i]
+  }
+  if (na === 0 || nb === 0) return 0
+  return dot / (Math.sqrt(na) * Math.sqrt(nb))
+}
+
+// Semantic fusion constants. bge-small sits on a high cosine baseline (unrelated
+// text still scores ~0.3), so we subtract a baseline and only count similarity
+// ABOVE it. The weight is scaled to the lexical scale (title match = 5) so a
+// genuinely on-topic page (cosine ≥ ~0.6 → 0.3 over baseline) contributes ~3
+// points — enough to clear conversation.ts's MIN_RELEVANCE floor on meaning
+// alone, surfacing a page a terse/reworded message shares no words with. These
+// are initial values, tunable on device like MIN_RELEVANCE.
+const SEMANTIC_BASELINE = 0.3
+const SEMANTIC_WEIGHT = 10
+
+/**
+ * Hybrid ranking: lexical term-overlap PLUS a semantic bonus from embedding
+ * similarity. Strictly additive — a page's lexical score is never reduced, so
+ * this only ever ADDS recall (semantically-related pages that share no words)
+ * over {@link rankPages}; it never demotes a lexical match below itself. Pages
+ * with neither signal are dropped. Pure — the caller supplies the vectors (and
+ * falls back to rankPages when embeddings are unavailable).
+ */
+export function rankPagesHybrid(
+  query: string,
+  pages: WikiPage[],
+  embeddings: QueryEmbeddings,
+  limit = 5
+): RankedPage[] {
+  const terms = queryTerms(query)
+
+  const ranked: RankedPage[] = []
+  for (const page of pages) {
+    const lex = lexicalScore(terms, page)
+    const vec = embeddings.byPage.get(page.id)
+    const sem = vec ? Math.max(0, cosine(embeddings.query, vec) - SEMANTIC_BASELINE) : 0
+    const score = lex + SEMANTIC_WEIGHT * sem
+    if (score > 0) {
+      ranked.push({ page, score: score + RICHNESS_BOOST(page) })
     }
   }
 

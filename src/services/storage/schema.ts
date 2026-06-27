@@ -387,3 +387,25 @@ export const migration015: Migration = {
     )`,
   ],
 }
+
+// Migration 016 — wiki page embeddings. A semantic vector per wiki page so
+// Reflect can ground a terse or differently-worded message in the right page
+// (hybrid lexical + semantic retrieval). Derived, device-local, and NOT synced:
+// the vector depends on the on-device embedding model, so each device computes
+// its own and a device without the model just falls back to lexical ranking.
+// `vector` is a JSON array of floats (TEXT) — small (≤~3KB/page) and avoids
+// plumbing BLOB params through the storage layer. `content_hash` lets backfill
+// re-embed only pages whose content actually changed.
+export const migration016: Migration = {
+  version: 16,
+  name: 'page_embeddings',
+  statements: [
+    `CREATE TABLE page_embeddings (
+      page_id      TEXT PRIMARY KEY,
+      dim          INTEGER NOT NULL,
+      vector       TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      updated_at   INTEGER NOT NULL
+    )`,
+  ],
+}
