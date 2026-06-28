@@ -54,7 +54,7 @@ function StatTile({ value, label, tone }: { value: string; label: string; tone?:
   const color = tone === 'up' ? 'success' : tone === 'down' ? 'danger' : 'textPrimary'
   return (
     <Card variant="sunken" style={styles.tile}>
-      <Text variant="heading" color={color}>
+      <Text variant="heading" color={color} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
         {value}
       </Text>
       <Text variant="caption" color="textMuted" style={styles.tileLabel}>
