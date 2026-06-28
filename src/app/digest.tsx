@@ -215,6 +215,15 @@ function Dashboard({
           <Text variant="body">{digest.selfCriticism.message}</Text>
         </Card>
       )}
+
+      {digest.weeklyRhythm && (
+        <Card variant="sunken" style={styles.card}>
+          <Text variant="label" color="accent" style={styles.cardLabel}>
+            Weekly rhythm
+          </Text>
+          <Text variant="body">{digest.weeklyRhythm.message}</Text>
+        </Card>
+      )}
     </>
   )
 }

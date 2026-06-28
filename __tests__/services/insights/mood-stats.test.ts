@@ -1,4 +1,4 @@
-import { moodByDay, monthMoodGrid } from '@/services/insights/mood-stats'
+import { moodByDay, monthMoodGrid, detectWeeklyRhythm } from '@/services/insights/mood-stats'
 import { type Entry } from '@/services/storage/entries'
 
 const at = (y: number, m: number, d: number, h = 12): number => new Date(y, m - 1, d, h).getTime()
@@ -18,6 +18,9 @@ const entry = (mood: number, ts: number): Entry => ({
   tagged_at: null,
   source: 'journal',
 })
+
+// An entry carrying a distortion at a timestamp (mood irrelevant for rhythm).
+const entryD = (distortion: string | null, ts: number): Entry => ({ ...entry(3, ts), distortion })
 
 describe('moodByDay', () => {
   const now = at(2026, 6, 10, 20) // Wed Jun 10 2026
@@ -65,5 +68,72 @@ describe('monthMoodGrid', () => {
     const weeks = monthMoodGrid([entry(3, at(2026, 6, 10)), entry(5, at(2026, 6, 10))], 2026, 5)
     const day10 = weeks.flat().find((c) => c.day === 10)
     expect(day10?.avg).toBe(4) // (3 + 5) / 2
+  })
+})
+
+describe('detectWeeklyRhythm', () => {
+  const now = at(2026, 6, 24, 20) // Wed Jun 24 2026; Jun 3/10/17/24 are Wednesdays
+
+  it('flags a distortion that recurs on the same weekday + time of day', () => {
+    const data = [
+      entryD('catastrophizing', at(2026, 6, 3, 14)), // Wed afternoon
+      entryD('catastrophizing', at(2026, 6, 10, 15)), // Wed afternoon
+      entryD('catastrophizing', at(2026, 6, 17, 14)), // Wed afternoon
+      entryD('mind reading', at(2026, 6, 4, 10)), // Thu morning — weekday spread
+      entryD('mind reading', at(2026, 6, 6, 19)), // Sat evening — weekday spread
+      entryD(null, at(2026, 6, 5, 12)), // no distortion — ignored
+    ]
+    const r = detectWeeklyRhythm(data, now)
+    expect(r).not.toBeNull()
+    expect(r!.weekday).toBe('Wednesday')
+    expect(r!.timeOfDay).toBe('afternoon')
+    expect(r!.distortion).toBe('catastrophizing')
+    expect(r!.occurrences).toBe(3)
+    expect(r!.message).toMatch(/Wednesday afternoons/)
+  })
+
+  it('does not flag below the minimum occurrences', () => {
+    const data = [
+      entryD('catastrophizing', at(2026, 6, 10, 14)), // Wed
+      entryD('catastrophizing', at(2026, 6, 17, 14)), // Wed — only 2
+      entryD('mind reading', at(2026, 6, 4, 10)), // Thu
+      entryD('overgeneralizing', at(2026, 6, 6, 19)), // Sat
+    ]
+    expect(detectWeeklyRhythm(data, now)).toBeNull()
+  })
+
+  it('does not flag a distortion that is spread across the week (low concentration)', () => {
+    const data = [
+      entryD('catastrophizing', at(2026, 6, 3, 14)), // Wed afternoon
+      entryD('catastrophizing', at(2026, 6, 10, 14)), // Wed afternoon
+      entryD('catastrophizing', at(2026, 6, 17, 14)), // Wed afternoon → slot = 3
+      entryD('catastrophizing', at(2026, 6, 1, 9)), // Mon morning
+      entryD('catastrophizing', at(2026, 6, 2, 19)), // Tue evening
+      entryD('catastrophizing', at(2026, 6, 4, 10)), // Thu morning
+      entryD('catastrophizing', at(2026, 6, 5, 14)), // Fri afternoon
+    ]
+    // Wed-afternoon is 3 of 7 occurrences (~0.43) — below the 0.5 concentration bar.
+    expect(detectWeeklyRhythm(data, now)).toBeNull()
+  })
+
+  it('does not mistake journaling on only one weekday for a rhythm', () => {
+    const onlyWed = [
+      entryD('catastrophizing', at(2026, 6, 3, 14)),
+      entryD('catastrophizing', at(2026, 6, 10, 14)),
+      entryD('catastrophizing', at(2026, 6, 17, 14)),
+      entryD('catastrophizing', at(2026, 6, 24, 14)),
+    ]
+    expect(detectWeeklyRhythm(onlyWed, now)).toBeNull()
+  })
+
+  it('ignores entries older than the lookback window', () => {
+    const data = [
+      entryD('catastrophizing', at(2026, 4, 22, 14)), // April Wed — outside ~6-week window
+      entryD('catastrophizing', at(2026, 6, 10, 14)), // Wed
+      entryD('catastrophizing', at(2026, 6, 17, 14)), // Wed → only 2 in window
+      entryD('mind reading', at(2026, 6, 4, 10)), // Thu
+      entryD('mind reading', at(2026, 6, 6, 19)), // Sat
+    ]
+    expect(detectWeeklyRhythm(data, now)).toBeNull()
   })
 })

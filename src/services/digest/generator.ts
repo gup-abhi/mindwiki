@@ -1,4 +1,5 @@
 import { type Entry } from '@/services/storage/entries'
+import { detectWeeklyRhythm, type WeeklyRhythm } from '@/services/insights/mood-stats'
 
 const DAY_MS = 86_400_000
 
@@ -97,6 +98,8 @@ export interface Digest {
   moodBlindSpot: MoodBlindSpot | null
   /** Days rated low whose language read lighter than you felt; null when none. */
   selfCriticism: MoodBlindSpot | null
+  /** A distortion recurring on the same weekday+time over recent weeks; null when none. */
+  weeklyRhythm: WeeklyRhythm | null
   question: string
   quote: string
   /** LLM-synthesized themes/patterns/questions (added best-effort, post-generate). */
@@ -240,6 +243,11 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     message: `On ${undersell.days} days you rated your mood low, but your words read lighter than you felt. You may be harder on yourself than your day warranted.`,
   }
 
+  // Weekly rhythm — a distortion recurring on the same weekday+time across the
+  // last ~6 weeks. Runs over ALL entries (not just this week), since a "every
+  // Wednesday" pattern is invisible inside a single 7-day window.
+  const weeklyRhythm = detectWeeklyRhythm(allEntries, now)
+
   const focus = topDistortion?.label ?? topEmotion?.label
   const question = focus
     ? `When ${focus} showed up this week, what was usually going on around you?`
@@ -263,6 +271,7 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     correlation,
     moodBlindSpot,
     selfCriticism,
+    weeklyRhythm,
     question,
     quote,
   }
