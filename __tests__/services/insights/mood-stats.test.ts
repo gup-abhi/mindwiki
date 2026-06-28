@@ -1,4 +1,4 @@
-import { moodByDay, monthMoodGrid, detectWeeklyRhythm } from '@/services/insights/mood-stats'
+import { moodByDay, monthMoodGrid, detectWeeklyRhythm, detectMomentum } from '@/services/insights/mood-stats'
 import { type Entry } from '@/services/storage/entries'
 
 const at = (y: number, m: number, d: number, h = 12): number => new Date(y, m - 1, d, h).getTime()
@@ -21,6 +21,9 @@ const entry = (mood: number, ts: number): Entry => ({
 
 // An entry carrying a distortion at a timestamp (mood irrelevant for rhythm).
 const entryD = (distortion: string | null, ts: number): Entry => ({ ...entry(3, ts), distortion })
+
+// An entry with arbitrary field overrides, for momentum (mood/tone/depth) tests.
+const mk = (ts: number, over: Partial<Entry>): Entry => ({ ...entry(3, ts), ...over })
 
 describe('moodByDay', () => {
   const now = at(2026, 6, 10, 20) // Wed Jun 10 2026
@@ -135,5 +138,66 @@ describe('detectWeeklyRhythm', () => {
       entryD('mind reading', at(2026, 6, 6, 19)), // Sat
     ]
     expect(detectWeeklyRhythm(data, now)).toBeNull()
+  })
+})
+
+describe('detectMomentum', () => {
+  const now = at(2026, 6, 24, 20) // recent half ≈ [May 27, Jun 24], earlier ≈ [Apr 29, May 27)
+  const earlierDays = [5, 10, 15, 20].map((d) => at(2026, 5, d, 12)) // May (earlier half)
+  const recentDays = [1, 8, 15, 22].map((d) => at(2026, 6, d, 12)) // June (recent half)
+
+  it('flags upward momentum when mood and tone both rise', () => {
+    const data = [
+      ...earlierDays.map((ts) => mk(ts, { mood: 2, mood_score: 0.3 })),
+      ...recentDays.map((ts) => mk(ts, { mood: 4, mood_score: 0.6 })),
+    ]
+    const m = detectMomentum(data, now)
+    expect(m).not.toBeNull()
+    expect(m!.signals).toEqual(expect.arrayContaining(['mood', 'tone']))
+    expect(m!.message).toMatch(/moving/)
+  })
+
+  it('flags when a core signal rises with depth corroboration (tone flat)', () => {
+    const data = [
+      ...earlierDays.map((ts) => mk(ts, { mood: 2, mood_score: 0.5 })),
+      ...recentDays.map((ts) =>
+        mk(ts, { mood: 4, mood_score: 0.5, behavior: 'did the thing', closing_note: 'a fairer view' })
+      ),
+    ]
+    const m = detectMomentum(data, now)
+    expect(m).not.toBeNull()
+    expect(m!.signals).toEqual(expect.arrayContaining(['mood', 'depth']))
+  })
+
+  it('does not flag a single rising signal (no corroboration)', () => {
+    const data = [
+      ...earlierDays.map((ts) => mk(ts, { mood: 2, mood_score: 0.5 })),
+      ...recentDays.map((ts) => mk(ts, { mood: 4, mood_score: 0.5 })), // only mood moves
+    ]
+    expect(detectMomentum(data, now)).toBeNull()
+  })
+
+  it('never fires on the depth proxy alone', () => {
+    const data = [
+      ...earlierDays.map((ts) => mk(ts, { mood: 3, mood_score: 0.5 })),
+      ...recentDays.map((ts) => mk(ts, { mood: 3, mood_score: 0.5, behavior: 'x', closing_note: 'y' })),
+    ]
+    expect(detectMomentum(data, now)).toBeNull()
+  })
+
+  it('does not flag a decline (up-only)', () => {
+    const data = [
+      ...earlierDays.map((ts) => mk(ts, { mood: 4, mood_score: 0.6 })),
+      ...recentDays.map((ts) => mk(ts, { mood: 2, mood_score: 0.3 })),
+    ]
+    expect(detectMomentum(data, now)).toBeNull()
+  })
+
+  it('does not flag without enough data in each half', () => {
+    const data = [
+      ...earlierDays.map((ts) => mk(ts, { mood: 2, mood_score: 0.3 })),
+      ...recentDays.slice(0, 2).map((ts) => mk(ts, { mood: 4, mood_score: 0.6 })), // only 2 recent
+    ]
+    expect(detectMomentum(data, now)).toBeNull()
   })
 })
