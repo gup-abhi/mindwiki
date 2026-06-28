@@ -95,4 +95,47 @@ describe('generateDigest', () => {
     expect(d.emotionMix[0]).toEqual({ label: 'anxiety', count: 7 })
     expect(d.pattern).toMatch(/Anxiety/)
   })
+
+  describe('mood blind spot', () => {
+    it('flags it when upbeat ratings hide a low inferred score, and names the feeling', () => {
+      // 4 distinct days rated high (mood 5) but read low (score 0.2) with frustration.
+      const days = week().map((e, i) =>
+        i < 4
+          ? { ...e, mood: 5, mood_score: 0.2, emotion: 'frustration' }
+          : { ...e, mood: 3, mood_score: 0.6, emotion: 'calm' }
+      )
+      const d = generateDigest(days, now)!
+      expect(d.moodBlindSpot).not.toBeNull()
+      expect(d.moodBlindSpot!.days).toBe(4)
+      expect(d.moodBlindSpot!.emotion).toBe('frustration')
+      expect(d.moodBlindSpot!.message).toMatch(/frustration/)
+    })
+
+    it('does not flag when high ratings agree with a high inferred score', () => {
+      const days = week().map((e) => ({ ...e, mood: 5, mood_score: 0.85 }))
+      expect(generateDigest(days, now)!.moodBlindSpot).toBeNull()
+    })
+
+    it('does not flag a one-off divergence below the day threshold', () => {
+      const days = week().map((e, i) =>
+        i < 2 ? { ...e, mood: 5, mood_score: 0.2 } : { ...e, mood: 3, mood_score: 0.6 }
+      )
+      expect(generateDigest(days, now)!.moodBlindSpot).toBeNull()
+    })
+
+    it('ignores entries with no inferred score (untagged)', () => {
+      const days = week().map((e) => ({ ...e, mood: 5, mood_score: null }))
+      expect(generateDigest(days, now)!.moodBlindSpot).toBeNull()
+    })
+
+    it('uses a generic message when the divergent days carry no tagged feeling', () => {
+      const days = week().map((e, i) =>
+        i < 3 ? { ...e, mood: 5, mood_score: 0.2, emotion: null } : { ...e, mood: 3, mood_score: 0.6 }
+      )
+      const d = generateDigest(days, now)!
+      expect(d.moodBlindSpot).not.toBeNull()
+      expect(d.moodBlindSpot!.emotion).toBeNull()
+      expect(d.moodBlindSpot!.message).toMatch(/your words read lower/)
+    })
+  })
 })

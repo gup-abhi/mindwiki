@@ -176,6 +176,15 @@ function Dashboard({
       <Card variant="sunken" style={styles.card}>
         <Text variant="body">{digest.correlation}</Text>
       </Card>
+
+      {digest.moodBlindSpot && (
+        <Card variant="sunken" style={styles.card}>
+          <Text variant="label" color="accent" style={styles.cardLabel}>
+            Mood check
+          </Text>
+          <Text variant="body">{digest.moodBlindSpot.message}</Text>
+        </Card>
+      )}
     </>
   )
 }

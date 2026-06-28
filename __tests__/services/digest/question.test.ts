@@ -20,6 +20,7 @@ const digest: Digest = {
   toughest: null,
   pattern: 'mostly anxiety',
   correlation: 'low days carried dread',
+  moodBlindSpot: null,
   question: 'TEMPLATE question?',
   quote: 'q',
 }
