@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useRouter } from 'expo-router'
-import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native'
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg'
 
 import { Card, Screen, Text } from '@/components/ui'
@@ -105,6 +106,54 @@ function dateRange(start: number, end: number): string {
   return `${new Date(start).toLocaleDateString(undefined, opts)} – ${new Date(end).toLocaleDateString(undefined, opts)}`
 }
 
+/** One insight card in the "What stood out" swipe deck. */
+interface Insight {
+  label: string
+  message: string
+}
+
+/**
+ * A horizontal swipe deck for the gated insight cards — they stack and the user
+ * pages between them, with dots when there's more than one. `width` seeds the
+ * page width for the first paint (and for tests, where onLayout doesn't fire);
+ * onLayout then locks it to the measured frame so paging snaps exactly.
+ */
+function InsightCarousel({ items, width }: { items: Insight[]; width: number }) {
+  const styles = useThemedStyles(makeStyles)
+  const [w, setW] = useState(width)
+  const [page, setPage] = useState(0)
+
+  return (
+    <View style={styles.carousel} onLayout={(e) => setW(e.nativeEvent.layout.width)} testID="insight-carousel">
+      <ScrollView
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEnabled={items.length > 1}
+        onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / w))}
+      >
+        {items.map((it, i) => (
+          <View key={it.label} style={{ width: w }}>
+            <Card variant="sunken" style={styles.carouselCard}>
+              <Text variant="label" color="accent" style={styles.cardLabel}>
+                {it.label}
+              </Text>
+              <Text variant="body">{it.message}</Text>
+            </Card>
+          </View>
+        ))}
+      </ScrollView>
+      {items.length > 1 && (
+        <View style={styles.dots}>
+          {items.map((it, i) => (
+            <View key={it.label} style={[styles.dot, i === page && styles.dotActive]} testID={`insight-dot-${i}`} />
+          ))}
+        </View>
+      )}
+    </View>
+  )
+}
+
 function Dashboard({
   digest,
   width,
@@ -122,6 +171,16 @@ function Dashboard({
   // its own full-width row so it reads at full size instead of wrapping.
   const feeling = digest.emotionMix[0] ? cap(digest.emotionMix[0].label) : null
   const feelingInline = feeling != null && feeling.length <= INLINE_FEELING_MAX
+
+  // The gated insight cards, collected into one swipe deck. Each word-level card
+  // supersedes its mood-number cousin (only one of each pair shows).
+  const insights: Insight[] = []
+  if (digest.momentum) insights.push({ label: 'Forward motion', message: digest.momentum.message })
+  if (digest.emotionDisguise) insights.push({ label: 'Naming the feeling', message: digest.emotionDisguise.message })
+  else if (digest.moodBlindSpot) insights.push({ label: 'Mood check', message: digest.moodBlindSpot.message })
+  if (digest.emotionUndersell) insights.push({ label: 'Kinder than the label', message: digest.emotionUndersell.message })
+  else if (digest.selfCriticism) insights.push({ label: 'A gentler read', message: digest.selfCriticism.message })
+  if (digest.weeklyRhythm) insights.push({ label: 'Weekly rhythm', message: digest.weeklyRhythm.message })
 
   return (
     <>
@@ -191,67 +250,15 @@ function Dashboard({
       <Text variant="label" style={styles.section}>
         What stood out
       </Text>
-      {digest.momentum && (
-        <Card variant="sunken" style={styles.card}>
-          <Text variant="label" color="accent" style={styles.cardLabel}>
-            Forward motion
-          </Text>
-          <Text variant="body">{digest.momentum.message}</Text>
-        </Card>
-      )}
+      {/* The gated insights stack into a swipe deck; the two always-present
+          summaries sit below it. */}
+      {insights.length > 0 && <InsightCarousel items={insights} width={width - 48} />}
       <Card variant="sunken" style={styles.card}>
         <Text variant="body">{digest.pattern}</Text>
       </Card>
       <Card variant="sunken" style={styles.card}>
         <Text variant="body">{digest.correlation}</Text>
       </Card>
-
-      {digest.emotionDisguise && (
-        <Card variant="sunken" style={styles.card}>
-          <Text variant="label" color="accent" style={styles.cardLabel}>
-            Naming the feeling
-          </Text>
-          <Text variant="body">{digest.emotionDisguise.message}</Text>
-        </Card>
-      )}
-
-      {/* The word-level disguise above supersedes the mood-number one — don't show both. */}
-      {!digest.emotionDisguise && digest.moodBlindSpot && (
-        <Card variant="sunken" style={styles.card}>
-          <Text variant="label" color="accent" style={styles.cardLabel}>
-            Mood check
-          </Text>
-          <Text variant="body">{digest.moodBlindSpot.message}</Text>
-        </Card>
-      )}
-
-      {digest.emotionUndersell && (
-        <Card variant="sunken" style={styles.card}>
-          <Text variant="label" color="accent" style={styles.cardLabel}>
-            Kinder than the label
-          </Text>
-          <Text variant="body">{digest.emotionUndersell.message}</Text>
-        </Card>
-      )}
-
-      {/* The word-level version above supersedes the mood-number one — don't show both. */}
-      {!digest.emotionUndersell && digest.selfCriticism && (
-        <Card variant="sunken" style={styles.card}>
-          <Text variant="label" color="accent" style={styles.cardLabel}>
-            A gentler read
-          </Text>
-          <Text variant="body">{digest.selfCriticism.message}</Text>
-        </Card>
-      )}
-
-      {digest.weeklyRhythm && (
-        <Card variant="sunken" style={styles.card}>
-          <Text variant="label" color="accent" style={styles.cardLabel}>
-            Weekly rhythm
-          </Text>
-          <Text variant="body">{digest.weeklyRhythm.message}</Text>
-        </Card>
-      )}
     </>
   )
 }
@@ -372,6 +379,11 @@ const makeStyles = (t: Theme) =>
     extremes: { marginTop: t.spacing.md },
     section: { marginTop: t.spacing.xl, marginBottom: t.spacing.sm },
     card: { marginBottom: t.spacing.sm },
+    carousel: { marginBottom: t.spacing.sm },
+    carouselCard: {}, // full page width; spacing handled by the deck
+    dots: { flexDirection: 'row', justifyContent: 'center', gap: t.spacing.xs, marginTop: t.spacing.sm },
+    dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.colors.divider },
+    dotActive: { backgroundColor: t.colors.accent },
     mix: { gap: t.spacing.sm },
     mixRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
     mixLabel: { width: 76 },

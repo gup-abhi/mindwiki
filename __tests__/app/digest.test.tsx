@@ -74,4 +74,35 @@ describe('DigestScreen', () => {
     render(<DigestScreen />)
     expect(screen.getByText('No digest yet')).toBeTruthy()
   })
+
+  it('stacks the gated insights into a swipe deck with a dot per card', () => {
+    mockUseDigest.mockReturnValue({
+      digest: {
+        ...digest,
+        momentum: { signals: ['mood'], message: 'You are moving.' },
+        emotionDisguise: { days: 3, named: 'Hopeful', inferred: 'anxiety', message: 'Named Hopeful, read anxiety.' },
+        weeklyRhythm: { weekday: 'Wednesday', timeOfDay: 'afternoon', distortion: 'catastrophizing', occurrences: 3, message: 'Wednesday afternoons.' },
+      },
+      loading: false,
+    })
+    render(<DigestScreen />)
+
+    // All three insight cards render inside the deck…
+    expect(screen.getByText('You are moving.')).toBeTruthy()
+    expect(screen.getByText('Named Hopeful, read anxiety.')).toBeTruthy()
+    expect(screen.getByText('Wednesday afternoons.')).toBeTruthy()
+    // …one dot each…
+    expect(screen.getByTestId('insight-dot-0')).toBeTruthy()
+    expect(screen.getByTestId('insight-dot-2')).toBeTruthy()
+    // …and the two summaries still render below the deck.
+    expect(screen.getByText('Anxiety was your most frequent emotion.')).toBeTruthy()
+    expect(screen.getByText('Your tougher days often carried anxiety.')).toBeTruthy()
+  })
+
+  it('shows no carousel dots when no gated insight fired', () => {
+    mockUseDigest.mockReturnValue({ digest, loading: false })
+    render(<DigestScreen />)
+    expect(screen.queryByTestId('insight-carousel')).toBeNull()
+    expect(screen.queryByTestId('insight-dot-0')).toBeNull()
+  })
 })
