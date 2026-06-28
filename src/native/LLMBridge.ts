@@ -1,4 +1,4 @@
-import { initLlama, getBackendDevicesInfo, type LlamaContext } from 'llama.rn'
+import { initLlama, type LlamaContext } from 'llama.rn'
 
 import { modelLoadPath } from '@/services/llm/model-manager'
 
@@ -85,31 +85,9 @@ async function ensureLoaded(kind: ModelKind): Promise<LlamaContext> {
         : { model, n_ctx: 2048 }
     const ctx = await initLlama(params)
     contexts[kind] = ctx
-    void logBackendInfo(kind, ctx) // diagnostic only — see what this device offers
     return ctx
   } catch (e) {
     throw new Error(`Failed to load ${kind} model — download the AI models in the app first. (${String(e)})`)
-  }
-}
-
-/**
- * Diagnostic probe (dev only): after a model loads, report whether it ran on an
- * accelerator and what backends this device actually exposes — the input to a
- * future per-device CPU/GPU/NPU selection. Logs hardware/capability only, never
- * any user content. Best-effort: a failure here never affects model loading.
- */
-async function logBackendInfo(kind: ModelKind, ctx: LlamaContext): Promise<void> {
-  if (!__DEV__) return
-  try {
-    console.log(`[llm-backend] ${kind}: gpu=${ctx.gpu} reasonNoGPU="${ctx.reasonNoGPU}"`)
-    console.log(`[llm-backend] ${kind}: selectedDevices=${JSON.stringify(ctx.devices)}`)
-    const backends = await getBackendDevicesInfo()
-    const summary = backends
-      .map((d) => `${d.backend}/${d.type}/${d.deviceName}(${Math.round(d.maxMemorySize / 1e6)}MB)`)
-      .join(' | ')
-    console.log(`[llm-backend] ${kind}: available=[${summary}]`)
-  } catch (e) {
-    console.log(`[llm-backend] ${kind}: backend info unavailable (${String(e)})`)
   }
 }
 
