@@ -45,12 +45,6 @@
             "imageWidth": 200
           }
         }
-      ],
-      [
-        "llama.rn",
-        {
-          "enableOpenCLAndHexagon": true
-        }
       ]
     ]
   }
