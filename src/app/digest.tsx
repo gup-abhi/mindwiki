@@ -313,19 +313,6 @@ export default function DigestScreen() {
             </>
           )}
 
-          {digest.synthesis.openQuestions.length > 0 && (
-            <>
-              <Text variant="label" style={styles.section}>
-                Open questions
-              </Text>
-              {digest.synthesis.openQuestions.map((q, i) => (
-                <Card key={i} variant="sunken" style={styles.card}>
-                  <Text variant="body">{q}</Text>
-                </Card>
-              ))}
-            </>
-          )}
-
           {digest.synthesis.flaggedClaims.length > 0 && (
             <Text variant="caption" color="textMuted" style={styles.flagged}>
               Set aside — not enough in your entries to support: {digest.synthesis.flaggedClaims.join('; ')}
