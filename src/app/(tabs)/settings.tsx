@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router'
 import { Button, Card, Chip, IconButton, Screen, Text } from '@/components/ui'
 import { type Theme, type ThemePreference, useThemePreference, useThemedStyles } from '@/theme'
 import { DevStreakDebug } from '@/components/DevStreakDebug'
+import { DevSeedDigest } from '@/components/DevSeedDigest'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
 import { useBiometricLock } from '@/hooks/useBiometricLock'
@@ -230,6 +231,7 @@ export default function Settings() {
             Developer
           </Text>
           <DevStreakDebug />
+          <DevSeedDigest />
         </>
       )}
 
