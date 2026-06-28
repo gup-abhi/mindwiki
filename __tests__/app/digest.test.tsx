@@ -29,6 +29,7 @@ const digest: Digest = {
   correlation: 'Your tougher days often carried anxiety.',
   moodBlindSpot: null,
   selfCriticism: null,
+  weeklyRhythm: null,
   question: 'What grounds you when things feel heavy?',
   quote: 'A hard week is data, not a definition.',
 }

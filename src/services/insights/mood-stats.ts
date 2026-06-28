@@ -83,3 +83,89 @@ export function monthMoodGrid(entries: Entry[], year: number, month: number): Mo
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
   return weeks
 }
+
+export type TimeOfDay = 'morning' | 'afternoon' | 'evening'
+
+/** A recurring thought pattern tied to a weekday + time-of-day slot. */
+export interface WeeklyRhythm {
+  /** Full weekday name, e.g. "Wednesday". */
+  weekday: string
+  timeOfDay: TimeOfDay
+  /** The cognitive distortion that recurs in that slot (lowercased label). */
+  distortion: string
+  /** How many times it landed in that slot over the lookback. */
+  occurrences: number
+  /** Observational one-liner. */
+  message: string
+}
+
+const RHYTHM_LOOKBACK_DAYS = 42 // 6 weeks — enough of each weekday to see a rhythm
+const RHYTHM_MIN_OCCURRENCES = 3 // a slot must repeat this often to count
+const RHYTHM_CONCENTRATION = 0.5 // ≥ half a distortion's hits must cluster in the slot
+const RHYTHM_MIN_WEEKDAYS = 3 // guards "I only ever journal on Wednesdays"
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+function timeOfDay(hour: number): TimeOfDay {
+  if (hour < 12) return 'morning'
+  if (hour < 18) return 'afternoon'
+  return 'evening'
+}
+
+/**
+ * Find a recurring "weekly spiral": a cognitive distortion that keeps landing in
+ * the same weekday + time-of-day slot over the last ~6 weeks — a rhythm you'd
+ * never spot from a single week. Returns the strongest such slot, or null when
+ * nothing recurs clearly. Deterministic and observational (a pattern in the data,
+ * never a diagnosis).
+ *
+ * Gates: the distortion must hit the slot ≥ RHYTHM_MIN_OCCURRENCES times, those
+ * hits must be ≥ RHYTHM_CONCENTRATION of all its occurrences (it clusters here,
+ * not everywhere), and journaling must span ≥ RHYTHM_MIN_WEEKDAYS weekdays (so
+ * "I only journal Wednesdays" isn't mistaken for a Wednesday pattern).
+ */
+export function detectWeeklyRhythm(entries: Entry[], now: number): WeeklyRhythm | null {
+  const since = now - RHYTHM_LOOKBACK_DAYS * 86_400_000
+  const recent = entries.filter(
+    (e) =>
+      e.created_at >= since &&
+      e.created_at <= now &&
+      !!e.distortion &&
+      e.distortion.toLowerCase() !== 'none'
+  )
+  if (recent.length === 0) return null
+
+  // Only meaningful if journaling spreads across weekdays — otherwise a slot is
+  // "special" only because it's the only day journaled.
+  const weekdaysJournaled = new Set(recent.map((e) => new Date(e.created_at).getDay()))
+  if (weekdaysJournaled.size < RHYTHM_MIN_WEEKDAYS) return null
+
+  const distortionTotal = new Map<string, number>() // distortion → overall count
+  const slotCount = new Map<string, number>() // `${dow}|${tod}|${distortion}` → count
+  for (const e of recent) {
+    const d = new Date(e.created_at)
+    const distortion = e.distortion!.trim().toLowerCase()
+    distortionTotal.set(distortion, (distortionTotal.get(distortion) ?? 0) + 1)
+    const key = `${d.getDay()}|${timeOfDay(d.getHours())}|${distortion}`
+    slotCount.set(key, (slotCount.get(key) ?? 0) + 1)
+  }
+
+  // Strongest qualifying slot — most occurrences wins.
+  let best: WeeklyRhythm | null = null
+  for (const [key, count] of slotCount) {
+    if (count < RHYTHM_MIN_OCCURRENCES) continue
+    const [dow, tod, distortion] = key.split('|')
+    const concentration = count / (distortionTotal.get(distortion) ?? count)
+    if (concentration < RHYTHM_CONCENTRATION) continue
+    if (best && count <= best.occurrences) continue
+    const weekday = WEEKDAYS[Number(dow)]
+    best = {
+      weekday,
+      timeOfDay: tod as TimeOfDay,
+      distortion,
+      occurrences: count,
+      message: `On ${weekday} ${tod}s, ${distortion} thinking keeps surfacing — ${count} times in recent weeks. Worth a closer look?`,
+    }
+  }
+  return best
+}
