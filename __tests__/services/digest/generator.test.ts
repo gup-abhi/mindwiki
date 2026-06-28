@@ -138,4 +138,37 @@ describe('generateDigest', () => {
       expect(d.moodBlindSpot!.message).toMatch(/your words read lower/)
     })
   })
+
+  describe('self-criticism blind spot (inverse)', () => {
+    it('flags it when low ratings read lighter than you felt', () => {
+      // 3 distinct days rated low (mood 1) but read light (score 0.8).
+      const days = week().map((e, i) =>
+        i < 3 ? { ...e, mood: 1, mood_score: 0.8 } : { ...e, mood: 4, mood_score: 0.5 }
+      )
+      const d = generateDigest(days, now)!
+      expect(d.selfCriticism).not.toBeNull()
+      expect(d.selfCriticism!.days).toBe(3)
+      expect(d.selfCriticism!.message).toMatch(/harder on yourself/)
+    })
+
+    it('does not flag when low ratings agree with a low inferred score', () => {
+      const days = week().map((e) => ({ ...e, mood: 1, mood_score: 0.2 }))
+      expect(generateDigest(days, now)!.selfCriticism).toBeNull()
+    })
+
+    it('surfaces both gaps independently in the same week', () => {
+      const days = [
+        ...Array.from({ length: 3 }, (_, i) =>
+          entry({ created_at: new Date(2026, 5, 1 + i, 12).getTime(), mood: 5, mood_score: 0.2, emotion: 'frustration' })
+        ),
+        ...Array.from({ length: 3 }, (_, i) =>
+          entry({ created_at: new Date(2026, 5, 4 + i, 12).getTime(), mood: 1, mood_score: 0.8 })
+        ),
+        entry({ created_at: new Date(2026, 5, 7, 12).getTime(), mood: 3, mood_score: 0.5 }),
+      ]
+      const d = generateDigest(days, now)!
+      expect(d.moodBlindSpot).not.toBeNull()
+      expect(d.selfCriticism).not.toBeNull()
+    })
+  })
 })
