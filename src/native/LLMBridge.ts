@@ -136,6 +136,14 @@ async function run(
   }
 }
 
+// If the deep model emits no token for this long, treat the reply as stalled:
+// stop the completion and fail the turn so the UI can offer a retry. Idle-based
+// (resets on every token), NOT a total cap — a slow but progressing reply is
+// never cut off; only a wedged completion (which would otherwise hang the model
+// lock forever) trips it. Generous enough to cover prompt eval before the first
+// token on a slow device.
+const CONVERSE_IDLE_TIMEOUT_MS = 60_000
+
 async function runConversation(
   messages: ChatMessage[],
   opts: InferenceOptions,
@@ -144,17 +152,43 @@ async function runConversation(
   const ctx = await ensureLoaded('deep')
   let result
   try {
-    result = await withModelLock('deep', () =>
-      ctx.completion(
+    result = await withModelLock('deep', async () => {
+      let lastActivity = Date.now()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      // Always track token activity for the watchdog, forwarding to onToken when
+      // the caller is streaming.
+      const completion = ctx.completion(
         {
           prompt: buildChatMLConversation(messages),
           n_predict: opts.maxTokens,
           temperature: opts.temperature,
           stop: ['<|im_end|>', '<|endoftext|>'],
         },
-        onToken ? (data) => onToken(data.token) : undefined
+        (data) => {
+          lastActivity = Date.now()
+          onToken?.(data.token)
+        }
       )
-    )
+      // Watchdog: re-arm against the last token; on a full idle window, stop the
+      // native completion (releases the lock so a retry can run) and reject.
+      const stalled = new Promise<never>((_, reject) => {
+        const tick = () => {
+          const idle = Date.now() - lastActivity
+          if (idle >= CONVERSE_IDLE_TIMEOUT_MS) {
+            void ctx.stopCompletion().catch(() => undefined)
+            reject(new Error('deep model stalled — no tokens'))
+          } else {
+            timer = setTimeout(tick, CONVERSE_IDLE_TIMEOUT_MS - idle)
+          }
+        }
+        timer = setTimeout(tick, CONVERSE_IDLE_TIMEOUT_MS)
+      })
+      try {
+        return await Promise.race([completion, stalled])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    })
   } catch (e) {
     throw new Error(`Conversation completion failed for deep model: ${String(e)}`)
   }
