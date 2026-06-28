@@ -28,6 +28,7 @@ const make = (over: Partial<Entry> = {}): Entry => ({
   behavior: 'left early',
   closing_note: null,
   emotion: 'anxiety',
+  named_emotion: null,
   distortion: 'catastrophizing',
   mood_score: 0.2,
   topic: 'Work',

@@ -70,6 +70,7 @@ const entry = (overrides: Partial<Entry> = {}): Entry => ({
   behavior: null,
   closing_note: null,
   emotion: null,
+  named_emotion: null,
   distortion: null,
   mood_score: null,
   topic: null,

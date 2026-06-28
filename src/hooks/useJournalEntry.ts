@@ -30,9 +30,10 @@ export function useJournalEntry() {
 
   const [submitting, setSubmitting] = useState(false)
 
-  // Mood is the only required field — an entry can be a quick mood log with no
-  // text. The written body, when present, is what the AI analyses.
-  const canSave = draft.mood != null
+  // A journal entry requires a mood and a named feeling (both single taps); the
+  // written body is optional and, when present, is what the AI analyses. The
+  // feeling chips only surface once a mood is picked, so this gates in order.
+  const canSave = draft.mood != null && draft.emotion != null
 
   const submit = useCallback(async (): Promise<Result<SubmitOutcome>> => {
     if (draft.mood == null) return err('ENTRY_INVALID', 'Choose how you’re feeling first')
@@ -43,7 +44,7 @@ export function useJournalEntry() {
         mood: draft.mood,
         situation: draft.body.trim(), // the free-write body is the entry text
         thought: draft.thought.trim(), // optional CBT facet ('' if not added)
-        emotion: draft.emotion, // optional feeling the user named (null if skipped)
+        named_emotion: draft.emotion, // the feeling the user named (the model fills its own `emotion`)
         behavior: null,
         closing_note: null,
       })

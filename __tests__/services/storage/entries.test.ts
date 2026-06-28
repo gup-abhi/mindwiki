@@ -21,7 +21,7 @@ function createFakeDb() {
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
       if (/^INSERT INTO entries/.test(sql)) {
-        const [id, created_at, mood, situation, thought, behavior, closing_note, emotion, source] = params
+        const [id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, source] = params
         rows.set(String(id), {
           id,
           created_at,
@@ -30,7 +30,8 @@ function createFakeDb() {
           thought,
           behavior,
           closing_note,
-          emotion: emotion ?? null,
+          emotion: null,
+          named_emotion: named_emotion ?? null,
           distortion: null,
           mood_score: null,
           tagged_at: null,
@@ -52,10 +53,7 @@ function createFakeDb() {
       if (/^UPDATE entries SET/.test(sql)) {
         const [emotion, distortion, mood_score, topic, tagged_at, id] = params
         const row = rows.get(String(id))
-        if (row) {
-          // emotion is written via COALESCE(emotion, ?) — keep a user-named one.
-          Object.assign(row, { emotion: row.emotion ?? emotion, distortion, mood_score, topic, tagged_at })
-        }
+        if (row) Object.assign(row, { emotion, distortion, mood_score, topic, tagged_at })
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^DELETE FROM entries WHERE id/.test(sql)) {
@@ -203,26 +201,18 @@ describe('storage/entries CRUD', () => {
     expect(found.success && found.data?.tagged_at).not.toBeNull()
   })
 
-  it('stores a user-named feeling and the model does not overwrite it', async () => {
+  it('keeps the user-named feeling and the model-inferred emotion side by side', async () => {
     const { db } = createFakeDb()
-    const created = await createEntry({ mood: 4, situation: 's', thought: 't', emotion: 'Hopeful' }, db)
-    expect(created.success && created.data.emotion).toBe('Hopeful')
+    const created = await createEntry({ mood: 4, situation: 's', thought: 't', named_emotion: 'Hopeful' }, db)
+    expect(created.success && created.data.named_emotion).toBe('Hopeful')
+    expect(created.success && created.data.emotion).toBeNull() // model hasn't run yet
     const id = created.success ? created.data.id : ''
 
-    // The model would tag it 'anxiety', but the user's pick wins (COALESCE).
+    // The model infers 'anxiety' — stored in `emotion`, leaving the named feeling intact.
     await applyTags(id, { emotion: 'anxiety', distortion: 'none', mood_score: 0.6, topic: 'Work' }, db)
     const found = await getEntry(id, db)
-    expect(found.success && found.data?.emotion).toBe('Hopeful') // preserved
-    expect(found.success && found.data?.mood_score).toBe(0.6) // other tags still applied
-  })
-
-  it('lets the model fill emotion when the user named none', async () => {
-    const { db } = createFakeDb()
-    const created = await createEntry({ mood: 2, situation: 's', thought: 't' }, db)
-    const id = created.success ? created.data.id : ''
-    await applyTags(id, { emotion: 'anxiety', distortion: 'none', mood_score: 0.3, topic: 'Work' }, db)
-    const found = await getEntry(id, db)
-    expect(found.success && found.data?.emotion).toBe('anxiety')
+    expect(found.success && found.data?.named_emotion).toBe('Hopeful') // user's, untouched
+    expect(found.success && found.data?.emotion).toBe('anxiety') // model's, the graph signal
   })
 
   it('deletes an entry', async () => {
