@@ -33,6 +33,8 @@ export interface NewEntry {
   thought: string
   behavior?: string | null
   closing_note?: string | null
+  /** A feeling word the user named at capture; the model fills it when null. */
+  emotion?: string | null
   /** Defaults to 'journal'. Reflect-chat captures pass 'reflect'. */
   source?: EntrySource
 }
@@ -77,7 +79,7 @@ export async function createEntry(
     thought: input.thought,
     behavior: input.behavior ?? null,
     closing_note: input.closing_note ?? null,
-    emotion: null,
+    emotion: input.emotion?.trim() || null,
     distortion: null,
     mood_score: null,
     topic: null,
@@ -86,8 +88,8 @@ export async function createEntry(
   }
   try {
     await db.execute(
-      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, emotion, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.id,
         entry.created_at,
@@ -96,6 +98,7 @@ export async function createEntry(
         entry.thought,
         entry.behavior,
         entry.closing_note,
+        entry.emotion,
         entry.source,
       ]
     )
@@ -143,8 +146,11 @@ export async function applyTags(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
+    // COALESCE keeps a user-named emotion (set at capture) — the model only fills
+    // it when the user didn't name one. distortion/mood_score/topic are always the
+    // model's to set.
     await db.execute(
-      'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, tagged_at = ? WHERE id = ?',
+      'UPDATE entries SET emotion = COALESCE(emotion, ?), distortion = ?, mood_score = ?, topic = ?, tagged_at = ? WHERE id = ?',
       [tags.emotion, tags.distortion, tags.mood_score, tags.topic, Date.now(), id]
     )
     await enqueueUpsert('entries', id, db) // tagging changes the row → re-sync
