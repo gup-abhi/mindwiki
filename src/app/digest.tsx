@@ -191,6 +191,14 @@ function Dashboard({
       <Text variant="label" style={styles.section}>
         What stood out
       </Text>
+      {digest.momentum && (
+        <Card variant="sunken" style={styles.card}>
+          <Text variant="label" color="accent" style={styles.cardLabel}>
+            Forward motion
+          </Text>
+          <Text variant="body">{digest.momentum.message}</Text>
+        </Card>
+      )}
       <Card variant="sunken" style={styles.card}>
         <Text variant="body">{digest.pattern}</Text>
       </Card>

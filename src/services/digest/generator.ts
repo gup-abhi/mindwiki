@@ -1,5 +1,5 @@
 import { type Entry } from '@/services/storage/entries'
-import { detectWeeklyRhythm, type WeeklyRhythm } from '@/services/insights/mood-stats'
+import { detectWeeklyRhythm, detectMomentum, type WeeklyRhythm, type Momentum } from '@/services/insights/mood-stats'
 
 const DAY_MS = 86_400_000
 
@@ -100,6 +100,8 @@ export interface Digest {
   selfCriticism: MoodBlindSpot | null
   /** A distortion recurring on the same weekday+time over recent weeks; null when none. */
   weeklyRhythm: WeeklyRhythm | null
+  /** Longer-arc upward momentum (mood/tone/depth) the week hides; null when none. */
+  momentum: Momentum | null
   question: string
   quote: string
   /** LLM-synthesized themes/patterns/questions (added best-effort, post-generate). */
@@ -247,6 +249,8 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
   // last ~6 weeks. Runs over ALL entries (not just this week), since a "every
   // Wednesday" pattern is invisible inside a single 7-day window.
   const weeklyRhythm = detectWeeklyRhythm(allEntries, now)
+  // Forward motion over ~8 weeks (also needs the full history, not just the week).
+  const momentum = detectMomentum(allEntries, now)
 
   const focus = topDistortion?.label ?? topEmotion?.label
   const question = focus
@@ -272,6 +276,7 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     moodBlindSpot,
     selfCriticism,
     weeklyRhythm,
+    momentum,
     question,
     quote,
   }

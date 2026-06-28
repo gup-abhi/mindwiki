@@ -169,3 +169,81 @@ export function detectWeeklyRhythm(entries: Entry[], now: number): WeeklyRhythm 
   }
   return best
 }
+
+export type MomentumSignal = 'mood' | 'tone' | 'depth'
+
+/** Quiet, longer-arc progress the day-to-day view hides. */
+export interface Momentum {
+  /** The signals that genuinely rose (for the UI / a future nudge). */
+  signals: MomentumSignal[]
+  /** Observational one-liner naming only what actually moved. */
+  message: string
+}
+
+const MOMENTUM_LOOKBACK_DAYS = 56 // 8 weeks — split into two comparable 4-week halves
+const MOMENTUM_MIN_HALF_ENTRIES = 4 // each half needs real data to compare
+const MOOD_RISE = 0.4 // 1–5 scale
+const TONE_RISE = 0.08 // 0–1 inferred mood_score
+const DEPTH_RISE = 0.15 // 0–1 share of optional CBT steps filled
+
+const mean = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0)
+
+/** 0–1: how many of the two optional CBT steps (behavior, closing note) an entry filled. */
+function depthOf(e: Entry): number {
+  return ((e.behavior?.trim() ? 1 : 0) + (e.closing_note?.trim() ? 1 : 0)) / 2
+}
+
+/**
+ * Surface forward motion the day-to-day view hides: compare the recent 4 weeks
+ * against the prior 4 on the signals we can honestly measure — average mood,
+ * the affect the model reads in your language, and how completely you reflect.
+ * Up-only and corroborated: it fires only when ≥2 signals rose by a real margin
+ * (so it's never a single noisy metric, and the fuzzy depth proxy can never
+ * trigger it alone). The message names only what actually moved — never a vague
+ * "you're growing." Returns null when there isn't enough data or clear lift.
+ */
+export function detectMomentum(entries: Entry[], now: number): Momentum | null {
+  const day = 86_400_000
+  const mid = now - (MOMENTUM_LOOKBACK_DAYS / 2) * day
+  const start = now - MOMENTUM_LOOKBACK_DAYS * day
+  const earlier = entries.filter((e) => e.created_at >= start && e.created_at < mid)
+  const recent = entries.filter((e) => e.created_at >= mid && e.created_at <= now)
+  if (earlier.length < MOMENTUM_MIN_HALF_ENTRIES || recent.length < MOMENTUM_MIN_HALF_ENTRIES) return null
+
+  const rose: MomentumSignal[] = []
+
+  // Mood (1–5) — direct.
+  if (mean(recent.map((e) => e.mood)) - mean(earlier.map((e) => e.mood)) >= MOOD_RISE) rose.push('mood')
+
+  // Inferred tone (mood_score) — only over entries that carry it, both halves.
+  const earlierTone = earlier.map((e) => e.mood_score).filter((x): x is number => x != null)
+  const recentTone = recent.map((e) => e.mood_score).filter((x): x is number => x != null)
+  if (
+    earlierTone.length >= MOMENTUM_MIN_HALF_ENTRIES &&
+    recentTone.length >= MOMENTUM_MIN_HALF_ENTRIES &&
+    mean(recentTone) - mean(earlierTone) >= TONE_RISE
+  ) {
+    rose.push('tone')
+  }
+
+  // Reflection depth (optional CBT steps filled) — corroboration only.
+  if (mean(recent.map(depthOf)) - mean(earlier.map(depthOf)) >= DEPTH_RISE) rose.push('depth')
+
+  // "You're moving" needs corroboration: ≥2 signals. Depth is the only non-core
+  // signal, so ≥2 always includes a core mood/tone rise — depth can't fire alone.
+  if (rose.length < 2) return null
+
+  const phrase: Record<MomentumSignal, string> = {
+    mood: 'your mood has lifted',
+    tone: 'your writing reads steadier',
+    depth: 'you’re reflecting more fully',
+  }
+  const parts = rose.map((s) => phrase[s])
+  const joined =
+    parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+
+  return {
+    signals: rose,
+    message: `Day to day it can feel stuck. But over the last several weeks ${joined}. You’re moving — even if you can’t feel it.`,
+  }
+}
