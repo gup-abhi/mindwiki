@@ -64,6 +64,7 @@ describe('useJournalEntry', () => {
       mood: 4,
       situation: 'a long rough day',
       thought: 'I will fail',
+      emotion: null,
       behavior: null,
       closing_note: null,
     })

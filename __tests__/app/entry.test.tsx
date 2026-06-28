@@ -41,6 +41,7 @@ describe('EntryScreen (free-write)', () => {
         mood: 4,
         situation: 'a rough day at work',
         thought: '',
+        emotion: null,
         behavior: null,
         closing_note: null,
       })
@@ -69,9 +70,26 @@ describe('EntryScreen (free-write)', () => {
         mood: 3,
         situation: 'snapped at Sarah',
         thought: 'I ruin everything',
+        emotion: null,
         behavior: null,
         closing_note: null,
       })
+    )
+  })
+
+  it('offers feeling words after a mood is picked and includes the chosen one on save', async () => {
+    render(<EntryScreen />)
+    // No mood yet → no feelings offered.
+    expect(screen.queryByTestId('entry-feelings')).toBeNull()
+
+    fireEvent.press(screen.getByTestId('mood-4'))
+    expect(screen.getByTestId('entry-feelings')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('feeling-Hopeful'))
+    fireEvent.changeText(screen.getByTestId('entry-body'), 'a better day')
+    fireEvent.press(screen.getByTestId('entry-save'))
+
+    await waitFor(() =>
+      expect(mockCreateEntry).toHaveBeenCalledWith(expect.objectContaining({ emotion: 'Hopeful' }))
     )
   })
 

@@ -25,6 +25,7 @@ export function useJournalEntry() {
   const setMood = useEntryStore((s) => s.setMood)
   const setBody = useEntryStore((s) => s.setBody)
   const setThought = useEntryStore((s) => s.setThought)
+  const setEmotion = useEntryStore((s) => s.setEmotion)
   const reset = useEntryStore((s) => s.reset)
 
   const [submitting, setSubmitting] = useState(false)
@@ -42,6 +43,7 @@ export function useJournalEntry() {
         mood: draft.mood,
         situation: draft.body.trim(), // the free-write body is the entry text
         thought: draft.thought.trim(), // optional CBT facet ('' if not added)
+        emotion: draft.emotion, // optional feeling the user named (null if skipped)
         behavior: null,
         closing_note: null,
       })
@@ -69,6 +71,7 @@ export function useJournalEntry() {
     setMood,
     setBody,
     setThought,
+    setEmotion,
     submit,
     canSave,
     submitting,

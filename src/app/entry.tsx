@@ -7,6 +7,7 @@ import { Button, Chip, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { haptics } from '@/lib/haptics'
 import { randomPrompt } from '@/lib/journal-prompts'
+import { feelingsForMood } from '@/lib/feeling-words'
 import { useJournalEntry } from '@/hooks/useJournalEntry'
 
 const MOODS = [1, 2, 3, 4, 5]
@@ -80,6 +81,24 @@ export default function EntryScreen() {
             )
           })}
         </View>
+
+        {feelingsForMood(j.draft.mood).length > 0 && (
+          <View style={styles.feelings} testID="entry-feelings">
+            {feelingsForMood(j.draft.mood).map((f) => {
+              const active = j.draft.emotion === f
+              return (
+                <Chip
+                  key={f}
+                  label={f}
+                  selected={active}
+                  // Tap to name the feeling; tap again to clear it (it's optional).
+                  onPress={() => j.setEmotion(active ? null : f)}
+                  testID={`feeling-${f}`}
+                />
+              )
+            })}
+          </View>
+        )}
 
         <Pressable
           style={styles.promptRow}
@@ -156,6 +175,12 @@ const makeStyles = (t: Theme) =>
     },
     moodActive: { backgroundColor: t.colors.accentMuted },
     moodEmoji: { lineHeight: 34 },
+    feelings: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: t.spacing.sm,
+      marginTop: t.spacing.lg,
+    },
     promptRow: {
       flexDirection: 'row',
       alignItems: 'center',
