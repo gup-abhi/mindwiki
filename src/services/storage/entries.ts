@@ -17,7 +17,10 @@ export interface Entry {
   thought: string
   behavior: string | null
   closing_note: string | null
+  /** Model-inferred feeling — drives the graph + wiki. */
   emotion: string | null
+  /** The feeling the user consciously named at capture (journal only). */
+  named_emotion: string | null
   distortion: string | null
   mood_score: number | null
   /** Fast-model theme (1–3 words) — persisted so the graph rebuilds across devices. */
@@ -33,8 +36,8 @@ export interface NewEntry {
   thought: string
   behavior?: string | null
   closing_note?: string | null
-  /** A feeling word the user named at capture; the model fills it when null. */
-  emotion?: string | null
+  /** The feeling the user named at capture; null for Reflect captures (no picker). */
+  named_emotion?: string | null
   /** Defaults to 'journal'. Reflect-chat captures pass 'reflect'. */
   source?: EntrySource
 }
@@ -59,6 +62,7 @@ function rowToEntry(row: Record<string, unknown>): Entry {
     behavior: str(row.behavior),
     closing_note: str(row.closing_note),
     emotion: str(row.emotion),
+    named_emotion: str(row.named_emotion),
     distortion: str(row.distortion),
     mood_score: num(row.mood_score),
     topic: str(row.topic),
@@ -79,7 +83,8 @@ export async function createEntry(
     thought: input.thought,
     behavior: input.behavior ?? null,
     closing_note: input.closing_note ?? null,
-    emotion: input.emotion?.trim() || null,
+    emotion: null, // the model fills this after save
+    named_emotion: input.named_emotion?.trim() || null,
     distortion: null,
     mood_score: null,
     topic: null,
@@ -88,7 +93,7 @@ export async function createEntry(
   }
   try {
     await db.execute(
-      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, emotion, source)
+      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, source)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.id,
@@ -98,7 +103,7 @@ export async function createEntry(
         entry.thought,
         entry.behavior,
         entry.closing_note,
-        entry.emotion,
+        entry.named_emotion,
         entry.source,
       ]
     )
@@ -146,11 +151,8 @@ export async function applyTags(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    // COALESCE keeps a user-named emotion (set at capture) — the model only fills
-    // it when the user didn't name one. distortion/mood_score/topic are always the
-    // model's to set.
     await db.execute(
-      'UPDATE entries SET emotion = COALESCE(emotion, ?), distortion = ?, mood_score = ?, topic = ?, tagged_at = ? WHERE id = ?',
+      'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, tagged_at = ? WHERE id = ?',
       [tags.emotion, tags.distortion, tags.mood_score, tags.topic, Date.now(), id]
     )
     await enqueueUpsert('entries', id, db) // tagging changes the row → re-sync

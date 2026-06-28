@@ -409,3 +409,15 @@ export const migration016: Migration = {
     )`,
   ],
 }
+
+// Migration 017 — named emotion. The user now names a feeling at capture (a
+// compulsory single tap). `emotion` stays the model's inferred feeling (it drives
+// the graph + wiki); this column holds the user's conscious self-label, kept even
+// when it differs from the model's read. The gap between named and inferred is the
+// raw material for a future "emotion disguise" insight (parallel to mood vs
+// mood_score). User-authored — synced like mood.
+export const migration017: Migration = {
+  version: 17,
+  name: 'named_emotion',
+  statements: [`ALTER TABLE entries ADD COLUMN named_emotion TEXT`],
+}

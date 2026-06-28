@@ -11,6 +11,7 @@ const entry = (id: string, year: number, month: number, day: number, hour = 9): 
   behavior: null,
   closing_note: null,
   emotion: null,
+  named_emotion: null,
   distortion: null,
   mood_score: null,
   topic: null,

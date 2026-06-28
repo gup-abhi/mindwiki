@@ -12,6 +12,7 @@ const entry = (mood: number, ts: number): Entry => ({
   behavior: null,
   closing_note: null,
   emotion: null,
+  named_emotion: null,
   distortion: null,
   mood_score: null,
   topic: null,

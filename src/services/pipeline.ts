@@ -21,9 +21,6 @@ export interface ProcessResult {
  * Reflect-chat capture so there is one indexing path. Best-effort, never throws.
  */
 async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
-  // A feeling the user named at capture wins over the model's — applyTags keeps it
-  // (COALESCE), so the effective emotion (and its graph node below) must match.
-  const emotion = entry.emotion ?? ex.emotion
   await applyTags(entry.id, {
     emotion: ex.emotion,
     distortion: ex.distortion,
@@ -51,7 +48,7 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
 
   const taggedEntry: Entry = {
     ...entry,
-    emotion,
+    emotion: ex.emotion,
     distortion: ex.distortion,
     mood_score: ex.mood_score,
     topic: ex.topic,

@@ -24,11 +24,13 @@ describe('useJournalEntry', () => {
     })
   })
 
-  it('canSave once a mood is set — the body is optional (quick mood log)', () => {
+  it('canSave requires both a mood and a named feeling — the body stays optional', () => {
     const { result } = renderHook(() => useJournalEntry())
-    expect(result.current.canSave).toBe(false) // no mood yet
+    expect(result.current.canSave).toBe(false) // nothing yet
     act(() => result.current.setMood(4))
-    expect(result.current.canSave).toBe(true) // mood alone is enough, even with no text
+    expect(result.current.canSave).toBe(false) // mood alone is no longer enough
+    act(() => result.current.setEmotion('Hopeful'))
+    expect(result.current.canSave).toBe(true) // mood + feeling, even with no text
   })
 
   it('submit returns an error when mood is missing', async () => {
@@ -64,7 +66,7 @@ describe('useJournalEntry', () => {
       mood: 4,
       situation: 'a long rough day',
       thought: 'I will fail',
-      emotion: null,
+      named_emotion: null,
       behavior: null,
       closing_note: null,
     })
