@@ -52,6 +52,21 @@ export interface DayExtreme {
   weekday: string
 }
 
+/**
+ * A "mood blind spot": days you rated upbeat but whose language read low — the
+ * gap between the mood you consciously picked and the one the model inferred.
+ * Observational only (it surfaces a pattern in your own data); never a
+ * diagnosis. Null when there's no clear, repeated divergence.
+ */
+export interface MoodBlindSpot {
+  /** Distinct days where a high self-rating met a low inferred score. */
+  days: number
+  /** The feeling that recurred on those days (lowercased), or null if none tagged. */
+  emotion: string | null
+  /** Observational one-liner for the digest. */
+  message: string
+}
+
 /** Multi-agent synthesis added on top of the deterministic sections (optional). */
 export interface DigestSynthesisResult {
   themes: string[]
@@ -78,11 +93,18 @@ export interface Digest {
   toughest: DayExtreme | null
   pattern: string
   correlation: string
+  /** Days rated upbeat whose language read low; null when there's no clear gap. */
+  moodBlindSpot: MoodBlindSpot | null
   question: string
   quote: string
   /** LLM-synthesized themes/patterns/questions (added best-effort, post-generate). */
   synthesis?: DigestSynthesisResult
 }
+
+// Mood blind spot thresholds. Self-mood is 1–5; the model's mood_score is 0–1.
+const DISGUISE_MOOD_MIN = 4 // self-rated mood that counts as "upbeat"
+const DISGUISE_SCORE_MAX = 0.4 // inferred score that counts as "low"
+const MIN_DISGUISE_DAYS = 3 // distinct days before it's a pattern, not an off day
 
 const weekdayOf = (day: number): string =>
   new Date(day * DAY_MS).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' })
@@ -166,6 +188,26 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     ? `Your tougher days often carried ${lowEmotion.label}.`
     : 'No clear link between mood dips and any one feeling this week.'
 
+  // Mood blind spot — entries you rated upbeat (mood ≥ 4) whose language the
+  // model read low (mood_score ≤ 0.4). Gated on distinct DAYS so one off day
+  // journaled repeatedly doesn't trigger it; names the feeling that recurs.
+  const divergent = entries.filter(
+    (e) => e.mood >= DISGUISE_MOOD_MIN && e.mood_score != null && e.mood_score <= DISGUISE_SCORE_MAX
+  )
+  const disguiseDays = new Set(divergent.map((e) => dayIndex(e.created_at)))
+  let moodBlindSpot: MoodBlindSpot | null = null
+  if (disguiseDays.size >= MIN_DISGUISE_DAYS) {
+    const feeling = mostCommon(divergent.map((e) => e.emotion).filter((x): x is string => !!x))
+    const days = disguiseDays.size
+    moodBlindSpot = {
+      days,
+      emotion: feeling?.label ?? null,
+      message: feeling
+        ? `On ${days} days you rated your mood high, but ${feeling.label} kept surfacing in what you wrote. Worth a second look?`
+        : `On ${days} days you rated your mood high, but your words read lower. Worth a second look?`,
+    }
+  }
+
   const focus = topDistortion?.label ?? topEmotion?.label
   const question = focus
     ? `When ${focus} showed up this week, what was usually going on around you?`
@@ -187,6 +229,7 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     toughest,
     pattern,
     correlation,
+    moodBlindSpot,
     question,
     quote,
   }
