@@ -22,6 +22,7 @@ const digest: Digest = {
   correlation: 'low days carried dread',
   moodBlindSpot: null,
   selfCriticism: null,
+  emotionDisguise: null,
   weeklyRhythm: null,
   momentum: null,
   question: 'TEMPLATE question?',

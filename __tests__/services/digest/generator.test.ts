@@ -172,4 +172,60 @@ describe('generateDigest', () => {
       expect(d.selfCriticism).not.toBeNull()
     })
   })
+
+  describe('emotion disguise (named feeling vs the model read)', () => {
+    it('flags it when a neutral/upbeat named feeling reads negative, naming both words', () => {
+      // 4 distinct days: named "Hopeful" but the language reads "anxiety".
+      const days = week().map((e, i) =>
+        i < 4
+          ? { ...e, mood: 4, mood_score: 0.2, named_emotion: 'Hopeful', emotion: 'anxiety' }
+          : { ...e, mood: 4, mood_score: 0.7, named_emotion: 'Content', emotion: 'calm' }
+      )
+      const d = generateDigest(days, now)!
+      expect(d.emotionDisguise).not.toBeNull()
+      expect(d.emotionDisguise!.days).toBe(4)
+      expect(d.emotionDisguise!.named).toBe('Hopeful') // capital restored
+      expect(d.emotionDisguise!.inferred).toBe('anxiety')
+      expect(d.emotionDisguise!.message).toMatch(/Hopeful/)
+      expect(d.emotionDisguise!.message).toMatch(/anxiety/)
+    })
+
+    it('does not flag below the day threshold', () => {
+      const days = week().map((e, i) =>
+        i < 2
+          ? { ...e, mood: 4, mood_score: 0.2, named_emotion: 'Hopeful', emotion: 'anxiety' }
+          : { ...e, mood: 3, mood_score: 0.7, named_emotion: 'Calm', emotion: 'calm' }
+      )
+      expect(generateDigest(days, now)!.emotionDisguise).toBeNull()
+    })
+
+    it('does not flag when the named word matches the model read (no real mismatch)', () => {
+      const days = week().map((e, i) =>
+        i < 4
+          ? { ...e, mood: 4, mood_score: 0.2, named_emotion: 'Anxiety', emotion: 'anxiety' }
+          : { ...e, mood: 3, mood_score: 0.7 }
+      )
+      expect(generateDigest(days, now)!.emotionDisguise).toBeNull()
+    })
+
+    it('does not flag when the user already named it a low mood (not a disguise)', () => {
+      const days = week().map((e, i) =>
+        i < 4
+          ? { ...e, mood: 2, mood_score: 0.2, named_emotion: 'Sad', emotion: 'anxiety' }
+          : { ...e, mood: 3, mood_score: 0.7 }
+      )
+      expect(generateDigest(days, now)!.emotionDisguise).toBeNull()
+    })
+
+    it('only triggers on entries that carry a user-named feeling — older entries do not', () => {
+      const days = week().map((e, i) =>
+        i < 4
+          ? { ...e, mood: 4, mood_score: 0.2, named_emotion: null, emotion: 'anxiety' }
+          : { ...e, mood: 3, mood_score: 0.7 }
+      )
+      const d = generateDigest(days, now)!
+      expect(d.emotionDisguise).toBeNull()
+      expect(d.moodBlindSpot).not.toBeNull() // the mood-number version still fires (suppressed only in the UI)
+    })
+  })
 })

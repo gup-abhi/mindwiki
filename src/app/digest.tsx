@@ -206,7 +206,17 @@ function Dashboard({
         <Text variant="body">{digest.correlation}</Text>
       </Card>
 
-      {digest.moodBlindSpot && (
+      {digest.emotionDisguise && (
+        <Card variant="sunken" style={styles.card}>
+          <Text variant="label" color="accent" style={styles.cardLabel}>
+            Naming the feeling
+          </Text>
+          <Text variant="body">{digest.emotionDisguise.message}</Text>
+        </Card>
+      )}
+
+      {/* The word-level disguise above supersedes the mood-number one — don't show both. */}
+      {!digest.emotionDisguise && digest.moodBlindSpot && (
         <Card variant="sunken" style={styles.card}>
           <Text variant="label" color="accent" style={styles.cardLabel}>
             Mood check

@@ -68,6 +68,24 @@ export interface MoodBlindSpot {
   message: string
 }
 
+/**
+ * A "naming gap": days where the feeling the user consciously named at capture
+ * and the feeling the model read from their language point different ways — they
+ * named it neutral/upbeat, but the words kept reading negative. Uses the user's
+ * own word (named_emotion) vs the model's (emotion). The richer, word-level cousin
+ * of MoodBlindSpot. Observational only; null when there's no repeated gap.
+ */
+export interface EmotionDisguise {
+  /** Distinct days the gap showed up on. */
+  days: number
+  /** The feeling the user most often named on those days (as they picked it). */
+  named: string
+  /** The emotion the model most often read on those days (lowercased). */
+  inferred: string
+  /** Observational one-liner for the digest. */
+  message: string
+}
+
 /** Multi-agent synthesis added on top of the deterministic sections (optional). */
 export interface DigestSynthesisResult {
   themes: string[]
@@ -98,6 +116,8 @@ export interface Digest {
   moodBlindSpot: MoodBlindSpot | null
   /** Days rated low whose language read lighter than you felt; null when none. */
   selfCriticism: MoodBlindSpot | null
+  /** Days the named feeling read negative in the language; null when none. */
+  emotionDisguise: EmotionDisguise | null
   /** A distortion recurring on the same weekday+time over recent weeks; null when none. */
   weeklyRhythm: WeeklyRhythm | null
   /** Longer-arc upward momentum (mood/tone/depth) the week hides; null when none. */
@@ -117,6 +137,11 @@ const DISGUISE_SCORE_MAX = 0.4
 // "Undersold": rated low, but the language read lighter than you felt.
 const UNDERSELL_MOOD_MAX = 2
 const UNDERSELL_SCORE_MIN = 0.6
+// "Naming gap": the user named the feeling at a neutral-or-better mood (≥ this),
+// but the language read clearly negative (≤ DISGUISE_SCORE_MAX), and their word
+// differs from the model's. Lower than DISGUISE_MOOD_MIN so it also catches a
+// neutral label ("Fine") masking distress.
+const NAMING_MOOD_MIN = 3
 
 /**
  * Distinct-day count + the feeling that recurs, for the entries matching `match`
@@ -245,6 +270,34 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     message: `On ${undersell.days} days you rated your mood low, but your words read lighter than you felt. You may be harder on yourself than your day warranted.`,
   }
 
+  // Naming gap — the user named a feeling at a neutral-or-better mood, but the
+  // language read clearly negative, and their word differs from the model's. The
+  // word-level cousin of the disguise above; only fires on entries that carry a
+  // user-named feeling (so older entries never trigger it).
+  const disguiseHits = entries.filter(
+    (e) =>
+      !!e.named_emotion &&
+      !!e.emotion &&
+      e.mood >= NAMING_MOOD_MIN &&
+      e.mood_score != null &&
+      e.mood_score <= DISGUISE_SCORE_MAX &&
+      e.named_emotion.trim().toLowerCase() !== e.emotion.trim().toLowerCase()
+  )
+  const disguiseDays = new Set(disguiseHits.map((e) => dayIndex(e.created_at)))
+  let emotionDisguise: EmotionDisguise | null = null
+  if (disguiseDays.size >= MIN_GAP_DAYS) {
+    const named = mostCommon(disguiseHits.map((e) => e.named_emotion as string))
+    const inferred = mostCommon(disguiseHits.map((e) => e.emotion as string))
+    if (named && inferred) {
+      emotionDisguise = {
+        days: disguiseDays.size,
+        named: cap(named.label), // restore the single-word feeling's capital
+        inferred: inferred.label,
+        message: `On ${disguiseDays.size} days you named the feeling “${cap(named.label)}”, but your writing kept reading as ${inferred.label}. How we label a feeling and how it comes through don't always line up — worth a gentle look.`,
+      }
+    }
+  }
+
   // Weekly rhythm — a distortion recurring on the same weekday+time across the
   // last ~6 weeks. Runs over ALL entries (not just this week), since a "every
   // Wednesday" pattern is invisible inside a single 7-day window.
@@ -275,6 +328,7 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     correlation,
     moodBlindSpot,
     selfCriticism,
+    emotionDisguise,
     weeklyRhythm,
     momentum,
     question,
