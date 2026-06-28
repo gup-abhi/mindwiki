@@ -9,6 +9,11 @@ import { type Digest, type EmotionSlice, type MoodPoint } from '@/services/diges
 
 const ARC_H = 130
 
+// Top feeling stays inline as a scoreboard tile up to this length; longer words
+// break out to their own full-width row. 6 = the most that fit a tile before
+// wrapping at heading size (measured from the rendered layout).
+const INLINE_FEELING_MAX = 6
+
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 
 function MoodArc({ points, width }: { points: MoodPoint[]; width: number }) {
@@ -112,6 +117,11 @@ function Dashboard({
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const delta = digest.moodDelta == null ? null : deltaLabel(digest.moodDelta)
+  // Hybrid placement for the top feeling: a short word fits the number-sized
+  // tile (the screenshot showed 6 chars fit before wrapping), a longer one gets
+  // its own full-width row so it reads at full size instead of wrapping.
+  const feeling = digest.emotionMix[0] ? cap(digest.emotionMix[0].label) : null
+  const feelingInline = feeling != null && feeling.length <= INLINE_FEELING_MAX
 
   return (
     <>
@@ -133,17 +143,18 @@ function Dashboard({
       <View style={styles.tiles}>
         <StatTile value={digest.avgMood.toFixed(1)} label="avg mood" />
         {delta && <StatTile value={delta.value} label="vs last week" tone={delta.tone} />}
+        {feeling && feelingInline && <StatTile value={feeling} label="top feeling" />}
       </View>
 
-      {/* Top feeling is a word, not a number — give it the full row so long
-          labels ("Disappointment") read at full size instead of cramming a tile. */}
-      {digest.emotionMix[0] && (
+      {/* A long feeling ("Disappointment") gets its own full-width row so it
+          reads at full size instead of cramming or wrapping in a tile. */}
+      {feeling && !feelingInline && (
         <Card variant="sunken" style={styles.topFeeling}>
           <Text variant="caption" color="textMuted">
             top feeling
           </Text>
           <Text variant="heading" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-            {cap(digest.emotionMix[0].label)}
+            {feeling}
           </Text>
         </Card>
       )}
