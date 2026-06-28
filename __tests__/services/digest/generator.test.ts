@@ -228,4 +228,60 @@ describe('generateDigest', () => {
       expect(d.moodBlindSpot).not.toBeNull() // the mood-number version still fires (suppressed only in the UI)
     })
   })
+
+  describe('emotion undersell (heavy named feeling, lighter read)', () => {
+    it('flags it when a heavy named feeling reads lighter, naming both words', () => {
+      // 4 distinct days: named "Sad" but the language reads "calm".
+      const days = week().map((e, i) =>
+        i < 4
+          ? { ...e, mood: 1, mood_score: 0.8, named_emotion: 'Sad', emotion: 'calm' }
+          : { ...e, mood: 4, mood_score: 0.5, named_emotion: 'Content', emotion: 'content' }
+      )
+      const d = generateDigest(days, now)!
+      expect(d.emotionUndersell).not.toBeNull()
+      expect(d.emotionUndersell!.days).toBe(4)
+      expect(d.emotionUndersell!.named).toBe('Sad')
+      expect(d.emotionUndersell!.inferred).toBe('calm')
+      expect(d.emotionUndersell!.message).toMatch(/Sad/)
+      expect(d.emotionUndersell!.message).toMatch(/calm/)
+    })
+
+    it('does not flag below the day threshold', () => {
+      const days = week().map((e, i) =>
+        i < 2
+          ? { ...e, mood: 1, mood_score: 0.8, named_emotion: 'Sad', emotion: 'calm' }
+          : { ...e, mood: 4, mood_score: 0.5 }
+      )
+      expect(generateDigest(days, now)!.emotionUndersell).toBeNull()
+    })
+
+    it('does not flag when the named word matches the model read', () => {
+      const days = week().map((e, i) =>
+        i < 4
+          ? { ...e, mood: 1, mood_score: 0.8, named_emotion: 'Calm', emotion: 'calm' }
+          : { ...e, mood: 4, mood_score: 0.5 }
+      )
+      expect(generateDigest(days, now)!.emotionUndersell).toBeNull()
+    })
+
+    it('does not flag when the language also reads heavy (agrees with the label)', () => {
+      const days = week().map((e, i) =>
+        i < 4
+          ? { ...e, mood: 1, mood_score: 0.2, named_emotion: 'Sad', emotion: 'sadness' }
+          : { ...e, mood: 4, mood_score: 0.5 }
+      )
+      expect(generateDigest(days, now)!.emotionUndersell).toBeNull()
+    })
+
+    it('only triggers on entries that carry a user-named feeling — older entries do not', () => {
+      const days = week().map((e, i) =>
+        i < 4
+          ? { ...e, mood: 1, mood_score: 0.8, named_emotion: null, emotion: 'calm' }
+          : { ...e, mood: 4, mood_score: 0.5 }
+      )
+      const d = generateDigest(days, now)!
+      expect(d.emotionUndersell).toBeNull()
+      expect(d.selfCriticism).not.toBeNull() // the mood-number version still fires (suppressed only in the UI)
+    })
+  })
 })

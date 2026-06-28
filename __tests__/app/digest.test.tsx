@@ -30,6 +30,7 @@ const digest: Digest = {
   moodBlindSpot: null,
   selfCriticism: null,
   emotionDisguise: null,
+  emotionUndersell: null,
   weeklyRhythm: null,
   momentum: null,
   question: 'What grounds you when things feel heavy?',

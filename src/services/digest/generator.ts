@@ -118,6 +118,8 @@ export interface Digest {
   selfCriticism: MoodBlindSpot | null
   /** Days the named feeling read negative in the language; null when none. */
   emotionDisguise: EmotionDisguise | null
+  /** Days a heavy named feeling read lighter in the language; null when none. */
+  emotionUndersell: EmotionDisguise | null
   /** A distortion recurring on the same weekday+time over recent weeks; null when none. */
   weeklyRhythm: WeeklyRhythm | null
   /** Longer-arc upward momentum (mood/tone/depth) the week hides; null when none. */
@@ -298,6 +300,34 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     }
   }
 
+  // Inverse naming gap — the user named a heavy feeling (mood ≤ 2) but the
+  // language read lighter (mood_score ≥ 0.6), and their word differs from the
+  // model's. The word-level cousin of "A gentler read" (selfCriticism). Same
+  // named-feeling-only requirement, so older entries never trigger it.
+  const underHits = entries.filter(
+    (e) =>
+      !!e.named_emotion &&
+      !!e.emotion &&
+      e.mood <= UNDERSELL_MOOD_MAX &&
+      e.mood_score != null &&
+      e.mood_score >= UNDERSELL_SCORE_MIN &&
+      e.named_emotion.trim().toLowerCase() !== e.emotion.trim().toLowerCase()
+  )
+  const underDays = new Set(underHits.map((e) => dayIndex(e.created_at)))
+  let emotionUndersell: EmotionDisguise | null = null
+  if (underDays.size >= MIN_GAP_DAYS) {
+    const named = mostCommon(underHits.map((e) => e.named_emotion as string))
+    const inferred = mostCommon(underHits.map((e) => e.emotion as string))
+    if (named && inferred) {
+      emotionUndersell = {
+        days: underDays.size,
+        named: cap(named.label),
+        inferred: inferred.label,
+        message: `On ${underDays.size} days you named the feeling “${cap(named.label)}”, but your writing read lighter than that — closer to ${inferred.label}. You may be naming it harder than it landed.`,
+      }
+    }
+  }
+
   // Weekly rhythm — a distortion recurring on the same weekday+time across the
   // last ~6 weeks. Runs over ALL entries (not just this week), since a "every
   // Wednesday" pattern is invisible inside a single 7-day window.
@@ -329,6 +359,7 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     moodBlindSpot,
     selfCriticism,
     emotionDisguise,
+    emotionUndersell,
     weeklyRhythm,
     momentum,
     question,
