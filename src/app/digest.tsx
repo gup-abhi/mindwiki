@@ -54,7 +54,7 @@ function StatTile({ value, label, tone }: { value: string; label: string; tone?:
   const color = tone === 'up' ? 'success' : tone === 'down' ? 'danger' : 'textPrimary'
   return (
     <Card variant="sunken" style={styles.tile}>
-      <Text variant="heading" color={color} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+      <Text variant="heading" color={color}>
         {value}
       </Text>
       <Text variant="caption" color="textMuted" style={styles.tileLabel}>
@@ -133,10 +133,20 @@ function Dashboard({
       <View style={styles.tiles}>
         <StatTile value={digest.avgMood.toFixed(1)} label="avg mood" />
         {delta && <StatTile value={delta.value} label="vs last week" tone={delta.tone} />}
-        {digest.emotionMix[0] && (
-          <StatTile value={cap(digest.emotionMix[0].label)} label="top feeling" />
-        )}
       </View>
+
+      {/* Top feeling is a word, not a number — give it the full row so long
+          labels ("Disappointment") read at full size instead of cramming a tile. */}
+      {digest.emotionMix[0] && (
+        <Card variant="sunken" style={styles.topFeeling}>
+          <Text variant="caption" color="textMuted">
+            top feeling
+          </Text>
+          <Text variant="heading" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+            {cap(digest.emotionMix[0].label)}
+          </Text>
+        </Card>
+      )}
 
       <Card variant="sunken" style={styles.arcCard}>
         <Text variant="label" color="accent" style={styles.cardLabel}>
@@ -314,6 +324,12 @@ const makeStyles = (t: Theme) =>
     subtitle: { marginTop: t.spacing.xs },
     tiles: { flexDirection: 'row', gap: t.spacing.sm, marginTop: t.spacing.lg },
     tile: { flex: 1, alignItems: 'center' },
+    topFeeling: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: t.spacing.sm,
+    },
     tileLabel: { marginTop: t.spacing.xs, textAlign: 'center' },
     arcCard: { marginTop: t.spacing.lg },
     cardLabel: { marginBottom: t.spacing.sm },
