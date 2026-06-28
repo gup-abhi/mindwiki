@@ -225,7 +225,17 @@ function Dashboard({
         </Card>
       )}
 
-      {digest.selfCriticism && (
+      {digest.emotionUndersell && (
+        <Card variant="sunken" style={styles.card}>
+          <Text variant="label" color="accent" style={styles.cardLabel}>
+            Kinder than the label
+          </Text>
+          <Text variant="body">{digest.emotionUndersell.message}</Text>
+        </Card>
+      )}
+
+      {/* The word-level version above supersedes the mood-number one — don't show both. */}
+      {!digest.emotionUndersell && digest.selfCriticism && (
         <Card variant="sunken" style={styles.card}>
           <Text variant="label" color="accent" style={styles.cardLabel}>
             A gentler read

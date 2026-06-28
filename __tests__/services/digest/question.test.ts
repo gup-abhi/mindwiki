@@ -23,6 +23,7 @@ const digest: Digest = {
   moodBlindSpot: null,
   selfCriticism: null,
   emotionDisguise: null,
+  emotionUndersell: null,
   weeklyRhythm: null,
   momentum: null,
   question: 'TEMPLATE question?',

@@ -14,7 +14,7 @@ import { useSyncStore } from '@/store/sync.store'
  *
  * The set is tuned so a single open of the weekly digest shows:
  *  - Naming the feeling  (named 'Hopeful' on 3 days the words read 'anxiety')
- *  - A gentler read      (3 days rated low but the language read light)
+ *  - Kinder than the label (named 'Sad' on 3 days the words read 'calm')
  *  - Weekly rhythm       ('catastrophizing' on the same weekday+afternoon ×3)
  *  - Forward motion      (recent 4 weeks lift over the prior 4 in mood/tone/depth)
  * "Mood check" is the numeric cousin of Naming the feeling and is intentionally
@@ -42,9 +42,9 @@ const CURRENT_WEEK: Seed[] = [
   { day: 0, mood: 4, score: 0.2, named: 'Hopeful', emotion: 'anxiety' }, // disguise ×3
   { day: 1, mood: 4, score: 0.2, named: 'Hopeful', emotion: 'anxiety' },
   { day: 2, mood: 4, score: 0.2, named: 'Hopeful', emotion: 'anxiety' },
-  { day: 3, mood: 1, score: 0.8, named: 'Sad', emotion: 'sadness' }, // gentler read ×3
-  { day: 4, mood: 1, score: 0.8, named: 'Sad', emotion: 'sadness' },
-  { day: 5, mood: 1, score: 0.8, named: 'Sad', emotion: 'sadness' },
+  { day: 3, mood: 1, score: 0.8, named: 'Sad', emotion: 'calm' }, // named heavy, reads light ×3
+  { day: 4, mood: 1, score: 0.8, named: 'Sad', emotion: 'calm' },
+  { day: 5, mood: 1, score: 0.8, named: 'Sad', emotion: 'calm' },
   { day: 6, mood: 4, score: 0.7, named: 'Calm', emotion: 'calm' }, // filler → 7
 ]
 
@@ -120,7 +120,7 @@ export function DevSeedDigest() {
     <Card variant="sunken">
       <Text variant="caption" color="textSecondary">
         Seeds a backdated set that fires every gated digest card at once (Naming the feeling,
-        A gentler read, Weekly rhythm, Forward motion).
+        Kinder than the label, Weekly rhythm, Forward motion).
       </Text>
       <View style={styles.btns}>
         <Button title="Seed digest data" fullWidth onPress={() => void seed()} testID="dev-seed-digest" />
