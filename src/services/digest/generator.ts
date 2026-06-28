@@ -53,13 +53,13 @@ export interface DayExtreme {
 }
 
 /**
- * A "mood blind spot": days you rated upbeat but whose language read low — the
- * gap between the mood you consciously picked and the one the model inferred.
- * Observational only (it surfaces a pattern in your own data); never a
- * diagnosis. Null when there's no clear, repeated divergence.
+ * A "mood gap": days where the mood you consciously picked and the one the model
+ * inferred from your language diverge — in either direction (rated up but read
+ * low, or rated down but read lighter). Observational only (it surfaces a pattern
+ * in your own data); never a diagnosis. Null when there's no clear, repeated gap.
  */
 export interface MoodBlindSpot {
-  /** Distinct days where a high self-rating met a low inferred score. */
+  /** Distinct days the gap showed up on. */
   days: number
   /** The feeling that recurred on those days (lowercased), or null if none tagged. */
   emotion: string | null
@@ -95,16 +95,39 @@ export interface Digest {
   correlation: string
   /** Days rated upbeat whose language read low; null when there's no clear gap. */
   moodBlindSpot: MoodBlindSpot | null
+  /** Days rated low whose language read lighter than you felt; null when none. */
+  selfCriticism: MoodBlindSpot | null
   question: string
   quote: string
   /** LLM-synthesized themes/patterns/questions (added best-effort, post-generate). */
   synthesis?: DigestSynthesisResult
 }
 
-// Mood blind spot thresholds. Self-mood is 1–5; the model's mood_score is 0–1.
-const DISGUISE_MOOD_MIN = 4 // self-rated mood that counts as "upbeat"
-const DISGUISE_SCORE_MAX = 0.4 // inferred score that counts as "low"
-const MIN_DISGUISE_DAYS = 3 // distinct days before it's a pattern, not an off day
+// Mood gap thresholds. Self-mood is 1–5; the model's inferred mood_score is 0–1.
+// A gap is only surfaced when it recurs across at least MIN_GAP_DAYS distinct days.
+const MIN_GAP_DAYS = 3
+// "Disguise": rated upbeat, but the language read low.
+const DISGUISE_MOOD_MIN = 4
+const DISGUISE_SCORE_MAX = 0.4
+// "Undersold": rated low, but the language read lighter than you felt.
+const UNDERSELL_MOOD_MAX = 2
+const UNDERSELL_SCORE_MIN = 0.6
+
+/**
+ * Distinct-day count + the feeling that recurs, for the entries matching `match`
+ * — or null when the gap doesn't repeat across enough days. Shared by both
+ * mood-gap directions so they stay symmetric. `match` must guard mood_score null.
+ */
+function moodGap(
+  entries: Entry[],
+  match: (e: Entry) => boolean
+): { days: number; emotion: string | null } | null {
+  const hits = entries.filter(match)
+  const days = new Set(hits.map((e) => dayIndex(e.created_at)))
+  if (days.size < MIN_GAP_DAYS) return null
+  const feeling = mostCommon(hits.map((e) => e.emotion).filter((x): x is string => !!x))
+  return { days: days.size, emotion: feeling?.label ?? null }
+}
 
 const weekdayOf = (day: number): string =>
   new Date(day * DAY_MS).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' })
@@ -188,24 +211,33 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     ? `Your tougher days often carried ${lowEmotion.label}.`
     : 'No clear link between mood dips and any one feeling this week.'
 
-  // Mood blind spot — entries you rated upbeat (mood ≥ 4) whose language the
-  // model read low (mood_score ≤ 0.4). Gated on distinct DAYS so one off day
-  // journaled repeatedly doesn't trigger it; names the feeling that recurs.
-  const divergent = entries.filter(
+  // Mood gaps — where your self-rating and the model's read of your language
+  // diverge, repeated across ≥ MIN_GAP_DAYS days. Both observational only.
+
+  // Disguise: rated upbeat (≥4) but read low (≤0.4) — names the recurring feeling.
+  const disguise = moodGap(
+    entries,
     (e) => e.mood >= DISGUISE_MOOD_MIN && e.mood_score != null && e.mood_score <= DISGUISE_SCORE_MAX
   )
-  const disguiseDays = new Set(divergent.map((e) => dayIndex(e.created_at)))
-  let moodBlindSpot: MoodBlindSpot | null = null
-  if (disguiseDays.size >= MIN_DISGUISE_DAYS) {
-    const feeling = mostCommon(divergent.map((e) => e.emotion).filter((x): x is string => !!x))
-    const days = disguiseDays.size
-    moodBlindSpot = {
-      days,
-      emotion: feeling?.label ?? null,
-      message: feeling
-        ? `On ${days} days you rated your mood high, but ${feeling.label} kept surfacing in what you wrote. Worth a second look?`
-        : `On ${days} days you rated your mood high, but your words read lower. Worth a second look?`,
-    }
+  const moodBlindSpot: MoodBlindSpot | null = disguise && {
+    days: disguise.days,
+    emotion: disguise.emotion,
+    message: disguise.emotion
+      ? `On ${disguise.days} days you rated your mood high, but ${disguise.emotion} kept surfacing in what you wrote. Worth a second look?`
+      : `On ${disguise.days} days you rated your mood high, but your words read lower. Worth a second look?`,
+  }
+
+  // Undersold: rated low (≤2) but read lighter (≥0.6) — the self-criticism gap.
+  // Deliberately gentle and emotion-free; naming a negative feeling here would
+  // clash with "your words read lighter".
+  const undersell = moodGap(
+    entries,
+    (e) => e.mood <= UNDERSELL_MOOD_MAX && e.mood_score != null && e.mood_score >= UNDERSELL_SCORE_MIN
+  )
+  const selfCriticism: MoodBlindSpot | null = undersell && {
+    days: undersell.days,
+    emotion: undersell.emotion,
+    message: `On ${undersell.days} days you rated your mood low, but your words read lighter than you felt. You may be harder on yourself than your day warranted.`,
   }
 
   const focus = topDistortion?.label ?? topEmotion?.label
@@ -230,6 +262,7 @@ export function generateDigest(allEntries: Entry[], now: number): Digest | null 
     pattern,
     correlation,
     moodBlindSpot,
+    selfCriticism,
     question,
     quote,
   }

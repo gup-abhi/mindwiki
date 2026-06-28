@@ -28,6 +28,7 @@ const digest: Digest = {
   pattern: 'Anxiety was your most frequent emotion.',
   correlation: 'Your tougher days often carried anxiety.',
   moodBlindSpot: null,
+  selfCriticism: null,
   question: 'What grounds you when things feel heavy?',
   quote: 'A hard week is data, not a definition.',
 }

@@ -185,6 +185,15 @@ function Dashboard({
           <Text variant="body">{digest.moodBlindSpot.message}</Text>
         </Card>
       )}
+
+      {digest.selfCriticism && (
+        <Card variant="sunken" style={styles.card}>
+          <Text variant="label" color="accent" style={styles.cardLabel}>
+            A gentler read
+          </Text>
+          <Text variant="body">{digest.selfCriticism.message}</Text>
+        </Card>
+      )}
     </>
   )
 }
