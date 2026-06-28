@@ -27,6 +27,10 @@ const MODELS_MISSING =
 
 const REPLY_FAILED = 'Something went wrong — please try again.'
 
+// Shown when a resumed thread ends on a user message whose reply never landed
+// (the app was closed mid-generation). Reuses the failed-reply retry affordance.
+const REPLY_INTERRUPTED = 'This reply didn’t finish. Tap to try again.'
+
 /**
  * A supportive, non-clinical reply shown when a message trips the crisis net.
  * The companion does not counsel a crisis; it points to real human support
@@ -167,6 +171,11 @@ export function useConversation(initialQuestion?: string) {
 
       store.setSending(true)
       store.clearStreaming()
+      // Sending a new message supersedes any pending retry: drop a lingering
+      // failed/interrupted placeholder so it neither stays orphaned mid-thread
+      // nor leaks its text into the model history captured below.
+      store.dropFailed()
+      retryRef.current = null
 
       // Lazily create the conversation on the first message.
       let conversationId = store.conversationId
@@ -248,7 +257,10 @@ export function useConversation(initialQuestion?: string) {
     [generateReply]
   )
 
-  const newConversation = useCallback(() => useChatStore.getState().reset(), [])
+  const newConversation = useCallback(() => {
+    retryRef.current = null
+    useChatStore.getState().reset()
+  }, [])
 
   const loadConversation = useCallback(async (id: string) => {
     const [res, conv] = await Promise.all([listMessages(id), getConversation(id)])
@@ -261,7 +273,32 @@ export function useConversation(initialQuestion?: string) {
       crisisTier: m.crisis_tier,
     }))
     const row = conv.success ? conv.data : null
-    useChatStore.getState().load(id, ui, row?.summary ?? '', row?.summary_count ?? 0)
+    const store = useChatStore.getState()
+    store.load(id, ui, row?.summary ?? '', row?.summary_count ?? 0)
+
+    // If the thread ends on a user message, its reply never landed — the app was
+    // closed (or reloaded) mid-generation, so only the question was persisted.
+    // Restore a retryable placeholder so the user can resume the turn instead of
+    // being stuck. The user message is already saved, so retry only generates the
+    // missing reply (it won't re-add the question).
+    const last = ui[ui.length - 1]
+    if (last?.role === 'user') {
+      retryRef.current = {
+        conversationId: id,
+        message: last.content,
+        priorHistory: ui.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
+      }
+      store.addMessage({
+        id: randomUUID(),
+        role: 'assistant',
+        content: REPLY_INTERRUPTED,
+        sources: [],
+        crisisTier: null,
+        failed: true,
+      })
+    } else {
+      retryRef.current = null
+    }
   }, [])
 
   // Tapping a starter reopens its conversation if one already exists (matched by
