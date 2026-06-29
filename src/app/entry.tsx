@@ -18,6 +18,7 @@ export default function EntryScreen() {
   const j = useJournalEntry()
   const [prompt, setPrompt] = useState(() => randomPrompt())
   const [showThought, setShowThought] = useState(false)
+  const feelings = feelingsForAffect(j.draft.mood, j.draft.energy)
 
   async function onSave() {
     const result = await j.submit()
@@ -55,21 +56,26 @@ export default function EntryScreen() {
       >
         <MoodGrid pleasantness={j.draft.mood} energy={j.draft.energy} onPick={j.setAffect} />
 
-        {feelingsForAffect(j.draft.mood, j.draft.energy).length > 0 && (
-          <View style={styles.feelings} testID="entry-feelings">
-            {feelingsForAffect(j.draft.mood, j.draft.energy).map((f) => {
-              const active = j.draft.emotion === f
-              return (
-                <Chip
-                  key={f}
-                  label={f}
-                  selected={active}
-                  // Tap to name the feeling; tap again to clear it.
-                  onPress={() => j.setEmotion(active ? null : f)}
-                  testID={`feeling-${f}`}
-                />
-              )
-            })}
+        {feelings.length > 0 && (
+          <View style={styles.feelingsWrap} testID="entry-feelings">
+            <Text variant="label" color="accent" style={styles.feelingsLabel}>
+              How does it feel?
+            </Text>
+            <View style={styles.feelings}>
+              {feelings.map((f) => {
+                const active = j.draft.emotion === f
+                return (
+                  <Chip
+                    key={f}
+                    label={f}
+                    selected={active}
+                    // Tap to name the feeling; tap again to clear it.
+                    onPress={() => j.setEmotion(active ? null : f)}
+                    testID={`feeling-${f}`}
+                  />
+                )
+              })}
+            </View>
           </View>
         )}
 
@@ -137,11 +143,12 @@ export default function EntryScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     body: { padding: t.spacing.xl, paddingBottom: t.spacing['2xl'] },
+    feelingsWrap: { marginTop: t.spacing.lg },
+    feelingsLabel: { marginBottom: t.spacing.sm },
     feelings: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: t.spacing.sm,
-      marginTop: t.spacing.lg,
     },
     promptRow: {
       flexDirection: 'row',

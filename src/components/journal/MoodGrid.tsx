@@ -3,43 +3,30 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { haptics } from '@/lib/haptics'
-import { type AffectQuadrant, quadrantFor } from '@/lib/feeling-words'
 
 // The energy×pleasantness capture grid (the circumplex model). The horizontal
 // axis is pleasantness 1→5 (this is the entry's `mood`); the vertical is energy,
 // high at the top. A single tap sets both. Discrete 5×5 cells (not a free pad) so
-// every point is an accessible button and easy to hit. Each cell is tinted by its
-// quadrant (red tense, amber upbeat, blue low, green calm) — the colour is the
-// circumplex's teaching device — kept soft to stay on the calm palette.
+// every point is an accessible button and easy to hit. Cells are tinted by a
+// smooth 4-corner gradient — red (tense), amber (upbeat), blue (low), green
+// (calm) — so the grid reads as continuous regions (no hard gray middle), while
+// the centre still blends to a muted neutral.
 
 const PLEASANTNESS = [1, 2, 3, 4, 5]
 const ENERGY_TOP_DOWN = [5, 4, 3, 2, 1] // top row = high energy
-const PLEASANT_EMOJI = ['😣', '😕', '😐', '🙂', '😄']
 
-/** The themed hue for a quadrant; null for the neutral middle band. */
-function quadrantHue(q: AffectQuadrant, t: Theme): string | null {
-  switch (q) {
-    case 'unpleasantHigh':
-      return t.colors.danger // red
-    case 'pleasantHigh':
-      return t.colors.moodOkay // amber
-    case 'unpleasantLow':
-      return t.colors.graphSituation // blue
-    case 'pleasantLow':
-      return t.colors.success // green
-    default:
-      return null // neutral
-  }
-}
+type RGB = [number, number, number]
 
-/** A 6-digit hex token at the given alpha — soft pastel tints over the surface. */
-function tint(hex: string, alpha: number): string {
+function hexToRgb(hex: string): RGB {
   const h = hex.replace('#', '')
-  const r = parseInt(h.slice(0, 2), 16)
-  const g = parseInt(h.slice(2, 4), 16)
-  const b = parseInt(h.slice(4, 6), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
 }
+const mix = (a: RGB, b: RGB, t: number): RGB => [
+  a[0] + (b[0] - a[0]) * t,
+  a[1] + (b[1] - a[1]) * t,
+  a[2] + (b[2] - a[2]) * t,
+]
+const rgba = (c: RGB, a: number): string => `rgba(${Math.round(c[0])}, ${Math.round(c[1])}, ${Math.round(c[2])}, ${a})`
 
 export function MoodGrid({
   pleasantness,
@@ -52,6 +39,12 @@ export function MoodGrid({
 }) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
+  // Quadrant corners: top = high energy, left = unpleasant.
+  const tl = hexToRgb(theme.colors.danger) // unpleasant + high (red)
+  const tr = hexToRgb(theme.colors.moodOkay) // pleasant + high (amber)
+  const bl = hexToRgb(theme.colors.graphSituation) // unpleasant + low (blue)
+  const br = hexToRgb(theme.colors.success) // pleasant + low (green)
+
   return (
     <View>
       <Text variant="caption" color="textMuted" style={styles.axisCenter}>
@@ -62,12 +55,10 @@ export function MoodGrid({
           <View key={e} style={styles.row}>
             {PLEASANTNESS.map((p) => {
               const selected = pleasantness === p && energy === e
-              const hue = quadrantHue(quadrantFor(p, e), theme)
-              const bg = hue
-                ? tint(hue, selected ? 0.6 : 0.22)
-                : selected
-                  ? theme.colors.surfaceSunken
-                  : theme.colors.surfaceAlt
+              const px = (p - 1) / 4 // 0 unpleasant → 1 pleasant
+              const py = (e - 1) / 4 // 0 low → 1 high energy
+              const hue = mix(mix(bl, br, px), mix(tl, tr, px), py) // bilinear blend
+              const bg = rgba(hue, selected ? 0.62 : 0.22)
               return (
                 <Pressable
                   key={p}
@@ -89,13 +80,6 @@ export function MoodGrid({
       <Text variant="caption" color="textMuted" style={styles.axisCenter}>
         Low energy
       </Text>
-      <View style={styles.emojiRow}>
-        {PLEASANT_EMOJI.map((em, i) => (
-          <Text key={i} variant="body" style={styles.emoji}>
-            {em}
-          </Text>
-        ))}
-      </View>
       <View style={styles.axisEnds}>
         <Text variant="caption" color="textMuted">
           Unpleasant
@@ -121,7 +105,5 @@ const makeStyles = (t: Theme) =>
       borderColor: 'transparent', // reserves space so selection adds no layout shift
     },
     cellSelected: { borderColor: t.colors.textPrimary },
-    emojiRow: { flexDirection: 'row', marginTop: t.spacing.xs },
-    emoji: { flex: 1, textAlign: 'center' },
     axisEnds: { flexDirection: 'row', justifyContent: 'space-between', marginTop: t.spacing.xs },
   })
