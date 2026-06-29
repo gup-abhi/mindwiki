@@ -6,15 +6,27 @@ import { createEntry } from '@/services/storage/entries'
 import { ok } from '@/types/result'
 
 const mockReplace = jest.fn()
+const mockAddListener = jest.fn(() => jest.fn()) // returns an unsubscribe
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),
+  useNavigation: () => ({ addListener: mockAddListener }),
 }))
 jest.mock('@/services/storage/entries', () => ({ createEntry: jest.fn() }))
 jest.mock('@/services/pipeline', () => ({ processEntry: jest.fn() }))
 jest.mock('@/services/notifications/scheduler', () => ({ onEntrySaved: jest.fn() }))
+jest.mock('@/services/storage/draft', () => ({
+  saveDraft: jest.fn(),
+  loadDraft: jest.fn().mockResolvedValue(null),
+  clearDraft: jest.fn(),
+}))
 
 const mockCreateEntry = createEntry as jest.Mock
 const mockProcessEntry = require('@/services/pipeline').processEntry as jest.Mock
+const draftMock = require('@/services/storage/draft') as {
+  saveDraft: jest.Mock
+  loadDraft: jest.Mock
+  clearDraft: jest.Mock
+}
 
 describe('EntryScreen (free-write)', () => {
   beforeEach(() => {
@@ -28,6 +40,9 @@ describe('EntryScreen (free-write)', () => {
       tagged: true,
       crisis: { tier: 0, confidence: 0, keywordMatch: false },
     })
+    draftMock.saveDraft.mockClear()
+    draftMock.clearDraft.mockClear()
+    draftMock.loadDraft.mockReset().mockResolvedValue(null)
   })
 
   it('saves a free-write entry, mapping the body to situation', async () => {
@@ -59,13 +74,36 @@ describe('EntryScreen (free-write)', () => {
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
-  it('discards the draft when the screen is left without saving', () => {
-    const { unmount } = render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('affect-4-5'))
-    expect(useEntryStore.getState().draft.mood).toBe(4)
-    unmount() // leave without saving
+  it('opens blank, resetting any leftover store state', () => {
+    useEntryStore.getState().setAffect(4, 5) // leftover from a prior screen
+    render(<EntryScreen />)
     expect(useEntryStore.getState().draft.mood).toBeNull()
-    expect(useEntryStore.getState().draft.emotion).toBeNull()
+  })
+
+  it('restores a saved draft on open', async () => {
+    draftMock.loadDraft.mockResolvedValue({
+      mood: 2,
+      energy: 4,
+      body: 'work in progress',
+      thought: '',
+      emotion: 'Anxious',
+    })
+    render(<EntryScreen />)
+    await waitFor(() => expect(useEntryStore.getState().draft.mood).toBe(2))
+    expect(useEntryStore.getState().draft.emotion).toBe('Anxious')
+  })
+
+  it('registers a back guard to offer keeping a draft', () => {
+    render(<EntryScreen />)
+    expect(mockAddListener).toHaveBeenCalledWith('beforeRemove', expect.any(Function))
+  })
+
+  it('clears the persisted draft after a successful save', async () => {
+    render(<EntryScreen />)
+    fireEvent.press(screen.getByTestId('affect-4-5'))
+    fireEvent.press(screen.getByTestId('feeling-Excited'))
+    fireEvent.press(screen.getByTestId('entry-save'))
+    await waitFor(() => expect(draftMock.clearDraft).toHaveBeenCalled())
   })
 
   it('does not save with a grid point but no feeling chosen', () => {

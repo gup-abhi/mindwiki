@@ -22,6 +22,8 @@ export interface EntryState {
   setBody: (value: string) => void
   setThought: (value: string) => void
   setEmotion: (value: string | null) => void
+  /** Replace the whole draft (restoring a saved draft). */
+  hydrate: (draft: EntryDraft) => void
   reset: () => void
 }
 
@@ -49,6 +51,10 @@ export const useEntryStore = create<EntryState>()(
     setEmotion: (value) =>
       set((s) => {
         s.draft.emotion = value
+      }),
+    hydrate: (draft) =>
+      set((s) => {
+        s.draft = draft
       }),
     reset: () =>
       set((s) => {

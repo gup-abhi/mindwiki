@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useRouter } from 'expo-router'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigation, useRouter } from 'expo-router'
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
@@ -9,29 +9,80 @@ import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { haptics } from '@/lib/haptics'
 import { randomPrompt } from '@/lib/journal-prompts'
 import { feelingsForAffect } from '@/lib/feeling-words'
+import { clearDraft, loadDraft, saveDraft } from '@/services/storage/draft'
+import { type EntryDraft } from '@/store/entry.store'
 import { useJournalEntry } from '@/hooks/useJournalEntry'
+
+/** Any field set means there's unsaved work worth offering to keep as a draft. */
+const hasContent = (d: EntryDraft): boolean =>
+  d.mood != null || d.energy != null || !!d.emotion || !!d.body.trim() || !!d.thought.trim()
 
 export default function EntryScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const j = useJournalEntry()
+  const navigation = useNavigation()
   const [prompt, setPrompt] = useState(() => randomPrompt())
   const [showThought, setShowThought] = useState(false)
   const feelings = feelingsForAffect(j.draft.mood, j.draft.energy)
 
-  // Leaving without saving discards the draft, so re-opening a new entry starts
-  // blank instead of restoring the last grid cell / feeling / text. (A successful
-  // save already resets in submit; this covers the back-out path.)
-  const reset = j.reset
-  useEffect(() => () => reset(), [reset])
+  // Latest draft for the back listener (registered once); a real save / chosen
+  // back action sets `leaving` so the listener doesn't re-prompt.
+  const { reset, hydrate } = j
+  const draftRef = useRef(j.draft)
+  draftRef.current = j.draft
+  const leaving = useRef(false)
+
+  // Open blank, then restore a saved draft if one exists (resume-later).
+  useEffect(() => {
+    reset()
+    void loadDraft().then((d) => {
+      if (d) {
+        hydrate(d)
+        setShowThought(!!d.thought?.trim())
+      }
+    })
+  }, [reset, hydrate])
+
+  // Intercept back: offer to keep unsaved work as a draft.
+  useEffect(() => {
+    const sub = navigation.addListener('beforeRemove', (e) => {
+      if (leaving.current || !hasContent(draftRef.current)) return
+      e.preventDefault()
+      Alert.alert('Keep this entry?', 'Save it as a draft and finish later, or discard it.', [
+        {
+          text: 'Save draft',
+          onPress: async () => {
+            await saveDraft(draftRef.current)
+            leaving.current = true
+            navigation.dispatch(e.data.action)
+          },
+        },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: async () => {
+            await clearDraft()
+            leaving.current = true
+            navigation.dispatch(e.data.action)
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ])
+    })
+    return sub
+  }, [navigation])
 
   async function onSave() {
+    leaving.current = true // a real save — don't prompt to keep a draft on the way out
     const result = await j.submit()
     if (!result.success) {
+      leaving.current = false
       Alert.alert('Could not save', result.error.message)
       return
     }
+    void clearDraft() // the entry is saved; drop any persisted draft
     haptics.success()
     // Only a confident signal (tier 2+) or an explicit keyword match (always tier 3)
     // takes over with the crisis screen. Tier 1 (confidence 0.30–0.59) is a soft,
