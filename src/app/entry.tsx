@@ -92,12 +92,14 @@ export default function EntryScreen() {
           <Ionicons name="refresh" size={18} color={theme.colors.textMuted} />
         </Pressable>
 
+        {/* No autoFocus: the page opens on the grid so the user picks a cell →
+            feeling → then taps here to write. Auto-focusing pops the keyboard and
+            scrolls the grid off-screen. */}
         <TextField
           placeholder="Start writing…"
           value={j.draft.body}
           onChangeText={j.setBody}
           multiline
-          autoFocus
           testID="entry-body"
         />
 
