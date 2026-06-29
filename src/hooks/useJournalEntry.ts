@@ -26,6 +26,7 @@ export function useJournalEntry() {
   const setBody = useEntryStore((s) => s.setBody)
   const setThought = useEntryStore((s) => s.setThought)
   const setEmotion = useEntryStore((s) => s.setEmotion)
+  const hydrate = useEntryStore((s) => s.hydrate)
   const reset = useEntryStore((s) => s.reset)
 
   const [submitting, setSubmitting] = useState(false)
@@ -75,6 +76,7 @@ export function useJournalEntry() {
     setBody,
     setThought,
     setEmotion,
+    hydrate,
     reset,
     submit,
     canSave,
