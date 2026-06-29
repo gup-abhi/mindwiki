@@ -50,44 +50,48 @@ export function MoodGrid({
       <Text variant="caption" color="textMuted" style={styles.axisCenter}>
         High energy
       </Text>
-      <View style={styles.grid}>
-        {ENERGY_TOP_DOWN.map((e) => (
-          <View key={e} style={styles.row}>
-            {PLEASANTNESS.map((p) => {
-              const selected = pleasantness === p && energy === e
-              const px = (p - 1) / 4 // 0 unpleasant → 1 pleasant
-              const py = (e - 1) / 4 // 0 low → 1 high energy
-              const hue = mix(mix(bl, br, px), mix(tl, tr, px), py) // bilinear blend
-              const bg = rgba(hue, selected ? 0.62 : 0.22)
-              return (
-                <Pressable
-                  key={p}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`Pleasantness ${p} of 5, energy ${e} of 5`}
-                  testID={`affect-${p}-${e}`}
-                  onPress={() => {
-                    haptics.select()
-                    onPick(p, e)
-                  }}
-                  style={[styles.cell, { backgroundColor: bg }, selected && styles.cellSelected]}
-                />
-              )
-            })}
-          </View>
-        ))}
+      <View style={styles.gridRow}>
+        <View style={styles.sideCol}>
+          <Text variant="caption" color="textMuted" style={[styles.sideLabel, styles.sideLeft]}>
+            Unpleasant
+          </Text>
+        </View>
+        <View style={styles.grid}>
+          {ENERGY_TOP_DOWN.map((e) => (
+            <View key={e} style={styles.row}>
+              {PLEASANTNESS.map((p) => {
+                const selected = pleasantness === p && energy === e
+                const px = (p - 1) / 4 // 0 unpleasant → 1 pleasant
+                const py = (e - 1) / 4 // 0 low → 1 high energy
+                const hue = mix(mix(bl, br, px), mix(tl, tr, px), py) // bilinear blend
+                const bg = rgba(hue, selected ? 0.62 : 0.22)
+                return (
+                  <Pressable
+                    key={p}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Pleasantness ${p} of 5, energy ${e} of 5`}
+                    testID={`affect-${p}-${e}`}
+                    onPress={() => {
+                      haptics.select()
+                      onPick(p, e)
+                    }}
+                    style={[styles.cell, { backgroundColor: bg }, selected && styles.cellSelected]}
+                  />
+                )
+              })}
+            </View>
+          ))}
+        </View>
+        <View style={styles.sideCol}>
+          <Text variant="caption" color="textMuted" style={[styles.sideLabel, styles.sideRight]}>
+            Pleasant
+          </Text>
+        </View>
       </View>
       <Text variant="caption" color="textMuted" style={styles.axisCenter}>
         Low energy
       </Text>
-      <View style={styles.axisEnds}>
-        <Text variant="caption" color="textMuted">
-          Unpleasant
-        </Text>
-        <Text variant="caption" color="textMuted">
-          Pleasant
-        </Text>
-      </View>
     </View>
   )
 }
@@ -95,7 +99,14 @@ export function MoodGrid({
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     axisCenter: { textAlign: 'center', marginVertical: t.spacing.xs },
-    grid: { gap: t.spacing.xs },
+    gridRow: { flexDirection: 'row', alignItems: 'center' },
+    sideCol: { width: 18, alignItems: 'center', justifyContent: 'center' },
+    // The label box is wide enough not to wrap, then rotated to run vertically;
+    // it overflows the narrow column with empty space, so the grid keeps the rest.
+    sideLabel: { width: 90, textAlign: 'center' },
+    sideLeft: { transform: [{ rotate: '-90deg' }] }, // reads bottom→top
+    sideRight: { transform: [{ rotate: '90deg' }] }, // reads top→bottom
+    grid: { flex: 1, gap: t.spacing.xs },
     row: { flexDirection: 'row', gap: t.spacing.xs },
     cell: {
       flex: 1,
@@ -105,5 +116,4 @@ const makeStyles = (t: Theme) =>
       borderColor: 'transparent', // reserves space so selection adds no layout shift
     },
     cellSelected: { borderColor: t.colors.textPrimary },
-    axisEnds: { flexDirection: 'row', justifyContent: 'space-between', marginTop: t.spacing.xs },
   })
