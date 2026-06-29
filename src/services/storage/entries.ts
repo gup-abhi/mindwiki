@@ -21,6 +21,8 @@ export interface Entry {
   emotion: string | null
   /** The feeling the user consciously named at capture (journal only). */
   named_emotion: string | null
+  /** Arousal 1–5 (the grid's vertical axis); null for pre-grid entries. */
+  energy: number | null
   distortion: string | null
   mood_score: number | null
   /** Fast-model theme (1–3 words) — persisted so the graph rebuilds across devices. */
@@ -38,6 +40,8 @@ export interface NewEntry {
   closing_note?: string | null
   /** The feeling the user named at capture; null for Reflect captures (no picker). */
   named_emotion?: string | null
+  /** Arousal 1–5 from the capture grid; null for Reflect captures (no grid). */
+  energy?: number | null
   /** Defaults to 'journal'. Reflect-chat captures pass 'reflect'. */
   source?: EntrySource
 }
@@ -63,6 +67,7 @@ function rowToEntry(row: Record<string, unknown>): Entry {
     closing_note: str(row.closing_note),
     emotion: str(row.emotion),
     named_emotion: str(row.named_emotion),
+    energy: num(row.energy),
     distortion: str(row.distortion),
     mood_score: num(row.mood_score),
     topic: str(row.topic),
@@ -85,6 +90,7 @@ export async function createEntry(
     closing_note: input.closing_note ?? null,
     emotion: null, // the model fills this after save
     named_emotion: input.named_emotion?.trim() || null,
+    energy: input.energy ?? null,
     distortion: null,
     mood_score: null,
     topic: null,
@@ -93,8 +99,8 @@ export async function createEntry(
   }
   try {
     await db.execute(
-      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.id,
         entry.created_at,
@@ -104,6 +110,7 @@ export async function createEntry(
         entry.behavior,
         entry.closing_note,
         entry.named_emotion,
+        entry.energy,
         entry.source,
       ]
     )

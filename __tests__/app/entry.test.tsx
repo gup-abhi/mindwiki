@@ -32,8 +32,8 @@ describe('EntryScreen (free-write)', () => {
 
   it('saves a free-write entry, mapping the body to situation', async () => {
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('mood-4'))
-    fireEvent.press(screen.getByTestId('feeling-Hopeful')) // a feeling is now required
+    fireEvent.press(screen.getByTestId('affect-4-5')) // pleasant + high energy
+    fireEvent.press(screen.getByTestId('feeling-Excited')) // a feeling is now required
     fireEvent.changeText(screen.getByTestId('entry-body'), 'a rough day at work')
     fireEvent.press(screen.getByTestId('entry-save'))
 
@@ -42,7 +42,8 @@ describe('EntryScreen (free-write)', () => {
         mood: 4,
         situation: 'a rough day at work',
         thought: '',
-        named_emotion: 'Hopeful',
+        named_emotion: 'Excited',
+        energy: 5,
         behavior: null,
         closing_note: null,
       })
@@ -58,9 +59,9 @@ describe('EntryScreen (free-write)', () => {
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
-  it('does not save with a mood but no feeling chosen', () => {
+  it('does not save with a grid point but no feeling chosen', () => {
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('mood-4'))
+    fireEvent.press(screen.getByTestId('affect-4-5'))
     fireEvent.changeText(screen.getByTestId('entry-body'), 'wrote something')
     fireEvent.press(screen.getByTestId('entry-save')) // still disabled — feeling required
     expect(mockCreateEntry).not.toHaveBeenCalled()
@@ -68,7 +69,7 @@ describe('EntryScreen (free-write)', () => {
 
   it('reveals the optional thought field and includes it on save', async () => {
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('mood-3'))
+    fireEvent.press(screen.getByTestId('affect-4-2')) // pleasant + low energy
     fireEvent.press(screen.getByTestId('feeling-Calm'))
     fireEvent.changeText(screen.getByTestId('entry-body'), 'snapped at Sarah')
     fireEvent.press(screen.getByTestId('entry-add-thought'))
@@ -77,29 +78,30 @@ describe('EntryScreen (free-write)', () => {
 
     await waitFor(() =>
       expect(mockCreateEntry).toHaveBeenCalledWith({
-        mood: 3,
+        mood: 4,
         situation: 'snapped at Sarah',
         thought: 'I ruin everything',
         named_emotion: 'Calm',
+        energy: 2,
         behavior: null,
         closing_note: null,
       })
     )
   })
 
-  it('offers feeling words after a mood is picked and includes the chosen one on save', async () => {
+  it('offers feeling words after a grid point is picked and includes the chosen one on save', async () => {
     render(<EntryScreen />)
-    // No mood yet → no feelings offered.
+    // No grid point yet → no feelings offered.
     expect(screen.queryByTestId('entry-feelings')).toBeNull()
 
-    fireEvent.press(screen.getByTestId('mood-4'))
+    fireEvent.press(screen.getByTestId('affect-4-5'))
     expect(screen.getByTestId('entry-feelings')).toBeTruthy()
-    fireEvent.press(screen.getByTestId('feeling-Hopeful'))
+    fireEvent.press(screen.getByTestId('feeling-Excited'))
     fireEvent.changeText(screen.getByTestId('entry-body'), 'a better day')
     fireEvent.press(screen.getByTestId('entry-save'))
 
     await waitFor(() =>
-      expect(mockCreateEntry).toHaveBeenCalledWith(expect.objectContaining({ named_emotion: 'Hopeful' }))
+      expect(mockCreateEntry).toHaveBeenCalledWith(expect.objectContaining({ named_emotion: 'Excited', energy: 5 }))
     )
   })
 
@@ -109,8 +111,8 @@ describe('EntryScreen (free-write)', () => {
       crisis: { tier: 3, confidence: 0.9, keywordMatch: true },
     })
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('mood-1'))
-    fireEvent.press(screen.getByTestId('feeling-Hopeless'))
+    fireEvent.press(screen.getByTestId('affect-1-1')) // unpleasant + low energy
+    fireEvent.press(screen.getByTestId('feeling-Sad'))
     fireEvent.changeText(screen.getByTestId('entry-body'), 'i give up')
     fireEvent.press(screen.getByTestId('entry-save'))
 
@@ -128,8 +130,8 @@ describe('EntryScreen (free-write)', () => {
       crisis: { tier: 1, confidence: 0.35, keywordMatch: false },
     })
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('mood-2'))
-    fireEvent.press(screen.getByTestId('feeling-Worried'))
+    fireEvent.press(screen.getByTestId('affect-2-4')) // unpleasant + high energy
+    fireEvent.press(screen.getByTestId('feeling-Anxious'))
     fireEvent.changeText(screen.getByTestId('entry-body'), 'I will mess up the presentation')
     fireEvent.press(screen.getByTestId('entry-save'))
 

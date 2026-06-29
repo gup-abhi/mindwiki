@@ -22,7 +22,7 @@ export interface SubmitOutcome {
  */
 export function useJournalEntry() {
   const draft = useEntryStore((s) => s.draft)
-  const setMood = useEntryStore((s) => s.setMood)
+  const setAffect = useEntryStore((s) => s.setAffect)
   const setBody = useEntryStore((s) => s.setBody)
   const setThought = useEntryStore((s) => s.setThought)
   const setEmotion = useEntryStore((s) => s.setEmotion)
@@ -30,10 +30,11 @@ export function useJournalEntry() {
 
   const [submitting, setSubmitting] = useState(false)
 
-  // A journal entry requires a mood and a named feeling (both single taps); the
-  // written body is optional and, when present, is what the AI analyses. The
-  // feeling chips only surface once a mood is picked, so this gates in order.
-  const canSave = draft.mood != null && draft.emotion != null
+  // A journal entry requires a grid point (mood + energy, one tap) and a named
+  // feeling; the written body is optional and, when present, is what the AI
+  // analyses. The feeling chips only surface once the grid is tapped, so this
+  // gates in order.
+  const canSave = draft.mood != null && draft.energy != null && draft.emotion != null
 
   const submit = useCallback(async (): Promise<Result<SubmitOutcome>> => {
     if (draft.mood == null) return err('ENTRY_INVALID', 'Choose how you’re feeling first')
@@ -45,6 +46,7 @@ export function useJournalEntry() {
         situation: draft.body.trim(), // the free-write body is the entry text
         thought: draft.thought.trim(), // optional CBT facet ('' if not added)
         named_emotion: draft.emotion, // the feeling the user named (the model fills its own `emotion`)
+        energy: draft.energy, // the grid's vertical axis
         behavior: null,
         closing_note: null,
       })
@@ -69,7 +71,7 @@ export function useJournalEntry() {
 
   return {
     draft,
-    setMood,
+    setAffect,
     setBody,
     setThought,
     setEmotion,

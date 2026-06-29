@@ -76,6 +76,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   closing_note: null,
   emotion: null,
   named_emotion: null,
+  energy: null,
   distortion: null,
   mood_score: null,
   topic: null,

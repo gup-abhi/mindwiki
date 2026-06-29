@@ -21,7 +21,7 @@ function createFakeDb() {
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
       if (/^INSERT INTO entries/.test(sql)) {
-        const [id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, source] = params
+        const [id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, source] = params
         rows.set(String(id), {
           id,
           created_at,
@@ -32,6 +32,7 @@ function createFakeDb() {
           closing_note,
           emotion: null,
           named_emotion: named_emotion ?? null,
+          energy: energy ?? null,
           distortion: null,
           mood_score: null,
           tagged_at: null,
@@ -199,6 +200,16 @@ describe('storage/entries CRUD', () => {
     const found = await getEntry(id, db)
     expect(found.success && found.data?.emotion).toBe('anxiety')
     expect(found.success && found.data?.tagged_at).not.toBeNull()
+  })
+
+  it('stores the energy axis from the capture grid', async () => {
+    const { db } = createFakeDb()
+    const created = await createEntry({ mood: 4, situation: 's', thought: 't', named_emotion: 'Hopeful', energy: 5 }, db)
+    expect(created.success && created.data.energy).toBe(5)
+    const id = created.success ? created.data.id : ''
+    const found = await getEntry(id, db)
+    expect(found.success && found.data?.energy).toBe(5)
+    expect(found.success && found.data?.mood).toBe(4) // pleasantness axis unchanged
   })
 
   it('keeps the user-named feeling and the model-inferred emotion side by side', async () => {

@@ -421,3 +421,14 @@ export const migration017: Migration = {
   name: 'named_emotion',
   statements: [`ALTER TABLE entries ADD COLUMN named_emotion TEXT`],
 }
+
+// Migration 018 — energy axis. Capture moved to an energy×pleasantness grid: the
+// horizontal axis stays `mood` (1–5 pleasantness, unchanged semantics) and this
+// column adds the vertical axis — arousal/energy 1–5. Lets the digest tell a
+// "wired" tough day (high energy: anxious/angry) from a "flat" one (low energy:
+// sad/tired). Nullable for pre-grid entries; synced like the other entry fields.
+export const migration018: Migration = {
+  version: 18,
+  name: 'entry_energy',
+  statements: [`ALTER TABLE entries ADD COLUMN energy INTEGER`],
+}

@@ -24,13 +24,13 @@ describe('useJournalEntry', () => {
     })
   })
 
-  it('canSave requires both a mood and a named feeling — the body stays optional', () => {
+  it('canSave requires an affect grid point and a named feeling — the body stays optional', () => {
     const { result } = renderHook(() => useJournalEntry())
     expect(result.current.canSave).toBe(false) // nothing yet
-    act(() => result.current.setMood(4))
-    expect(result.current.canSave).toBe(false) // mood alone is no longer enough
-    act(() => result.current.setEmotion('Hopeful'))
-    expect(result.current.canSave).toBe(true) // mood + feeling, even with no text
+    act(() => result.current.setAffect(4, 5))
+    expect(result.current.canSave).toBe(false) // grid alone is not enough
+    act(() => result.current.setEmotion('Excited'))
+    expect(result.current.canSave).toBe(true) // grid + feeling, even with no text
   })
 
   it('submit returns an error when mood is missing', async () => {
@@ -52,7 +52,7 @@ describe('useJournalEntry', () => {
 
     const { result } = renderHook(() => useJournalEntry())
     act(() => {
-      result.current.setMood(4)
+      result.current.setAffect(4, 5)
       result.current.setBody('  a long rough day  ')
       result.current.setThought('I will fail')
     })
@@ -67,6 +67,7 @@ describe('useJournalEntry', () => {
       situation: 'a long rough day',
       thought: 'I will fail',
       named_emotion: null,
+      energy: 5,
       behavior: null,
       closing_note: null,
     })
