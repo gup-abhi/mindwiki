@@ -4,15 +4,12 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
 import { Button, Chip, Screen, Text, TextField } from '@/components/ui'
+import { MoodGrid } from '@/components/journal/MoodGrid'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { haptics } from '@/lib/haptics'
 import { randomPrompt } from '@/lib/journal-prompts'
-import { feelingsForMood } from '@/lib/feeling-words'
+import { feelingsForAffect } from '@/lib/feeling-words'
 import { useJournalEntry } from '@/hooks/useJournalEntry'
-
-const MOODS = [1, 2, 3, 4, 5]
-const MOOD_EMOJI = ['😣', '😕', '😐', '🙂', '😄']
-const MOOD_LABELS = ['Awful', 'Low', 'Okay', 'Good', 'Great']
 
 export default function EntryScreen() {
   const router = useRouter()
@@ -56,42 +53,18 @@ export default function EntryScreen() {
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
       >
-        <View style={styles.moodRow}>
-          {MOODS.map((m) => {
-            const active = j.draft.mood === m
-            return (
-              <Pressable
-                key={m}
-                accessibilityRole="button"
-                accessibilityLabel={MOOD_LABELS[m - 1]}
-                testID={`mood-${m}`}
-                onPress={() => {
-                  haptics.select()
-                  j.setMood(m)
-                }}
-                style={[styles.mood, active && styles.moodActive]}
-              >
-                <Text variant="title" style={styles.moodEmoji}>
-                  {MOOD_EMOJI[m - 1]}
-                </Text>
-                <Text variant="caption" color={active ? 'accentText' : 'textMuted'}>
-                  {MOOD_LABELS[m - 1]}
-                </Text>
-              </Pressable>
-            )
-          })}
-        </View>
+        <MoodGrid pleasantness={j.draft.mood} energy={j.draft.energy} onPick={j.setAffect} />
 
-        {feelingsForMood(j.draft.mood).length > 0 && (
+        {feelingsForAffect(j.draft.mood, j.draft.energy).length > 0 && (
           <View style={styles.feelings} testID="entry-feelings">
-            {feelingsForMood(j.draft.mood).map((f) => {
+            {feelingsForAffect(j.draft.mood, j.draft.energy).map((f) => {
               const active = j.draft.emotion === f
               return (
                 <Chip
                   key={f}
                   label={f}
                   selected={active}
-                  // Tap to name the feeling; tap again to clear it (it's optional).
+                  // Tap to name the feeling; tap again to clear it.
                   onPress={() => j.setEmotion(active ? null : f)}
                   testID={`feeling-${f}`}
                 />
@@ -164,17 +137,6 @@ export default function EntryScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     body: { padding: t.spacing.xl, paddingBottom: t.spacing['2xl'] },
-    moodRow: { flexDirection: 'row', justifyContent: 'space-between', gap: t.spacing.sm },
-    mood: {
-      flex: 1,
-      paddingVertical: t.spacing.md,
-      borderRadius: t.radii.md,
-      backgroundColor: t.colors.surfaceAlt,
-      alignItems: 'center',
-      gap: t.spacing.xs,
-    },
-    moodActive: { backgroundColor: t.colors.accentMuted },
-    moodEmoji: { lineHeight: 34 },
     feelings: {
       flexDirection: 'row',
       flexWrap: 'wrap',

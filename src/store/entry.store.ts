@@ -1,13 +1,14 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
-// Free-write draft: a mood + the body the user writes. `thought` is an optional
-// CBT facet (the automatic thought) the user can choose to add; `emotion` is an
-// optional feeling word the user may name (valence-matched to the mood). Anything
-// not named here (distortion, people, places…) is derived from the text by the
-// fast model after save — and the model fills `emotion` too only when unnamed.
+// Free-write draft. Capture is an energy×pleasantness grid: `mood` is the
+// pleasantness axis (1–5, unchanged semantics) and `energy` the arousal axis
+// (1–5). `thought` is an optional CBT facet; `emotion` is the feeling word the
+// user names (drawn from the grid quadrant). Anything not named here (distortion,
+// people, places…) is derived from the text by the fast model after save.
 export interface EntryDraft {
   mood: number | null
+  energy: number | null
   body: string
   thought: string
   /** A feeling word the user picked, or null. Authoritative over the model's. */
@@ -16,24 +17,26 @@ export interface EntryDraft {
 
 export interface EntryState {
   draft: EntryDraft
-  setMood: (mood: number) => void
+  /** Set both grid axes at once (a single tap on the affect grid). */
+  setAffect: (pleasantness: number, energy: number) => void
   setBody: (value: string) => void
   setThought: (value: string) => void
   setEmotion: (value: string | null) => void
   reset: () => void
 }
 
-const initialDraft = (): EntryDraft => ({ mood: null, body: '', thought: '', emotion: null })
+const initialDraft = (): EntryDraft => ({ mood: null, energy: null, body: '', thought: '', emotion: null })
 
 export const useEntryStore = create<EntryState>()(
   immer((set) => ({
     draft: initialDraft(),
-    setMood: (mood) =>
+    setAffect: (pleasantness, energy) =>
       set((s) => {
-        // The feeling words are valence-matched to the mood, so changing the mood
-        // clears a now-mismatched pick (re-tapping the same mood keeps it).
-        if (mood !== s.draft.mood) s.draft.emotion = null
-        s.draft.mood = mood
+        // The feeling words come from the grid quadrant, so moving to a new point
+        // clears a now-mismatched pick (re-tapping the same cell keeps it).
+        if (pleasantness !== s.draft.mood || energy !== s.draft.energy) s.draft.emotion = null
+        s.draft.mood = pleasantness
+        s.draft.energy = energy
       }),
     setBody: (value) =>
       set((s) => {
