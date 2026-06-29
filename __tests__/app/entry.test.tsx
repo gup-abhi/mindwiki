@@ -59,6 +59,15 @@ describe('EntryScreen (free-write)', () => {
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
+  it('discards the draft when the screen is left without saving', () => {
+    const { unmount } = render(<EntryScreen />)
+    fireEvent.press(screen.getByTestId('affect-4-5'))
+    expect(useEntryStore.getState().draft.mood).toBe(4)
+    unmount() // leave without saving
+    expect(useEntryStore.getState().draft.mood).toBeNull()
+    expect(useEntryStore.getState().draft.emotion).toBeNull()
+  })
+
   it('does not save with a grid point but no feeling chosen', () => {
     render(<EntryScreen />)
     fireEvent.press(screen.getByTestId('affect-4-5'))

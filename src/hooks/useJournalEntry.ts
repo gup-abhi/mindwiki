@@ -75,6 +75,7 @@ export function useJournalEntry() {
     setBody,
     setThought,
     setEmotion,
+    reset,
     submit,
     canSave,
     submitting,

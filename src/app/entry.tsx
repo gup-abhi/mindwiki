@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
@@ -19,6 +19,12 @@ export default function EntryScreen() {
   const [prompt, setPrompt] = useState(() => randomPrompt())
   const [showThought, setShowThought] = useState(false)
   const feelings = feelingsForAffect(j.draft.mood, j.draft.energy)
+
+  // Leaving without saving discards the draft, so re-opening a new entry starts
+  // blank instead of restoring the last grid cell / feeling / text. (A successful
+  // save already resets in submit; this covers the back-out path.)
+  const reset = j.reset
+  useEffect(() => () => reset(), [reset])
 
   async function onSave() {
     const result = await j.submit()
