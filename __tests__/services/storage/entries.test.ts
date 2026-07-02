@@ -4,6 +4,7 @@ import {
   getEntry,
   listEntries,
   listStreakTimestamps,
+  listUnindexedEntries,
   applyTags,
   deleteEntry,
   listEntriesByEmotion,
@@ -50,6 +51,17 @@ function createFakeDb() {
         const all = [...rows.values()]
           .filter((r) => r.source === 'journal')
           .sort((a, b) => Number(b.created_at) - Number(a.created_at))
+        return { rows: all.slice(0, limit), rowsAffected: 0 }
+      }
+      if (/^SELECT \* FROM entries WHERE tagged_at IS NULL AND \(TRIM\(situation\) <> '' OR TRIM\(thought\) <> ''\) ORDER BY created_at ASC/.test(sql)) {
+        const limit = Number(params[0])
+        const all = [...rows.values()]
+          .filter(
+            (r) =>
+              r.tagged_at == null &&
+              (String(r.situation ?? '').trim() !== '' || String(r.thought ?? '').trim() !== '')
+          )
+          .sort((a, b) => Number(a.created_at) - Number(b.created_at))
         return { rows: all.slice(0, limit), rowsAffected: 0 }
       }
       if (/^SELECT created_at FROM entries WHERE source IN \('journal', 'path'\) ORDER BY created_at DESC/.test(sql)) {
@@ -147,6 +159,23 @@ describe('storage/entries CRUD', () => {
     const result = await listStreakTimestamps(400, db)
     expect(result.success).toBe(true)
     if (result.success) expect(result.data).toHaveLength(2) // journal + path, reflect excluded
+  })
+
+  it('lists only un-indexed entries with text — tagged ones and empty mood-logs excluded', async () => {
+    const { db } = createFakeDb()
+    const withText = await createEntry({ mood: 3, situation: 'a real reflection', thought: '' }, db)
+    await createEntry({ mood: 3, situation: '', thought: '' }, db) // quick mood-log, no text
+    const tagged = await createEntry({ mood: 3, situation: 'already indexed', thought: '' }, db)
+    if (tagged.success) {
+      await applyTags(tagged.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+    }
+
+    const result = await listUnindexedEntries(50, db)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0].id).toBe(withText.success && withText.data.id)
+    }
   })
 
   it('lists entries behind an emotion node, newest first, journal-only', async () => {

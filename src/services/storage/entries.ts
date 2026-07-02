@@ -174,6 +174,30 @@ export async function listStreakTimestamps(
   }
 }
 
+/**
+ * Entries that were saved but never indexed — `tagged_at` still null and they
+ * have text worth extracting. This happens when a deep-model synthesis is cut
+ * short (the app backgrounded/killed before the background index finished); on a
+ * single device nothing else retries it. The launch-time catch-up re-indexes
+ * these. Oldest-first so they fold into the compounding wiki in written order;
+ * capped so a large backlog spreads over a few launches. The text filter skips
+ * quick mood-logs, which are intentionally never tagged.
+ */
+export async function listUnindexedEntries(
+  limit = 50,
+  db: SqliteDatabase = getDb()
+): Promise<Result<Entry[]>> {
+  try {
+    const res = await db.execute(
+      "SELECT * FROM entries WHERE tagged_at IS NULL AND (TRIM(situation) <> '' OR TRIM(thought) <> '') ORDER BY created_at ASC LIMIT ?",
+      [limit]
+    )
+    return ok(res.rows.map(rowToEntry))
+  } catch (e) {
+    return err('ENTRY_UNINDEXED_LIST_FAILED', 'Failed to list unindexed entries', e)
+  }
+}
+
 /** Apply fast-model tags to an existing entry (never blocks the original save). */
 export async function applyTags(
   id: string,

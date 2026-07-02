@@ -1,6 +1,7 @@
 import { CryptoModule } from '@/native/CryptoModule'
 import { rebuildGraph } from '@/services/graph/engine'
 import { dedupeTopics } from '@/services/wiki/dedupe'
+import { catchUpUnindexed } from '@/services/pipeline'
 import { type AppError, type Result, ok, err } from '@/types/result'
 
 import { initDb, deleteDatabase } from './db'
@@ -66,6 +67,11 @@ export async function initStorage(): Promise<Result<void>> {
     const res = await dedupeTopics()
     if (res.success) await setSetting(DEDUPE_TOPICS_FLAG, '1')
   }
+
+  // Self-heal any entries whose synthesis was interrupted (app killed before the
+  // background index finished). Fire-and-forget — never block launch; no-ops
+  // cheaply when there's nothing to re-index or the deep model isn't present.
+  void catchUpUnindexed()
 
   return ok(undefined)
 }
