@@ -1,4 +1,4 @@
-import { processEntry, captureReflectMessage } from '@/services/pipeline'
+import { processEntry, captureReflectMessage, capturePathAnswers } from '@/services/pipeline'
 import { scoreCrisis } from '@/services/llm/fast-model'
 import { extractEntry } from '@/services/llm/deep-model'
 import { applyTags, createEntry, type Entry } from '@/services/storage/entries'
@@ -259,6 +259,61 @@ describe('captureReflectMessage', () => {
     mockExtractEntry.mockResolvedValue(err('EXTRACT_INFERENCE_FAILED', 'model down'))
 
     await expect(captureReflectMessage('I felt calm at the park')).resolves.toBeUndefined()
+    expect(mockCreateEntry).not.toHaveBeenCalled()
+  })
+})
+
+describe('capturePathAnswers', () => {
+  beforeEach(() => {
+    mockScoreCrisis.mockReset()
+    mockExtractEntry.mockReset()
+    mockApplyTags.mockReset().mockResolvedValue(ok(undefined))
+    mockCreateEntry.mockReset()
+    mockSetEntities.mockReset().mockResolvedValue(ok(undefined))
+    mockUpdateWiki.mockReset().mockResolvedValue(ok([]))
+    mockUpdateGraph.mockReset().mockResolvedValue(ok(undefined))
+    mockBegin.mockReset()
+    mockEnd.mockReset()
+    mockScoreCrisis.mockResolvedValue(crisis(0))
+    mockExtractEntry.mockResolvedValue(extract())
+    mockCreateEntry.mockResolvedValue(ok(entry({ id: 'p1', source: 'path' })))
+  })
+
+  it('indexes each non-empty answer as its own source:path entry', async () => {
+    await capturePathAnswers(['I felt stuck', '', '  ', 'I need rest'])
+    await flush()
+
+    // Empties are dropped; each real answer becomes a path entry.
+    expect(mockCreateEntry).toHaveBeenCalledTimes(2)
+    expect(mockCreateEntry).toHaveBeenCalledWith(expect.objectContaining({ source: 'path' }))
+    expect(mockUpdateWiki).toHaveBeenCalled()
+  })
+
+  it('crisis-scores the combined answers once and returns the assessment', async () => {
+    mockScoreCrisis.mockResolvedValue(crisis(0.9))
+
+    const result = await capturePathAnswers(['first', 'second'])
+
+    expect(mockScoreCrisis).toHaveBeenCalledTimes(1)
+    expect(mockScoreCrisis).toHaveBeenCalledWith(
+      expect.objectContaining({ situation: 'first\nsecond' })
+    )
+    expect(result.tier).toBeGreaterThanOrEqual(2) // 0.9 confidence → confident tier
+  })
+
+  it('does nothing and reports no crisis when every answer is blank', async () => {
+    const result = await capturePathAnswers(['', '   '])
+
+    expect(mockScoreCrisis).not.toHaveBeenCalled()
+    expect(mockCreateEntry).not.toHaveBeenCalled()
+    expect(result.tier).toBe(0)
+  })
+
+  it('skips indexing an answer whose extract fails, without throwing', async () => {
+    mockExtractEntry.mockResolvedValue(err('EXTRACT_INFERENCE_FAILED', 'model down'))
+
+    await expect(capturePathAnswers(['something real'])).resolves.toBeDefined()
+    await flush()
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 })

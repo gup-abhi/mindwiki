@@ -6,8 +6,10 @@ import { type SqliteDatabase, getDb } from './db'
 import { type EntityType } from './entities'
 import { enqueueUpsert } from './sync-queue'
 
-/** Where an entry came from: the CBT journal flow, or a Reflect-chat message. */
-export type EntrySource = 'journal' | 'reflect'
+/** Where an entry came from: the CBT journal flow, a Reflect-chat message, or a
+ * guided-path answer. Only 'journal' shows in the timeline; the rest feed the
+ * wiki/graph but stay out of it. */
+export type EntrySource = 'journal' | 'reflect' | 'path'
 
 export interface Entry {
   id: string

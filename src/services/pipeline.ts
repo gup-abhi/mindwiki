@@ -169,3 +169,47 @@ export async function captureReflectMessage(message: string): Promise<void> {
 
   await indexFromExtract(created.data, ex.data)
 }
+
+/**
+ * Capture the answers from a completed guided path. Each non-empty answer becomes
+ * its own `source:'path'` entry, indexed into the wiki/graph immediately — no
+ * recurrence gate (unlike Reflect chat): the user deliberately chose this
+ * reflection, it isn't incidental. Path entries stay out of the journal timeline
+ * (which filters `source='journal'`) but compound the knowledge base like any entry.
+ *
+ * Returns one crisis assessment over the combined answers so the runner can route
+ * to /crisis — safety parity with a journal save, since paths deliberately probe
+ * hard feelings. The crisis score is the only blocking step; indexing is background.
+ * Never throws.
+ */
+export async function capturePathAnswers(answers: string[]): Promise<CrisisAssessment> {
+  const nonEmpty = answers.map((a) => a.trim()).filter((a) => a !== '')
+  if (nonEmpty.length === 0) return assessCrisis('', 0)
+
+  // Synchronous, safety-critical: one fast-model crisis score over the combined
+  // answers; the keyword net still fires on failure.
+  const combined = nonEmpty.join('\n')
+  const crisisResult = await scoreCrisis({ situation: combined, thought: '' })
+  const crisisConfidence = crisisResult.success ? crisisResult.data.crisis_confidence : 0
+  const crisis = assessCrisis(combined, crisisConfidence)
+
+  // Index each answer as its own entry, in the background — never blocks completion.
+  void indexPathAnswers(nonEmpty)
+
+  return crisis
+}
+
+async function indexPathAnswers(answers: string[]): Promise<void> {
+  for (const answer of answers) {
+    const ex = await extractEntry({ situation: answer, thought: '' })
+    if (!ex.success) continue
+    const created = await createEntry({
+      mood: moodFromScore(ex.data.mood_score),
+      situation: answer,
+      thought: '',
+      source: 'path',
+    })
+    if (!created.success) continue
+    await indexFromExtract(created.data, ex.data)
+  }
+}

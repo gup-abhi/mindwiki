@@ -157,6 +157,19 @@ export default function Home() {
                 )}
               </Card>
             )}
+            <Card
+              variant="sunken"
+              style={styles.fullWidth}
+              onPress={() => router.push('/paths')}
+              testID="home-paths"
+            >
+              <Text variant="caption" color="accent">
+                🧭 Guided reflections
+              </Text>
+              <Text variant="bodyStrong" style={styles.surfaceText}>
+                Work through something, one prompt at a time
+              </Text>
+            </Card>
             {synthesizing && (
               <Text variant="caption" color="accent" style={styles.synth}>
                 Synthesizing your insights…

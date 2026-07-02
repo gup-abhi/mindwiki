@@ -6,6 +6,7 @@ import {
   converseFromWiki,
   extractEntry,
   suggestBalancedThought,
+  deepenReflection,
 } from '@/services/llm/deep-model'
 import { buildUpdatePagePrompt, buildRewritePagePrompt } from '@/services/llm/prompts/update-page'
 import { buildAffirmationPrompt } from '@/services/llm/prompts/affirmation'
@@ -205,6 +206,32 @@ describe('generateReflectionQuestion', () => {
     const result = await generateReflectionQuestion(qInput)
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.code).toBe('DIGEST_QUESTION_VALIDATION_FAILED')
+  })
+})
+
+describe('deepenReflection', () => {
+  beforeEach(() => mockSynthesise.mockReset())
+  const dInput = { prompt: 'What’s weighing on you?', answer: 'Work has been relentless.' }
+
+  it('returns the first line with wrapping quotes stripped', async () => {
+    mockSynthesise.mockResolvedValue({ text: '"What part of it feels heaviest?"\n\n(hope this helps)' })
+    const result = await deepenReflection(dInput)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toBe('What part of it feels heaviest?')
+  })
+
+  it('fails with DEEPEN_INFERENCE_FAILED when the model throws', async () => {
+    mockSynthesise.mockRejectedValue(new Error('OOM'))
+    const result = await deepenReflection(dInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('DEEPEN_INFERENCE_FAILED')
+  })
+
+  it('fails with DEEPEN_VALIDATION_FAILED on empty output', async () => {
+    mockSynthesise.mockResolvedValue({ text: '   \n ' })
+    const result = await deepenReflection(dInput)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('DEEPEN_VALIDATION_FAILED')
   })
 })
 
