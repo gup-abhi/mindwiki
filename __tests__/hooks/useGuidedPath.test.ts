@@ -65,6 +65,15 @@ describe('useGuidedPath', () => {
     expect(result.current.followUp).toBeNull()
   })
 
+  it('hasAnyAnswer is false until some step has non-whitespace text', () => {
+    const { result } = renderHook(() => useGuidedPath(pathId))
+    expect(result.current.hasAnyAnswer).toBe(false)
+    act(() => result.current.setAnswer('   ')) // whitespace doesn't count
+    expect(result.current.hasAnyAnswer).toBe(false)
+    act(() => result.current.setAnswer('something real'))
+    expect(result.current.hasAnyAnswer).toBe(true)
+  })
+
   it('finish captures every answer and returns the crisis assessment', async () => {
     mockCapture.mockResolvedValue({ tier: 3, confidence: 0.9, keywordMatch: true })
     const { result } = renderHook(() => useGuidedPath(pathId))

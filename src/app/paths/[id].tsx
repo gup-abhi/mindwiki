@@ -116,6 +116,7 @@ export default function PathRunnerScreen() {
             <Button
               title="Finish"
               loading={p.submitting}
+              disabled={!p.hasAnyAnswer}
               fullWidth
               onPress={onFinish}
               testID="path-finish"

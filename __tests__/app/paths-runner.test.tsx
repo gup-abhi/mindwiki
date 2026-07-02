@@ -24,6 +24,7 @@ const baseHook = () => ({
   followUp: null,
   isFirst: true,
   isLast: false,
+  hasAnyAnswer: false,
   deepening: false,
   submitting: false,
   setAnswer: jest.fn(),
@@ -59,8 +60,22 @@ describe('PathRunnerScreen', () => {
     expect(screen.getByText('What feels heaviest?')).toBeTruthy()
   })
 
-  it('finishing with no crisis shows the completion screen', async () => {
+  it('disables Finish until at least one answer has text', () => {
     mockHook = { ...baseHook(), stepIndex: path.steps.length - 1, isFirst: false, isLast: true }
+    render(<PathRunnerScreen />)
+    fireEvent.press(screen.getByTestId('path-finish')) // disabled — no-op
+    expect(mockReplace).not.toHaveBeenCalled()
+    expect(screen.queryByText('Nicely done')).toBeNull()
+  })
+
+  it('finishing with no crisis shows the completion screen', async () => {
+    mockHook = {
+      ...baseHook(),
+      stepIndex: path.steps.length - 1,
+      isFirst: false,
+      isLast: true,
+      hasAnyAnswer: true,
+    }
     render(<PathRunnerScreen />)
     fireEvent.press(screen.getByTestId('path-finish'))
     await waitFor(() => expect(screen.getByText('Nicely done')).toBeTruthy())
@@ -73,6 +88,7 @@ describe('PathRunnerScreen', () => {
       stepIndex: path.steps.length - 1,
       isFirst: false,
       isLast: true,
+      hasAnyAnswer: true,
       finish: jest.fn().mockResolvedValue({ tier: 3, confidence: 0.9, keywordMatch: true }),
     }
     render(<PathRunnerScreen />)

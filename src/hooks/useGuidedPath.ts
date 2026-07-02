@@ -72,6 +72,8 @@ export function useGuidedPath(pathId: string) {
     followUp: followUps[stepIndex] ?? null,
     isFirst: stepIndex === 0,
     isLast: stepCount > 0 && stepIndex === stepCount - 1,
+    // Individual steps are skippable, but a path must capture something to finish.
+    hasAnyAnswer: answers.some((a) => a.trim() !== ''),
     deepening,
     submitting,
     setAnswer,
