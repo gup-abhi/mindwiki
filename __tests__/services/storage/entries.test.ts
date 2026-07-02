@@ -3,6 +3,7 @@ import {
   createEntry,
   getEntry,
   listEntries,
+  listStreakTimestamps,
   applyTags,
   deleteEntry,
   listEntriesByEmotion,
@@ -50,6 +51,13 @@ function createFakeDb() {
           .filter((r) => r.source === 'journal')
           .sort((a, b) => Number(b.created_at) - Number(a.created_at))
         return { rows: all.slice(0, limit), rowsAffected: 0 }
+      }
+      if (/^SELECT created_at FROM entries WHERE source IN \('journal', 'path'\) ORDER BY created_at DESC/.test(sql)) {
+        const limit = Number(params[0])
+        const all = [...rows.values()]
+          .filter((r) => r.source === 'journal' || r.source === 'path')
+          .sort((a, b) => Number(b.created_at) - Number(a.created_at))
+        return { rows: all.slice(0, limit).map((r) => ({ created_at: r.created_at })), rowsAffected: 0 }
       }
       if (/^UPDATE entries SET/.test(sql)) {
         const [emotion, distortion, mood_score, topic, tagged_at, id] = params
@@ -128,6 +136,17 @@ describe('storage/entries CRUD', () => {
       expect(result.data).toHaveLength(1)
       expect(result.data[0].situation).toBe('journaled')
     }
+  })
+
+  it('streak timestamps include journal AND path answers, but not reflect', async () => {
+    const { db } = createFakeDb()
+    await createEntry({ mood: 3, situation: 'journaled', thought: 't' }, db)
+    await createEntry({ mood: 3, situation: 'a guided answer', thought: '', source: 'path' }, db)
+    await createEntry({ mood: 3, situation: 'said in chat', thought: '', source: 'reflect' }, db)
+
+    const result = await listStreakTimestamps(400, db)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toHaveLength(2) // journal + path, reflect excluded
   })
 
   it('lists entries behind an emotion node, newest first, journal-only', async () => {

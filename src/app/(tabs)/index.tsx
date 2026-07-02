@@ -11,6 +11,7 @@ import { ModelDownloadCard } from '@/components/ModelDownloadCard'
 import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
 import { useChallenge } from '@/hooks/useChallenge'
 import { useEntries } from '@/hooks/useEntries'
+import { useStreakTimestamps } from '@/hooks/useStreakTimestamps'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useStreakFreezes } from '@/hooks/useStreakFreezes'
 import { useWikiStore } from '@/store/wiki.store'
@@ -35,7 +36,9 @@ export default function Home() {
   const { challenge, streak, doneToday, checkIn } = useChallenge()
   const { frozenDays, useFreezes } = useStreakFreezes()
   const synthesizing = useWikiStore((s) => s.pending > 0)
-  const timestamps = useMemo(() => entries.map((e) => e.created_at), [entries])
+  // The streak counts journal entries AND completed guided-path answers, so it
+  // reads a dedicated source, not the journal-only timeline (`entries`).
+  const { timestamps } = useStreakTimestamps()
   const journalStreak = useMemo(
     () => computeStreak(timestamps, Date.now(), frozenDays),
     [timestamps, frozenDays]

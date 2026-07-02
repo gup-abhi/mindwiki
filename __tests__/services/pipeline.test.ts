@@ -279,7 +279,7 @@ describe('capturePathAnswers', () => {
     mockCreateEntry.mockResolvedValue(ok(entry({ id: 'p1', source: 'path' })))
   })
 
-  it('indexes each non-empty answer as its own source:path entry', async () => {
+  it('creates a source:path entry per non-empty answer and indexes it', async () => {
     await capturePathAnswers(['I felt stuck', '', '  ', 'I need rest'])
     await flush()
 
@@ -309,11 +309,14 @@ describe('capturePathAnswers', () => {
     expect(result.tier).toBe(0)
   })
 
-  it('skips indexing an answer whose extract fails, without throwing', async () => {
+  it('still creates the entry when the extract fails, but skips indexing (ADR 004)', async () => {
     mockExtractEntry.mockResolvedValue(err('EXTRACT_INFERENCE_FAILED', 'model down'))
 
     await expect(capturePathAnswers(['something real'])).resolves.toBeDefined()
     await flush()
-    expect(mockCreateEntry).not.toHaveBeenCalled()
+    // The entry is saved regardless — the path day must count even if the model
+    // is down; only the wiki/graph enrichment is skipped.
+    expect(mockCreateEntry).toHaveBeenCalledWith(expect.objectContaining({ source: 'path' }))
+    expect(mockUpdateWiki).not.toHaveBeenCalled()
   })
 })

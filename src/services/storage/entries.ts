@@ -153,6 +153,27 @@ export async function listEntries(
   }
 }
 
+/**
+ * created_at (ms) for every entry that counts toward the streak — journal entries
+ * and completed guided-path answers, but NOT incidental Reflect captures. Newest
+ * first, capped. Lightweight: selects the timestamp column only, so it can look
+ * back further than the timeline without hydrating rows.
+ */
+export async function listStreakTimestamps(
+  limit = 400,
+  db: SqliteDatabase = getDb()
+): Promise<Result<number[]>> {
+  try {
+    const res = await db.execute(
+      "SELECT created_at FROM entries WHERE source IN ('journal', 'path') ORDER BY created_at DESC LIMIT ?",
+      [limit]
+    )
+    return ok(res.rows.map((r) => Number(r.created_at)))
+  } catch (e) {
+    return err('ENTRY_TIMESTAMPS_FAILED', 'Failed to list streak timestamps', e)
+  }
+}
+
 /** Apply fast-model tags to an existing entry (never blocks the original save). */
 export async function applyTags(
   id: string,
