@@ -1,12 +1,14 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
+import { Alert } from 'react-native'
 
 import EntryScreen from '@/app/entry'
 import { useEntryStore } from '@/store/entry.store'
 import { createEntry } from '@/services/storage/entries'
 import { ok } from '@/types/result'
 
+type BackCb = (e: { preventDefault: () => void; data: { action: unknown } }) => void
 const mockReplace = jest.fn()
-const mockAddListener = jest.fn(() => jest.fn()) // returns an unsubscribe
+const mockAddListener = jest.fn((_event: string, _cb: BackCb) => jest.fn()) // returns an unsubscribe
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),
   useNavigation: () => ({ addListener: mockAddListener }),
@@ -43,6 +45,7 @@ describe('EntryScreen (free-write)', () => {
     draftMock.saveDraft.mockClear()
     draftMock.clearDraft.mockClear()
     draftMock.loadDraft.mockReset().mockResolvedValue(null)
+    mockAddListener.mockClear() // each test's render is the only back-guard registration
   })
 
   it('saves a free-write entry, mapping the body to situation', async () => {
@@ -104,6 +107,41 @@ describe('EntryScreen (free-write)', () => {
     fireEvent.press(screen.getByTestId('feeling-Excited'))
     fireEvent.press(screen.getByTestId('entry-save'))
     await waitFor(() => expect(draftMock.clearDraft).toHaveBeenCalled())
+  })
+
+  // The written text is the only thing worth a draft — a bare grid/feeling pick is not.
+  const backGuard = () => mockAddListener.mock.calls.find((c) => c[0] === 'beforeRemove')?.[1]
+
+  it('does not prompt on back when only a grid cell is picked (no text)', () => {
+    render(<EntryScreen />)
+    fireEvent.press(screen.getByTestId('affect-4-5'))
+    const e = { preventDefault: jest.fn(), data: { action: {} } }
+    backGuard()!(e)
+    expect(e.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('prompts to keep a draft on back once there is text', () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
+    render(<EntryScreen />)
+    fireEvent.changeText(screen.getByTestId('entry-body'), 'something on my mind')
+    const e = { preventDefault: jest.fn(), data: { action: {} } }
+    backGuard()!(e)
+    expect(e.preventDefault).toHaveBeenCalled()
+    expect(alertSpy).toHaveBeenCalled()
+    alertSpy.mockRestore()
+  })
+
+  it('offers Clear once something is entered, wiping the store and the persisted draft', () => {
+    const alertSpy = jest
+      .spyOn(Alert, 'alert')
+      .mockImplementation((_t, _m, buttons) => buttons?.find((b) => b.text === 'Clear')?.onPress?.())
+    render(<EntryScreen />)
+    expect(screen.queryByTestId('entry-clear')).toBeNull() // nothing entered yet
+    fireEvent.press(screen.getByTestId('affect-4-5'))
+    fireEvent.press(screen.getByTestId('entry-clear'))
+    expect(useEntryStore.getState().draft.mood).toBeNull()
+    expect(draftMock.clearDraft).toHaveBeenCalled()
+    alertSpy.mockRestore()
   })
 
   it('does not save with a grid point but no feeling chosen', () => {
