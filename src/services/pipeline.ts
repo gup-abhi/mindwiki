@@ -169,3 +169,56 @@ export async function captureReflectMessage(message: string): Promise<void> {
 
   await indexFromExtract(created.data, ex.data)
 }
+
+/**
+ * Capture the answers from a completed guided path. Each non-empty answer becomes
+ * its own `source:'path'` entry, indexed into the wiki/graph immediately — no
+ * recurrence gate (unlike Reflect chat): the user deliberately chose this
+ * reflection, it isn't incidental. Path entries stay out of the journal timeline
+ * (which filters `source='journal'`) but compound the knowledge base like any entry.
+ *
+ * Returns one crisis assessment over the combined answers so the runner can route
+ * to /crisis — safety parity with a journal save, since paths deliberately probe
+ * hard feelings. The crisis score is the only blocking step; indexing is background.
+ * Never throws.
+ */
+export async function capturePathAnswers(answers: string[]): Promise<CrisisAssessment> {
+  const nonEmpty = answers.map((a) => a.trim()).filter((a) => a !== '')
+  if (nonEmpty.length === 0) return assessCrisis('', 0)
+
+  // Synchronous, safety-critical: one fast-model crisis score over the combined
+  // answers; the keyword net still fires on failure.
+  const combined = nonEmpty.join('\n')
+  const crisisResult = await scoreCrisis({ situation: combined, thought: '' })
+  const crisisConfidence = crisisResult.success ? crisisResult.data.crisis_confidence : 0
+  const crisis = assessCrisis(combined, crisisConfidence)
+
+  // Create the entries now (fast DB writes), so a completed path reliably and
+  // promptly counts — toward the streak and the knowledge base — even if the deep
+  // model is slow or fails (ADR 004: LLM failures never lose the entry). `mood` is
+  // a neutral placeholder: path entries are excluded from every journal-mood
+  // aggregation (timeline, trends, digest); only their day and their extracted
+  // tags (set in the background below) are ever read.
+  const created: Entry[] = []
+  for (const answer of nonEmpty) {
+    const res = await createEntry({ mood: NEUTRAL_MOOD, situation: answer, thought: '', source: 'path' })
+    if (res.success) created.push(res.data)
+  }
+
+  // Enrich each entry (tags → graph + wiki) in the background — never blocks completion.
+  void indexPathEntries(created)
+
+  return crisis
+}
+
+// A path answer has no self-rated mood; the column is inert for path entries, so
+// a neutral value is fine. The inferred mood_score is still set by the deep model.
+const NEUTRAL_MOOD = 3
+
+async function indexPathEntries(entries: Entry[]): Promise<void> {
+  for (const entry of entries) {
+    const ex = await extractEntry({ situation: entry.situation, thought: '' })
+    if (!ex.success) continue
+    await indexFromExtract(entry, ex.data)
+  }
+}

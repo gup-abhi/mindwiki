@@ -22,6 +22,8 @@ import { DigestSynthesisSchema, type DigestSynthesis } from './schemas/digest-sy
 import { WikiContentSchema } from './schemas/wiki-update.schema'
 import { buildReframePrompt, type ReframePromptInput } from './prompts/reframe-suggest'
 import { ReframeSuggestionSchema } from './schemas/reframe.schema'
+import { buildDeepenPrompt, type DeepenPromptInput } from './prompts/deepen'
+import { DeepenQuestionSchema } from './schemas/deepen.schema'
 import { buildExtractPrompt, type ExtractPromptInput } from './prompts/extract-entry'
 import { EntryExtractSchema, type EntryExtract } from './schemas/entry-extract.schema'
 import { canonicalizeEmotion, canonicalizeDistortion, canonicalizeLabel, singularizeLabel, normalizeEntities, normalizePhrases } from './taxonomy'
@@ -220,6 +222,35 @@ export async function suggestBalancedThought(input: ReframePromptInput): Promise
   const parsed = ReframeSuggestionSchema.safeParse(cleaned)
   if (!parsed.success) {
     return err('REFRAME_VALIDATION_FAILED', 'Reframe suggestion failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Guided-path "go deeper" assist: one gentle follow-up question that invites the
+ * user a layer further into the answer they just wrote. Constrained to ask, never
+ * assert. Best-effort — an optional tap; on any failure the caller simply doesn't
+ * show a follow-up.
+ */
+export async function deepenReflection(input: DeepenPromptInput): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildDeepenPrompt(input), {
+      maxTokens: 60,
+      temperature: 0.7,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('DEEPEN_INFERENCE_FAILED', 'Deep model inference failed', e)
+  }
+
+  // Take the first non-empty line and strip wrapping quotes — the model may add a
+  // stray prefix or quote the question.
+  const firstLine = raw.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? ''
+  const cleaned = firstLine.replace(/^["']+|["']+$/g, '')
+  const parsed = DeepenQuestionSchema.safeParse(cleaned)
+  if (!parsed.success) {
+    return err('DEEPEN_VALIDATION_FAILED', 'Follow-up question failed validation')
   }
   return ok(parsed.data)
 }

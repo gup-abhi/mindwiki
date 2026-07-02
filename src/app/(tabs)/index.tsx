@@ -11,6 +11,7 @@ import { ModelDownloadCard } from '@/components/ModelDownloadCard'
 import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
 import { useChallenge } from '@/hooks/useChallenge'
 import { useEntries } from '@/hooks/useEntries'
+import { useStreakTimestamps } from '@/hooks/useStreakTimestamps'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useStreakFreezes } from '@/hooks/useStreakFreezes'
 import { useWikiStore } from '@/store/wiki.store'
@@ -35,7 +36,9 @@ export default function Home() {
   const { challenge, streak, doneToday, checkIn } = useChallenge()
   const { frozenDays, useFreezes } = useStreakFreezes()
   const synthesizing = useWikiStore((s) => s.pending > 0)
-  const timestamps = useMemo(() => entries.map((e) => e.created_at), [entries])
+  // The streak counts journal entries AND completed guided-path answers, so it
+  // reads a dedicated source, not the journal-only timeline (`entries`).
+  const { timestamps } = useStreakTimestamps()
   const journalStreak = useMemo(
     () => computeStreak(timestamps, Date.now(), frozenDays),
     [timestamps, frozenDays]
@@ -157,6 +160,19 @@ export default function Home() {
                 )}
               </Card>
             )}
+            <Card
+              variant="sunken"
+              style={styles.fullWidth}
+              onPress={() => router.push('/paths')}
+              testID="home-paths"
+            >
+              <Text variant="caption" color="accent">
+                🧭 Guided reflections
+              </Text>
+              <Text variant="bodyStrong" style={styles.surfaceText}>
+                Work through something, one prompt at a time
+              </Text>
+            </Card>
             {synthesizing && (
               <Text variant="caption" color="accent" style={styles.synth}>
                 Synthesizing your insights…

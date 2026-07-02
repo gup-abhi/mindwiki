@@ -6,8 +6,10 @@ import { type SqliteDatabase, getDb } from './db'
 import { type EntityType } from './entities'
 import { enqueueUpsert } from './sync-queue'
 
-/** Where an entry came from: the CBT journal flow, or a Reflect-chat message. */
-export type EntrySource = 'journal' | 'reflect'
+/** Where an entry came from: the CBT journal flow, a Reflect-chat message, or a
+ * guided-path answer. Only 'journal' shows in the timeline; the rest feed the
+ * wiki/graph but stay out of it. */
+export type EntrySource = 'journal' | 'reflect' | 'path'
 
 export interface Entry {
   id: string
@@ -148,6 +150,27 @@ export async function listEntries(
     return ok(res.rows.map(rowToEntry))
   } catch (e) {
     return err('ENTRY_LIST_FAILED', 'Failed to list entries', e)
+  }
+}
+
+/**
+ * created_at (ms) for every entry that counts toward the streak — journal entries
+ * and completed guided-path answers, but NOT incidental Reflect captures. Newest
+ * first, capped. Lightweight: selects the timestamp column only, so it can look
+ * back further than the timeline without hydrating rows.
+ */
+export async function listStreakTimestamps(
+  limit = 400,
+  db: SqliteDatabase = getDb()
+): Promise<Result<number[]>> {
+  try {
+    const res = await db.execute(
+      "SELECT created_at FROM entries WHERE source IN ('journal', 'path') ORDER BY created_at DESC LIMIT ?",
+      [limit]
+    )
+    return ok(res.rows.map((r) => Number(r.created_at)))
+  } catch (e) {
+    return err('ENTRY_TIMESTAMPS_FAILED', 'Failed to list streak timestamps', e)
   }
 }
 
