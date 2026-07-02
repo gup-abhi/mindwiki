@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native'
 import { Alert } from 'react-native'
 
 import EntryScreen from '@/app/entry'
@@ -48,10 +48,17 @@ describe('EntryScreen (free-write)', () => {
     mockAddListener.mockClear() // each test's render is the only back-guard registration
   })
 
+  // Step 1 (grid + feeling) → Continue → step 2 (writing). Advancing requires a
+  // grid point and a feeling, since that's what enables Continue.
+  const goToWrite = (affect: string, feeling: string) => {
+    fireEvent.press(screen.getByTestId(affect))
+    fireEvent.press(screen.getByTestId(`feeling-${feeling}`))
+    fireEvent.press(screen.getByTestId('entry-continue'))
+  }
+
   it('saves a free-write entry, mapping the body to situation', async () => {
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('affect-4-5')) // pleasant + high energy
-    fireEvent.press(screen.getByTestId('feeling-Excited')) // a feeling is now required
+    goToWrite('affect-4-5', 'Excited') // pleasant + high energy; feeling required
     fireEvent.changeText(screen.getByTestId('entry-body'), 'a rough day at work')
     fireEvent.press(screen.getByTestId('entry-save'))
 
@@ -71,9 +78,10 @@ describe('EntryScreen (free-write)', () => {
     )
   })
 
-  it('does not save without a mood or a feeling', () => {
+  it('does not advance without a mood or a feeling', () => {
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('entry-save')) // disabled — no-op
+    fireEvent.press(screen.getByTestId('entry-continue')) // disabled — no-op
+    expect(screen.queryByTestId('entry-body')).toBeNull() // still on step 1
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
@@ -103,8 +111,7 @@ describe('EntryScreen (free-write)', () => {
 
   it('clears the persisted draft after a successful save', async () => {
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('affect-4-5'))
-    fireEvent.press(screen.getByTestId('feeling-Excited'))
+    goToWrite('affect-4-5', 'Excited')
     fireEvent.press(screen.getByTestId('entry-save'))
     await waitFor(() => expect(draftMock.clearDraft).toHaveBeenCalled())
   })
@@ -123,12 +130,25 @@ describe('EntryScreen (free-write)', () => {
   it('prompts to keep a draft on back once there is text', () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
     render(<EntryScreen />)
+    goToWrite('affect-4-5', 'Excited')
     fireEvent.changeText(screen.getByTestId('entry-body'), 'something on my mind')
+    fireEvent.press(screen.getByTestId('entry-back')) // back to step 1, text retained
     const e = { preventDefault: jest.fn(), data: { action: {} } }
     backGuard()!(e)
     expect(e.preventDefault).toHaveBeenCalled()
     expect(alertSpy).toHaveBeenCalled()
     alertSpy.mockRestore()
+  })
+
+  it('steps back to the feeling screen instead of leaving, from the writing step', () => {
+    render(<EntryScreen />)
+    goToWrite('affect-4-5', 'Excited')
+    expect(screen.getByTestId('entry-body')).toBeTruthy() // on step 2
+    const e = { preventDefault: jest.fn(), data: { action: {} } }
+    act(() => backGuard()!(e))
+    expect(e.preventDefault).toHaveBeenCalled() // intercepted — returns to step 1
+    expect(screen.queryByTestId('entry-body')).toBeNull()
+    expect(screen.getByTestId('entry-continue')).toBeTruthy()
   })
 
   it('offers Clear once something is entered, wiping the store and the persisted draft', () => {
@@ -144,18 +164,17 @@ describe('EntryScreen (free-write)', () => {
     alertSpy.mockRestore()
   })
 
-  it('does not save with a grid point but no feeling chosen', () => {
+  it('does not advance with a grid point but no feeling chosen', () => {
     render(<EntryScreen />)
     fireEvent.press(screen.getByTestId('affect-4-5'))
-    fireEvent.changeText(screen.getByTestId('entry-body'), 'wrote something')
-    fireEvent.press(screen.getByTestId('entry-save')) // still disabled — feeling required
+    fireEvent.press(screen.getByTestId('entry-continue')) // still disabled — feeling required
+    expect(screen.queryByTestId('entry-body')).toBeNull() // stayed on step 1
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
   it('reveals the optional thought field and includes it on save', async () => {
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('affect-4-2')) // pleasant + low energy
-    fireEvent.press(screen.getByTestId('feeling-Calm'))
+    goToWrite('affect-4-2', 'Calm') // pleasant + low energy
     fireEvent.changeText(screen.getByTestId('entry-body'), 'snapped at Sarah')
     fireEvent.press(screen.getByTestId('entry-add-thought'))
     fireEvent.changeText(screen.getByTestId('entry-thought'), 'I ruin everything')
@@ -182,6 +201,7 @@ describe('EntryScreen (free-write)', () => {
     fireEvent.press(screen.getByTestId('affect-4-5'))
     expect(screen.getByTestId('entry-feelings')).toBeTruthy()
     fireEvent.press(screen.getByTestId('feeling-Excited'))
+    fireEvent.press(screen.getByTestId('entry-continue'))
     fireEvent.changeText(screen.getByTestId('entry-body'), 'a better day')
     fireEvent.press(screen.getByTestId('entry-save'))
 
@@ -196,8 +216,7 @@ describe('EntryScreen (free-write)', () => {
       crisis: { tier: 3, confidence: 0.9, keywordMatch: true },
     })
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('affect-1-1')) // unpleasant + low energy
-    fireEvent.press(screen.getByTestId('feeling-Sad'))
+    goToWrite('affect-1-1', 'Sad') // unpleasant + low energy
     fireEvent.changeText(screen.getByTestId('entry-body'), 'i give up')
     fireEvent.press(screen.getByTestId('entry-save'))
 
@@ -215,8 +234,7 @@ describe('EntryScreen (free-write)', () => {
       crisis: { tier: 1, confidence: 0.35, keywordMatch: false },
     })
     render(<EntryScreen />)
-    fireEvent.press(screen.getByTestId('affect-2-4')) // unpleasant + high energy
-    fireEvent.press(screen.getByTestId('feeling-Anxious'))
+    goToWrite('affect-2-4', 'Anxious') // unpleasant + high energy
     fireEvent.changeText(screen.getByTestId('entry-body'), 'I will mess up the presentation')
     fireEvent.press(screen.getByTestId('entry-save'))
 
