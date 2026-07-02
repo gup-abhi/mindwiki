@@ -78,13 +78,15 @@ export default function PathRunnerScreen() {
         </Text>
       )}
 
-      <TextField
-        placeholder="Take your time…"
-        value={p.answer}
-        onChangeText={p.setAnswer}
-        multiline
-        testID="path-answer"
-      />
+      <View style={styles.field}>
+        <TextField
+          placeholder="Take your time…"
+          value={p.answer}
+          onChangeText={p.setAnswer}
+          multiline
+          testID="path-answer"
+        />
+      </View>
 
       {p.followUp && (
         <View style={styles.followUp} testID="path-followup">
@@ -134,7 +136,8 @@ const makeStyles = (t: Theme) =>
     doneBody: { textAlign: 'center', marginBottom: t.spacing.md },
     counter: { marginTop: t.spacing.sm },
     prompt: { marginTop: t.spacing.lg },
-    hint: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
+    hint: { marginTop: t.spacing.xs },
+    field: { marginTop: t.spacing.lg },
     followUp: {
       marginTop: t.spacing.lg,
       padding: t.spacing.md,
