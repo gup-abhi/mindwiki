@@ -18,6 +18,7 @@ const entry = (mood: number, ts: number): Entry => ({
   mood_score: null,
   topic: null,
   tagged_at: null,
+  wiki_indexed_at: null,
   source: 'journal',
 })
 

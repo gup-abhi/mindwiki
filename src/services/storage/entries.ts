@@ -30,6 +30,10 @@ export interface Entry {
   /** Fast-model theme (1–3 words) — persisted so the graph rebuilds across devices. */
   topic: string | null
   tagged_at: number | null
+  /** When wiki synthesis for this entry last resolved. Set after (not before)
+   * the deep-model wiki step so catch-up can find entries interrupted mid-
+   * synthesis. Device-local — never synced. */
+  wiki_indexed_at: number | null
   source: EntrySource
 }
 
@@ -74,6 +78,7 @@ function rowToEntry(row: Record<string, unknown>): Entry {
     mood_score: num(row.mood_score),
     topic: str(row.topic),
     tagged_at: num(row.tagged_at),
+    wiki_indexed_at: num(row.wiki_indexed_at),
     source: (row.source == null ? 'journal' : String(row.source)) as EntrySource,
   }
 }
@@ -97,6 +102,7 @@ export async function createEntry(
     mood_score: null,
     topic: null,
     tagged_at: null,
+    wiki_indexed_at: null,
     source: input.source ?? 'journal',
   }
   try {
@@ -195,6 +201,46 @@ export async function listUnindexedEntries(
     return ok(res.rows.map(rowToEntry))
   } catch (e) {
     return err('ENTRY_UNINDEXED_LIST_FAILED', 'Failed to list unindexed entries', e)
+  }
+}
+
+/**
+ * Entries that were tagged but whose wiki synthesis never completed (interrupted
+ * mid-synthesis, since `tagged_at` is stamped before the fire-and-forget wiki
+ * step). `listUnindexedEntries` misses these because they *are* tagged. The
+ * launch-time catch-up re-runs *only* their wiki step (tags/entities already
+ * persisted; graph is not re-run — additive edges would double-count). Oldest-
+ * first, capped, same text filter as the tagged catch-up.
+ */
+export async function listWikiPendingEntries(
+  limit = 50,
+  db: SqliteDatabase = getDb()
+): Promise<Result<Entry[]>> {
+  try {
+    const res = await db.execute(
+      "SELECT * FROM entries WHERE tagged_at IS NOT NULL AND wiki_indexed_at IS NULL AND (TRIM(situation) <> '' OR TRIM(thought) <> '') ORDER BY created_at ASC LIMIT ?",
+      [limit]
+    )
+    return ok(res.rows.map(rowToEntry))
+  } catch (e) {
+    return err('ENTRY_WIKI_PENDING_LIST_FAILED', 'Failed to list wiki-pending entries', e)
+  }
+}
+
+/**
+ * Stamp an entry's wiki synthesis as complete. Device-local bookkeeping for the
+ * catch-up gate — deliberately does NOT enqueue a sync upsert (the column isn't
+ * synced; wiki pages travel on their own).
+ */
+export async function markWikiIndexed(
+  id: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<void>> {
+  try {
+    await db.execute('UPDATE entries SET wiki_indexed_at = ? WHERE id = ?', [Date.now(), id])
+    return ok(undefined)
+  } catch (e) {
+    return err('ENTRY_WIKI_MARK_FAILED', 'Failed to mark entry wiki-indexed', e)
   }
 }
 

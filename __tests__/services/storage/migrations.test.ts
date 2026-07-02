@@ -80,4 +80,13 @@ describe('registry', () => {
     expect(sql).toContain("'belief','behavior'")
     expect(sql).toContain('entry_entities') // table rebuilt, not dropped
   })
+
+  it('registers migration 019 adding wiki_indexed_at and backfilling from tagged_at', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 19)
+    expect(m).toBeDefined()
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('ADD COLUMN wiki_indexed_at')
+    // backfill trusts already-tagged rows so upgrade doesn't re-synthesize them
+    expect(sql).toContain('SET wiki_indexed_at = tagged_at WHERE tagged_at IS NOT NULL')
+  })
 })

@@ -2,7 +2,14 @@ import { assessCrisis, type CrisisAssessment } from '@/services/crisis/detector'
 import { scoreCrisis } from '@/services/llm/fast-model'
 import { extractEntry } from '@/services/llm/deep-model'
 import { type EntryExtract } from '@/services/llm/schemas/entry-extract.schema'
-import { applyTags, createEntry, listUnindexedEntries, type Entry } from '@/services/storage/entries'
+import {
+  applyTags,
+  createEntry,
+  listUnindexedEntries,
+  listWikiPendingEntries,
+  markWikiIndexed,
+  type Entry,
+} from '@/services/storage/entries'
 import { isModelDownloaded } from '@/services/llm/model-manager'
 import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
 import { getSetting, setSetting } from '@/services/storage/settings'
@@ -59,8 +66,17 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   void updateGraphForEntry(taggedEntry, ex.topic)
 
   // Wiki synthesis is the slow deep-model step — track it for the indicator.
+  // Mark the entry wiki-indexed only once synthesis actually resolves; an
+  // interruption (app killed mid-synthesis) leaves the marker unset so launch
+  // catch-up re-runs the wiki step. A resolved-but-partial run still counts as
+  // done — per-page model failures heal opportunistically, not by re-churning
+  // every launch.
   useWikiStore.getState().begin()
-  void updateWikiForEntry(taggedEntry, ex.topic).finally(() => useWikiStore.getState().end())
+  void updateWikiForEntry(taggedEntry, ex.topic)
+    .then((res) => {
+      if (res.success) return markWikiIndexed(entry.id)
+    })
+    .finally(() => useWikiStore.getState().end())
 }
 
 /**
@@ -94,12 +110,42 @@ async function extractThenIndex(entry: Entry): Promise<void> {
  */
 export async function catchUpUnindexed(): Promise<void> {
   if (!(await isModelDownloaded('deep'))) return
-  const res = await listUnindexedEntries()
-  if (!res.success || res.data.length === 0) return
-  // Sequential — the deep context runs one completion at a time anyway, and this
-  // yields to any live save between entries.
-  for (const entry of res.data) {
-    await extractThenIndex(entry)
+
+  // Pass 1: entries never tagged (extraction never ran) — full re-index.
+  const untagged = await listUnindexedEntries()
+  if (untagged.success) {
+    // Sequential — the deep context runs one completion at a time anyway, and this
+    // yields to any live save between entries.
+    for (const entry of untagged.data) {
+      await extractThenIndex(entry)
+    }
+  }
+
+  // Pass 2: entries tagged but whose wiki synthesis was interrupted (tagged_at is
+  // set before the fire-and-forget wiki step). Re-run ONLY the wiki step — tags
+  // and entities are already persisted, and the graph must NOT be re-run (its
+  // edges are additive and would double-count). Synced-in entries are stamped
+  // wiki-indexed on pull, so they never surface here.
+  const wikiPending = await listWikiPendingEntries()
+  if (wikiPending.success) {
+    for (const entry of wikiPending.data) {
+      await wikiIndexOnly(entry)
+    }
+  }
+}
+
+/**
+ * Re-run just the wiki synthesis for an already-tagged entry and mark it done.
+ * Used by catch-up for entries interrupted after tagging. Best-effort; a failed
+ * synthesis leaves the marker unset so a later launch retries. Never throws.
+ */
+async function wikiIndexOnly(entry: Entry): Promise<void> {
+  useWikiStore.getState().begin()
+  try {
+    const res = await updateWikiForEntry(entry, entry.topic)
+    if (res.success) await markWikiIndexed(entry.id)
+  } finally {
+    useWikiStore.getState().end()
   }
 }
 

@@ -5,6 +5,8 @@ import {
   listEntries,
   listStreakTimestamps,
   listUnindexedEntries,
+  listWikiPendingEntries,
+  markWikiIndexed,
   applyTags,
   deleteEntry,
   listEntriesByEmotion,
@@ -38,6 +40,7 @@ function createFakeDb() {
           distortion: null,
           mood_score: null,
           tagged_at: null,
+          wiki_indexed_at: null,
           source,
         })
         return { rows: [], rowsAffected: 1 }
@@ -70,6 +73,25 @@ function createFakeDb() {
           .filter((r) => r.source === 'journal' || r.source === 'path')
           .sort((a, b) => Number(b.created_at) - Number(a.created_at))
         return { rows: all.slice(0, limit).map((r) => ({ created_at: r.created_at })), rowsAffected: 0 }
+      }
+      if (/^SELECT \* FROM entries WHERE tagged_at IS NOT NULL AND wiki_indexed_at IS NULL AND \(TRIM\(situation\) <> '' OR TRIM\(thought\) <> ''\) ORDER BY created_at ASC/.test(sql)) {
+        const limit = Number(params[0])
+        const all = [...rows.values()]
+          .filter(
+            (r) =>
+              r.tagged_at != null &&
+              r.wiki_indexed_at == null &&
+              (String(r.situation ?? '').trim() !== '' || String(r.thought ?? '').trim() !== '')
+          )
+          .sort((a, b) => Number(a.created_at) - Number(b.created_at))
+        return { rows: all.slice(0, limit), rowsAffected: 0 }
+      }
+      // Specific wiki-indexed stamp — must precede the generic tag UPDATE below.
+      if (/^UPDATE entries SET wiki_indexed_at = \? WHERE id/.test(sql)) {
+        const [wiki_indexed_at, id] = params
+        const row = rows.get(String(id))
+        if (row) Object.assign(row, { wiki_indexed_at })
+        return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^UPDATE entries SET/.test(sql)) {
         const [emotion, distortion, mood_score, topic, tagged_at, id] = params
@@ -176,6 +198,48 @@ describe('storage/entries CRUD', () => {
       expect(result.data).toHaveLength(1)
       expect(result.data[0].id).toBe(withText.success && withText.data.id)
     }
+  })
+
+  it('lists wiki-pending entries: tagged but not yet wiki-indexed, with text', async () => {
+    const { db } = createFakeDb()
+    // tagged + wiki-pending → included
+    const pending = await createEntry({ mood: 3, situation: 'tagged, wiki interrupted', thought: '' }, db)
+    if (pending.success) {
+      await applyTags(pending.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+    }
+    // tagged + wiki-indexed → excluded
+    const done = await createEntry({ mood: 3, situation: 'fully indexed', thought: '' }, db)
+    if (done.success) {
+      await applyTags(done.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+      await markWikiIndexed(done.data.id, db)
+    }
+    // never tagged → excluded (that's listUnindexedEntries' job, not this one)
+    await createEntry({ mood: 3, situation: 'untagged', thought: '' }, db)
+
+    const result = await listWikiPendingEntries(50, db)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0].id).toBe(pending.success && pending.data.id)
+    }
+  })
+
+  it('markWikiIndexed stamps wiki_indexed_at so the entry drops out of the pending list', async () => {
+    const { db } = createFakeDb()
+    const e = await createEntry({ mood: 3, situation: 'tagged', thought: '' }, db)
+    if (!e.success) throw new Error('setup')
+    await applyTags(e.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+
+    const before = await listWikiPendingEntries(50, db)
+    expect(before.success && before.data).toHaveLength(1)
+
+    await markWikiIndexed(e.data.id, db)
+
+    const after = await listWikiPendingEntries(50, db)
+    expect(after.success && after.data).toHaveLength(0)
+
+    const row = await getEntry(e.data.id, db)
+    expect(row.success && row.data?.wiki_indexed_at).toEqual(expect.any(Number))
   })
 
   it('lists entries behind an emotion node, newest first, journal-only', async () => {
