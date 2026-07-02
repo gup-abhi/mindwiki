@@ -1,7 +1,8 @@
-import { processEntry, captureReflectMessage, capturePathAnswers } from '@/services/pipeline'
+import { processEntry, captureReflectMessage, capturePathAnswers, catchUpUnindexed } from '@/services/pipeline'
 import { scoreCrisis } from '@/services/llm/fast-model'
 import { extractEntry } from '@/services/llm/deep-model'
-import { applyTags, createEntry, type Entry } from '@/services/storage/entries'
+import { applyTags, createEntry, listUnindexedEntries, type Entry } from '@/services/storage/entries'
+import { isModelDownloaded } from '@/services/llm/model-manager'
 import { ok, err } from '@/types/result'
 
 // The deep extract → graph/wiki run as a fire-and-forget chain after the deep
@@ -10,7 +11,12 @@ const flush = () => new Promise<void>((r) => setImmediate(r))
 
 jest.mock('@/services/llm/fast-model', () => ({ scoreCrisis: jest.fn() }))
 jest.mock('@/services/llm/deep-model', () => ({ extractEntry: jest.fn() }))
-jest.mock('@/services/storage/entries', () => ({ applyTags: jest.fn(), createEntry: jest.fn() }))
+jest.mock('@/services/storage/entries', () => ({
+  applyTags: jest.fn(),
+  createEntry: jest.fn(),
+  listUnindexedEntries: jest.fn(),
+}))
+jest.mock('@/services/llm/model-manager', () => ({ isModelDownloaded: jest.fn() }))
 jest.mock('@/services/storage/entities', () => ({ setEntitiesForEntry: jest.fn() }))
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
 jest.mock('@/services/graph/engine', () => ({ updateGraphForEntry: jest.fn() }))
@@ -41,6 +47,8 @@ const mockUpdateGraph = updateGraphForEntry as jest.Mock
 const mockSetEntities = setEntitiesForEntry as jest.Mock
 const mockGetSetting = getSetting as jest.Mock
 const mockSetSetting = setSetting as jest.Mock
+const mockListUnindexed = listUnindexedEntries as jest.Mock
+const mockIsModelDownloaded = isModelDownloaded as jest.Mock
 
 // Fast model now scores crisis only.
 const crisis = (conf: number) => ok({ crisis_confidence: conf })
@@ -318,5 +326,46 @@ describe('capturePathAnswers', () => {
     // is down; only the wiki/graph enrichment is skipped.
     expect(mockCreateEntry).toHaveBeenCalledWith(expect.objectContaining({ source: 'path' }))
     expect(mockUpdateWiki).not.toHaveBeenCalled()
+  })
+})
+
+describe('catchUpUnindexed', () => {
+  beforeEach(() => {
+    mockIsModelDownloaded.mockReset().mockResolvedValue(true)
+    mockListUnindexed.mockReset().mockResolvedValue(ok([]))
+    mockExtractEntry.mockReset().mockResolvedValue(extract())
+    mockApplyTags.mockReset().mockResolvedValue(ok(undefined))
+    mockSetEntities.mockReset().mockResolvedValue(ok(undefined))
+    mockUpdateWiki.mockReset().mockResolvedValue(ok([]))
+    mockUpdateGraph.mockReset().mockResolvedValue(ok(undefined))
+    mockBegin.mockReset()
+    mockEnd.mockReset()
+  })
+
+  it('re-indexes each un-indexed entry when the deep model is present', async () => {
+    mockListUnindexed.mockResolvedValue(ok([entry({ id: 'u1' }), entry({ id: 'u2' })]))
+
+    await catchUpUnindexed()
+    await flush()
+
+    expect(mockExtractEntry).toHaveBeenCalledTimes(2)
+    expect(mockUpdateWiki).toHaveBeenCalledTimes(2)
+  })
+
+  it('does nothing when the deep model is not downloaded (no churn)', async () => {
+    mockIsModelDownloaded.mockResolvedValue(false)
+
+    await catchUpUnindexed()
+
+    expect(mockListUnindexed).not.toHaveBeenCalled()
+    expect(mockExtractEntry).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when there are no un-indexed entries', async () => {
+    mockListUnindexed.mockResolvedValue(ok([]))
+
+    await catchUpUnindexed()
+
+    expect(mockExtractEntry).not.toHaveBeenCalled()
   })
 })

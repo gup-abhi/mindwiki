@@ -2,7 +2,8 @@ import { assessCrisis, type CrisisAssessment } from '@/services/crisis/detector'
 import { scoreCrisis } from '@/services/llm/fast-model'
 import { extractEntry } from '@/services/llm/deep-model'
 import { type EntryExtract } from '@/services/llm/schemas/entry-extract.schema'
-import { applyTags, createEntry, type Entry } from '@/services/storage/entries'
+import { applyTags, createEntry, listUnindexedEntries, type Entry } from '@/services/storage/entries'
+import { isModelDownloaded } from '@/services/llm/model-manager'
 import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { updateGraphForEntry } from '@/services/graph/engine'
@@ -78,6 +79,28 @@ async function extractThenIndex(entry: Entry): Promise<void> {
   })
   if (!ex.success) return
   await indexFromExtract(entry, ex.data)
+}
+
+/**
+ * Launch-time self-heal: re-index entries whose deep-model synthesis was cut
+ * short (app backgrounded/killed before the background index finished), which on
+ * a single device nothing else retries. Fire-and-forget from storage init —
+ * never blocks launch, never throws.
+ *
+ * Snapshots the un-indexed list ONCE, so it can't race a live save (new entries
+ * this session aren't in the snapshot, and snapshot entries are from prior
+ * sessions) — no double-indexing, which would double-count additive graph edges.
+ * Gated on the deep model being present, so it doesn't churn before models exist.
+ */
+export async function catchUpUnindexed(): Promise<void> {
+  if (!(await isModelDownloaded('deep'))) return
+  const res = await listUnindexedEntries()
+  if (!res.success || res.data.length === 0) return
+  // Sequential — the deep context runs one completion at a time anyway, and this
+  // yields to any live save between entries.
+  for (const entry of res.data) {
+    await extractThenIndex(entry)
+  }
 }
 
 /**
