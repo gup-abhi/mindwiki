@@ -200,6 +200,17 @@ export async function pullDelta(
     for (const d of recordsToApply(decoded, (id) => local.get(id) ?? null)) {
       try {
         await applyRemote(table, d.row, db)
+        // A synced entry's wiki is handled by the origin device (wiki pages sync
+        // on their own), and INSERT OR REPLACE just wiped the local-only
+        // wiki_indexed_at to NULL. Stamp it = tagged_at so the wiki catch-up
+        // never re-synthesizes a synced entry. (Left NULL when untagged — those
+        // still flow through the tagged-catch-up like any un-indexed entry.)
+        if (table === 'entries') {
+          await db.execute(
+            'UPDATE entries SET wiki_indexed_at = tagged_at WHERE id = ?',
+            [d.record_id]
+          )
+        }
       } catch {
         // A single malformed/constraint-violating row must not abort the whole
         // pull — that would also block every table applied after it (entries is

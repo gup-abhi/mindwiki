@@ -1,7 +1,14 @@
 import { processEntry, captureReflectMessage, capturePathAnswers, catchUpUnindexed } from '@/services/pipeline'
 import { scoreCrisis } from '@/services/llm/fast-model'
 import { extractEntry } from '@/services/llm/deep-model'
-import { applyTags, createEntry, listUnindexedEntries, type Entry } from '@/services/storage/entries'
+import {
+  applyTags,
+  createEntry,
+  listUnindexedEntries,
+  listWikiPendingEntries,
+  markWikiIndexed,
+  type Entry,
+} from '@/services/storage/entries'
 import { isModelDownloaded } from '@/services/llm/model-manager'
 import { ok, err } from '@/types/result'
 
@@ -15,6 +22,8 @@ jest.mock('@/services/storage/entries', () => ({
   applyTags: jest.fn(),
   createEntry: jest.fn(),
   listUnindexedEntries: jest.fn(),
+  listWikiPendingEntries: jest.fn(),
+  markWikiIndexed: jest.fn(),
 }))
 jest.mock('@/services/llm/model-manager', () => ({ isModelDownloaded: jest.fn() }))
 jest.mock('@/services/storage/entities', () => ({ setEntitiesForEntry: jest.fn() }))
@@ -48,6 +57,8 @@ const mockSetEntities = setEntitiesForEntry as jest.Mock
 const mockGetSetting = getSetting as jest.Mock
 const mockSetSetting = setSetting as jest.Mock
 const mockListUnindexed = listUnindexedEntries as jest.Mock
+const mockListWikiPending = listWikiPendingEntries as jest.Mock
+const mockMarkWikiIndexed = markWikiIndexed as jest.Mock
 const mockIsModelDownloaded = isModelDownloaded as jest.Mock
 
 // Fast model now scores crisis only.
@@ -84,6 +95,7 @@ const entry = (overrides: Partial<Entry> = {}): Entry => ({
   mood_score: null,
   topic: null,
   tagged_at: null,
+  wiki_indexed_at: null,
   source: 'journal',
   ...overrides,
 })
@@ -99,6 +111,7 @@ describe('processEntry', () => {
     mockBegin.mockReset()
     mockEnd.mockReset()
     mockBumpRevision.mockReset()
+    mockMarkWikiIndexed.mockReset().mockResolvedValue(ok(undefined))
     mockApplyTags.mockResolvedValue(ok(undefined))
     mockUpdateWiki.mockResolvedValue(ok([]))
     mockUpdateGraph.mockResolvedValue(ok(undefined))
@@ -141,6 +154,9 @@ describe('processEntry', () => {
     )
     expect(mockBegin).toHaveBeenCalledTimes(1)
     expect(mockEnd).toHaveBeenCalledTimes(1)
+    // wiki synthesis resolved → the entry is stamped wiki-indexed so catch-up
+    // won't re-synthesize it
+    expect(mockMarkWikiIndexed).toHaveBeenCalledWith('e1')
     // tags persisted → bump the data revision so the focused timeline re-reads
     // and the EntryCard's "tagging…" flips to the real tags without a refocus
     expect(mockBumpRevision).toHaveBeenCalledTimes(1)
@@ -333,6 +349,8 @@ describe('catchUpUnindexed', () => {
   beforeEach(() => {
     mockIsModelDownloaded.mockReset().mockResolvedValue(true)
     mockListUnindexed.mockReset().mockResolvedValue(ok([]))
+    mockListWikiPending.mockReset().mockResolvedValue(ok([]))
+    mockMarkWikiIndexed.mockReset().mockResolvedValue(ok(undefined))
     mockExtractEntry.mockReset().mockResolvedValue(extract())
     mockApplyTags.mockReset().mockResolvedValue(ok(undefined))
     mockSetEntities.mockReset().mockResolvedValue(ok(undefined))
@@ -367,5 +385,31 @@ describe('catchUpUnindexed', () => {
     await catchUpUnindexed()
 
     expect(mockExtractEntry).not.toHaveBeenCalled()
+  })
+
+  it('re-runs ONLY the wiki step for a tagged-but-wiki-pending entry (no graph, no re-extract)', async () => {
+    mockListWikiPending.mockResolvedValue(ok([entry({ id: 'w1', tagged_at: 1, topic: 'Work' })]))
+
+    await catchUpUnindexed()
+    await flush()
+
+    // Wiki re-synthesized and marked done...
+    expect(mockUpdateWiki).toHaveBeenCalledTimes(1)
+    expect(mockMarkWikiIndexed).toHaveBeenCalledWith('w1')
+    // ...but the entry is NOT re-extracted (tags already persisted) and the graph
+    // is NOT re-run (additive edges would double-count).
+    expect(mockExtractEntry).not.toHaveBeenCalled()
+    expect(mockUpdateGraph).not.toHaveBeenCalled()
+  })
+
+  it('does not mark wiki-indexed when the re-run synthesis fails', async () => {
+    mockListWikiPending.mockResolvedValue(ok([entry({ id: 'w1', tagged_at: 1 })]))
+    mockUpdateWiki.mockResolvedValue(err('WIKI_FAILED', 'boom'))
+
+    await catchUpUnindexed()
+    await flush()
+
+    expect(mockUpdateWiki).toHaveBeenCalledTimes(1)
+    expect(mockMarkWikiIndexed).not.toHaveBeenCalled()
   })
 })

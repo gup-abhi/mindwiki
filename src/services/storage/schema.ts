@@ -432,3 +432,19 @@ export const migration018: Migration = {
   name: 'entry_energy',
   statements: [`ALTER TABLE entries ADD COLUMN energy INTEGER`],
 }
+
+// Migration 019 — wiki self-heal marker. `tagged_at` is stamped before the
+// fire-and-forget wiki synthesis runs, so an entry killed mid-synthesis looks
+// "indexed" and the tagged_at-keyed catch-up never revisits it. This column is
+// set only once wiki synthesis actually resolves, letting catch-up find entries
+// that were tagged but never synthesized. Device-local (NOT in the sync column
+// allowlist). Backfill trusts already-tagged rows' wiki ran, so upgrading doesn't
+// trigger a re-synthesis storm.
+export const migration019: Migration = {
+  version: 19,
+  name: 'entry_wiki_indexed_at',
+  statements: [
+    `ALTER TABLE entries ADD COLUMN wiki_indexed_at INTEGER`,
+    `UPDATE entries SET wiki_indexed_at = tagged_at WHERE tagged_at IS NOT NULL`,
+  ],
+}

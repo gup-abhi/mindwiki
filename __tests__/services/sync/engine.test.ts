@@ -16,14 +16,16 @@ jest.mock('@/services/sync/encryption', () => ({
 const mockFetch = authenticatedFetch as jest.Mock
 const mockGetTokens = getTokens as jest.Mock
 
+// Must mirror TABLES.entries.columns in engine.ts (the order applyRemote binds).
 const ENTRY_COLS = [
   'id', 'created_at', 'mood', 'situation', 'thought', 'behavior',
-  'closing_note', 'emotion', 'distortion', 'mood_score', 'topic', 'tagged_at', 'source',
+  'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'tagged_at', 'source',
 ]
 
 const entryRow = (id: string, over: Record<string, unknown> = {}) => ({
   id, created_at: 1000, mood: 3, situation: 's', thought: 't', behavior: null,
-  closing_note: null, emotion: null, distortion: null, mood_score: null, tagged_at: null,
+  closing_note: null, emotion: null, named_emotion: null, energy: null, distortion: null,
+  mood_score: null, tagged_at: null,
   ...over,
 })
 
@@ -60,6 +62,11 @@ function fakeDb() {
         if (row.id === 'poison') throw new Error('SQLITE constraint failed')
         entries.set(String(row.id), row)
         return { rows: [], rowsAffected: 1 }
+      }
+      if (/^UPDATE entries SET wiki_indexed_at = tagged_at WHERE id/.test(sql)) {
+        const row = entries.get(String(params[0]))
+        if (row) row.wiki_indexed_at = row.tagged_at ?? null
+        return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^SELECT value FROM settings WHERE key/.test(sql)) {
         const v = settings.get(String(params[0]))
@@ -143,6 +150,23 @@ describe('sync/engine pullDelta', () => {
     expect(syncQueue.size).toBe(0) // applyRemote must NOT re-enqueue (no echo)
     expect(mockFetch.mock.calls[0][0]).toBe('/sync/acc/delta?since=0')
     expect(useSyncStore.getState().revision).toBe(1) // signals hooks to refetch
+  })
+
+  it('stamps a pulled tagged entry wiki-indexed so catch-up never re-synthesizes it', async () => {
+    const { db, entries } = fakeDb()
+    mockFetch.mockResolvedValue(
+      okResp([
+        { table: 'entries', record_id: 'e2', ciphertext: JSON.stringify(entryRow('e2', { tagged_at: 5000 })), updated_at: 5000 },
+      ])
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success && res.data).toBe(1)
+    // INSERT OR REPLACE wiped the local-only column; the pull re-stamps it from
+    // tagged_at so the wiki catch-up (tagged_at IS NOT NULL AND wiki_indexed_at
+    // IS NULL) never picks up a synced entry — the origin device owns its wiki.
+    expect(entries.get('e2')?.wiki_indexed_at).toBe(5000)
   })
 
   it('skips a record whose apply throws and still applies the rest (no abort)', async () => {

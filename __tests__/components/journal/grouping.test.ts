@@ -17,6 +17,7 @@ const entry = (id: string, year: number, month: number, day: number, hour = 9): 
   mood_score: null,
   topic: null,
   tagged_at: null,
+  wiki_indexed_at: null,
   source: 'journal',
 })
 
