@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigation, useRouter } from 'expo-router'
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { Alert, AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
 import { Button, Chip, Screen, Text, TextField } from '@/components/ui'
@@ -13,8 +13,11 @@ import { clearDraft, loadDraft, saveDraft } from '@/services/storage/draft'
 import { type EntryDraft } from '@/store/entry.store'
 import { useJournalEntry } from '@/hooks/useJournalEntry'
 
-/** Any field set means there's unsaved work worth offering to keep as a draft. */
-const hasContent = (d: EntryDraft): boolean =>
+// The written text is the only thing worth protecting as a draft — losing it to
+// an app switch or restart is the real cost. A bare grid/feeling pick isn't.
+const hasText = (d: EntryDraft): boolean => !!d.body.trim()
+// Anything at all has been entered (controls the "Clear" affordance).
+const hasAnything = (d: EntryDraft): boolean =>
   d.mood != null || d.energy != null || !!d.emotion || !!d.body.trim() || !!d.thought.trim()
 
 export default function EntryScreen() {
@@ -45,10 +48,20 @@ export default function EntryScreen() {
     })
   }, [reset, hydrate])
 
-  // Intercept back: offer to keep unsaved work as a draft.
+  // Persist the draft whenever the app goes to the background, so text survives an
+  // app switch or an OS kill — not just an explicit back-out. Only when there's
+  // text worth keeping.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' && hasText(draftRef.current)) void saveDraft(draftRef.current)
+    })
+    return () => sub.remove()
+  }, [])
+
+  // Intercept back: offer to keep the written text as a draft.
   useEffect(() => {
     const sub = navigation.addListener('beforeRemove', (e) => {
-      if (leaving.current || !hasContent(draftRef.current)) return
+      if (leaving.current || !hasText(draftRef.current)) return
       e.preventDefault()
       Alert.alert('Keep this entry?', 'Save it as a draft and finish later, or discard it.', [
         {
@@ -104,6 +117,21 @@ export default function EntryScreen() {
     }
   }
 
+  function onClear() {
+    Alert.alert('Clear this entry?', 'This removes everything you’ve entered, including the saved draft.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: () => {
+          reset()
+          setShowThought(false)
+          void clearDraft()
+        },
+      },
+    ])
+  }
+
   return (
     <Screen padded={false} animated={false}>
       <ScrollView
@@ -111,6 +139,14 @@ export default function EntryScreen() {
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
       >
+        {hasAnything(j.draft) && (
+          <View style={styles.topBar}>
+            <Text variant="label" color="accent" onPress={onClear} testID="entry-clear">
+              Clear
+            </Text>
+          </View>
+        )}
+
         <MoodGrid pleasantness={j.draft.mood} energy={j.draft.energy} onPick={j.setAffect} />
 
         {feelings.length > 0 && (
@@ -202,6 +238,7 @@ export default function EntryScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     body: { padding: t.spacing.xl, paddingBottom: t.spacing['2xl'] },
+    topBar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: t.spacing.sm },
     feelingsWrap: { marginTop: t.spacing.lg },
     feelingsLabel: { marginBottom: t.spacing.sm },
     feelings: {
