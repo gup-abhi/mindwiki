@@ -66,6 +66,17 @@ describe('EntryDetailScreen', () => {
     expect(screen.getByText('Work')).toBeTruthy()
   })
 
+  it('renders a label shared by two tags (emotion == topic) as a single pill', () => {
+    // The model can tag the same word as both the feeling and the theme. It must
+    // collapse to one pill — otherwise tags.map's key={label} collides.
+    mockUseEntry.mockReturnValue({
+      entry: make({ emotion: 'Loneliness', distortion: 'none', topic: 'Loneliness' }),
+      loading: false,
+    })
+    render(<EntryDetailScreen />)
+    expect(screen.getAllByText('Loneliness')).toHaveLength(1)
+  })
+
   it('navigates to the older neighbour and disables Newer at the newest entry', () => {
     const newest = make({ id: 'e1', created_at: 200 })
     const older = make({ id: 'e0', created_at: 100 })
