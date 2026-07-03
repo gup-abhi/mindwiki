@@ -6,7 +6,9 @@ import {
   createEntry,
   listUnindexedEntries,
   listWikiPendingEntries,
+  listGraphPendingEntries,
   markWikiIndexed,
+  markGraphIndexed,
   type Entry,
 } from '@/services/storage/entries'
 import { isModelDownloaded } from '@/services/llm/model-manager'
@@ -23,12 +25,14 @@ jest.mock('@/services/storage/entries', () => ({
   createEntry: jest.fn(),
   listUnindexedEntries: jest.fn(),
   listWikiPendingEntries: jest.fn(),
+  listGraphPendingEntries: jest.fn(),
   markWikiIndexed: jest.fn(),
+  markGraphIndexed: jest.fn(),
 }))
 jest.mock('@/services/llm/model-manager', () => ({ isModelDownloaded: jest.fn() }))
 jest.mock('@/services/storage/entities', () => ({ setEntitiesForEntry: jest.fn() }))
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
-jest.mock('@/services/graph/engine', () => ({ updateGraphForEntry: jest.fn() }))
+jest.mock('@/services/graph/engine', () => ({ updateGraphForEntry: jest.fn(), rebuildGraph: jest.fn() }))
 jest.mock('@/services/storage/settings', () => ({ getSetting: jest.fn(), setSetting: jest.fn() }))
 
 const mockBegin = jest.fn()
@@ -43,7 +47,7 @@ jest.mock('@/store/sync.store', () => ({
 }))
 
 import { updateWikiForEntry } from '@/services/wiki/engine'
-import { updateGraphForEntry } from '@/services/graph/engine'
+import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { setEntitiesForEntry } from '@/services/storage/entities'
 import { getSetting, setSetting } from '@/services/storage/settings'
 
@@ -58,7 +62,10 @@ const mockGetSetting = getSetting as jest.Mock
 const mockSetSetting = setSetting as jest.Mock
 const mockListUnindexed = listUnindexedEntries as jest.Mock
 const mockListWikiPending = listWikiPendingEntries as jest.Mock
+const mockListGraphPending = listGraphPendingEntries as jest.Mock
 const mockMarkWikiIndexed = markWikiIndexed as jest.Mock
+const mockMarkGraphIndexed = markGraphIndexed as jest.Mock
+const mockRebuildGraph = rebuildGraph as jest.Mock
 const mockIsModelDownloaded = isModelDownloaded as jest.Mock
 
 // Fast model now scores crisis only.
@@ -96,6 +103,7 @@ const entry = (overrides: Partial<Entry> = {}): Entry => ({
   topic: null,
   tagged_at: null,
   wiki_indexed_at: null,
+  graph_indexed_at: null,
   source: 'journal',
   ...overrides,
 })
@@ -112,6 +120,7 @@ describe('processEntry', () => {
     mockEnd.mockReset()
     mockBumpRevision.mockReset()
     mockMarkWikiIndexed.mockReset().mockResolvedValue(ok(undefined))
+    mockMarkGraphIndexed.mockReset().mockResolvedValue(ok(undefined))
     mockApplyTags.mockResolvedValue(ok(undefined))
     mockUpdateWiki.mockResolvedValue(ok([]))
     mockUpdateGraph.mockResolvedValue(ok(undefined))
@@ -154,8 +163,9 @@ describe('processEntry', () => {
     )
     expect(mockBegin).toHaveBeenCalledTimes(1)
     expect(mockEnd).toHaveBeenCalledTimes(1)
-    // wiki synthesis resolved → the entry is stamped wiki-indexed so catch-up
-    // won't re-synthesize it
+    // graph + wiki both resolved → the entry is stamped on each so catch-up
+    // won't re-index it
+    expect(mockMarkGraphIndexed).toHaveBeenCalledWith('e1')
     expect(mockMarkWikiIndexed).toHaveBeenCalledWith('e1')
     // tags persisted → bump the data revision so the focused timeline re-reads
     // and the EntryCard's "tagging…" flips to the real tags without a refocus
@@ -350,7 +360,10 @@ describe('catchUpUnindexed', () => {
     mockIsModelDownloaded.mockReset().mockResolvedValue(true)
     mockListUnindexed.mockReset().mockResolvedValue(ok([]))
     mockListWikiPending.mockReset().mockResolvedValue(ok([]))
+    mockListGraphPending.mockReset().mockResolvedValue(ok([]))
     mockMarkWikiIndexed.mockReset().mockResolvedValue(ok(undefined))
+    mockMarkGraphIndexed.mockReset().mockResolvedValue(ok(undefined))
+    mockRebuildGraph.mockReset().mockResolvedValue(ok(undefined))
     mockExtractEntry.mockReset().mockResolvedValue(extract())
     mockApplyTags.mockReset().mockResolvedValue(ok(undefined))
     mockSetEntities.mockReset().mockResolvedValue(ok(undefined))
@@ -411,5 +424,28 @@ describe('catchUpUnindexed', () => {
 
     expect(mockUpdateWiki).toHaveBeenCalledTimes(1)
     expect(mockMarkWikiIndexed).not.toHaveBeenCalled()
+  })
+
+  it('heals graph-pending entries with a single rebuildGraph (not a per-entry re-run)', async () => {
+    mockListGraphPending.mockResolvedValue(
+      ok([entry({ id: 'g1', tagged_at: 1 }), entry({ id: 'g2', tagged_at: 1 })])
+    )
+
+    await catchUpUnindexed()
+    await flush()
+
+    // One rebuild heals the whole backlog — no per-entry updateGraphForEntry
+    // (which would double-count additive edges).
+    expect(mockRebuildGraph).toHaveBeenCalledTimes(1)
+    expect(mockUpdateGraph).not.toHaveBeenCalled()
+  })
+
+  it('does not rebuild the graph when nothing is graph-pending', async () => {
+    mockListGraphPending.mockResolvedValue(ok([]))
+
+    await catchUpUnindexed()
+    await flush()
+
+    expect(mockRebuildGraph).not.toHaveBeenCalled()
   })
 })

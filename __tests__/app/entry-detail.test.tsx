@@ -35,6 +35,7 @@ const make = (over: Partial<Entry> = {}): Entry => ({
   topic: 'Work',
   tagged_at: 1,
   wiki_indexed_at: null,
+  graph_indexed_at: null,
   source: 'journal',
   ...over,
 })

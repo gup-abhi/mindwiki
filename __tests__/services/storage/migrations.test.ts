@@ -89,4 +89,12 @@ describe('registry', () => {
     // backfill trusts already-tagged rows so upgrade doesn't re-synthesize them
     expect(sql).toContain('SET wiki_indexed_at = tagged_at WHERE tagged_at IS NOT NULL')
   })
+
+  it('registers migration 020 adding graph_indexed_at and backfilling from tagged_at', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 20)
+    expect(m).toBeDefined()
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('ADD COLUMN graph_indexed_at')
+    expect(sql).toContain('SET graph_indexed_at = tagged_at WHERE tagged_at IS NOT NULL')
+  })
 })

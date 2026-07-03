@@ -448,3 +448,18 @@ export const migration019: Migration = {
     `UPDATE entries SET wiki_indexed_at = tagged_at WHERE tagged_at IS NOT NULL`,
   ],
 }
+
+// Migration 020 — graph self-heal marker. Parallel to wiki_indexed_at: the graph
+// step is also fire-and-forget after tagging, so an entry killed before its graph
+// contribution was written looks "indexed" and nothing revisits it. Set once the
+// graph step resolves. Healed by a full rebuildGraph() (additive edges forbid a
+// safe per-entry re-run). Device-local (NOT synced). Backfill trusts already-
+// tagged rows' graph ran, so upgrading doesn't force a rebuild.
+export const migration020: Migration = {
+  version: 20,
+  name: 'entry_graph_indexed_at',
+  statements: [
+    `ALTER TABLE entries ADD COLUMN graph_indexed_at INTEGER`,
+    `UPDATE entries SET graph_indexed_at = tagged_at WHERE tagged_at IS NOT NULL`,
+  ],
+}

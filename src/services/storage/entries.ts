@@ -34,6 +34,9 @@ export interface Entry {
    * the deep-model wiki step so catch-up can find entries interrupted mid-
    * synthesis. Device-local — never synced. */
   wiki_indexed_at: number | null
+  /** When this entry's graph contribution last landed. Parallel to
+   * wiki_indexed_at; healed via a full rebuildGraph(). Device-local — never synced. */
+  graph_indexed_at: number | null
   source: EntrySource
 }
 
@@ -79,6 +82,7 @@ function rowToEntry(row: Record<string, unknown>): Entry {
     topic: str(row.topic),
     tagged_at: num(row.tagged_at),
     wiki_indexed_at: num(row.wiki_indexed_at),
+    graph_indexed_at: num(row.graph_indexed_at),
     source: (row.source == null ? 'journal' : String(row.source)) as EntrySource,
   }
 }
@@ -103,6 +107,7 @@ export async function createEntry(
     topic: null,
     tagged_at: null,
     wiki_indexed_at: null,
+    graph_indexed_at: null,
     source: input.source ?? 'journal',
   }
   try {
@@ -156,6 +161,30 @@ export async function listEntries(
     return ok(res.rows.map(rowToEntry))
   } catch (e) {
     return err('ENTRY_LIST_FAILED', 'Failed to list entries', e)
+  }
+}
+
+/**
+ * Every entry that feeds the derived graph — journal + path (guided reflection)
+ * + reflect (chat capture). Unlike listEntries (journal-only, for the timeline),
+ * this is source-inclusive so rebuildGraph re-derives the SAME graph the live
+ * pipeline builds: guided-path and chat-capture signal is first-class knowledge,
+ * not timeline noise. Without this a rebuild (sync pull, dedupe, node restore)
+ * would silently drop every node that only path/reflect entries supported.
+ * Newest first, capped.
+ */
+export async function listEntriesForGraph(
+  limit = 10000,
+  db: SqliteDatabase = getDb()
+): Promise<Result<Entry[]>> {
+  try {
+    const res = await db.execute(
+      'SELECT * FROM entries ORDER BY created_at DESC LIMIT ?',
+      [limit]
+    )
+    return ok(res.rows.map(rowToEntry))
+  } catch (e) {
+    return err('ENTRY_GRAPH_LIST_FAILED', 'Failed to list entries for graph', e)
   }
 }
 
@@ -241,6 +270,58 @@ export async function markWikiIndexed(
     return ok(undefined)
   } catch (e) {
     return err('ENTRY_WIKI_MARK_FAILED', 'Failed to mark entry wiki-indexed', e)
+  }
+}
+
+/**
+ * Entries tagged but whose graph contribution never landed (interrupted before
+ * the fire-and-forget graph step finished). Mirrors listWikiPendingEntries. The
+ * launch-time catch-up heals these with a single rebuildGraph() rather than a
+ * per-entry re-run — additive edges (ADR 006) make an un-tracked re-run double-
+ * count, but a full rebuild is a clear + re-derive, so it's exactly-once.
+ */
+export async function listGraphPendingEntries(
+  limit = 50,
+  db: SqliteDatabase = getDb()
+): Promise<Result<Entry[]>> {
+  try {
+    const res = await db.execute(
+      "SELECT * FROM entries WHERE tagged_at IS NOT NULL AND graph_indexed_at IS NULL AND (TRIM(situation) <> '' OR TRIM(thought) <> '') ORDER BY created_at ASC LIMIT ?",
+      [limit]
+    )
+    return ok(res.rows.map(rowToEntry))
+  } catch (e) {
+    return err('ENTRY_GRAPH_PENDING_LIST_FAILED', 'Failed to list graph-pending entries', e)
+  }
+}
+
+/** Stamp one entry's graph contribution as landed. Device-local; not synced. */
+export async function markGraphIndexed(
+  id: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<void>> {
+  try {
+    await db.execute('UPDATE entries SET graph_indexed_at = ? WHERE id = ?', [Date.now(), id])
+    return ok(undefined)
+  } catch (e) {
+    return err('ENTRY_GRAPH_MARK_FAILED', 'Failed to mark entry graph-indexed', e)
+  }
+}
+
+/**
+ * Stamp EVERY tagged entry graph-indexed. Called by rebuildGraph on success: a
+ * full rebuild folds all entries into the graph, so it clears the whole backlog
+ * (and re-heals any entry whose graph_indexed_at a sync pull wiped). Device-local.
+ */
+export async function markAllGraphIndexed(db: SqliteDatabase = getDb()): Promise<Result<void>> {
+  try {
+    await db.execute(
+      'UPDATE entries SET graph_indexed_at = ? WHERE tagged_at IS NOT NULL AND graph_indexed_at IS NULL',
+      [Date.now()]
+    )
+    return ok(undefined)
+  } catch (e) {
+    return err('ENTRY_GRAPH_MARK_ALL_FAILED', 'Failed to mark all entries graph-indexed', e)
   }
 }
 
