@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -242,6 +242,15 @@ describe('migration 007 (pursuits)', () => {
     expect(MIGRATIONS[18].statements).toEqual([
       'ALTER TABLE entries ADD COLUMN wiki_indexed_at INTEGER',
       'UPDATE entries SET wiki_indexed_at = tagged_at WHERE tagged_at IS NOT NULL',
+    ])
+  })
+
+  it('is registered as version 20 and adds graph_indexed_at with a tagged_at backfill', () => {
+    expect(MIGRATIONS[19].version).toBe(20)
+    expect(MIGRATIONS[19].name).toBe('entry_graph_indexed_at')
+    expect(MIGRATIONS[19].statements).toEqual([
+      'ALTER TABLE entries ADD COLUMN graph_indexed_at INTEGER',
+      'UPDATE entries SET graph_indexed_at = tagged_at WHERE tagged_at IS NOT NULL',
     ])
   })
 })

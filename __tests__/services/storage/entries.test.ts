@@ -4,9 +4,13 @@ import {
   getEntry,
   listEntries,
   listStreakTimestamps,
+  listEntriesForGraph,
   listUnindexedEntries,
   listWikiPendingEntries,
   markWikiIndexed,
+  listGraphPendingEntries,
+  markGraphIndexed,
+  markAllGraphIndexed,
   applyTags,
   deleteEntry,
   listEntriesByEmotion,
@@ -41,6 +45,7 @@ function createFakeDb() {
           mood_score: null,
           tagged_at: null,
           wiki_indexed_at: null,
+          graph_indexed_at: null,
           source,
         })
         return { rows: [], rowsAffected: 1 }
@@ -54,6 +59,11 @@ function createFakeDb() {
         const all = [...rows.values()]
           .filter((r) => r.source === 'journal')
           .sort((a, b) => Number(b.created_at) - Number(a.created_at))
+        return { rows: all.slice(0, limit), rowsAffected: 0 }
+      }
+      if (/^SELECT \* FROM entries ORDER BY created_at DESC LIMIT/.test(sql)) {
+        const limit = Number(params[0])
+        const all = [...rows.values()].sort((a, b) => Number(b.created_at) - Number(a.created_at))
         return { rows: all.slice(0, limit), rowsAffected: 0 }
       }
       if (/^SELECT \* FROM entries WHERE tagged_at IS NULL AND \(TRIM\(situation\) <> '' OR TRIM\(thought\) <> ''\) ORDER BY created_at ASC/.test(sql)) {
@@ -86,12 +96,41 @@ function createFakeDb() {
           .sort((a, b) => Number(a.created_at) - Number(b.created_at))
         return { rows: all.slice(0, limit), rowsAffected: 0 }
       }
-      // Specific wiki-indexed stamp — must precede the generic tag UPDATE below.
+      if (/^SELECT \* FROM entries WHERE tagged_at IS NOT NULL AND graph_indexed_at IS NULL AND \(TRIM\(situation\) <> '' OR TRIM\(thought\) <> ''\) ORDER BY created_at ASC/.test(sql)) {
+        const limit = Number(params[0])
+        const all = [...rows.values()]
+          .filter(
+            (r) =>
+              r.tagged_at != null &&
+              r.graph_indexed_at == null &&
+              (String(r.situation ?? '').trim() !== '' || String(r.thought ?? '').trim() !== '')
+          )
+          .sort((a, b) => Number(a.created_at) - Number(b.created_at))
+        return { rows: all.slice(0, limit), rowsAffected: 0 }
+      }
+      // Specific indexed-marker stamps — must precede the generic tag UPDATE below.
       if (/^UPDATE entries SET wiki_indexed_at = \? WHERE id/.test(sql)) {
         const [wiki_indexed_at, id] = params
         const row = rows.get(String(id))
         if (row) Object.assign(row, { wiki_indexed_at })
         return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^UPDATE entries SET graph_indexed_at = \? WHERE id/.test(sql)) {
+        const [graph_indexed_at, id] = params
+        const row = rows.get(String(id))
+        if (row) Object.assign(row, { graph_indexed_at })
+        return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^UPDATE entries SET graph_indexed_at = \? WHERE tagged_at IS NOT NULL AND graph_indexed_at IS NULL/.test(sql)) {
+        const [graph_indexed_at] = params
+        let affected = 0
+        for (const row of rows.values()) {
+          if (row.tagged_at != null && row.graph_indexed_at == null) {
+            row.graph_indexed_at = graph_indexed_at
+            affected++
+          }
+        }
+        return { rows: [], rowsAffected: affected }
       }
       if (/^UPDATE entries SET/.test(sql)) {
         const [emotion, distortion, mood_score, topic, tagged_at, id] = params
@@ -183,6 +222,19 @@ describe('storage/entries CRUD', () => {
     if (result.success) expect(result.data).toHaveLength(2) // journal + path, reflect excluded
   })
 
+  it('lists entries for the graph across ALL sources (journal + path + reflect)', async () => {
+    const { db } = createFakeDb()
+    await createEntry({ mood: 3, situation: 'journaled', thought: 't' }, db)
+    await createEntry({ mood: 3, situation: 'guided answer', thought: '', source: 'path' }, db)
+    await createEntry({ mood: 3, situation: 'said in chat', thought: '', source: 'reflect' }, db)
+
+    const result = await listEntriesForGraph(50, db)
+    expect(result.success).toBe(true)
+    // Unlike listEntries (journal-only), the graph must re-derive from every
+    // source so path/reflect signal survives a rebuild.
+    if (result.success) expect(result.data).toHaveLength(3)
+  })
+
   it('lists only un-indexed entries with text — tagged ones and empty mood-logs excluded', async () => {
     const { db } = createFakeDb()
     const withText = await createEntry({ mood: 3, situation: 'a real reflection', thought: '' }, db)
@@ -240,6 +292,45 @@ describe('storage/entries CRUD', () => {
 
     const row = await getEntry(e.data.id, db)
     expect(row.success && row.data?.wiki_indexed_at).toEqual(expect.any(Number))
+  })
+
+  it('lists graph-pending entries: tagged but not yet graph-indexed, with text', async () => {
+    const { db } = createFakeDb()
+    const pending = await createEntry({ mood: 3, situation: 'tagged, graph interrupted', thought: '' }, db)
+    if (pending.success) {
+      await applyTags(pending.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+    }
+    const done = await createEntry({ mood: 3, situation: 'graph landed', thought: '' }, db)
+    if (done.success) {
+      await applyTags(done.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+      await markGraphIndexed(done.data.id, db)
+    }
+    await createEntry({ mood: 3, situation: 'untagged', thought: '' }, db) // excluded
+
+    const result = await listGraphPendingEntries(50, db)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0].id).toBe(pending.success && pending.data.id)
+    }
+  })
+
+  it('markAllGraphIndexed clears the whole graph-pending backlog (tagged rows only)', async () => {
+    const { db } = createFakeDb()
+    const a = await createEntry({ mood: 3, situation: 'first', thought: '' }, db)
+    const b = await createEntry({ mood: 3, situation: 'second', thought: '' }, db)
+    const tag = { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }
+    if (a.success) await applyTags(a.data.id, tag, db)
+    if (b.success) await applyTags(b.data.id, tag, db)
+    await createEntry({ mood: 3, situation: 'untagged', thought: '' }, db) // stays pending-ineligible
+
+    const before = await listGraphPendingEntries(50, db)
+    expect(before.success && before.data).toHaveLength(2)
+
+    await markAllGraphIndexed(db)
+
+    const after = await listGraphPendingEntries(50, db)
+    expect(after.success && after.data).toHaveLength(0)
   })
 
   it('lists entries behind an emotion node, newest first, journal-only', async () => {

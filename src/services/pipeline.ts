@@ -7,13 +7,15 @@ import {
   createEntry,
   listUnindexedEntries,
   listWikiPendingEntries,
+  listGraphPendingEntries,
   markWikiIndexed,
+  markGraphIndexed,
   type Entry,
 } from '@/services/storage/entries'
 import { isModelDownloaded } from '@/services/llm/model-manager'
 import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
 import { getSetting, setSetting } from '@/services/storage/settings'
-import { updateGraphForEntry } from '@/services/graph/engine'
+import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
 import { useSyncStore } from '@/store/sync.store'
@@ -62,21 +64,26 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
     topic: ex.topic,
     tagged_at: Date.now(),
   }
-  // Graph update is cheap (DB only) — fire-and-forget.
-  void updateGraphForEntry(taggedEntry, ex.topic)
+  // Graph update is cheap (DB only). Await it and mark on success: an
+  // interruption leaves graph_indexed_at unset so launch catch-up heals it (via
+  // a full rebuild — additive edges forbid a per-entry re-run). Awaiting also
+  // means nothing is in flight when catch-up's rebuild runs. This whole function
+  // is already background (callers `void` it), so the extra await costs no UX.
+  const graph = await updateGraphForEntry(taggedEntry, ex.topic)
+  if (graph.success) await markGraphIndexed(entry.id)
 
   // Wiki synthesis is the slow deep-model step — track it for the indicator.
-  // Mark the entry wiki-indexed only once synthesis actually resolves; an
-  // interruption (app killed mid-synthesis) leaves the marker unset so launch
-  // catch-up re-runs the wiki step. A resolved-but-partial run still counts as
-  // done — per-page model failures heal opportunistically, not by re-churning
-  // every launch.
+  // Mark wiki-indexed only once synthesis resolves; an interruption leaves the
+  // marker unset so catch-up re-runs the wiki step. A resolved-but-partial run
+  // still counts as done — per-page model failures heal opportunistically, not
+  // by re-churning every launch.
   useWikiStore.getState().begin()
-  void updateWikiForEntry(taggedEntry, ex.topic)
-    .then((res) => {
-      if (res.success) return markWikiIndexed(entry.id)
-    })
-    .finally(() => useWikiStore.getState().end())
+  try {
+    const wiki = await updateWikiForEntry(taggedEntry, ex.topic)
+    if (wiki.success) await markWikiIndexed(entry.id)
+  } finally {
+    useWikiStore.getState().end()
+  }
 }
 
 /**
@@ -131,6 +138,17 @@ export async function catchUpUnindexed(): Promise<void> {
     for (const entry of wikiPending.data) {
       await wikiIndexOnly(entry)
     }
+  }
+
+  // Pass 3: entries tagged but whose graph contribution was interrupted. Unlike
+  // wiki, a per-entry re-run can't heal a partial write (additive edges would
+  // double-count), so heal with ONE full rebuildGraph() — a clear + re-derive
+  // that's exactly-once by construction. Passes 1 and 2 above are awaited, so no
+  // graph write is in flight when the rebuild runs. rebuildGraph re-derives from
+  // journal entries and stamps the whole graph-pending backlog on success.
+  const graphPending = await listGraphPendingEntries()
+  if (graphPending.success && graphPending.data.length > 0) {
+    await rebuildGraph()
   }
 }
 

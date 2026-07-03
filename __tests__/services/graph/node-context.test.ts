@@ -52,6 +52,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   topic: null,
   tagged_at: 1,
   wiki_indexed_at: null,
+  graph_indexed_at: null,
   source: 'journal',
   ...over,
 })

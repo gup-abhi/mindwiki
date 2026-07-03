@@ -8,10 +8,11 @@ import {
   type NodeType,
 } from '@/services/storage/graph'
 import {
-  listEntries,
+  listEntriesForGraph,
   countEntriesByEmotion,
   countEntriesByDistortion,
   countEntriesByTopic,
+  markAllGraphIndexed,
   type Entry,
 } from '@/services/storage/entries'
 import { listEntitiesForEntry, countEntriesForEntity, type EntityType } from '@/services/storage/entities'
@@ -136,11 +137,14 @@ export async function rebuildGraph(): Promise<Result<void>> {
     await db.execute('DELETE FROM graph_nodes')
     const dismissed = await loadDismissedNodeKeys(db) // loaded once for the whole rebuild
     const support = await precomputedSupport(db) // counts once, not per (entry × node)
-    const entries = await listEntries(10000)
+    const entries = await listEntriesForGraph(10000)
     if (!entries.success) return entries
     for (const entry of entries.data) {
       await updateGraphForEntry(entry, entry.topic, dismissed, support)
     }
+    // The graph now reflects every entry — clear the graph-heal backlog (and
+    // re-stamp any entry whose graph_indexed_at a sync pull's REPLACE wiped).
+    await markAllGraphIndexed(db)
     return ok(undefined)
   } catch (e) {
     return err('GRAPH_REBUILD_FAILED', 'Failed to rebuild graph', e)

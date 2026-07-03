@@ -50,6 +50,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   topic: null,
   tagged_at: 1,
   wiki_indexed_at: null,
+  graph_indexed_at: null,
   source: 'journal',
   ...over,
 })
@@ -215,6 +216,8 @@ describe('rebuildGraph', () => {
         const g = groupBy(sql)
         if (g) return g
         if (/^SELECT \* FROM entries/.test(sql)) return { rows, rowsAffected: 0 }
+        // rebuildGraph stamps the graph-heal backlog on success.
+        if (/^UPDATE entries SET graph_indexed_at/.test(sql)) return { rows: [], rowsAffected: 0 }
         throw new Error(`unhandled SQL: ${sql}`)
       },
       async transaction(fn: (tx: SqliteDatabase) => Promise<void>) {
@@ -246,6 +249,8 @@ describe('rebuildGraph', () => {
         const g = groupBy(sql)
         if (g) return g
         if (/^SELECT \* FROM entries/.test(sql)) return { rows, rowsAffected: 0 }
+        // rebuildGraph stamps the graph-heal backlog on success.
+        if (/^UPDATE entries SET graph_indexed_at/.test(sql)) return { rows: [], rowsAffected: 0 }
         throw new Error(`unhandled SQL: ${sql}`)
       },
       async transaction(fn: (tx: SqliteDatabase) => Promise<void>) {

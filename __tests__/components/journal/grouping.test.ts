@@ -18,6 +18,7 @@ const entry = (id: string, year: number, month: number, day: number, hour = 9): 
   topic: null,
   tagged_at: null,
   wiki_indexed_at: null,
+  graph_indexed_at: null,
   source: 'journal',
 })
 
