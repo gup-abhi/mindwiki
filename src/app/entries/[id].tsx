@@ -137,11 +137,21 @@ export default function EntryDetailScreen() {
     )
   }
 
+  // emotion / distortion / topic can coincide (the model may tag the same word as
+  // both the feeling and the theme). De-dupe case-insensitively so a label shows
+  // as one pill — and so the key={label} in tags.map below can't collide.
+  const seenTags = new Set<string>()
   const tags = [
     entry.emotion,
     entry.distortion && entry.distortion !== 'none' ? entry.distortion : null,
     entry.topic,
-  ].filter((t): t is string => !!t && t !== 'none')
+  ].filter((t): t is string => {
+    if (!t || t === 'none') return false
+    const key = t.toLowerCase()
+    if (seenTags.has(key)) return false
+    seenTags.add(key)
+    return true
+  })
 
   // A tag often grew into a wiki page (same label) — so the old "Shaped these
   // pages" list just repeated the tags. Instead, make each tag that maps to a
