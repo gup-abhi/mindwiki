@@ -13,6 +13,14 @@ import {
 } from '@/services/storage/wiki'
 import { lineageForEntry, regeneratePageVoice, type LineagePage } from '@/services/wiki/engine'
 import { type Entry } from '@/services/storage/entries'
+import {
+  computePageTrend,
+  computeTrendingPages,
+  loadConceptEntries,
+  type PageTrend,
+  type PageTrendEntry,
+} from '@/services/insights/page-trend'
+import { useEntries } from '@/hooks/useEntries'
 import { useSyncStore } from '@/store/sync.store'
 
 /** All wiki pages; refreshed on focus and after a sync pull. */
@@ -138,4 +146,66 @@ export function useEntryLineage(entry: Entry | null): LineagePage[] {
   }, [entry, revision])
 
   return pages
+}
+
+/**
+ * How the concept behind a wiki page has trended over the last 8 weeks — its
+ * frequency (as a share of your entries) and the mood on the days it appears.
+ * Computed from entry tags, so it's immune to wiki-page drift. Null until loaded
+ * or when there's too little data. Reloads on focus and after a sync pull.
+ */
+export function usePageTrend(page: WikiPage | null): PageTrend | null {
+  const [trend, setTrend] = useState<PageTrend | null>(null)
+  const { entries } = useEntries() // every entry — the denominator for share
+  const revision = useSyncStore((s) => s.revision)
+  const category = page?.category ?? null
+  const title = page?.title ?? null
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true
+      void (async () => {
+        if (!title) {
+          setTrend(null)
+          return
+        }
+        const res = await loadConceptEntries(category, title)
+        if (!active) return
+        setTrend(res.success ? computePageTrend(res.data, entries, Date.now(), title) : null)
+      })()
+      return () => {
+        active = false
+      }
+    }, [category, title, entries, revision])
+  )
+
+  return trend
+}
+
+/**
+ * Every wiki page that has a real, nameable trend right now ("what's changing"),
+ * strongest-first — for the Trends screen. Pages without enough data or without a
+ * genuine shift are left out. Reloads on focus and after a sync pull.
+ */
+export function useTrendingPages(): PageTrendEntry[] {
+  const [items, setItems] = useState<PageTrendEntry[]>([])
+  const { entries } = useEntries()
+  const revision = useSyncStore((s) => s.revision)
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true
+      void (async () => {
+        const res = await listPages() // non-dismissed pages
+        if (!active || !res.success) return
+        const trending = await computeTrendingPages(res.data, entries, Date.now())
+        if (active) setItems(trending)
+      })()
+      return () => {
+        active = false
+      }
+    }, [entries, revision])
+  )
+
+  return items
 }

@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import WikiBrowse from '@/app/(tabs)/wiki/index'
 import WikiCategoryScreen from '@/app/wiki/category/[category]'
 import WikiPageScreen from '@/app/wiki/[id]'
+import { type PageTrend } from '@/services/insights/page-trend'
 
 const mockPush = jest.fn()
 const mockBack = jest.fn()
@@ -20,10 +21,12 @@ const mockUseDismissedPages = jest.fn(() => ({
   loading: false,
   refresh: jest.fn(),
 }))
+const mockUsePageTrend = jest.fn((): PageTrend | null => null)
 jest.mock('@/hooks/useWiki', () => ({
   useWikiPages: () => mockUseWikiPages(),
   useWikiPage: () => mockUseWikiPage(),
   useDismissedPages: () => mockUseDismissedPages(),
+  usePageTrend: () => mockUsePageTrend(),
 }))
 
 const mockUseReframes = jest.fn(() => ({
@@ -125,6 +128,7 @@ describe('WikiPageScreen', () => {
     mockCorrect.mockReset()
     mockRegenerate.mockReset().mockResolvedValue(null) // null = success
     mockUseReframes.mockReturnValue({ reframes: [], refresh: jest.fn(), save: jest.fn(), suggest: jest.fn() })
+    mockUsePageTrend.mockReset().mockReturnValue(null) // no trend by default
   })
 
   const pageReturn = (page: Record<string, unknown>) => ({
@@ -145,6 +149,31 @@ describe('WikiPageScreen', () => {
     expect(screen.getByText('Anxiety')).toBeTruthy()
     expect(screen.getByText('You tend to expect the worst before meetings.')).toBeTruthy()
     expect(screen.getByText('emotion · v2 · 3 entries')).toBeTruthy()
+  })
+
+  it('shows the "How this has changed" trend section only when the trend has a message', () => {
+    const page = { id: 'p1', title: 'Anxiety', category: 'emotion', version: 2, entry_count: 6, content: 'c', dismissed_at: null }
+    mockUseWikiPage.mockReturnValue(pageReturn(page))
+
+    // No message → no section.
+    const { rerender } = render(<WikiPageScreen />)
+    expect(screen.queryByText('How this has changed')).toBeNull()
+    expect(screen.queryByTestId('page-trend')).toBeNull()
+
+    // With a message → section + sparkline render.
+    mockUsePageTrend.mockReturnValue({
+      totalEntries: 6,
+      weeks: [{ weekStart: 0, count: 2, avgMood: 3 }],
+      frequencyDirection: 'falling',
+      moodDirection: 'steady',
+      message: 'Anxiety has been coming up less often than it did a month ago.',
+    })
+    rerender(<WikiPageScreen />)
+    expect(screen.getByText('How this has changed')).toBeTruthy()
+    expect(screen.getByTestId('page-trend')).toBeTruthy()
+    expect(
+      screen.getByText('Anxiety has been coming up less often than it did a month ago.')
+    ).toBeTruthy()
   })
 
   it('offers "This isn’t right" on an active page and confirms before dropping', () => {
