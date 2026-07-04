@@ -4,9 +4,11 @@ import { Pressable, StyleSheet, View } from 'react-native'
 
 import { Screen, Text } from '@/components/ui'
 import { PageTrendView, TrendLegend } from '@/components/wiki/PageTrendView'
+import { AffectMapView } from '@/components/insights/AffectMapView'
 import { useEntries } from '@/hooks/useEntries'
 import { useTrendingPages } from '@/hooks/useWiki'
 import { moodByDay, monthMoodGrid, type DayMood, type MonthCell } from '@/services/insights/mood-stats'
+import { computeAffectMap } from '@/services/insights/affect-map'
 import { type Theme, moodColorKey, useTheme, useThemedStyles } from '@/theme'
 
 const TREND_DAYS = 14
@@ -19,6 +21,7 @@ export default function TrendsScreen() {
   const trending = useTrendingPages()
   const now = Date.now()
   const series = useMemo(() => moodByDay(entries, now, TREND_DAYS), [entries, now])
+  const affect = useMemo(() => computeAffectMap(entries, now), [entries, now])
   const today = new Date(now)
   const weeks = useMemo(
     () => monthMoodGrid(entries, today.getFullYear(), today.getMonth()),
@@ -45,6 +48,15 @@ export default function TrendsScreen() {
             Mood · last {TREND_DAYS} days
           </Text>
           <MoodTrendChart data={series} />
+
+          {affect && (
+            <>
+              <Text variant="subtitle" color="textSecondary" style={styles.h2}>
+                Where your feelings land
+              </Text>
+              <AffectMapView map={affect} />
+            </>
+          )}
 
           <Text variant="subtitle" color="textSecondary" style={styles.h2}>
             {monthLabel}

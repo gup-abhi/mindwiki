@@ -24,19 +24,23 @@ interface E {
   /** Days ago. */
   day: number
   mood: number
+  /** 1–5 energy, so this also populates the affect map. */
+  energy: number
   emotion: string
 }
 
 // Anxiety: 9 entries in the earlier half (mood 2), 3 in the recent half (mood 4).
+// High energy → the earlier ones land "tense", the recent ones "upbeat".
 const ANXIETY: E[] = [
-  ...[30, 33, 36, 40, 43, 47, 50, 52, 54].map((day) => ({ day, mood: 2, emotion: 'Anxiety' })),
-  ...[5, 14, 23].map((day) => ({ day, mood: 4, emotion: 'Anxiety' })),
+  ...[30, 33, 36, 40, 43, 47, 50, 52, 54].map((day) => ({ day, mood: 2, energy: 4, emotion: 'Anxiety' })),
+  ...[5, 14, 23].map((day) => ({ day, mood: 4, energy: 4, emotion: 'Anxiety' })),
 ]
 // Filler (a different feeling) so Anxiety's SHARE of journaling drops: 3 earlier,
-// 9 recent → earlier share 9/12 = 0.75, recent share 3/12 = 0.25.
+// 9 recent → earlier share 9/12 = 0.75, recent share 3/12 = 0.25. Pleasant + low
+// energy → these land in the "calm" corner of the affect map.
 const FILLER: E[] = [
-  ...[31, 44, 53].map((day) => ({ day, mood: 3, emotion: 'Calm' })),
-  ...[1, 3, 6, 9, 12, 16, 19, 22, 26].map((day) => ({ day, mood: 3, emotion: 'Calm' })),
+  ...[31, 44, 53].map((day) => ({ day, mood: 4, energy: 2, emotion: 'Calm' })),
+  ...[1, 3, 6, 9, 12, 16, 19, 22, 26].map((day) => ({ day, mood: 4, energy: 2, emotion: 'Calm' })),
 ]
 const ALL: E[] = [...ANXIETY, ...FILLER]
 
@@ -73,14 +77,15 @@ export function DevSeedTrend() {
         const e = ALL[i]
         await tx.execute(
           `INSERT INTO entries
-             (id, created_at, mood, situation, thought, behavior, closing_note,
+             (id, created_at, mood, energy, situation, thought, behavior, closing_note,
               emotion, named_emotion, distortion, mood_score, topic, tagged_at,
               wiki_indexed_at, graph_indexed_at, source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             `seed-trend-${i}`,
             now - e.day * DAY,
             e.mood,
+            e.energy,
             'seeded entry',
             '',
             null,
@@ -115,7 +120,7 @@ export function DevSeedTrend() {
     <Card variant="sunken">
       <Text variant="caption" color="textSecondary">
         Seeds an “Anxiety” page + 8 weeks of entries (dense earlier, sparse recently) so the
-        “How this has changed” trend fires. Open Insights → Anxiety.
+        “How this has changed” trend fires — and, with energy set, the Trends affect map too.
       </Text>
       <View style={styles.btns}>
         <Button title="Seed trend data" fullWidth onPress={() => void seed()} testID="dev-seed-trend" />
