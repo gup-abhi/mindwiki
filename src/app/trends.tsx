@@ -1,9 +1,11 @@
 import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
-import { StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
 
 import { Screen, Text } from '@/components/ui'
+import { PageTrendView, TrendLegend } from '@/components/wiki/PageTrendView'
 import { useEntries } from '@/hooks/useEntries'
+import { useTrendingPages } from '@/hooks/useWiki'
 import { moodByDay, monthMoodGrid, type DayMood, type MonthCell } from '@/services/insights/mood-stats'
 import { type Theme, moodColorKey, useTheme, useThemedStyles } from '@/theme'
 
@@ -14,6 +16,7 @@ export default function TrendsScreen() {
   const styles = useThemedStyles(makeStyles)
   const { entries } = useEntries()
 
+  const trending = useTrendingPages()
   const now = Date.now()
   const series = useMemo(() => moodByDay(entries, now, TREND_DAYS), [entries, now])
   const today = new Date(now)
@@ -47,6 +50,27 @@ export default function TrendsScreen() {
             {monthLabel}
           </Text>
           <MoodCalendar weeks={weeks} />
+
+          {trending.length > 0 && (
+            <>
+              <Text variant="subtitle" color="textSecondary" style={styles.h2}>
+                What’s changing
+              </Text>
+              <TrendLegend />
+              {trending.map(({ page, trend }) => (
+                <Pressable
+                  key={page.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open the ${page.title} page`}
+                  onPress={() => router.push(`/wiki/${page.id}`)}
+                  style={styles.trendRow}
+                  testID="trend-row"
+                >
+                  <PageTrendView trend={trend} />
+                </Pressable>
+              ))}
+            </>
+          )}
         </>
       )}
     </Screen>
@@ -132,6 +156,7 @@ const makeStyles = (t: Theme) =>
     h1: { marginTop: t.spacing.sm },
     h2: { marginTop: t.spacing['2xl'], marginBottom: t.spacing.md },
     empty: { marginTop: t.spacing['2xl'] },
+    trendRow: { paddingVertical: t.spacing.md },
     chart: { gap: t.spacing.sm },
     bars: { flexDirection: 'row', alignItems: 'flex-end', height: 120, gap: 3 },
     barCol: { flex: 1, height: '100%', justifyContent: 'flex-end' },

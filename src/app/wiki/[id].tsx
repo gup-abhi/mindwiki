@@ -5,7 +5,8 @@ import { Alert, StyleSheet, View } from 'react-native'
 import { Button, Card, Divider, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { Markdown } from '@/components/wiki/Markdown'
-import { useWikiPage } from '@/hooks/useWiki'
+import { PageTrendView, TrendLegend } from '@/components/wiki/PageTrendView'
+import { useWikiPage, usePageTrend } from '@/hooks/useWiki'
 import { useReframes } from '@/hooks/useReframes'
 
 const RICHNESS_TARGET = 10 // entries at which the richness bar is full
@@ -15,6 +16,7 @@ export default function WikiPageScreen() {
   const styles = useThemedStyles(makeStyles)
   const { id } = useLocalSearchParams<{ id?: string }>()
   const { page, loading, dismiss, restore, correct, regenerate, regenerating } = useWikiPage(id)
+  const trend = usePageTrend(page)
   const [draft, setDraft] = useState<string | null>(null) // non-null while editing
   const [showEarlier, setShowEarlier] = useState(false) // expand older reframes
   // Beliefs can be challenged with a CBT reframe; only beliefs surface that flow.
@@ -88,6 +90,17 @@ export default function WikiPageScreen() {
       </View>
 
       <Markdown content={page.content} />
+
+      {trend?.message && page.dismissed_at == null && (
+        <View style={styles.trendSection}>
+          <Divider />
+          <Text variant="label" color="textSecondary" style={styles.trendTitle}>
+            How this has changed
+          </Text>
+          <TrendLegend />
+          <PageTrendView trend={trend} />
+        </View>
+      )}
 
       {isBelief && page.dismissed_at == null && (
         <View style={styles.reframeSection}>
@@ -226,6 +239,8 @@ const makeStyles = (t: Theme) =>
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     meta: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
     richness: { marginBottom: t.spacing.xl },
+    trendSection: { marginTop: t.spacing['2xl'], gap: t.spacing.md },
+    trendTitle: {},
     reframeSection: { marginTop: t.spacing['2xl'], gap: t.spacing.lg },
     reframeList: { gap: t.spacing.sm },
     reframeCard: { gap: t.spacing.xs, alignItems: 'flex-start' },
