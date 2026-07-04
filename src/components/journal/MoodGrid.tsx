@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, View } from 'react-native'
 
 import { Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
+import { affectColor } from '@/lib/affect-colors'
 import { haptics } from '@/lib/haptics'
 
 // The energy×pleasantness capture grid (the circumplex model). The horizontal
@@ -10,23 +11,11 @@ import { haptics } from '@/lib/haptics'
 // every point is an accessible button and easy to hit. Cells are tinted by a
 // smooth 4-corner gradient — red (tense), amber (upbeat), blue (low), green
 // (calm) — so the grid reads as continuous regions (no hard gray middle), while
-// the centre still blends to a muted neutral.
+// the centre still blends to a muted neutral. The corner colours live in
+// affect-colors.ts, shared with the Trends affect map.
 
 const PLEASANTNESS = [1, 2, 3, 4, 5]
 const ENERGY_TOP_DOWN = [5, 4, 3, 2, 1] // top row = high energy
-
-type RGB = [number, number, number]
-
-function hexToRgb(hex: string): RGB {
-  const h = hex.replace('#', '')
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
-}
-const mix = (a: RGB, b: RGB, t: number): RGB => [
-  a[0] + (b[0] - a[0]) * t,
-  a[1] + (b[1] - a[1]) * t,
-  a[2] + (b[2] - a[2]) * t,
-]
-const rgba = (c: RGB, a: number): string => `rgba(${Math.round(c[0])}, ${Math.round(c[1])}, ${Math.round(c[2])}, ${a})`
 
 export function MoodGrid({
   pleasantness,
@@ -39,11 +28,6 @@ export function MoodGrid({
 }) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
-  // Quadrant corners: top = high energy, left = unpleasant.
-  const tl = hexToRgb(theme.colors.danger) // unpleasant + high (red)
-  const tr = hexToRgb(theme.colors.moodOkay) // pleasant + high (amber)
-  const bl = hexToRgb(theme.colors.graphSituation) // unpleasant + low (blue)
-  const br = hexToRgb(theme.colors.success) // pleasant + low (green)
 
   return (
     <View>
@@ -63,8 +47,7 @@ export function MoodGrid({
                 const selected = pleasantness === p && energy === e
                 const px = (p - 1) / 4 // 0 unpleasant → 1 pleasant
                 const py = (e - 1) / 4 // 0 low → 1 high energy
-                const hue = mix(mix(bl, br, px), mix(tl, tr, px), py) // bilinear blend
-                const bg = rgba(hue, selected ? 0.62 : 0.22)
+                const bg = affectColor(theme, px, py, selected ? 0.62 : 0.22)
                 return (
                   <Pressable
                     key={p}
