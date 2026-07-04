@@ -75,6 +75,10 @@ export function DevSeedTrend() {
 
       for (let i = 0; i < ALL.length; i++) {
         const e = ALL[i]
+        // Spread across morning/afternoon/evening so the mood-by-day-and-time
+        // heatmap populates all three rows (hour is independent of the trend).
+        const ts = new Date(now - e.day * DAY)
+        ts.setHours([9, 14, 20][i % 3], 0, 0, 0)
         await tx.execute(
           `INSERT INTO entries
              (id, created_at, mood, energy, situation, thought, behavior, closing_note,
@@ -83,7 +87,7 @@ export function DevSeedTrend() {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             `seed-trend-${i}`,
-            now - e.day * DAY,
+            ts.getTime(),
             e.mood,
             e.energy,
             'seeded entry',

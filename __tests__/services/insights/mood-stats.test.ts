@@ -1,4 +1,10 @@
-import { moodByDay, monthMoodGrid, detectWeeklyRhythm, detectMomentum } from '@/services/insights/mood-stats'
+import {
+  moodByDay,
+  monthMoodGrid,
+  detectWeeklyRhythm,
+  detectMomentum,
+  moodByWeekdayTime,
+} from '@/services/insights/mood-stats'
 import { type Entry } from '@/services/storage/entries'
 
 const at = (y: number, m: number, d: number, h = 12): number => new Date(y, m - 1, d, h).getTime()
@@ -203,5 +209,53 @@ describe('detectMomentum', () => {
       ...recentDays.slice(0, 2).map((ts) => mk(ts, { mood: 4, mood_score: 0.6 })), // only 2 recent
     ]
     expect(detectMomentum(data, now)).toBeNull()
+  })
+})
+
+describe('moodByWeekdayTime', () => {
+  const now = at(2026, 6, 30, 12) // Tue Jun 30 2026
+
+  it('returns null below the minimum sample size', () => {
+    const data = [1, 2, 3, 4, 5, 6, 7].map((d) => entry(3, at(2026, 6, d, 10)))
+    expect(moodByWeekdayTime(data, now)).toBeNull()
+  })
+
+  it('returns a 3×7 grid (morning/afternoon/evening × Mon–Sun)', () => {
+    const data = Array.from({ length: 8 }, (_, i) => entry(3, at(2026, 6, 10 + i, 10)))
+    const grid = moodByWeekdayTime(data, now)
+    expect(grid?.rows.map((r) => r.slot)).toEqual(['morning', 'afternoon', 'evening'])
+    expect(grid?.rows.every((r) => r.cells.length === 7)).toBe(true)
+  })
+
+  it('bins entries into the right time-of-day row with the right average', () => {
+    const data = [
+      ...[8, 15, 22].map((d) => entry(4, at(2026, 6, d, 9))), // 3 morning entries, same weekday, mood 4
+      ...[1, 2, 3, 4, 5].map((d) => entry(3, at(2026, 6, d, 15))), // 5 afternoon fillers
+    ]
+    const grid = moodByWeekdayTime(data, now)
+    const morning = grid?.rows.find((r) => r.slot === 'morning')
+    expect(morning?.cells.some((c) => c.count === 3 && c.avg === 4)).toBe(true)
+  })
+
+  it('names a notably-low time of week', () => {
+    const low = [7, 14, 21, 28].map((d) => entry(1, at(2026, 6, d, 20))) // 4 evenings, same weekday
+    const high = [1, 2, 3, 8, 9, 10, 15, 16].map((d) => entry(5, at(2026, 6, d, 9)))
+    const grid = moodByWeekdayTime([...low, ...high], now)
+    expect(grid?.message).toMatch(/evenings have tended to feel lower than your other times/)
+  })
+
+  it('gives no message when no slot stands out as low', () => {
+    const data = Array.from({ length: 10 }, (_, i) => entry(3, at(2026, 6, 5 + i, 12)))
+    const grid = moodByWeekdayTime(data, now)
+    expect(grid).not.toBeNull()
+    expect(grid?.message).toBeNull()
+  })
+
+  it('excludes entries older than the 8-week window', () => {
+    const recent = Array.from({ length: 8 }, (_, i) => entry(3, at(2026, 6, 10 + i, 10)))
+    const old = [1, 2, 3].map((d) => entry(1, at(2026, 3, d, 20))) // March → outside 56 days
+    const grid = moodByWeekdayTime([...recent, ...old], now)
+    // The old low evenings must not create a low-slot message.
+    expect(grid?.message).toBeNull()
   })
 })
