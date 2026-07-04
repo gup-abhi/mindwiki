@@ -247,3 +247,78 @@ export function detectMomentum(entries: Entry[], now: number): Momentum | null {
     message: `Day to day it can feel stuck. But over the last several weeks ${joined}. You’re moving — even if you can’t feel it.`,
   }
 }
+
+// Mood by weekday × time-of-day — the mood cousin of detectWeeklyRhythm. Shows
+// when in the week your mood tends to sit low or high, over a recent window.
+
+const RHYTHM_MOOD_WINDOW_DAYS = 56 // 8 weeks — matches the other Trends insights
+const RHYTHM_MOOD_MIN_TOTAL = 8 // don't show a near-empty heatmap
+const RHYTHM_MOOD_MIN_SLOT = 3 // a slot needs this many entries to be named
+const RHYTHM_MOOD_LOW_MARGIN = 0.5 // …and sit this far below your overall average
+const SLOTS: readonly TimeOfDay[] = ['morning', 'afternoon', 'evening']
+// Monday-first, matching the Trends calendar's weekday order.
+const WEEKDAYS_MON = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const mondayIndex = (dow: number): number => (dow + 6) % 7 // Sun=0 → 6, Mon=1 → 0
+
+export interface RhythmCell {
+  /** Mean mood (1–5) of that weekday+slot's entries, or null if none. */
+  avg: number | null
+  count: number
+}
+
+export interface WeekdayTimeMood {
+  /** One row per time-of-day (morning→evening), each 7 cells (Monday→Sunday). */
+  rows: { slot: TimeOfDay; cells: RhythmCell[] }[]
+  /** Observational one-liner naming a notably-low slot; null when none stands out. */
+  message: string | null
+}
+
+/**
+ * Average mood across a 3 (time-of-day) × 7 (weekday) grid over the last 8 weeks,
+ * plus a one-line note about the time of week that tends to run low. Null when
+ * there isn't enough data to show a grid. Observational only — never a diagnosis.
+ */
+export function moodByWeekdayTime(entries: Entry[], now: number): WeekdayTimeMood | null {
+  const since = now - RHYTHM_MOOD_WINDOW_DAYS * 86_400_000
+  const recent = entries.filter((e) => e.created_at >= since && e.created_at <= now)
+  if (recent.length < RHYTHM_MOOD_MIN_TOTAL) return null
+
+  const acc = new Map<string, { total: number; count: number }>() // `${slotIdx}|${weekday}`
+  let overallTotal = 0
+  for (const e of recent) {
+    const d = new Date(e.created_at)
+    const key = `${timeOfDay(d.getHours())}|${mondayIndex(d.getDay())}`
+    const cur = acc.get(key) ?? { total: 0, count: 0 }
+    cur.total += e.mood
+    cur.count += 1
+    acc.set(key, cur)
+    overallTotal += e.mood
+  }
+  const overallAvg = overallTotal / recent.length
+
+  const rows = SLOTS.map((slot) => ({
+    slot,
+    cells: Array.from({ length: 7 }, (_, wd): RhythmCell => {
+      const c = acc.get(`${slot}|${wd}`)
+      return { avg: c ? c.total / c.count : null, count: c?.count ?? 0 }
+    }),
+  }))
+
+  // The lowest slot that has enough entries and sits clearly below the average.
+  let low: { slot: TimeOfDay; wd: number; avg: number } | null = null
+  for (const slot of SLOTS) {
+    for (let wd = 0; wd < 7; wd++) {
+      const c = acc.get(`${slot}|${wd}`)
+      if (!c || c.count < RHYTHM_MOOD_MIN_SLOT) continue
+      const avg = c.total / c.count
+      if (avg <= overallAvg - RHYTHM_MOOD_LOW_MARGIN && (!low || avg < low.avg)) {
+        low = { slot, wd, avg }
+      }
+    }
+  }
+  const message = low
+    ? `${WEEKDAYS_MON[low.wd]} ${low.slot}s have tended to feel lower than your other times.`
+    : null
+
+  return { rows, message }
+}

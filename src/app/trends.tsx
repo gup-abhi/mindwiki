@@ -7,7 +7,15 @@ import { PageTrendView, TrendLegend } from '@/components/wiki/PageTrendView'
 import { AffectMapView } from '@/components/insights/AffectMapView'
 import { useEntries } from '@/hooks/useEntries'
 import { useTrendingPages } from '@/hooks/useWiki'
-import { moodByDay, monthMoodGrid, type DayMood, type MonthCell } from '@/services/insights/mood-stats'
+import {
+  moodByDay,
+  monthMoodGrid,
+  moodByWeekdayTime,
+  type DayMood,
+  type MonthCell,
+  type TimeOfDay,
+  type WeekdayTimeMood,
+} from '@/services/insights/mood-stats'
 import { computeAffectMap } from '@/services/insights/affect-map'
 import { type Theme, moodColorKey, useTheme, useThemedStyles } from '@/theme'
 
@@ -22,6 +30,7 @@ export default function TrendsScreen() {
   const now = Date.now()
   const series = useMemo(() => moodByDay(entries, now, TREND_DAYS), [entries, now])
   const affect = useMemo(() => computeAffectMap(entries, now), [entries, now])
+  const rhythm = useMemo(() => moodByWeekdayTime(entries, now), [entries, now])
   const today = new Date(now)
   const weeks = useMemo(
     () => monthMoodGrid(entries, today.getFullYear(), today.getMonth()),
@@ -62,6 +71,15 @@ export default function TrendsScreen() {
             {monthLabel}
           </Text>
           <MoodCalendar weeks={weeks} />
+
+          {rhythm && (
+            <>
+              <Text variant="subtitle" color="textSecondary" style={styles.h2}>
+                Mood by day and time
+              </Text>
+              <MoodRhythm data={rhythm} />
+            </>
+          )}
 
           {trending.length > 0 && (
             <>
@@ -163,9 +181,67 @@ function MoodCalendar({ weeks }: { weeks: MonthCell[][] }) {
   )
 }
 
+const SLOT_LABEL: Record<TimeOfDay, string> = {
+  morning: 'Morning',
+  afternoon: 'Afternoon',
+  evening: 'Evening',
+}
+
+/**
+ * A 3 (time of day) × 7 (weekday, Monday-first) heatmap of average mood, tinted on
+ * the same mood scale as the calendar. Empty slots show a faint outline.
+ */
+function MoodRhythm({ data }: { data: WeekdayTimeMood }) {
+  const styles = useThemedStyles(makeStyles)
+  const theme = useTheme()
+  return (
+    <View>
+      <View style={styles.rhythmRow}>
+        <View style={styles.rhythmLabel} />
+        {DOW.map((d, i) => (
+          <Text key={i} variant="caption" color="textMuted" style={styles.rhythmHead}>
+            {d}
+          </Text>
+        ))}
+      </View>
+      {data.rows.map((row) => (
+        <View key={row.slot} style={styles.rhythmRow}>
+          <Text variant="caption" color="textMuted" style={styles.rhythmLabel} numberOfLines={1}>
+            {SLOT_LABEL[row.slot]}
+          </Text>
+          {row.cells.map((c, wd) => (
+            <View key={wd} style={styles.rhythmCellWrap}>
+              <View
+                style={[
+                  styles.rhythmCell,
+                  c.avg == null
+                    ? styles.rhythmEmpty
+                    : { backgroundColor: theme.colors[moodColorKey(Math.round(c.avg))] },
+                ]}
+              />
+            </View>
+          ))}
+        </View>
+      ))}
+      {data.message ? (
+        <Text variant="caption" color="textSecondary" style={styles.rhythmMsg}>
+          {data.message}
+        </Text>
+      ) : null}
+    </View>
+  )
+}
+
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     h1: { marginTop: t.spacing.sm },
+    rhythmRow: { flexDirection: 'row', alignItems: 'center', marginBottom: t.spacing.xs },
+    rhythmLabel: { width: 72 },
+    rhythmHead: { flex: 1, textAlign: 'center' },
+    rhythmCellWrap: { flex: 1, padding: 2 },
+    rhythmCell: { height: 24, borderRadius: 6 },
+    rhythmEmpty: { borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border },
+    rhythmMsg: { marginTop: t.spacing.sm },
     h2: { marginTop: t.spacing['2xl'], marginBottom: t.spacing.md },
     empty: { marginTop: t.spacing['2xl'] },
     trendRow: { paddingVertical: t.spacing.md },
