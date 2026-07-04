@@ -27,6 +27,7 @@ jest.mock('@/hooks/useWiki', () => ({
   useWikiPage: () => mockUseWikiPage(),
   useDismissedPages: () => mockUseDismissedPages(),
   usePageTrend: () => mockUsePageTrend(),
+  useTrendingPages: () => [],
 }))
 
 const mockUseReframes = jest.fn(() => ({

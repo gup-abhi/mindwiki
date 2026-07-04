@@ -8,6 +8,7 @@ import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { CATEGORY_ORDER, categoryKey, categoryLabel } from '@/services/wiki/categories'
 import { useDismissedPages, useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
+import { MoversStrip } from '@/components/insights/MoversStrip'
 
 interface CategorySummary {
   key: string
@@ -45,11 +46,14 @@ export default function WikiBrowse() {
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={Divider}
         ListHeaderComponent={
-          synthesizing ? (
-            <Text variant="caption" color="accent" style={styles.synth}>
-              Synthesizing…
-            </Text>
-          ) : null
+          <>
+            {synthesizing ? (
+              <Text variant="caption" color="accent" style={styles.synth}>
+                Synthesizing…
+              </Text>
+            ) : null}
+            <MoversStrip />
+          </>
         }
         ListEmptyComponent={
           !loading ? (
