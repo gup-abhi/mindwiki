@@ -29,6 +29,8 @@ describe('reference coverage', () => {
 
   it('has reflective technique text and an even number of few-shot turns', () => {
     expect(REFLECTIVE_TECHNIQUES.length).toBeGreaterThan(0)
+    // Teaches complex reflection (reaching the unstated feeling/meaning), not just restatement.
+    expect(REFLECTIVE_TECHNIQUES).toMatch(/underneath what they said/i)
     expect(FEW_SHOT.length).toBeGreaterThan(0)
     expect(FEW_SHOT.length % 2).toBe(0) // user/assistant pairs
     expect(FEW_SHOT[0].role).toBe('user')
