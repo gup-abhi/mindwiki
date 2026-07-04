@@ -27,20 +27,43 @@ interface E {
   /** 1–5 energy, so this also populates the affect map. */
   energy: number
   emotion: string
+  /** Canonical CBT distortion, or 'none'. Drives the thinking-patterns trend. */
+  distortion: string
 }
 
 // Anxiety: 9 entries in the earlier half (mood 2), 3 in the recent half (mood 4).
-// High energy → the earlier ones land "tense", the recent ones "upbeat".
+// High energy → the earlier ones land "tense", the recent ones "upbeat". The
+// earlier ones also carry distortions (dense) and the recent ones mostly don't
+// (sparse) → a falling distortion rate. Window-wide the ranking is
+// Catastrophizing (5) > Mind reading (3) > Should statements (2).
 const ANXIETY: E[] = [
-  ...[30, 33, 36, 40, 43, 47, 50, 52, 54].map((day) => ({ day, mood: 2, energy: 4, emotion: 'Anxiety' })),
-  ...[5, 14, 23].map((day) => ({ day, mood: 4, energy: 4, emotion: 'Anxiety' })),
+  ...(
+    [
+      [30, 'Catastrophizing'],
+      [33, 'Catastrophizing'],
+      [36, 'Catastrophizing'],
+      [40, 'Catastrophizing'],
+      [43, 'Mind reading'],
+      [47, 'Mind reading'],
+      [50, 'Mind reading'],
+      [52, 'Should statements'],
+      [54, 'Should statements'],
+    ] as const
+  ).map(([day, distortion]) => ({ day, mood: 2, energy: 4, emotion: 'Anxiety', distortion })),
+  ...(
+    [
+      [5, 'Catastrophizing'],
+      [14, 'none'],
+      [23, 'none'],
+    ] as const
+  ).map(([day, distortion]) => ({ day, mood: 4, energy: 4, emotion: 'Anxiety', distortion })),
 ]
 // Filler (a different feeling) so Anxiety's SHARE of journaling drops: 3 earlier,
 // 9 recent → earlier share 9/12 = 0.75, recent share 3/12 = 0.25. Pleasant + low
 // energy → these land in the "calm" corner of the affect map.
 const FILLER: E[] = [
-  ...[31, 44, 53].map((day) => ({ day, mood: 4, energy: 2, emotion: 'Calm' })),
-  ...[1, 3, 6, 9, 12, 16, 19, 22, 26].map((day) => ({ day, mood: 4, energy: 2, emotion: 'Calm' })),
+  ...[31, 44, 53].map((day) => ({ day, mood: 4, energy: 2, emotion: 'Calm', distortion: 'none' })),
+  ...[1, 3, 6, 9, 12, 16, 19, 22, 26].map((day) => ({ day, mood: 4, energy: 2, emotion: 'Calm', distortion: 'none' })),
 ]
 const ALL: E[] = [...ANXIETY, ...FILLER]
 
@@ -96,7 +119,7 @@ export function DevSeedTrend() {
             null,
             e.emotion,
             null,
-            'none',
+            e.distortion,
             null,
             null,
             now,
@@ -124,7 +147,8 @@ export function DevSeedTrend() {
     <Card variant="sunken">
       <Text variant="caption" color="textSecondary">
         Seeds an “Anxiety” page + 8 weeks of entries (dense earlier, sparse recently) so the
-        “How this has changed” trend fires — and, with energy set, the Trends affect map too.
+        “How this has changed” trend fires — plus energy for the affect map and distortions
+        (dense earlier) for the Thinking-patterns trend.
       </Text>
       <View style={styles.btns}>
         <Button title="Seed trend data" fullWidth onPress={() => void seed()} testID="dev-seed-trend" />
