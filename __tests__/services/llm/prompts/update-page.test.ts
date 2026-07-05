@@ -43,3 +43,30 @@ describe('buildUpdatePagePrompt — KB grounding', () => {
     expect(prompt).not.toMatch(/more balanced view/i)
   })
 })
+
+describe('buildUpdatePagePrompt — recency hint', () => {
+  const withContent = { ...base, existingContent: 'You often worry about work.' }
+
+  it('adds an evolution hint when the page has gone quiet for weeks', () => {
+    const prompt = buildUpdatePagePrompt({ ...withContent, weeksSinceUpdate: 6 })
+    expect(prompt).toMatch(/roughly 6 weeks since this page was last shaped/i)
+    expect(prompt).toMatch(/intensified, eased, or shifted/i)
+    // must guard against fabricating a timeline
+    expect(prompt).toMatch(/do NOT invent specific past events/i)
+  })
+
+  it('stays silent for a recently-updated page (daily journaling)', () => {
+    const prompt = buildUpdatePagePrompt({ ...withContent, weeksSinceUpdate: 1 })
+    expect(prompt).not.toMatch(/since this page was last shaped/i)
+  })
+
+  it('stays silent on a first-time (empty) page even with a large gap', () => {
+    const prompt = buildUpdatePagePrompt({ ...base, weeksSinceUpdate: 10 })
+    expect(prompt).not.toMatch(/since this page was last shaped/i)
+  })
+
+  it('adds no hint when weeksSinceUpdate is absent (back-compat)', () => {
+    const prompt = buildUpdatePagePrompt(withContent)
+    expect(prompt).not.toMatch(/since this page was last shaped/i)
+  })
+})
