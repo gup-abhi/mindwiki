@@ -212,7 +212,58 @@ function moodFromScore(score: number): number {
 // A Reflect message must be stated this many times before it's allowed into the
 // knowledge base — a one-off chat tangent never spawns graph/wiki nodes.
 const MIN_REFLECT_MENTIONS = 2
+// Mentions further apart than this don't accumulate: a theme touched twice a
+// year apart isn't recurring, so the pending count (and parked text) start over.
+const REFLECT_MENTION_TTL_MS = 90 * 24 * 60 * 60 * 1000
 const reflectThemeKey = (theme: string) => `reflect:theme:${theme.trim().toLowerCase()}`
+
+// Pending state for a theme still short of the recurrence gate, stored as JSON
+// in local settings. Deliberately unsynced: mentions split across two devices
+// don't add up — a conservative bias we accept, since syncing the counters
+// would need migration + conflict handling for little gain. `first` parks the
+// first mention's text — usually the fullest statement of a theme — so passing
+// the gate ingests it rather than having discarded it.
+interface PendingReflectTheme {
+  count: number
+  /** Last mention timestamp (ms) — drives the TTL reset. */
+  last: number
+  /** Parked first-mention text; null once ingested (or for legacy counters). */
+  first: string | null
+}
+
+function parsePendingTheme(raw: string | null): PendingReflectTheme | null {
+  if (!raw) return null
+  try {
+    const v: unknown = JSON.parse(raw)
+    // Legacy bare counter ("1") — its first-mention text was never stored, so
+    // there's nothing to recover; keep the count and treat it as fresh.
+    if (typeof v === 'number') return { count: v, last: Date.now(), first: null }
+    if (v && typeof v === 'object' && typeof (v as PendingReflectTheme).count === 'number') {
+      const p = v as { count: number; last?: unknown; first?: unknown }
+      return {
+        count: p.count,
+        last: typeof p.last === 'number' ? p.last : 0,
+        first: typeof p.first === 'string' ? p.first : null,
+      }
+    }
+  } catch {
+    // unreadable → treat as unseen
+  }
+  return null
+}
+
+/** Persist + index one qualifying Reflect statement. True once fully created. */
+async function ingestReflectStatement(text: string, ex: EntryExtract): Promise<boolean> {
+  const created = await createEntry({
+    mood: moodFromScore(ex.mood_score),
+    situation: text,
+    thought: '',
+    source: 'reflect',
+  })
+  if (!created.success) return false
+  await indexFromExtract(created.data, ex)
+  return true
+}
 
 // Questions are prompts/queries, not reflections — they must never be ingested.
 function isQuestion(text: string): boolean {
@@ -241,20 +292,33 @@ export async function captureReflectMessage(message: string): Promise<void> {
 
   // Count this mention; only ingest from the Nth onward.
   const key = reflectThemeKey(theme)
-  const prev = await getSetting(key)
-  const count = (prev.success && prev.data ? Number(prev.data) : 0) + 1
-  await setSetting(key, String(count))
-  if (count < MIN_REFLECT_MENTIONS) return
+  const prevRaw = await getSetting(key)
+  const now = Date.now()
+  let pending = prevRaw.success ? parsePendingTheme(prevRaw.data) : null
+  // Mentions too far apart aren't recurrence — the count and parked text reset.
+  if (pending && now - pending.last > REFLECT_MENTION_TTL_MS) pending = null
 
-  const created = await createEntry({
-    mood: moodFromScore(ex.data.mood_score),
-    situation: message,
-    thought: '',
-    source: 'reflect',
-  })
-  if (!created.success) return
+  const count = (pending?.count ?? 0) + 1
+  if (count < MIN_REFLECT_MENTIONS) {
+    // Park the text alongside the count: the first time someone opens up about
+    // a theme is usually its fullest statement, and it must not be thrown away.
+    await setSetting(key, JSON.stringify({ count, last: now, first: message }))
+    return
+  }
 
-  await indexFromExtract(created.data, ex.data)
+  // Gate passed: ingest the parked first mention (re-extracted for its own
+  // tags/mood — one extra deep-model run, once per theme ever), then this one.
+  // A failed parked ingest keeps the text parked so the next mention retries.
+  let parked = pending?.first ?? null
+  if (parked) {
+    const parkedEx = await extractEntry({ situation: parked, thought: '' })
+    if (parkedEx.success && (await ingestReflectStatement(parked, parkedEx.data))) {
+      parked = null
+    }
+  }
+  await setSetting(key, JSON.stringify({ count, last: now, first: parked }))
+
+  await ingestReflectStatement(message, ex.data)
 }
 
 /**

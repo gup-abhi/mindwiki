@@ -256,28 +256,101 @@ describe('captureReflectMessage', () => {
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
-  it('skips the FIRST mention of a theme but records it', async () => {
+  it('skips the FIRST mention of a theme but parks its text with the count', async () => {
     mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
 
     await captureReflectMessage('I think I need firmer boundaries')
 
-    // counted (now seen once) but not yet ingested
-    expect(mockSetSetting).toHaveBeenCalledWith('reflect:theme:boundaries', '1')
+    // counted (now seen once) and the text parked — but not yet ingested
+    const [key, raw] = mockSetSetting.mock.calls[0]
+    expect(key).toBe('reflect:theme:boundaries')
+    expect(JSON.parse(raw)).toMatchObject({ count: 1, first: 'I think I need firmer boundaries' })
     expect(mockCreateEntry).not.toHaveBeenCalled()
     expect(mockUpdateWiki).not.toHaveBeenCalled()
   })
 
-  it('captures a theme once it recurs (second mention)', async () => {
-    mockGetSetting.mockResolvedValue({ success: true, data: '1' }) // seen once before
+  it('captures a theme once it recurs (second mention, legacy bare counter)', async () => {
+    mockGetSetting.mockResolvedValue({ success: true, data: '1' }) // seen once, pre-parking format
     mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
 
     await captureReflectMessage('I really do need firmer boundaries with work')
 
     await flush() // background index → wiki
 
-    expect(mockSetSetting).toHaveBeenCalledWith('reflect:theme:boundaries', '2')
+    const [key, raw] = mockSetSetting.mock.calls[0]
+    expect(key).toBe('reflect:theme:boundaries')
+    // Legacy counter had no parked text — only this mention is ingested.
+    expect(JSON.parse(raw)).toMatchObject({ count: 2, first: null })
+    expect(mockCreateEntry).toHaveBeenCalledTimes(1)
     expect(mockCreateEntry).toHaveBeenCalledWith(expect.objectContaining({ source: 'reflect' }))
     expect(mockUpdateWiki).toHaveBeenCalled()
+  })
+
+  it('ingests the parked first mention along with the mention that trips the gate', async () => {
+    mockGetSetting.mockResolvedValue({
+      success: true,
+      data: JSON.stringify({ count: 1, last: Date.now(), first: 'I think I need firmer boundaries' }),
+    })
+    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+
+    await captureReflectMessage('Boundaries keep slipping at work')
+    await flush()
+
+    // Parked text re-extracted for its own tags, then BOTH statements persisted,
+    // first mention first (older).
+    expect(mockExtractEntry).toHaveBeenCalledTimes(2)
+    expect(mockExtractEntry).toHaveBeenNthCalledWith(2, {
+      situation: 'I think I need firmer boundaries',
+      thought: '',
+    })
+    expect(mockCreateEntry).toHaveBeenCalledTimes(2)
+    expect(mockCreateEntry.mock.calls[0][0]).toMatchObject({
+      situation: 'I think I need firmer boundaries',
+      source: 'reflect',
+    })
+    expect(mockCreateEntry.mock.calls[1][0]).toMatchObject({
+      situation: 'Boundaries keep slipping at work',
+      source: 'reflect',
+    })
+    // Stash cleared so the first mention is never ingested twice.
+    const [, raw] = mockSetSetting.mock.calls[0]
+    expect(JSON.parse(raw)).toMatchObject({ count: 2, first: null })
+  })
+
+  it('keeps the first mention parked when its re-extract fails, and retries later', async () => {
+    mockGetSetting.mockResolvedValue({
+      success: true,
+      data: JSON.stringify({ count: 1, last: Date.now(), first: 'the first statement' }),
+    })
+    mockExtractEntry
+      .mockResolvedValueOnce(extract({ topic: 'Boundaries' })) // current message
+      .mockResolvedValueOnce(err('EXTRACT_INFERENCE_FAILED', 'model busy')) // parked retry
+    await captureReflectMessage('boundaries again today')
+    await flush()
+
+    // Current mention still ingested; parked text preserved for the next mention.
+    expect(mockCreateEntry).toHaveBeenCalledTimes(1)
+    const [, raw] = mockSetSetting.mock.calls[0]
+    expect(JSON.parse(raw)).toMatchObject({ count: 2, first: 'the first statement' })
+  })
+
+  it('resets a stale pending theme — mentions a year apart are not recurrence', async () => {
+    mockGetSetting.mockResolvedValue({
+      success: true,
+      data: JSON.stringify({
+        count: 1,
+        last: Date.now() - 365 * 24 * 60 * 60 * 1000,
+        first: 'a long-forgotten statement',
+      }),
+    })
+    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+
+    await captureReflectMessage('I need firmer boundaries')
+
+    // Treated as a fresh first mention: nothing ingested, new text parked.
+    expect(mockCreateEntry).not.toHaveBeenCalled()
+    const [, raw] = mockSetSetting.mock.calls[0]
+    expect(JSON.parse(raw)).toMatchObject({ count: 1, first: 'I need firmer boundaries' })
   })
 
   it('skips a statement with no real theme', async () => {

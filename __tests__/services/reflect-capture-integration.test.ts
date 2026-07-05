@@ -193,14 +193,15 @@ describe('Reflect capture → wiki → retrieval (integration)', () => {
     mockExtract.mockReset()
   })
 
-  it('drops the first mention but lands the second as a real, retrievable wiki page', async () => {
+  it('parks the first mention and lands BOTH once the theme recurs', async () => {
     mockExtract.mockResolvedValue(extract('Boundaries'))
 
-    // First mention: recorded by the recurrence gate, but nothing ingested yet.
+    // First mention: parked by the recurrence gate, nothing ingested yet.
     await captureReflectMessage('I think I need firmer boundaries at work')
     expect(__getAllPages()).toHaveLength(0)
 
-    // Second mention: the durable theme now flows into the wiki for real.
+    // Second mention: the theme is durable — the parked first mention AND this
+    // one both flow into the wiki (the first statement is usually the fullest).
     await captureReflectMessage('Boundaries keep slipping and it drains me')
 
     const pages = __getAllPages() as WikiPage[]
@@ -209,6 +210,8 @@ describe('Reflect capture → wiki → retrieval (integration)', () => {
     // The page is genuinely synthesized (non-empty) and shaped by the message.
     expect(themePage!.content).toContain('Boundaries')
     expect(themePage!.content).toContain('drains me')
+    // Two syntheses landed — the parked first mention was ingested, not dropped.
+    expect(themePage!.entry_count).toBe(2)
 
     // Next session: a related message surfaces the captured page via retrieval,
     // clearing the MIN_RELEVANCE floor on the title match alone. This is the
