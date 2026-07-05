@@ -21,6 +21,15 @@ export interface UpdatePageInput {
  *  constantly), so it is only surfaced once a page has genuinely gone quiet. */
 const RECENCY_HINT_WEEKS = 3
 
+/** Cap on the existing page folded into the prompt, so a large page + reflection +
+ *  the 400-token generation budget can't graze the deep model's 2048 n_ctx (past
+ *  which llama.rn silently context-shifts, dropping the instructions). Sized above
+ *  the ~1600 chars a 400-token synthesis produces, so normal pages are never
+ *  touched — only a page near WikiContentSchema's 4000-char ceiling (e.g. legacy)
+ *  gets trimmed. Keep the opening: it carries the page's gist, and synthesis
+ *  re-consolidates from there. Mirrors conversation.ts's MAX_PAGE_CHARS guard. */
+const MAX_EXISTING_CHARS = 2400
+
 // The house style every wiki page is written in. Shared by first-time synthesis,
 // per-entry updates, and the regenerate pass so they can't drift apart.
 const PAGE_STYLE = [
@@ -48,7 +57,9 @@ export function buildUpdatePagePrompt({
   reframe,
   weeksSinceUpdate,
 }: UpdatePageInput): string {
-  const existing = existingContent.trim()
+  const trimmed = existingContent.trim()
+  const existing =
+    trimmed.length > MAX_EXISTING_CHARS ? `${trimmed.slice(0, MAX_EXISTING_CHARS)}…` : trimmed
   // Present the new material as one reflection. Labelled "Situation:/Thought:"
   // bullets get parroted back by the small model as literal headings, which is
   // not what a synthesized wiki page should look like.
