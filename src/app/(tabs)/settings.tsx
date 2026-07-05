@@ -6,6 +6,7 @@ import { type Theme, type ThemePreference, useThemePreference, useThemedStyles }
 import { DevStreakDebug } from '@/components/DevStreakDebug'
 import { DevSeedDigest } from '@/components/DevSeedDigest'
 import { DevSeedTrend } from '@/components/DevSeedTrend'
+import { DevDriftReport } from '@/components/DevDriftReport'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
 import { useBiometricLock } from '@/hooks/useBiometricLock'
@@ -234,6 +235,7 @@ export default function Settings() {
           <DevStreakDebug />
           <DevSeedDigest />
           <DevSeedTrend />
+          <DevDriftReport />
         </>
       )}
 
