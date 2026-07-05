@@ -3,6 +3,7 @@ import { type Entry } from '@/services/storage/entries'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
 import { listReframesForBelief } from '@/services/storage/reframes'
 import {
+  getPage,
   getPageByTitle,
   createPage,
   updatePage,
@@ -39,6 +40,23 @@ async function recurringEntityTopics(entryId: string): Promise<Topic[]> {
 function titleCase(s: string): string {
   const t = s.trim()
   return t.length > 0 ? t.charAt(0).toUpperCase() + t.slice(1) : t
+}
+
+/**
+ * Follow a page's merged_into pointer to the surviving page, so a topic that was
+ * semantically merged resolves to its survivor. getPageByTitle matches on title
+ * alone and does NOT filter merged pages, so without this a future entry tagged
+ * with the merged (loser) title would re-synthesize into the hidden page. Guards
+ * against a broken/cyclic chain. Returns the page itself if it isn't merged.
+ */
+async function resolveSurvivor(page: WikiPage | null): Promise<WikiPage | null> {
+  let cur = page
+  for (let hops = 0; cur && cur.merged_into && hops < 10; hops++) {
+    const next = await getPage(cur.merged_into)
+    if (!next.success || !next.data) break
+    cur = next.data
+  }
+  return cur
 }
 
 /**
@@ -89,7 +107,9 @@ export async function updateWikiForEntry(
   for (const topic of topics) {
     const existing = await getPageByTitle(topic.title)
     if (!existing.success) continue
-    const page = existing.data
+    // If this title was merged into another page, build on the survivor instead
+    // of re-synthesizing into the hidden (merged) page.
+    const page = await resolveSurvivor(existing.data)
 
     // Synthesize first. A failed synthesis must never leave a blank, 0-entry
     // page behind (it would surface as an empty wiki page), so a brand-new page
@@ -97,6 +117,9 @@ export async function updateWikiForEntry(
     // A dropped page was flagged as inaccurate — don't build on its content.
     // Regenerate from scratch on this entry; updatePage then clears the flag.
     const baseContent = page && page.dismissed_at == null ? page.content : ''
+    // Synthesize under the resolved page's own title (a merged loser resolves to
+    // the survivor, whose title differs from this entry's topic).
+    const effectiveTitle = page?.title ?? topic.title
     const category = page?.category ?? topic.category
     // For a belief page, fold in the writer's latest reframe so the synthesis
     // reflects how they're revising the belief — not just restating it.
@@ -113,7 +136,7 @@ export async function updateWikiForEntry(
         ? Math.max(0, Math.floor((entry.created_at - page.updated_at) / WEEK_MS))
         : null
     const synth = await synthesizePage({
-      title: topic.title,
+      title: effectiveTitle,
       category,
       existingContent: baseContent,
       situation: entry.situation,
@@ -171,10 +194,15 @@ export async function lineageForEntry(entry: Entry): Promise<Result<LineagePage[
   }
 
   const out: LineagePage[] = []
+  const seenPageIds = new Set<string>()
   for (const t of topics) {
     const res = await getPageByTitle(t.title)
-    if (res.success && res.data && res.data.dismissed_at == null) {
-      out.push({ id: res.data.id, title: res.data.title, category: res.data.category })
+    if (!res.success) continue
+    // Resolve merged topics to their survivor so lineage points at the live page.
+    const page = await resolveSurvivor(res.data)
+    if (page && page.dismissed_at == null && !seenPageIds.has(page.id)) {
+      seenPageIds.add(page.id)
+      out.push({ id: page.id, title: page.title, category: page.category })
     }
   }
   return ok(out)

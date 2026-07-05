@@ -6,6 +6,7 @@ import {
 } from '@/services/wiki/engine'
 import { synthesizePage, regeneratePage } from '@/services/llm/deep-model'
 import {
+  getPage,
   getPageByTitle,
   createPage,
   updatePage,
@@ -19,6 +20,7 @@ import { ok, err } from '@/types/result'
 
 jest.mock('@/services/llm/deep-model', () => ({ synthesizePage: jest.fn(), regeneratePage: jest.fn() }))
 jest.mock('@/services/storage/wiki', () => ({
+  getPage: jest.fn(),
   getPageByTitle: jest.fn(),
   createPage: jest.fn(),
   updatePage: jest.fn(),
@@ -34,6 +36,7 @@ const mockSynth = synthesizePage as jest.Mock
 const mockRegen = regeneratePage as jest.Mock
 const mockRegenContent = regeneratePageContent as jest.Mock
 const mockGetByTitle = getPageByTitle as jest.Mock
+const mockGetPage = getPage as jest.Mock
 const mockCreate = createPage as jest.Mock
 const mockUpdate = updatePage as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
@@ -92,6 +95,7 @@ describe('updateWikiForEntry', () => {
   beforeEach(() => {
     mockSynth.mockReset()
     mockGetByTitle.mockReset()
+    mockGetPage.mockReset()
     mockCreate.mockReset()
     mockUpdate.mockReset()
     mockListEntities.mockReset()
@@ -122,6 +126,28 @@ describe('updateWikiForEntry', () => {
     expect(mockCreate).not.toHaveBeenCalled()
     expect(mockUpdate).toHaveBeenCalledWith('p9', 'synthesized content')
     expect(result.success && result.data).toEqual(['Anxiety'])
+  })
+
+  it('follows a merged topic to its survivor instead of the hidden page', async () => {
+    // A theme page was semantically merged: its title still matches, but it
+    // points at the survivor. A new entry on the old topic must build on the
+    // survivor, never re-synthesize into the hidden merged page.
+    mockGetByTitle.mockResolvedValue(
+      ok({ id: 'loser', title: 'Job pressure', category: 'theme', content: 'stale', merged_into: 'survivor' })
+    )
+    mockGetPage.mockResolvedValue(
+      ok({ id: 'survivor', title: 'Work stress', category: 'theme', content: 'live take', merged_into: null })
+    )
+
+    const result = await updateWikiForEntry(entry({ emotion: null, distortion: 'none' }), 'Job pressure')
+
+    // Built on the survivor's content + title, and wrote to the survivor's id.
+    expect(mockSynth).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Work stress', existingContent: 'live take' })
+    )
+    expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockUpdate).toHaveBeenCalledWith('survivor', 'synthesized content')
+    expect(result.success && result.data).toEqual(['Job pressure'])
   })
 
   it('regenerates a dropped page from scratch (ignores its dismissed content)', async () => {

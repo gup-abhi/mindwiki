@@ -30,6 +30,10 @@ jest.mock('@/hooks/useWiki', () => ({
   useTrendingPages: () => [],
 }))
 
+jest.mock('@/hooks/useMergeSuggestions', () => ({
+  useMergeSuggestions: () => ({ pair: null, busy: false, confirm: jest.fn(), dismiss: jest.fn() }),
+}))
+
 const mockUseReframes = jest.fn(() => ({
   reframes: [] as Array<{ id: string; balanced_thought: string; created_at: number }>,
   refresh: jest.fn(),

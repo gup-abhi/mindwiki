@@ -9,6 +9,7 @@ import { CATEGORY_ORDER, categoryKey, categoryLabel } from '@/services/wiki/cate
 import { useDismissedPages, useWikiPages } from '@/hooks/useWiki'
 import { useWikiStore } from '@/store/wiki.store'
 import { MoversStrip } from '@/components/insights/MoversStrip'
+import { MergeSuggestionBanner } from '@/components/wiki/MergeSuggestionBanner'
 
 interface CategorySummary {
   key: string
@@ -53,6 +54,7 @@ export default function WikiBrowse() {
               </Text>
             ) : null}
             <MoversStrip />
+            <MergeSuggestionBanner />
           </>
         }
         ListEmptyComponent={
