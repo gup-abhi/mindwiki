@@ -21,6 +21,8 @@ export interface Topic {
 // keeps one-off mentions out of the wiki while the graph still shows them all.
 const RECURRENCE_THRESHOLD = 2
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
 async function recurringEntityTopics(entryId: string): Promise<Topic[]> {
   const res = await listEntitiesForEntry(entryId)
   if (!res.success) return []
@@ -103,6 +105,13 @@ export async function updateWikiForEntry(
       const rf = await listReframesForBelief(topic.title)
       if (rf.success && rf.data.length > 0) reframe = rf.data[0].balanced_thought
     }
+    // How long the existing page has sat before this reflection touches it, so
+    // synthesis can express evolution rather than timeless prose. Only meaningful
+    // for a page with real content that was last shaped before this entry.
+    const weeksSinceUpdate =
+      baseContent && page
+        ? Math.max(0, Math.floor((entry.created_at - page.updated_at) / WEEK_MS))
+        : null
     const synth = await synthesizePage({
       title: topic.title,
       category,
@@ -111,6 +120,7 @@ export async function updateWikiForEntry(
       thought: entry.thought,
       distortion: entry.distortion,
       reframe,
+      weeksSinceUpdate,
     })
     if (!synth.success) {
       if (__DEV__) console.log(`[wiki] synth failed: ${synth.error.code}`)

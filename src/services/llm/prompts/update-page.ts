@@ -11,7 +11,15 @@ export interface UpdatePageInput {
   /** The writer's latest balanced reframe of this belief (belief pages only) — so
    *  the page reflects how they're revising the belief, not just restating it. */
   reframe?: string | null
+  /** Approx. whole weeks between the page's last update and this reflection. Lets
+   *  synthesis express evolution ("lately this barely comes up") instead of timeless
+   *  prose. Only surfaced past RECENCY_HINT_WEEKS, so daily journaling stays silent. */
+  weeksSinceUpdate?: number | null
 }
+
+/** Below this gap the recency hint is noise (a daily journaler re-touches a page
+ *  constantly), so it is only surfaced once a page has genuinely gone quiet. */
+const RECENCY_HINT_WEEKS = 3
 
 // The house style every wiki page is written in. Shared by first-time synthesis,
 // per-entry updates, and the regenerate pass so they can't drift apart.
@@ -38,6 +46,7 @@ export function buildUpdatePagePrompt({
   thought,
   distortion,
   reframe,
+  weeksSinceUpdate,
 }: UpdatePageInput): string {
   const existing = existingContent.trim()
   // Present the new material as one reflection. Labelled "Situation:/Thought:"
@@ -54,6 +63,12 @@ export function buildUpdatePagePrompt({
     reframe && reframe.trim()
       ? `The writer has been actively challenging this belief and now holds a more balanced view: "${reframe.trim()}". Let the page reflect that they are revising this belief, not that they fully accept it. Do not copy this line verbatim.`
       : ''
+  // Recency framing: only when the page has genuinely gone quiet. Invites the model
+  // to note evolution (intensified / eased / shifted) without inventing dated events.
+  const recencyLine =
+    existing && weeksSinceUpdate != null && weeksSinceUpdate >= RECENCY_HINT_WEEKS
+      ? `It has been roughly ${weeksSinceUpdate} weeks since this page was last shaped, and the reflection below is from today. Where it fits naturally, let the page reflect how this theme has changed over that time — whether it has intensified, eased, or shifted focus — but do NOT invent specific past events, dates, or feelings you were not told about.`
+      : ''
   return [
     `You maintain a personal wiki page titled "${title}"${category ? ` (${category})` : ''}.`,
     'Weave the new reflection below into the page. Synthesize — merge its insight into the',
@@ -61,6 +76,7 @@ export function buildUpdatePagePrompt({
     ...PAGE_STYLE,
     ...(hint ? [hint] : []),
     ...(reframeLine ? [reframeLine] : []),
+    ...(recencyLine ? [recencyLine] : []),
     'Do NOT copy the reflection word-for-word. Output ONLY the page content, no preamble.',
     '',
     existing ? `Current page:\n${existing}` : 'The page is currently empty — write the first version.',
