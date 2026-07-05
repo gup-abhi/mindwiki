@@ -70,3 +70,19 @@ describe('buildUpdatePagePrompt — recency hint', () => {
     expect(prompt).not.toMatch(/since this page was last shaped/i)
   })
 })
+
+describe('buildUpdatePagePrompt — existing content cap', () => {
+  it('embeds a normal-sized page in full (never trimmed)', () => {
+    const content = 'You often worry about work.'.repeat(20) // ~540 chars, well under cap
+    const prompt = buildUpdatePagePrompt({ ...base, existingContent: content })
+    expect(prompt).toContain(content)
+    expect(prompt).not.toContain('…')
+  })
+
+  it('trims a page that grazes the context window', () => {
+    const content = 'x'.repeat(4000) // schema ceiling; would push the prompt past n_ctx
+    const prompt = buildUpdatePagePrompt({ ...base, existingContent: content })
+    expect(prompt).toContain(`${'x'.repeat(2400)}…`)
+    expect(prompt).not.toContain('x'.repeat(2401))
+  })
+})
