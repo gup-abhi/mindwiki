@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -252,5 +252,11 @@ describe('migration 007 (pursuits)', () => {
       'ALTER TABLE entries ADD COLUMN graph_indexed_at INTEGER',
       'UPDATE entries SET graph_indexed_at = tagged_at WHERE tagged_at IS NOT NULL',
     ])
+  })
+
+  it('is registered as version 21 and adds the Reflect provenance column', () => {
+    expect(MIGRATIONS[20].version).toBe(21)
+    expect(MIGRATIONS[20].name).toBe('entry_raw_text')
+    expect(MIGRATIONS[20].statements).toEqual(['ALTER TABLE entries ADD COLUMN raw_text TEXT'])
   })
 })

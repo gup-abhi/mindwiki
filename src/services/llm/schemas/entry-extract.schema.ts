@@ -22,6 +22,11 @@ export const EntryExtractSchema = z.object({
   // Tolerant like the entity lists: a bad value yields no node, never a failure.
   beliefs: z.array(z.string()).default([]).catch([]),
   behaviors: z.array(z.string()).default([]).catch([]),
+  // Reflect-only (requested via extractEntry's restate option): the message
+  // rewritten as one self-contained statement, so a context-dependent chat
+  // fragment ("yeah exactly, and it's worse at night") never grounds a wiki
+  // page verbatim. Tolerant: '' when absent/bad — callers fall back to the raw.
+  restatement: z.string().default('').catch(''),
 })
 
 export type EntryExtract = z.infer<typeof EntryExtractSchema>

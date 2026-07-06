@@ -29,7 +29,7 @@ function createFakeDb() {
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
       if (/^INSERT INTO entries/.test(sql)) {
-        const [id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, source] = params
+        const [id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source] = params
         rows.set(String(id), {
           id,
           created_at,
@@ -46,6 +46,7 @@ function createFakeDb() {
           tagged_at: null,
           wiki_indexed_at: null,
           graph_indexed_at: null,
+          raw_text: raw_text ?? null,
           source,
         })
         return { rows: [], rowsAffected: 1 }

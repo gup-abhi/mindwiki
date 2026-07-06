@@ -27,7 +27,7 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
   entries: {
     columns: [
       'id', 'created_at', 'mood', 'situation', 'thought', 'behavior',
-      'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'tagged_at', 'source',
+      'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'tagged_at', 'raw_text', 'source',
     ],
     updatedAt: (r) => Math.max(Number(r.created_at) || 0, Number(r.tagged_at) || 0),
   },

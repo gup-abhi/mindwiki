@@ -463,3 +463,15 @@ export const migration020: Migration = {
     `UPDATE entries SET graph_indexed_at = tagged_at WHERE tagged_at IS NOT NULL`,
   ],
 }
+
+// Migration 021 — Reflect capture provenance. A qualifying chat message is now
+// distilled into a self-contained restatement before it becomes the entry's
+// `situation` (raw fragments like "yeah exactly, and it's worse at night" were
+// grounding permanent wiki pages). The original message is kept here so nothing
+// the user actually said is lost. Null for journal/path entries. Synced (it is
+// user content like situation — same encryption).
+export const migration021: Migration = {
+  version: 21,
+  name: 'entry_raw_text',
+  statements: [`ALTER TABLE entries ADD COLUMN raw_text TEXT`],
+}

@@ -8,6 +8,16 @@ export interface ExtractPromptInput {
   closing_note?: string | null
 }
 
+export interface ExtractOptions {
+  /** Also ask for `restatement` — a self-contained rewrite of the message.
+   *  Reflect-only: chat fragments depend on conversation context, while a
+   *  journal entry already stands alone (and its extract stays cheaper). */
+  restate?: boolean
+  /** Recent conversation turns (pre-truncated), so the restatement can resolve
+   *  "it/that/this" in a chat fragment. Reference only — never analyzed. */
+  context?: string | null
+}
+
 /**
  * Deep-model instruction: extract everything that feeds the knowledge base —
  * emotion, distortion (+confidence, grounded in the KB's example-led guide),
@@ -15,10 +25,14 @@ export interface ExtractPromptInput {
  * more consistent than the fast tagger at topic/entity extraction, which the
  * recurrence-gated graph depends on. Output is a single JSON object. On-device.
  */
-export function buildExtractPrompt({ situation, thought, behavior, closing_note }: ExtractPromptInput): string {
+export function buildExtractPrompt(
+  { situation, thought, behavior, closing_note }: ExtractPromptInput,
+  { restate = false, context }: ExtractOptions = {}
+): string {
+  const restateField = restate ? ', "restatement": string' : ''
   const lines = [
     'You analyze a journal entry and output ONLY a JSON object — no prose, no markdown.',
-    'Schema: {"emotion": string, "distortion": string, "distortion_confidence": number, "mood_score": number, "topic": string, "people": string[], "places": string[], "activities": string[], "beliefs": string[], "behaviors": string[]}',
+    `Schema: {"emotion": string, "distortion": string, "distortion_confidence": number, "mood_score": number, "topic": string, "people": string[], "places": string[], "activities": string[], "beliefs": string[], "behaviors": string[]${restateField}}`,
     `- emotion: the single closest from this list ONLY: ${EMOTIONS.join(', ')}.`,
     `- distortion: the single closest from this list ONLY, or "none" if the thinking is`,
     `  not actually distorted: ${DISTORTIONS.join(', ')}.`,
@@ -41,9 +55,22 @@ export function buildExtractPrompt({ situation, thought, behavior, closing_note 
     '- behaviors: a recurring way the writer RESPONDS, named as a short general pattern',
     '  (e.g. "Avoidance", "Overworking", "Withdrawing", "People-pleasing"). 1-2 words. At most 2.',
     '  [] if no clear behavioral response.',
+    ...(restate
+      ? [
+          '- restatement: the writer\'s message rewritten as ONE short self-contained statement',
+          '  in their own first-person voice, understandable with NO other context — resolve any',
+          '  "it", "that", "this" to what they refer to. Keep their meaning and words where',
+          '  possible; NEVER add facts or feelings they did not state.',
+        ]
+      : []),
     '',
     distortionGuide(),
     '',
+    // Reference-only context so a chat fragment's "it/that" can be resolved in
+    // the restatement — the analysis itself must stay on the final message.
+    ...(restate && context && context.trim()
+      ? ['Recent conversation (ONLY to resolve references — analyze and restate ONLY the entry below):', context.trim(), '']
+      : []),
     `Situation: ${situation}`,
     `Thought: ${thought}`,
   ]

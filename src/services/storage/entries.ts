@@ -37,6 +37,9 @@ export interface Entry {
   /** When this entry's graph contribution last landed. Parallel to
    * wiki_indexed_at; healed via a full rebuildGraph(). Device-local — never synced. */
   graph_indexed_at: number | null
+  /** Reflect captures: the original chat message, kept for provenance when
+   * `situation` holds the distilled restatement. Null for journal/path entries. */
+  raw_text: string | null
   source: EntrySource
 }
 
@@ -53,6 +56,8 @@ export interface NewEntry {
   energy?: number | null
   /** Defaults to 'journal'. Reflect-chat captures pass 'reflect'. */
   source?: EntrySource
+  /** Reflect captures: original chat message when situation is a distilled restatement. */
+  raw_text?: string | null
 }
 
 /** Fast-model output applied after the entry is saved. */
@@ -83,6 +88,7 @@ function rowToEntry(row: Record<string, unknown>): Entry {
     tagged_at: num(row.tagged_at),
     wiki_indexed_at: num(row.wiki_indexed_at),
     graph_indexed_at: num(row.graph_indexed_at),
+    raw_text: str(row.raw_text),
     source: (row.source == null ? 'journal' : String(row.source)) as EntrySource,
   }
 }
@@ -108,12 +114,13 @@ export async function createEntry(
     tagged_at: null,
     wiki_indexed_at: null,
     graph_indexed_at: null,
+    raw_text: input.raw_text ?? null,
     source: input.source ?? 'journal',
   }
   try {
     await db.execute(
-      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.id,
         entry.created_at,
@@ -124,6 +131,7 @@ export async function createEntry(
         entry.closing_note,
         entry.named_emotion,
         entry.energy,
+        entry.raw_text,
         entry.source,
       ]
     )
