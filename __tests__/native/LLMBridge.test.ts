@@ -71,6 +71,33 @@ describe('LLMBridge (llama.rn)', () => {
     expect(maxActive).toBe(1) // the lock kept them from overlapping
   })
 
+  it('a live reply jumps the queue ahead of pending background synthesis', async () => {
+    const order: string[] = []
+    const completion = jest.fn().mockImplementation(async (params: { prompt: string }) => {
+      // First chars of each prompt identify the caller (ChatML prefixes differ,
+      // so tag by content).
+      const tag = params.prompt.includes('REPLY') ? 'reply' : params.prompt.includes('SYNTH-A') ? 'a' : 'b'
+      order.push(tag)
+      await new Promise((r) => setTimeout(r, 5))
+      return { text: 'ok', tokens_predicted: 1, timings: { predicted_per_second: 10 } }
+    })
+    const initLlama = jest.fn().mockResolvedValue({ completion, release: jest.fn() })
+    jest.doMock('llama.rn', () => ({ initLlama }))
+
+    const { LLMBridge } = require('@/native/LLMBridge')
+    // Two background syntheses queue up, THEN the user sends a message.
+    const a = LLMBridge.synthesise('SYNTH-A', { maxTokens: 10, temperature: 0.1 })
+    const b = LLMBridge.synthesise('SYNTH-B', { maxTokens: 10, temperature: 0.1 })
+    const reply = LLMBridge.converse([{ role: 'user', content: 'REPLY' }], {
+      maxTokens: 10,
+      temperature: 0.1,
+    })
+    await Promise.all([a, b, reply])
+
+    // A is already running when the reply arrives; the reply preempts B.
+    expect(order).toEqual(['a', 'reply', 'b'])
+  })
+
   it('a stalled completion rejects cleanly even when stopCompletion returns undefined', async () => {
     jest.useFakeTimers()
     try {

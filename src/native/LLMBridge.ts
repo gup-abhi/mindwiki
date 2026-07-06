@@ -55,20 +55,54 @@ export interface ILLMBridge {
 const contexts: Partial<Record<ModelKind, LlamaContext>> = {}
 
 // One completion at a time per model context. llama.cpp can't run two
-// completions on a single context concurrently, and we now fire overlapping
-// deep-model work (a streamed reply, the rolling summary, and chat→wiki
-// synthesis). Without this, the second concurrent call fails — which left blank
-// wiki pages behind. Each kind has its own context, so they lock independently.
-const locks: Partial<Record<ModelKind, Promise<unknown>>> = {}
+// completions on a single context concurrently (and a second context would
+// cost ~2GB RAM while splitting the same CPU cores — parallelism buys nothing
+// on-device). Each kind has its own queue, so they lock independently.
+//
+// Two priorities per kind: 'high' (a live conversation reply the user is
+// staring at) runs before any queued 'low' work (wiki synthesis, extracts,
+// summaries). Each synthesis call is its own queue item, so a reply enqueued
+// mid-backlog waits for at most ONE completion instead of the whole drain —
+// a long capture backlog used to block starting a new conversation entirely.
+interface LockItem {
+  fn: () => Promise<unknown>
+  resolve: (v: unknown) => void
+  reject: (e: unknown) => void
+}
+const queues: Partial<Record<ModelKind, { running: boolean; high: LockItem[]; low: LockItem[] }>> = {}
 
-function withModelLock<T>(kind: ModelKind, fn: () => Promise<T>): Promise<T> {
-  const prev = locks[kind] ?? Promise.resolve()
-  const next = prev.then(fn, fn) // run regardless of how the previous call settled
-  locks[kind] = next.then(
-    () => undefined,
-    () => undefined
-  )
-  return next
+function pumpLock(kind: ModelKind): void {
+  const q = queues[kind]
+  if (!q || q.running) return
+  const item = q.high.shift() ?? q.low.shift()
+  if (!item) return
+  q.running = true
+  Promise.resolve()
+    .then(item.fn)
+    .then(
+      (v) => {
+        q.running = false
+        item.resolve(v)
+        pumpLock(kind)
+      },
+      (e) => {
+        q.running = false
+        item.reject(e)
+        pumpLock(kind)
+      }
+    )
+}
+
+function withModelLock<T>(
+  kind: ModelKind,
+  fn: () => Promise<T>,
+  priority: 'high' | 'low' = 'low'
+): Promise<T> {
+  const q = (queues[kind] ??= { running: false, high: [], low: [] })
+  return new Promise<T>((resolve, reject) => {
+    q[priority].push({ fn, resolve: resolve as (v: unknown) => void, reject })
+    pumpLock(kind)
+  })
 }
 
 async function ensureLoaded(kind: ModelKind): Promise<LlamaContext> {
@@ -157,6 +191,8 @@ async function runConversation(
   const ctx = await ensureLoaded('deep')
   let result
   try {
+    // 'high': the user is watching this reply stream — background synthesis
+    // waits its turn.
     result = await withModelLock('deep', async () => {
       let lastActivity = Date.now()
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -201,7 +237,7 @@ async function runConversation(
       } finally {
         if (timer) clearTimeout(timer)
       }
-    })
+    }, 'high')
   } catch (e) {
     throw new Error(`Conversation completion failed for deep model: ${String(e)}`)
   }
