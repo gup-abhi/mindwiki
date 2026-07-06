@@ -180,7 +180,15 @@ async function runConversation(
         const tick = () => {
           const idle = Date.now() - lastActivity
           if (idle >= CONVERSE_IDLE_TIMEOUT_MS) {
-            void ctx.stopCompletion().catch(() => undefined)
+            // Best-effort stop; some llama.rn builds return undefined instead
+            // of a promise, and a sync throw here would skip reject() — an
+            // uncaught error in this timer wedges the model lock chain forever
+            // (device: replies never came back until app restart).
+            try {
+              void Promise.resolve(ctx.stopCompletion()).catch(() => undefined)
+            } catch {
+              // stopping is best-effort; rejecting below is what matters
+            }
             reject(new Error('deep model stalled — no tokens'))
           } else {
             timer = setTimeout(tick, CONVERSE_IDLE_TIMEOUT_MS - idle)

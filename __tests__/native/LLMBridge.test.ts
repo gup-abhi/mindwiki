@@ -71,6 +71,35 @@ describe('LLMBridge (llama.rn)', () => {
     expect(maxActive).toBe(1) // the lock kept them from overlapping
   })
 
+  it('a stalled completion rejects cleanly even when stopCompletion returns undefined', async () => {
+    jest.useFakeTimers()
+    try {
+      const completion = jest.fn().mockImplementation(() => new Promise(() => undefined)) // wedged
+      // Some llama.rn builds return void here — calling .catch on it crashed the
+      // watchdog timer, skipped reject(), and wedged the model lock forever.
+      const stopCompletion = jest.fn().mockReturnValue(undefined)
+      const initLlama = jest.fn().mockResolvedValue({ completion, stopCompletion, release: jest.fn() })
+      jest.doMock('llama.rn', () => ({ initLlama }))
+
+      const { LLMBridge } = require('@/native/LLMBridge')
+      const pending = LLMBridge.converse([{ role: 'user', content: 'hi' }], {
+        maxTokens: 10,
+        temperature: 0.1,
+      })
+      const rejection = expect(pending).rejects.toThrow(/stalled/)
+      await jest.advanceTimersByTimeAsync(60_001)
+      await rejection
+      expect(stopCompletion).toHaveBeenCalled()
+
+      // The lock chain must survive the stall: the next completion still runs.
+      completion.mockResolvedValue({ text: 'ok', tokens_predicted: 1, timings: { predicted_per_second: 10 } })
+      const next = await LLMBridge.synthesise('a', { maxTokens: 10, temperature: 0.1 })
+      expect(next.text).toBe('ok')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('throws a helpful error when the model fails to load', async () => {
     const initLlama = jest.fn().mockRejectedValue(new Error('file not found'))
     jest.doMock('llama.rn', () => ({ initLlama }))
