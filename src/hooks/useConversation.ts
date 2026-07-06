@@ -36,6 +36,33 @@ const REPLY_FAILED = 'Something went wrong — please try again.'
 // (the app was closed mid-generation). Reuses the failed-reply retry affordance.
 const REPLY_INTERRUPTED = 'This reply didn’t finish. Tap to try again.'
 
+// Module-level generation tracking, surviving screen unmount/remount. Leaving the
+// Reflect screen mid-reply does NOT cancel the in-flight generation (the reply
+// is valuable and lands asynchronously), so we need to know it is still running
+// when the thread is reopened — otherwise loadConversation can't tell "still
+// generating" from "died mid-generation" and offers a retry placeholder that,
+// when tapped, starts a SECOND generation. Both replies then land → duplicates.
+//
+// - generationsInFlight: the set of conversations with a live generateReply.
+//   loadConversation checks this; a retry while a generation is in flight is a
+//   no-op (store.sending is also true, but the flag can be reset by load()).
+// - generationEpochs: per-conversation counter. Each generateReply captures its
+//   epoch at start; before writing to the store it checks it is still current,
+//   so a superseded generation (user retried) neither adds a duplicate message
+//   nor clears the newer generation's `sending` flag.
+const generationsInFlight = new Set<string>()
+const generationEpochs = new Map<string, number>()
+
+function epochOf(conversationId: string): number {
+  const next = (generationEpochs.get(conversationId) ?? 0) + 1
+  generationEpochs.set(conversationId, next)
+  return next
+}
+
+function isCurrentEpoch(conversationId: string, epoch: number): boolean {
+  return (generationEpochs.get(conversationId) ?? 0) === epoch
+}
+
 /**
  * A supportive, non-clinical reply shown when a message trips the crisis net.
  * The companion does not counsel a crisis; it points to real human support
@@ -123,44 +150,91 @@ export function useConversation(initialQuestion?: string) {
 
   const generateReply = useCallback(
     async (conversationId: string, message: string, priorHistory: ChatMessage[]) => {
+      const epoch = epochOf(conversationId)
+      generationsInFlight.add(conversationId)
       const store = useChatStore.getState()
       const res = await respond(
         { history: priorHistory, message, pages, nodes, edges, summary: store.summary },
-        (t) => useChatStore.getState().appendToken(t)
+        // Token streaming appends while this generation is both current and on
+        // screen. Superseded generations stop streaming so they can't bleed into
+        // a newer reply; off-screen ones skip (the reply still persists on done).
+        (t) => {
+          if (!isCurrentEpoch(conversationId, epoch)) return
+          if (useChatStore.getState().conversationId !== conversationId) return
+          useChatStore.getState().appendToken(t)
+        }
       )
 
+      // A newer generation (retry) superseded this one: drop it entirely. Adding
+      // a message or persisting would create the duplicate reply the user is
+      // already re-generating against; clearing sending/streaming would clobber
+      // the newer turn's live state. Leave the in-flight flag to the winner.
+      if (!isCurrentEpoch(conversationId, epoch)) {
+        generationsInFlight.delete(conversationId)
+        return
+      }
+
+      // Whether this generation's conversation is still loaded in the UI.
+      // The reply always persists to the DB regardless (it belongs to its
+      // conversation), but addMessage/clearStreaming/setSending are UI writes
+      // that must not leak into the wrong screen (e.g. the reply landing on
+      // the start screen with just the reply and a text field, or on a
+      // different conversation's thread).
+      const uiOpen = () => useChatStore.getState().conversationId === conversationId
+
       if (res.success) {
+        // Final epoch guard before any state mutation: if the user retried
+        // while this generation was running, the retry already started its
+        // own epoch and owns the result slot. Writing here would land a
+        // duplicate reply on top of the retry's. The retry is responsible
+        // for keeping the in-flight set clean.
+        if (!isCurrentEpoch(conversationId, epoch)) {
+          generationsInFlight.delete(conversationId)
+          return
+        }
+
         const sources = res.data.sources.map((p) => ({ id: p.id, title: p.title }))
-        store.addMessage({
-          id: randomUUID(),
-          role: 'assistant',
-          content: res.data.text,
-          sources,
-          crisisTier: null,
-        })
         await appendMessage({
           conversation_id: conversationId,
           role: 'assistant',
           content: res.data.text,
           sources,
         })
-        // Keep the rolling recap current so a long, resumed thread doesn't lose
-        // earlier context to the model's window. Background, best-effort.
-        void refreshSummary(conversationId)
-        retryRef.current = null
+        if (uiOpen()) {
+          useChatStore.getState().addMessage({
+            id: randomUUID(),
+            role: 'assistant',
+            content: res.data.text,
+            sources,
+            crisisTier: null,
+          })
+          // Keep the rolling recap current so a long, resumed thread doesn't lose
+          // earlier context to the model's window. Background, best-effort.
+          void refreshSummary(conversationId)
+          retryRef.current = null
+        }
       } else {
-        store.addMessage({
-          id: randomUUID(),
-          role: 'assistant',
-          content: REPLY_FAILED,
-          sources: [],
-          crisisTier: null,
-          failed: true,
-        })
-        retryRef.current = { conversationId, message, priorHistory }
+        if (!isCurrentEpoch(conversationId, epoch)) {
+          generationsInFlight.delete(conversationId)
+          return
+        }
+        if (uiOpen()) {
+          useChatStore.getState().addMessage({
+            id: randomUUID(),
+            role: 'assistant',
+            content: REPLY_FAILED,
+            sources: [],
+            crisisTier: null,
+            failed: true,
+          })
+          retryRef.current = { conversationId, message, priorHistory }
+        }
       }
-      useChatStore.getState().clearStreaming()
-      useChatStore.getState().setSending(false)
+      if (uiOpen()) {
+        useChatStore.getState().clearStreaming()
+        useChatStore.getState().setSending(false)
+      }
+      generationsInFlight.delete(conversationId)
     },
     [pages, nodes, edges]
   )
@@ -170,7 +244,10 @@ export function useConversation(initialQuestion?: string) {
   const retry = useCallback(async () => {
     const pending = retryRef.current
     const store = useChatStore.getState()
-    if (!pending || store.sending) return
+    // Bail if a generation for this thread is already running (e.g. the user left
+    // mid-reply and came back — the original is still going to land). store.sending
+    // can be reset by load() during a reopen, so the in-flight set is authoritative.
+    if (!pending || store.sending || generationsInFlight.has(pending.conversationId)) return
     store.dropFailed()
     retryRef.current = null
     store.setSending(true)
@@ -182,7 +259,11 @@ export function useConversation(initialQuestion?: string) {
     async (text: string) => {
       const message = text.trim()
       const store = useChatStore.getState()
+      // Don't start a new turn while one is still generating — serializes against
+      // the same in-flight check retry uses, so a second send/different-starter
+      // tap during a live reply is a no-op, not a duplicate-spawning race.
       if (!message || store.sending) return
+      if (store.conversationId && generationsInFlight.has(store.conversationId)) return
 
       store.setSending(true)
       store.clearStreaming()
@@ -299,13 +380,16 @@ export function useConversation(initialQuestion?: string) {
     const store = useChatStore.getState()
     store.load(id, ui, row?.summary ?? '', row?.summary_count ?? 0)
 
-    // If the thread ends on a user message, its reply never landed — the app was
-    // closed (or reloaded) mid-generation, so only the question was persisted.
-    // Restore a retryable placeholder so the user can resume the turn instead of
-    // being stuck. The user message is already saved, so retry only generates the
-    // missing reply (it won't re-add the question).
+    // Distinguish two cases that look identical from the DB alone (both end on a
+    // user message): (1) a reply is still generating in the background — the user
+    // left mid-turn and the LLM is still running — vs. (2) the reply truly died
+    // (app closed mid-generation). In case (1) showing a retry placeholder and
+    // having the user tap it would spawn a SECOND generation → duplicate reply.
+    // So when in flight, show the thread as busy and let the original land instead
+    // of offering retry. store.load() reset sending=false, so re-arm sending here.
+    const inFlight = generationsInFlight.has(id)
     const last = ui[ui.length - 1]
-    if (last?.role === 'user') {
+    if (last?.role === 'user' && !inFlight) {
       retryRef.current = {
         conversationId: id,
         message: last.content,
@@ -319,6 +403,11 @@ export function useConversation(initialQuestion?: string) {
         crisisTier: null,
         failed: true,
       })
+    } else if (last?.role === 'user' && inFlight) {
+      // The original generation is still going to land; don't offer retry, and
+      // mark the thread as sending so the UI shows the live/streaming state.
+      retryRef.current = null
+      store.setSending(true)
     } else {
       retryRef.current = null
     }
