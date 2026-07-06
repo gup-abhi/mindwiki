@@ -167,6 +167,9 @@ const { __getAllPages, __reset: resetPages } = jest.requireMock('@/services/stor
 const { __reset: resetSettings } = jest.requireMock('@/services/storage/settings') as {
   __reset: () => void
 }
+const { createEntry: mockCreateEntry } = jest.requireMock('@/services/storage/entries') as {
+  createEntry: jest.Mock
+}
 
 // Deep extract with an already-canonical topic (extractEntry canonicalizes on the
 // real path; the recurrence gate and page title both key on this string).
@@ -191,6 +194,7 @@ describe('Reflect capture → wiki → retrieval (integration)', () => {
     resetPages()
     resetSettings()
     mockExtract.mockReset()
+    mockCreateEntry.mockClear()
   })
 
   it('parks the first mention and lands BOTH once the theme recurs', async () => {
@@ -220,16 +224,18 @@ describe('Reflect capture → wiki → retrieval (integration)', () => {
     expect(sources.map((p) => p.title)).toContain('Boundaries')
   })
 
-  it('never lands a question, even when its theme has already recurred', async () => {
+  it('ingests a question on a recurred theme (no trailing-? gate)', async () => {
     mockExtract.mockResolvedValue(extract('Boundaries'))
 
     await captureReflectMessage('I need firmer boundaries')
     await captureReflectMessage('Still struggling with boundaries')
-    expect(__getAllPages().length).toBeGreaterThan(0)
+    expect(mockCreateEntry).toHaveBeenCalledTimes(2) // parked + current at gate pass
 
-    const before = __getAllPages().length
     await captureReflectMessage('How do I set better boundaries?')
-    // A question is a query, not a self-insight — no new page, no re-synthesis.
-    expect(__getAllPages().length).toBe(before)
+    // A question that IS self-relevant ("how do I set better boundaries?")
+    // now lands — the trailing-? heuristic was too aggressive (lost "why do
+    // I always do this?" disclosures). The recurrence gate keeps out one-off
+    // queries; a third mention of an active theme keeps compounding.
+    expect(mockCreateEntry).toHaveBeenCalledTimes(3)
   })
 })

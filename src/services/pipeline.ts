@@ -273,11 +273,6 @@ async function ingestReflectStatement(text: string, ex: EntryExtract): Promise<b
   return true
 }
 
-// Questions are prompts/queries, not reflections — they must never be ingested.
-function isQuestion(text: string): boolean {
-  return /\?\s*$/.test(text.trim())
-}
-
 /**
  * Capture durable knowledge from a Reflect-chat message into the wiki/graph —
  * deliberately conservative so conversation noise never pollutes the knowledge
@@ -347,10 +342,11 @@ export async function captureReflectMessage(
   message: string,
   conversationContext?: string | null
 ): Promise<void> {
-  if (isQuestion(message)) return
-
   // Deep extraction gives the topic (for the recurrence gate), mood, and a
   // self-contained restatement (recent turns let it resolve "it/that/this").
+  // No trailing-? heuristic: a confessional "why do I always do this?" is lost
+  // if we gate on punctuation. The recurrence gate (2 mentions) is the real
+  // noise filter — one-off queries park at count=1, never ingress.
   const ex = await extractEntry(
     { situation: message, thought: '' },
     { restate: true, context: conversationContext }

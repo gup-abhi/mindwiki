@@ -260,10 +260,15 @@ describe('captureReflectMessage', () => {
     mockSetSetting.mockResolvedValue({ success: true, data: undefined })
   })
 
-  it('never ingests a question (no extraction, no capture)', async () => {
+  it('extracts a question but never ingests it (recurrence gate — one-off query)', async () => {
+    mockExtractEntry.mockResolvedValue(extract({ topic: 'Sadness triggers' }))
+
     await captureReflectMessage('What tends to trigger my Sadness?')
 
-    expect(mockExtractEntry).not.toHaveBeenCalled()
+    // Extraction runs on everything now — the trailing-? heuristic was too
+    // aggressive (lost "why do I always do this?" disclosures). The recurrence
+    // gate (2 mentions) is the real filter: one-off queries park at count=1.
+    expect(mockExtractEntry).toHaveBeenCalled()
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
