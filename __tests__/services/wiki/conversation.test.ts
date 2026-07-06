@@ -133,6 +133,35 @@ describe('respond', () => {
     const res = await respond({ history: [], message: 'hi', pages: [], nodes: [], edges: [] })
     expect(res.success).toBe(false)
   })
+
+  it('sends full background once, then titles-only while retrieval is unchanged', async () => {
+    mockConverse.mockResolvedValue(ok('ok'))
+    const pages = [page({ title: 'Work', content: 'anxiety anxiety anxiety deadlines', entry_count: 3 })]
+    const turn = [
+      { role: 'user' as const, content: 'anxiety' },
+      { role: 'assistant' as const, content: 'ok' },
+    ]
+
+    // Turn 1 (conversation start): full page content attached.
+    await respond({ history: [], message: 'anxiety', pages, nodes: [], edges: [] })
+    const first = mockConverse.mock.calls[0][0].context
+    expect(first.sources).toHaveLength(1)
+
+    // Turn 2, same retrieval: no page prose (nothing to copy), titles only.
+    const res = await respond({ history: turn, message: 'anxiety again', pages, nodes: [], edges: [] })
+    const second = mockConverse.mock.calls[1][0].context
+    expect(second.sources).toEqual([])
+    expect(second.knownTopics).toEqual(['Work'])
+    // Chips still show the grounding pages.
+    if (res.success) expect(res.data.sources.map((p) => p.title)).toEqual(['Work'])
+
+    // Turn 3, retrieval changed: full content attaches again.
+    const otherPages = [page({ title: 'Sleep', content: 'sleep sleep sleep restless nights' })]
+    await respond({ history: turn, message: 'sleep', pages: otherPages, nodes: [], edges: [] })
+    const third = mockConverse.mock.calls[2][0].context
+    expect(third.sources).toHaveLength(1)
+    expect(third.knownTopics).toBeUndefined()
+  })
 })
 
 describe('updateRunningSummary', () => {

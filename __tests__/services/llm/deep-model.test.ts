@@ -136,6 +136,171 @@ describe('converseFromWiki', () => {
     expect(res.success).toBe(false)
     if (!res.success) expect(res.error.code).toBe('CONVERSE_VALIDATION_FAILED')
   })
+
+  it('trims a budget-clipped reply back to the last whole sentence', async () => {
+    mockConverse.mockResolvedValue({
+      text: 'That sounds heavy. You carried it anyway. Remember that every moment is a chance to learn and grow, even if it',
+    })
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('That sounds heavy. You carried it anyway.')
+  })
+
+  it('leaves a reply that ends cleanly untouched', async () => {
+    mockConverse.mockResolvedValue({ text: 'It makes sense that stung. What usually steadies you?' })
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('It makes sense that stung. What usually steadies you?')
+  })
+
+  it('scrubs sentences that announce the wiki background', async () => {
+    mockConverse.mockResolvedValue({
+      text: 'That sounds exhausting. Given your background, it’s clear you’ve been through a lot. You kept going anyway.',
+    })
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('That sounds exhausting. You kept going anyway.')
+  })
+
+  it('strips a trailing question when the previous reply already asked one', async () => {
+    const input = {
+      ...cInput,
+      history: [
+        { role: 'user' as const, content: 'work is rough' },
+        { role: 'assistant' as const, content: 'That sounds heavy. What part weighs most?' },
+      ],
+    }
+    mockConverse.mockResolvedValue({
+      text: 'It makes sense you feel stuck. That takes real persistence. What else have you considered?',
+    })
+    const res = await converseFromWiki(input)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('It makes sense you feel stuck. That takes real persistence.')
+  })
+
+  it('allows a question when the previous reply did not ask one', async () => {
+    const input = {
+      ...cInput,
+      history: [
+        { role: 'user' as const, content: 'work is rough' },
+        { role: 'assistant' as const, content: 'That sounds heavy, and it makes sense it wears on you.' },
+      ],
+    }
+    mockConverse.mockResolvedValue({ text: 'That’s a lot to carry. What usually helps?' })
+    const res = await converseFromWiki(input)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('That’s a lot to carry. What usually helps?')
+  })
+
+  it('drops a sentence the companion already said, even reworded', async () => {
+    const input = {
+      ...cInput,
+      history: [
+        { role: 'user' as const, content: 'still no job' },
+        {
+          role: 'assistant' as const,
+          content:
+            'It’s important to remember that this cycle of rejection doesn’t define your worth or your future.',
+        },
+      ],
+    }
+    mockConverse.mockResolvedValue({
+      // First sentence = near-verbatim recycle of the prior reply; second is new.
+      text: 'This cycle of rejection doesn’t define your worth. Something in you kept applying anyway.',
+    })
+    const res = await converseFromWiki(input)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('Something in you kept applying anyway.')
+  })
+
+  it('regenerates once, hotter, when the whole reply is recycled', async () => {
+    const input = {
+      ...cInput,
+      history: [
+        { role: 'user' as const, content: 'still no job' },
+        { role: 'assistant' as const, content: 'This cycle of rejection doesn’t define your worth or your future.' },
+      ],
+    }
+    mockConverse
+      .mockResolvedValueOnce({ text: 'This cycle of rejection doesn’t define your worth or your future.' })
+      .mockResolvedValueOnce({ text: 'That “nothing is working” feeling is its own kind of exhaustion.' })
+    const res = await converseFromWiki(input)
+    expect(res.success).toBe(true)
+    if (res.success) {
+      expect(res.data).toBe('That “nothing is working” feeling is its own kind of exhaustion.')
+    }
+    expect(mockConverse).toHaveBeenCalledTimes(2)
+    expect(mockConverse.mock.calls[1][1].temperature).toBe(0.8) // hotter retry
+  })
+
+  it('streams only sentences that survive cleanup — shown text never retracts', async () => {
+    const input = {
+      ...cInput,
+      history: [
+        { role: 'user' as const, content: 'still no job' },
+        {
+          role: 'assistant' as const,
+          content:
+            'It’s important to remember that this cycle of rejection doesn’t define your worth or your future. What part weighs most?',
+        },
+      ],
+    }
+    const full =
+      'This cycle of rejection doesn’t define your worth. Something in you kept applying anyway. What might tomorrow look like?'
+    mockConverse.mockImplementation(async (_m: unknown, _o: unknown, cb?: (t: string) => void) => {
+      // stream in arbitrary chunks that cross sentence boundaries
+      for (let i = 0; i < full.length; i += 7) cb?.(full.slice(i, i + 7))
+      return { text: full }
+    })
+    const onToken = jest.fn()
+
+    const res = await converseFromWiki(input, onToken)
+
+    const streamed = onToken.mock.calls.map((c) => c[0]).join('').trim()
+    // repeat sentence dropped; trailing question held back (previous reply asked)
+    expect(streamed).toBe('Something in you kept applying anyway.')
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('Something in you kept applying anyway.')
+  })
+
+  it('releases a held question once a later sentence shows it is not trailing', async () => {
+    const input = {
+      ...cInput,
+      history: [
+        { role: 'user' as const, content: 'still no job' },
+        { role: 'assistant' as const, content: 'That sounds heavy. What part weighs most?' },
+      ],
+    }
+    const full = 'What would rest even look like? You already know part of the answer.'
+    mockConverse.mockImplementation(async (_m: unknown, _o: unknown, cb?: (t: string) => void) => {
+      for (let i = 0; i < full.length; i += 5) cb?.(full.slice(i, i + 5))
+      return { text: full }
+    })
+    const onToken = jest.fn()
+
+    const res = await converseFromWiki(input, onToken)
+
+    const streamed = onToken.mock.calls.map((c) => c[0]).join('').trim()
+    expect(streamed).toBe(full) // mid-reply question kept, in order
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe(full)
+  })
+
+  it('serves the retry text even if it is still recycled — never a dead turn', async () => {
+    const recycled = 'This cycle of rejection doesn’t define your worth or your future.'
+    const input = {
+      ...cInput,
+      history: [
+        { role: 'user' as const, content: 'still no job' },
+        { role: 'assistant' as const, content: recycled },
+      ],
+    }
+    mockConverse.mockResolvedValue({ text: recycled })
+    const res = await converseFromWiki(input)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe(recycled)
+    expect(mockConverse).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('buildAffirmationPrompt', () => {

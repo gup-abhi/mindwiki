@@ -4,7 +4,6 @@ import {
   DISTORTION_REFERENCE,
   EMOTION_REFERENCE,
   REFLECTIVE_TECHNIQUES,
-  FEW_SHOT,
 } from '@/services/llm/reference'
 import { DISTORTIONS, EMOTIONS } from '@/services/llm/taxonomy'
 
@@ -27,13 +26,16 @@ describe('reference coverage', () => {
     }
   })
 
-  it('has reflective technique text and an even number of few-shot turns', () => {
+  it('has reflective technique text with quoted tone examples (never fake turns)', () => {
     expect(REFLECTIVE_TECHNIQUES.length).toBeGreaterThan(0)
     // Teaches complex reflection (reaching the unstated feeling/meaning), not just restatement.
     expect(REFLECTIVE_TECHNIQUES).toMatch(/underneath what they said/i)
-    expect(FEW_SHOT.length).toBeGreaterThan(0)
-    expect(FEW_SHOT.length % 2).toBe(0) // user/assistant pairs
-    expect(FEW_SHOT[0].role).toBe('user')
+    // Examples are quoted style illustrations inside the prompt, explicitly
+    // marked as not-this-user — history-turn exemplars became fabricated
+    // memories on device.
+    expect(REFLECTIVE_TECHNIQUES).toMatch(/not from this user’s life/i)
+    // Reflection, never prescription.
+    expect(REFLECTIVE_TECHNIQUES).toMatch(/never give advice lists/i)
   })
 })
 

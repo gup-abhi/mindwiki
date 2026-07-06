@@ -1,6 +1,8 @@
 // Lookup API over the static therapy reference KB. Two consumers:
-//  - conversation (distortionGuide): no per-message tag exists, so the model
-//    must identify from in-context examples — we give it a terse guide.
+//  - extraction (distortionGuide): the deep extract must identify a distortion
+//    from in-context examples — we give it a terse guide. Deliberately NOT in
+//    the conversation prompt anymore: a definitions list primes clinical,
+//    interviewer-ish framing there; chat gets its tone from FEW_SHOT instead.
 //  - synthesis (synthesisHint): the entry already carries its distortion tag, so
 //    we ground the page in ONE natural-language instruction (NOT a labelled data
 //    block — the small model parrots those verbatim into the page, which leaked
@@ -9,15 +11,17 @@
 import { canonicalizeDistortion } from '../taxonomy'
 import { DISTORTION_REFERENCE } from './distortions'
 
-export { REFLECTIVE_TECHNIQUES, FEW_SHOT } from './techniques'
+export { REFLECTIVE_TECHNIQUES } from './techniques'
+export { HELPER_NOTES, selectHelperNotes } from './companion-wiki'
+export type { HelperNote } from './companion-wiki'
 export { DISTORTION_REFERENCE } from './distortions'
 export { EMOTION_REFERENCE } from './emotions'
 export type { DistortionEntry } from './distortions'
 
-// The conversation prompt shares the deep model's 2048-token context with the
-// wiki pages, history, and rolling summary, so the guide is trimmed to the most
-// common distortions (taxonomy order) rather than all 14. Raise/lower in one
-// edit if device testing shows headroom or pressure.
+// The extract prompt runs in the deep model's 2048-token context alongside the
+// entry, so the guide is trimmed to the most common distortions (taxonomy
+// order) rather than all 14. Raise/lower in one edit if device testing shows
+// headroom or pressure.
 const MAX_GUIDE_DISTORTIONS = 8
 
 /**
@@ -37,8 +41,8 @@ export function synthesisHint(distortion?: string | null): string {
 
 /**
  * Terse one-line-per-distortion guide with an identification example each, for
- * the conversation system prompt. The examples are what let the model spot a
- * distortion in the live message. Built once at module load.
+ * the deep extract prompt. The examples are what let the model spot a
+ * distortion in the entry it is tagging. Built once at module load.
  */
 export const distortionGuide: () => string = (() => {
   const lines = Object.values(DISTORTION_REFERENCE)

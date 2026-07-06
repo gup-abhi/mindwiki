@@ -24,7 +24,7 @@ import { buildReframePrompt, type ReframePromptInput } from './prompts/reframe-s
 import { ReframeSuggestionSchema } from './schemas/reframe.schema'
 import { buildDeepenPrompt, type DeepenPromptInput } from './prompts/deepen'
 import { DeepenQuestionSchema } from './schemas/deepen.schema'
-import { buildExtractPrompt, type ExtractPromptInput } from './prompts/extract-entry'
+import { buildExtractPrompt, type ExtractPromptInput, type ExtractOptions } from './prompts/extract-entry'
 import { EntryExtractSchema, type EntryExtract } from './schemas/entry-extract.schema'
 import { canonicalizeEmotion, canonicalizeDistortion, canonicalizeLabel, singularizeLabel, normalizeEntities, normalizePhrases } from './taxonomy'
 
@@ -83,11 +83,16 @@ function stripScaffolding(text: string): string {
  * collapse, and drops a low-confidence distortion to 'none'. Never throws; on
  * failure the entry just isn't indexed. Errors carry a code only, never text.
  */
-export async function extractEntry(input: ExtractPromptInput): Promise<Result<EntryExtract>> {
+export async function extractEntry(
+  input: ExtractPromptInput,
+  options: ExtractOptions = {}
+): Promise<Result<EntryExtract>> {
   let raw: string
   try {
-    const output = await LLMBridge.synthesise(buildExtractPrompt(input), {
-      maxTokens: 200,
+    const output = await LLMBridge.synthesise(buildExtractPrompt(input, options), {
+      // The restatement adds roughly a sentence of output — budget for it so it
+      // can't crowd out the entity lists at the end of the JSON.
+      maxTokens: options.restate ? 260 : 200,
       temperature: 0.2,
     })
     raw = output.text
@@ -117,6 +122,7 @@ export async function extractEntry(input: ExtractPromptInput): Promise<Result<En
     activities: normalizeEntities(parsed.data.activities),
     beliefs: normalizePhrases(parsed.data.beliefs),
     behaviors: normalizePhrases(parsed.data.behaviors),
+    restatement: parsed.data.restatement.trim(),
   })
 }
 
@@ -287,23 +293,171 @@ export async function generateReflectionQuestion(
  * carries the validated final text. Never throws; errors carry a code only,
  * never message/page text.
  */
+// A reply that used its whole token budget can stop mid-sentence ("…even if
+// it"). Keep whole sentences only: cut back to the last terminal punctuation.
+// A reply with no terminal punctuation at all is left as-is (schema decides).
+function trimToSentence(text: string): string {
+  const t = text.trim()
+  if (/[.!?…"”’)\]]$/.test(t)) return t
+  const cut = Math.max(t.lastIndexOf('.'), t.lastIndexOf('!'), t.lastIndexOf('?'), t.lastIndexOf('…'))
+  return cut > 0 ? t.slice(0, cut + 1) : t
+}
+
+// Split into whole sentences (terminal punctuation + trailing quotes/brackets).
+function sentencesOf(text: string): string[] {
+  return text.match(/[^.!?…]+[.!?…]+["”’)\]]*\s*/g) ?? [text]
+}
+
+/**
+ * Deterministic reply cleanup, mirroring synthesis's scaffolding guard — the
+ * 3B model breaks these rules in prose no matter how they're phrased:
+ *  - drops sentences that announce the wiki ("Given your background, …");
+ *  - when the PREVIOUS reply already ended with a question, strips trailing
+ *    question sentences so back-to-back interviewer turns cannot reach the UI.
+ * Falls back to the original text rather than returning something empty.
+ */
+function scrubReply(text: string, banEndingQuestion: boolean): string {
+  let parts = sentencesOf(text).filter((s) => !ANNOUNCE_RE.test(s))
+  if (banEndingQuestion) {
+    while (parts.length > 1 && ENDS_WITH_QUESTION_RE.test(parts[parts.length - 1])) parts.pop()
+  }
+  const out = parts.join('').trim()
+  return out.length > 0 ? out : text.trim()
+}
+
+const normalizeSentence = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+
+const contentWordsOf = (s: string) =>
+  new Set(normalizeSentence(s).split(' ').filter((w) => w.length > 2))
+
+/**
+ * Predicate over sentences the companion has already said this conversation —
+ * exact repeats and near-repeats (≥80% of the sentence's content words
+ * contained in one earlier sentence). Device testing showed the model
+ * re-serving the same reflection three replies running ("this cycle of
+ * rejection doesn't define your worth…"), which reads as canned, not heard.
+ * Reflection once is warmth; the same reflection every turn is a script.
+ */
+function makeRepeatChecker(priorReplies: string[]): (sentence: string) => boolean {
+  const prior = priorReplies.flatMap(sentencesOf)
+  const priorNorm = new Set(prior.map(normalizeSentence))
+  const priorWordSets = prior.map(contentWordsOf)
+  return (sentence: string): boolean => {
+    if (prior.length === 0) return false
+    if (priorNorm.has(normalizeSentence(sentence))) return true
+    const words = contentWordsOf(sentence)
+    if (words.size === 0) return false
+    return priorWordSets.some((ps) => {
+      let hits = 0
+      for (const w of words) if (ps.has(w)) hits++
+      return hits / words.size >= 0.8
+    })
+  }
+}
+
+function dropRepeatedSentences(text: string, isRepeat: (s: string) => boolean): string {
+  return sentencesOf(text)
+    .filter((s) => !isRepeat(s))
+    .join('')
+    .trim()
+}
+
+const ANNOUNCE_RE = /\b(given|considering) your (background|history)\b|your (background|history) suggests/i
+const ENDS_WITH_QUESTION_RE = /\?["”’)\]]*\s*$/
+
+/**
+ * Streaming display gate: forwards only sentences that will survive the final
+ * cleanup, so the UI never shows text that later retracts (raw token streaming
+ * made the tail of a reply visibly disappear when the trims ran). Sentences
+ * flush as they complete; when a question must not end this reply, a question
+ * sentence is HELD until a later non-question sentence proves it isn't
+ * trailing. A fully-recycled reply emits nothing — which also makes the
+ * novelty retry invisible to the user.
+ */
+function createStreamGate(
+  banEndingQuestion: boolean,
+  isRepeat: (s: string) => boolean,
+  emit?: (chunk: string) => void
+): { feed: (token: string) => void } {
+  if (!emit) return { feed: () => undefined }
+  let buffer = ''
+  let held: string[] = []
+  return {
+    feed(token: string) {
+      buffer += token
+      for (;;) {
+        const m = buffer.match(/^[^.!?…]*[.!?…]+["”’)\]]*\s*/)
+        if (!m) break
+        const sentence = m[0]
+        buffer = buffer.slice(sentence.length)
+        if (ANNOUNCE_RE.test(sentence) || isRepeat(sentence)) continue
+        if (banEndingQuestion && ENDS_WITH_QUESTION_RE.test(sentence)) {
+          held.push(sentence)
+          continue
+        }
+        for (const h of held) emit(h)
+        held = []
+        emit(sentence)
+      }
+    },
+  }
+}
+
+// ~110 tokens ≈ 3-4 sentences: the budget is what actually enforces the
+// "short, human" contract — device testing showed the model fills any larger
+// budget with boilerplate essays and advice lists.
+const CONVERSE_MAX_TOKENS = 110
+
 export async function converseFromWiki(
   input: BuildConversationInput,
   onToken?: (token: string) => void
 ): Promise<Result<string>> {
+  const messages = buildConversationMessages(input)
+
+  // Same alternation condition the prompt builder steers on — enforced here so
+  // a model that ignores the steer still cannot ask twice in a row.
+  const lastReply = [...input.history].reverse().find((m) => m.role === 'assistant')
+  const banEndingQuestion = lastReply != null && /\?\s*$/.test(lastReply.content.trim())
+  const isRepeat = makeRepeatChecker(input.history.filter((m) => m.role === 'assistant').map((m) => m.content))
+  const finalize = (raw: string) =>
+    dropRepeatedSentences(scrubReply(trimToSentence(raw), banEndingQuestion), isRepeat)
+
+  // The gate mirrors the final cleanup sentence-by-sentence, so the streamed
+  // text never shows something the cleanup would then take away.
+  const gate = createStreamGate(banEndingQuestion, isRepeat, onToken)
   let raw: string
   try {
-    const output = await LLMBridge.converse(
-      buildConversationMessages(input),
-      { maxTokens: 220, temperature: 0.4 },
-      onToken
-    )
-    raw = output.text
+    raw = (
+      await LLMBridge.converse(messages, { maxTokens: CONVERSE_MAX_TOKENS, temperature: 0.4 }, (t) =>
+        gate.feed(t)
+      )
+    ).text
   } catch (e) {
     return err('CONVERSE_INFERENCE_FAILED', 'Deep model inference failed', e)
   }
 
-  const parsed = ConversationReplySchema.safeParse(raw.trim())
+  let text = finalize(raw)
+  if (text.length === 0 && raw.trim().length > 0) {
+    // The ENTIRE reply was something the companion already said — regenerate
+    // once, hotter, to force novelty (the gate emitted nothing, so the retry
+    // is invisible). If even that comes back recycled, serve it anyway: a
+    // repeated reflection beats a dead turn.
+    try {
+      const retryGate = createStreamGate(banEndingQuestion, isRepeat, onToken)
+      const second = (
+        await LLMBridge.converse(messages, { maxTokens: CONVERSE_MAX_TOKENS, temperature: 0.8 }, (t) =>
+          retryGate.feed(t)
+        )
+      ).text
+      const cleaned = finalize(second)
+      text = cleaned.length > 0 ? cleaned : scrubReply(trimToSentence(second), banEndingQuestion)
+    } catch {
+      text = scrubReply(trimToSentence(raw), banEndingQuestion)
+    }
+  }
+
+  const parsed = ConversationReplySchema.safeParse(text)
   if (!parsed.success) {
     return err('CONVERSE_VALIDATION_FAILED', 'Conversation reply failed validation')
   }

@@ -162,6 +162,13 @@ export function buildContext(
   return { context, sources }
 }
 
+// The last turn's attached background, so an unchanged retrieval isn't
+// re-injected verbatim. Device testing showed the model treating the repeated
+// page text as a script — identical sentences across three consecutive replies,
+// ignoring the live message. On a repeat, the prompt gets titles only; the
+// summary and history carry the continuity. Reset when a conversation starts.
+let lastBackgroundKey = ''
+
 /**
  * Generate one grounded reflective reply for the conversation. Ranks wiki +
  * graph context for the newest message, trims history to fit the context
@@ -192,9 +199,21 @@ export async function respond(
   )
   const trimmed = history.slice(-MAX_HISTORY_MESSAGES)
 
-  const res = await converseFromWiki({ history: trimmed, message, context, summary }, onToken)
+  // Full background only when retrieval changed; unchanged pages become a
+  // titles-only reminder so there is no page prose to copy into the reply.
+  if (history.length === 0) lastBackgroundKey = ''
+  const key = context.sources.map((s) => s.title).sort().join('|')
+  let effective = context
+  if (key !== '' && key === lastBackgroundKey) {
+    effective = { sources: [], connections: [], knownTopics: context.sources.map((s) => s.title) }
+  } else {
+    lastBackgroundKey = key
+  }
+
+  const res = await converseFromWiki({ history: trimmed, message, context: effective, summary }, onToken)
   if (!res.success) return res
 
+  // Chips still show the grounding pages even on a titles-only turn.
   return ok({ text: res.data, sources })
 }
 
