@@ -5,7 +5,12 @@ import { useFocusEffect } from 'expo-router'
 import { type ChatMessage } from '@/native/LLMBridge'
 import { hasCrisisKeyword } from '@/services/crisis/detector'
 import { areModelsReady, ensureEmbedModel } from '@/services/llm/model-manager'
-import { captureReflectMessage } from '@/services/pipeline'
+import {
+  queueReflectCapture,
+  flushReflectCaptures,
+  pauseReflectCaptures,
+  resumeReflectCaptures,
+} from '@/services/pipeline'
 import {
   appendMessage,
   createConversation,
@@ -78,6 +83,9 @@ export function useConversation(initialQuestion?: string) {
 
   useFocusEffect(
     useCallback(() => {
+      // Live chat takes the deep model: stop any capture drain after its
+      // current item so replies don't queue behind the whole backlog.
+      pauseReflectCaptures()
       Promise.all([listPages(), listNodes(), listEdges(), listConversations()]).then(
         ([p, n, e, c]) => {
           const pageList = p.success ? p.data : []
@@ -93,6 +101,13 @@ export function useConversation(initialQuestion?: string) {
           void ensureEmbedModel().then(() => backfillStaleEmbeddings(pageList))
         }
       )
+      // On blur: the chat is no longer live, so drain the deferred captures —
+      // extract + wiki ingest run on the same deep-model lock as replies, which
+      // is exactly why they must not run while the user is still chatting.
+      return () => {
+        resumeReflectCaptures()
+        void flushReflectCaptures()
+      }
     }, [])
   )
 
@@ -249,10 +264,18 @@ export function useConversation(initialQuestion?: string) {
       await generateReply(conversationId, message, priorHistory)
 
       // Compounding knowledge: capture anything durable the user shared (people,
-      // places, themes the wiki hasn't recorded) into the wiki/graph. Background,
-      // best-effort — runs after the reply so it never contends with streaming or
-      // blocks the UI. Crisis messages returned earlier and are never indexed.
-      void captureReflectMessage(message)
+      // places, themes the wiki hasn't recorded) into the wiki/graph. Crisis
+      // messages returned earlier and are never queued. DEFERRED, not run now:
+      // capture shares the deep-model lock with the live reply, so running it
+      // mid-chat makes the next reply queue behind an extract (or a full wiki
+      // ingest) for tens of seconds. The queue drains on screen blur below.
+      // The last few turns go along so the capture's restatement can resolve
+      // "it/that/this" in a chat fragment; truncated hard — reference only.
+      const captureContext = priorHistory
+        .slice(-4)
+        .map((m) => `${m.role === 'user' ? 'User' : 'Companion'}: ${m.content.slice(0, 200)}`)
+        .join('\n')
+      queueReflectCapture(message, captureContext)
     },
     [generateReply]
   )

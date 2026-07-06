@@ -252,12 +252,20 @@ function parsePendingTheme(raw: string | null): PendingReflectTheme | null {
   return null
 }
 
-/** Persist + index one qualifying Reflect statement. True once fully created. */
+/**
+ * Persist + index one qualifying Reflect statement. True once fully created.
+ * The entry's `situation` is the extract's self-contained restatement — a raw
+ * chat fragment ("yeah exactly, and it's worse at night") is context-dependent
+ * shorthand that would otherwise ground a permanent wiki page verbatim. The
+ * message as actually typed is kept in `raw_text` for provenance; an empty
+ * restatement (model didn't comply) falls back to it.
+ */
 async function ingestReflectStatement(text: string, ex: EntryExtract): Promise<boolean> {
   const created = await createEntry({
     mood: moodFromScore(ex.mood_score),
-    situation: text,
+    situation: ex.restatement || text,
     thought: '',
+    raw_text: text,
     source: 'reflect',
   })
   if (!created.success) return false
@@ -280,11 +288,73 @@ function isQuestion(text: string): boolean {
  * statements are persisted as a `source:'reflect'` entry and indexed like a
  * journal entry. Background, best-effort: never throws, never blocks a reply.
  */
-export async function captureReflectMessage(message: string): Promise<void> {
+// Captures deferred until the conversation goes idle. Capture work runs on the
+// SAME deep-model lock as the live reply (llama can't run two completions on
+// one context), so an extract — or worse, a gate-pass ingest with two wiki
+// syntheses — kicked off mid-chat makes the NEXT reply queue behind it for tens
+// of seconds. Messages are parked here instead and processed when the user
+// leaves the Reflect screen. In-memory only: an app kill mid-chat drops the
+// queue, which is acceptable — capture has always been best-effort.
+const pendingCaptures: { message: string; context: string | null }[] = []
+let flushingCaptures = false
+let capturesPaused = false
+
+/** Park a Reflect message for capture after the conversation goes idle. */
+export function queueReflectCapture(message: string, context?: string | null): void {
+  pendingCaptures.push({ message, context: context ?? null })
+}
+
+/**
+ * The user is back in a live chat: stop draining after the current item so the
+ * deep-model lock frees for replies. A capture already mid-completion can't be
+ * preempted (llama has no safe cancel), so the first reply after returning can
+ * still wait one item — but never the whole queue (returning mid-drain
+ * previously queued the reply behind MINUTES of extracts + syntheses).
+ */
+export function pauseReflectCaptures(): void {
+  capturesPaused = true
+}
+
+/** Chat is idle again — allow draining (call flushReflectCaptures after). */
+export function resumeReflectCaptures(): void {
+  capturesPaused = false
+}
+
+/**
+ * Drain the deferred captures sequentially (each is extract + possible wiki
+ * ingest on the deep model). Call when the chat is no longer live — on screen
+ * blur. Reentrant-safe; a failure on one message never blocks the rest; stops
+ * between items when paused (items stay queued for the next flush).
+ */
+export async function flushReflectCaptures(): Promise<void> {
+  if (flushingCaptures) return
+  flushingCaptures = true
+  try {
+    while (pendingCaptures.length > 0 && !capturesPaused) {
+      const next = pendingCaptures.shift()!
+      try {
+        await captureReflectMessage(next.message, next.context)
+      } catch {
+        // best-effort: a bad message never blocks the rest of the queue
+      }
+    }
+  } finally {
+    flushingCaptures = false
+  }
+}
+
+export async function captureReflectMessage(
+  message: string,
+  conversationContext?: string | null
+): Promise<void> {
   if (isQuestion(message)) return
 
-  // Deep extraction gives the topic (for the recurrence gate) and mood.
-  const ex = await extractEntry({ situation: message, thought: '' })
+  // Deep extraction gives the topic (for the recurrence gate), mood, and a
+  // self-contained restatement (recent turns let it resolve "it/that/this").
+  const ex = await extractEntry(
+    { situation: message, thought: '' },
+    { restate: true, context: conversationContext }
+  )
   if (!ex.success) return
 
   const theme = ex.data.topic.trim()
@@ -308,10 +378,11 @@ export async function captureReflectMessage(message: string): Promise<void> {
 
   // Gate passed: ingest the parked first mention (re-extracted for its own
   // tags/mood — one extra deep-model run, once per theme ever), then this one.
+  // Its conversation is long gone, so it restates without context.
   // A failed parked ingest keeps the text parked so the next mention retries.
   let parked = pending?.first ?? null
   if (parked) {
-    const parkedEx = await extractEntry({ situation: parked, thought: '' })
+    const parkedEx = await extractEntry({ situation: parked, thought: '' }, { restate: true })
     if (parkedEx.success && (await ingestReflectStatement(parked, parkedEx.data))) {
       parked = null
     }

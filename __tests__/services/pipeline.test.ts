@@ -1,4 +1,13 @@
-import { processEntry, captureReflectMessage, capturePathAnswers, catchUpUnindexed } from '@/services/pipeline'
+import {
+  processEntry,
+  captureReflectMessage,
+  queueReflectCapture,
+  flushReflectCaptures,
+  pauseReflectCaptures,
+  resumeReflectCaptures,
+  capturePathAnswers,
+  catchUpUnindexed,
+} from '@/services/pipeline'
 import { scoreCrisis } from '@/services/llm/fast-model'
 import { extractEntry } from '@/services/llm/deep-model'
 import {
@@ -84,6 +93,7 @@ const extract = (over: Record<string, unknown> = {}) =>
     activities: [],
     beliefs: [],
     behaviors: [],
+    restatement: '',
     ...over,
   })
 
@@ -104,6 +114,7 @@ const entry = (overrides: Partial<Entry> = {}): Entry => ({
   tagged_at: null,
   wiki_indexed_at: null,
   graph_indexed_at: null,
+  raw_text: null,
   source: 'journal',
   ...overrides,
 })
@@ -299,10 +310,11 @@ describe('captureReflectMessage', () => {
     // Parked text re-extracted for its own tags, then BOTH statements persisted,
     // first mention first (older).
     expect(mockExtractEntry).toHaveBeenCalledTimes(2)
-    expect(mockExtractEntry).toHaveBeenNthCalledWith(2, {
-      situation: 'I think I need firmer boundaries',
-      thought: '',
-    })
+    expect(mockExtractEntry).toHaveBeenNthCalledWith(
+      2,
+      { situation: 'I think I need firmer boundaries', thought: '' },
+      { restate: true } // parked re-extract: its conversation is gone, no context
+    )
     expect(mockCreateEntry).toHaveBeenCalledTimes(2)
     expect(mockCreateEntry.mock.calls[0][0]).toMatchObject({
       situation: 'I think I need firmer boundaries',
@@ -315,6 +327,46 @@ describe('captureReflectMessage', () => {
     // Stash cleared so the first mention is never ingested twice.
     const [, raw] = mockSetSetting.mock.calls[0]
     expect(JSON.parse(raw)).toMatchObject({ count: 2, first: null })
+  })
+
+  it('stores the distilled restatement as situation, keeping the raw message for provenance', async () => {
+    mockGetSetting.mockResolvedValue({ success: true, data: '1' }) // gate passes
+    mockExtractEntry.mockResolvedValue(
+      extract({ topic: 'Sleep', restatement: 'My anxiety is worse at night' })
+    )
+
+    await captureReflectMessage("yeah exactly, and it's worse at night", 'Companion: sounds like anxiety')
+    await flush()
+
+    // Extraction ran in restate mode with the conversation context attached.
+    expect(mockExtractEntry).toHaveBeenCalledWith(
+      { situation: "yeah exactly, and it's worse at night", thought: '' },
+      { restate: true, context: 'Companion: sounds like anxiety' }
+    )
+    // The self-contained restatement grounds the entry (and thus the wiki);
+    // the fragment as typed is kept as provenance.
+    expect(mockCreateEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        situation: 'My anxiety is worse at night',
+        raw_text: "yeah exactly, and it's worse at night",
+        source: 'reflect',
+      })
+    )
+  })
+
+  it('falls back to the raw message when the restatement comes back empty', async () => {
+    mockGetSetting.mockResolvedValue({ success: true, data: '1' }) // gate passes
+    mockExtractEntry.mockResolvedValue(extract({ topic: 'Sleep', restatement: '' }))
+
+    await captureReflectMessage('I sleep badly before deadlines')
+    await flush()
+
+    expect(mockCreateEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        situation: 'I sleep badly before deadlines',
+        raw_text: 'I sleep badly before deadlines',
+      })
+    )
   })
 
   it('keeps the first mention parked when its re-extract fails, and retries later', async () => {
@@ -367,6 +419,75 @@ describe('captureReflectMessage', () => {
 
     await expect(captureReflectMessage('I felt calm at the park')).resolves.toBeUndefined()
     expect(mockCreateEntry).not.toHaveBeenCalled()
+  })
+})
+
+describe('deferred reflect capture queue', () => {
+  beforeEach(() => {
+    mockExtractEntry.mockReset()
+    mockCreateEntry.mockReset()
+    mockGetSetting.mockReset().mockResolvedValue({ success: true, data: null })
+    mockSetSetting.mockReset().mockResolvedValue({ success: true, data: undefined })
+  })
+
+  it('queueing does no model work; flush processes messages in order, then drains', async () => {
+    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+
+    queueReflectCapture('first boundaries note')
+    queueReflectCapture('second boundaries note', 'Companion: context')
+    // Nothing runs while the chat is live — that would contend with the reply
+    // on the shared deep-model lock.
+    expect(mockExtractEntry).not.toHaveBeenCalled()
+
+    await flushReflectCaptures()
+
+    expect(mockExtractEntry).toHaveBeenCalledTimes(2)
+    expect(mockExtractEntry).toHaveBeenNthCalledWith(
+      1,
+      { situation: 'first boundaries note', thought: '' },
+      { restate: true, context: null }
+    )
+    expect(mockExtractEntry).toHaveBeenNthCalledWith(
+      2,
+      { situation: 'second boundaries note', thought: '' },
+      { restate: true, context: 'Companion: context' }
+    )
+
+    // Drained: a second flush does nothing.
+    await flushReflectCaptures()
+    expect(mockExtractEntry).toHaveBeenCalledTimes(2)
+  })
+
+  it('pausing stops the drain between items; resuming lets the next flush finish it', async () => {
+    mockExtractEntry.mockImplementation(async () => {
+      // A live chat regains focus while the first capture is mid-flight.
+      pauseReflectCaptures()
+      return extract({ topic: 'Boundaries' })
+    })
+    queueReflectCapture('first note')
+    queueReflectCapture('second note')
+
+    await flushReflectCaptures()
+    // First item completed, second stayed queued — the deep lock frees for replies.
+    expect(mockExtractEntry).toHaveBeenCalledTimes(1)
+
+    resumeReflectCaptures()
+    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+    await flushReflectCaptures()
+    expect(mockExtractEntry).toHaveBeenCalledTimes(2)
+  })
+
+  it('a failing capture never blocks the rest of the queue', async () => {
+    mockExtractEntry
+      .mockRejectedValueOnce(new Error('model exploded'))
+      .mockResolvedValue(extract({ topic: 'Sleep' }))
+
+    queueReflectCapture('this one fails')
+    queueReflectCapture('this one still runs')
+
+    await flushReflectCaptures()
+
+    expect(mockExtractEntry).toHaveBeenCalledTimes(2)
   })
 })
 
