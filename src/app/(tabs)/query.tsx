@@ -15,6 +15,8 @@ import { Card, IconButton, Screen, Text } from '@/components/ui'
 import { ConversationComposer } from '@/components/wiki/ConversationComposer'
 import { MessageBubble } from '@/components/wiki/MessageBubble'
 import { useConversation } from '@/hooks/useConversation'
+import { useChatStore } from '@/store/chat.store'
+import { CRISIS_RESOURCES } from '@/services/crisis/resources'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 
 // Feeling/struggle chips that seed the composer, so the user can start by naming
@@ -37,6 +39,7 @@ export default function QueryScreen() {
   const initial = typeof q === 'string' ? q : undefined
   const { messages, streaming, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
     useConversation(initial)
+  const summaryCrisisTier = useChatStore((s) => s.summaryCrisisTier)
   const scrollRef = useRef<ScrollView>(null)
   const savedScrollY = useRef(0)
   const [composerSeed, setComposerSeed] = useState<{ text: string; nonce: number } | null>(null)
@@ -249,6 +252,14 @@ export default function QueryScreen() {
           )}
         </ScrollView>
 
+        {!isEmpty && summaryCrisisTier > 0 && (
+          <View style={styles.crisisResourceStrip}>
+            <Text variant="caption" color="textSecondary" style={styles.crisisResourceText}>
+              Things feel heavy. If you need support, {CRISIS_RESOURCES[0].contact} — free, 24/7.
+            </Text>
+          </View>
+        )}
+
         <ConversationComposer sending={sending} onSend={send} seed={composerSeed} />
       </KeyboardAvoidingView>
     </Screen>
@@ -293,6 +304,14 @@ const makeStyles = (t: Theme) =>
     historyRow: { paddingVertical: t.spacing.md },
     historyDate: { marginTop: t.spacing.xs },
     assistantWrap: { alignItems: 'flex-start', marginBottom: t.spacing.md },
+    crisisResourceStrip: {
+      paddingVertical: t.spacing.sm,
+      paddingHorizontal: t.spacing.lg,
+      backgroundColor: t.colors.surfaceAlt,
+      borderRadius: t.radii.md,
+      marginBottom: t.spacing.sm,
+    },
+    crisisResourceText: { textAlign: 'center' },
     streamBubble: {
       maxWidth: '85%',
       paddingVertical: t.spacing.md,

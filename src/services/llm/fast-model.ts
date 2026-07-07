@@ -1,7 +1,7 @@
 import { LLMBridge } from '@/native/LLMBridge'
 import { type Result, ok, err } from '@/types/result'
 
-import { buildCrisisPrompt, type CrisisPromptInput } from './prompts/crisis-signal'
+import { buildCrisisPrompt, buildSummaryCrisisPrompt, type CrisisPromptInput } from './prompts/crisis-signal'
 import { buildExpandQueryPrompt } from './prompts/expand-query'
 import { CrisisSignalSchema, type CrisisSignal } from './schemas/crisis-signal.schema'
 import { ExpandQuerySchema } from './schemas/expand-query.schema'
@@ -73,4 +73,32 @@ export async function expandQueryTerms(message: string): Promise<Result<string[]
     .filter((k) => k.length > 0 && k.length <= MAX_KEYWORD_LEN)
     .slice(0, MAX_EXPANSION_KEYWORDS)
   return ok(terms)
+}
+
+/**
+ * Score distress from the rolling conversation summary, once per refresh, using
+ * the fast model. The summary captures themes across many turns, so a cumulative
+ * distress signal that no single message triggered keyword-wise may surface here.
+ * Best-effort: a failure returns an error the caller treats as "no signal" — the
+ * keyword safety net on individual messages is unchanged. Never logs summary text.
+ */
+export async function scoreSummaryCrisis(summary: string): Promise<Result<CrisisSignal>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.tag(buildSummaryCrisisPrompt(summary), {
+      maxTokens: 40,
+      temperature: 0.1,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('SUMMARY_CRISIS_INFERENCE_FAILED', 'Fast model inference failed', e)
+  }
+
+  const json = extractJson(raw)
+  if (json === undefined) return err('SUMMARY_CRISIS_PARSE_FAILED', 'No JSON object found in model output')
+
+  const parsed = CrisisSignalSchema.safeParse(json)
+  if (!parsed.success) return err('SUMMARY_CRISIS_VALIDATION_FAILED', 'Crisis output failed schema validation')
+
+  return ok(parsed.data)
 }

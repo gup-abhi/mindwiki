@@ -25,6 +25,9 @@ export interface ChatState {
   /** Rolling recap of earlier turns + how many messages it covers. */
   summary: string
   summaryCount: number
+  /** Distress tier from the rolling summary, scored on refresh (0 = no signal).
+   *  Never interrupts the conversation — the screen quietly surfaces resources. */
+  summaryCrisisTier: number
   reset: () => void
   load: (conversationId: string, messages: UIMessage[], summary: string, summaryCount: number) => void
   setConversationId: (id: string) => void
@@ -34,6 +37,7 @@ export interface ChatState {
   setMessageCrisis: (id: string, tier: number) => void
   setSending: (sending: boolean) => void
   setSummary: (summary: string, summaryCount: number) => void
+  setSummaryCrisisTier: (tier: number) => void
   appendToken: (token: string) => void
   clearStreaming: () => void
 }
@@ -46,6 +50,7 @@ export const useChatStore = create<ChatState>()(
     sending: false,
     summary: '',
     summaryCount: 0,
+    summaryCrisisTier: 0,
     reset: () =>
       set((s) => {
         s.conversationId = null
@@ -54,6 +59,7 @@ export const useChatStore = create<ChatState>()(
         s.sending = false
         s.summary = ''
         s.summaryCount = 0
+        s.summaryCrisisTier = 0
       }),
     load: (conversationId, messages, summary, summaryCount) =>
       set((s) => {
@@ -63,6 +69,7 @@ export const useChatStore = create<ChatState>()(
         s.sending = false
         s.summary = summary
         s.summaryCount = summaryCount
+        s.summaryCrisisTier = 0
       }),
     setConversationId: (id) =>
       set((s) => {
@@ -89,6 +96,10 @@ export const useChatStore = create<ChatState>()(
       set((s) => {
         s.summary = summary
         s.summaryCount = summaryCount
+      }),
+    setSummaryCrisisTier: (tier) =>
+      set((s) => {
+        s.summaryCrisisTier = tier
       }),
     appendToken: (token) =>
       set((s) => {

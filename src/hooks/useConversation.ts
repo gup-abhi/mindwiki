@@ -3,7 +3,8 @@ import { randomUUID } from 'expo-crypto'
 import { useFocusEffect } from 'expo-router'
 
 import { type ChatMessage } from '@/native/LLMBridge'
-import { hasCrisisKeyword } from '@/services/crisis/detector'
+import { hasCrisisKeyword, assessCrisis } from '@/services/crisis/detector'
+import { scoreSummaryCrisis } from '@/services/llm/fast-model'
 import { areModelsReady, ensureEmbedModel } from '@/services/llm/model-manager'
 import {
   queueReflectCapture,
@@ -87,7 +88,22 @@ async function refreshSummary(conversationId: string): Promise<void> {
     summaryCount: st.summaryCount,
   })
   if (upd.success && upd.data) {
-    useChatStore.getState().setSummary(upd.data.summary, upd.data.summaryCount)
+    const { summary, summaryCount } = upd.data
+    const store = useChatStore.getState()
+    store.setSummary(summary, summaryCount)
+
+    // Soft distress check over the rolling summary, using the fast model. The
+    // summary spans many turns, so it can surface cumulative distress that no
+    // single message carries an explicit keyword for. Runs once per refresh and
+    // never interrupts the conversation — the result only ever soft-surfaces
+    // resources via a quiet card in the Reflect screen.
+    void scoreSummaryCrisis(summary).then((crisis) => {
+      if (!crisis.success) return
+      const { tier } = assessCrisis(summary, crisis.data.crisis_confidence)
+      if (tier > 0) {
+        useChatStore.getState().setSummaryCrisisTier(tier)
+      }
+    })
   }
 }
 
