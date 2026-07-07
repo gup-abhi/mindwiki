@@ -268,3 +268,211 @@ describe('useConversation — duplicate-reply race', () => {
     expect(assistantPersists).toHaveLength(1)
   })
 })
+
+describe('useConversation — cross-conversation summary seed', () => {
+  const RECENT = Date.now() - 60_000 // within the past-week window
+
+  it('seeds a new conversation with summaries from recent conversations', async () => {
+    jest.spyOn(chat, 'listConversations').mockResolvedValueOnce({
+      success: true,
+      data: [
+        {
+          id: 'prev-1',
+          title: 'Last chat',
+          created_at: 0,
+          updated_at: RECENT,
+          summary: 'They were dreading a Thursday review at work.',
+          summary_count: 3,
+        },
+      ],
+    })
+
+    const { result } = renderHook(() => useConversation())
+    // Wait for the focus effect's async load — it fetches conversations + pages.
+    await waitFor(() => expect(result.current.history.length).toBe(1))
+
+    // First message of a brand-new conversation — triggers the seed logic.
+    act(() => {
+      void result.current.send('hello')
+    })
+    await waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+
+    // The store's summary should be seeded from the prior conversation.
+    expect(useChatStore.getState().summary).toContain('From a previous conversation')
+    expect(useChatStore.getState().summary).toContain('dreading a Thursday review')
+
+    await act(async () => {
+      resolveNext('reply')
+    })
+  })
+
+  it('seeds from up to 3 recent conversations, oldest-first', async () => {
+    jest.spyOn(chat, 'listConversations').mockResolvedValueOnce({
+      success: true,
+      data: [
+        {
+          id: 'prev-3',
+          title: 'Third',
+          created_at: 0,
+          updated_at: RECENT,
+          summary: 'Work stress and deadlines.',
+          summary_count: 5,
+        },
+        {
+          id: 'prev-2',
+          title: 'Second',
+          created_at: 0,
+          updated_at: RECENT - 1000,
+          summary: 'Relationship anxiety flared up.',
+          summary_count: 3,
+        },
+        {
+          id: 'prev-1',
+          title: 'First',
+          created_at: 0,
+          updated_at: RECENT - 2000,
+          summary: 'Sleep has been bad.',
+          summary_count: 7,
+        },
+      ],
+    })
+
+    const { result } = renderHook(() => useConversation())
+    await waitFor(() => expect(result.current.history.length).toBe(3))
+
+    act(() => {
+      void result.current.send('hello')
+    })
+    await waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+
+    const summary = useChatStore.getState().summary
+    // Oldest first in the combined string (prev-1 → prev-2 → prev-3)
+    const firstIdx = summary.indexOf('Sleep has been bad.')
+    const secondIdx = summary.indexOf('Relationship anxiety')
+    const thirdIdx = summary.indexOf('Work stress')
+    expect(firstIdx).toBeGreaterThan(-1)
+    expect(secondIdx).toBeGreaterThan(firstIdx)
+    expect(thirdIdx).toBeGreaterThan(secondIdx)
+    // Each gets its own "From a previous conversation" label
+    const labels = summary.match(/From a previous conversation/g)
+    expect(labels).toHaveLength(3)
+
+    await act(async () => {
+      resolveNext('reply')
+    })
+  })
+
+  it('falls back to last 3 ever when nothing is from the past week', async () => {
+    const OLD = Date.now() - 365 * 24 * 60 * 60 * 1000 // 1 year ago
+
+    jest.spyOn(chat, 'listConversations').mockResolvedValueOnce({
+      success: true,
+      data: [
+        {
+          id: 'prev-1',
+          title: 'Old chat',
+          created_at: 0,
+          updated_at: OLD,
+          summary: 'They were anxious about a presentation.',
+          summary_count: 4,
+        },
+      ],
+    })
+
+    const { result } = renderHook(() => useConversation())
+    await waitFor(() => expect(result.current.history.length).toBe(1))
+
+    act(() => {
+      void result.current.send('hello')
+    })
+    await waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+
+    expect(useChatStore.getState().summary).toContain('From a previous conversation')
+    expect(useChatStore.getState().summary).toContain('anxious about a presentation')
+
+    await act(async () => {
+      resolveNext('reply')
+    })
+  })
+
+  it('does not seed summary when there is no prior conversation', async () => {
+    const { result } = renderHook(() => useConversation())
+    // listConversations returns [] by default — no prior history.
+
+    act(() => {
+      void result.current.send('first')
+    })
+    await waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+
+    expect(useChatStore.getState().summary).toBe('')
+
+    await act(async () => {
+      resolveNext('reply')
+    })
+  })
+
+  it('does not seed summary when prior conversations have empty summaries', async () => {
+    jest.spyOn(chat, 'listConversations').mockResolvedValueOnce({
+      success: true,
+      data: [
+        {
+          id: 'prev-1',
+          title: 'Empty chat',
+          created_at: 0,
+          updated_at: RECENT,
+          summary: '',
+          summary_count: 0,
+        },
+      ],
+    })
+
+    const { result } = renderHook(() => useConversation())
+    await waitFor(() => expect(result.current.history.length).toBe(1))
+
+    act(() => {
+      void result.current.send('first')
+    })
+    await waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+
+    expect(useChatStore.getState().summary).toBe('')
+
+    await act(async () => {
+      resolveNext('reply')
+    })
+  })
+
+  it('does not seed summary from the current conversation itself', async () => {
+    // The history list already includes the conversation createConversation
+    // will return. The seed logic must filter it out by id so a conversation
+    // never seeds from its own summary (pointless and would duplicate context).
+    jest.spyOn(chat, 'listConversations').mockResolvedValueOnce({
+      success: true,
+      data: [
+        {
+          id: 'conv-1',
+          title: 'Already in history',
+          created_at: 0,
+          updated_at: RECENT,
+          summary: 'This should not be used.',
+          summary_count: 5,
+        },
+      ],
+    })
+
+    const { result } = renderHook(() => useConversation())
+    await waitFor(() => expect(result.current.history.length).toBe(1))
+
+    act(() => {
+      void result.current.send('hello')
+    })
+    await waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+
+    // conv-1 filtered out (c.id !== conversationId) and no other prior
+    // conversation exists, so summary stays empty.
+    expect(useChatStore.getState().summary).toBe('')
+
+    await act(async () => {
+      resolveNext('reply')
+    })
+  })
+})

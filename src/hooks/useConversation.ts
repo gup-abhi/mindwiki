@@ -106,6 +106,8 @@ export function useConversation(initialQuestion?: string) {
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const [history, setHistory] = useState<Conversation[]>([])
+  const historyRef = useRef(history)
+  historyRef.current = history
   const [loaded, setLoaded] = useState(false)
 
   useFocusEffect(
@@ -283,6 +285,26 @@ export function useConversation(initialQuestion?: string) {
         }
         conversationId = created.data.id
         store.setConversationId(conversationId)
+
+        // Seed the new conversation with rolling recaps from recent previous
+        // conversations, so the companion can follow up across sessions ("last
+        // time you were dreading Thursday's review — how did it go?"). Collect
+        // up to 3 from the past week (oldest-first, so the model reads them in
+        // chronological order); fall back to the last 3 ever if none this week.
+        const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+        const candidates = historyRef.current
+          .filter((c) => c.id !== conversationId && c.summary.trim().length > 0)
+          .sort((a, b) => b.updated_at - a.updated_at)
+        const recent = candidates.filter((c) => c.updated_at >= oneWeekAgo)
+        const selected = recent.length >= 1 ? recent : candidates
+        const top = selected.slice(0, 3).reverse() // oldest-first for prompt ordering
+        if (top.length > 0) {
+          const combined = top
+            .map((c) => `— From a previous conversation —\n${c.summary.trim()}`)
+            .join('\n\n')
+          const totalCount = top.reduce((acc, c) => acc + c.summary_count, 0)
+          store.setSummary(combined, totalCount)
+        }
       }
 
       // Prior turns become the model's history; capture before adding this turn.
