@@ -4,7 +4,7 @@ import {
   updateWikiForEntry,
   regeneratePageVoice,
 } from '@/services/wiki/engine'
-import { synthesizePage, regeneratePage } from '@/services/llm/deep-model'
+import { synthesizePage, synthesizePageReGround, regeneratePage } from '@/services/llm/deep-model'
 import {
   getPage,
   getPageByTitle,
@@ -15,10 +15,20 @@ import {
 } from '@/services/storage/wiki'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
 import { listReframesForBelief } from '@/services/storage/reframes'
-import { type Entry } from '@/services/storage/entries'
+import {
+  type Entry,
+  listEntriesByEmotion,
+  listEntriesByDistortion,
+  listEntriesByTopicOrTopic2,
+  listEntriesForEntity,
+} from '@/services/storage/entries'
 import { ok, err } from '@/types/result'
 
-jest.mock('@/services/llm/deep-model', () => ({ synthesizePage: jest.fn(), regeneratePage: jest.fn() }))
+jest.mock('@/services/llm/deep-model', () => ({
+  synthesizePage: jest.fn(),
+  synthesizePageReGround: jest.fn(),
+  regeneratePage: jest.fn(),
+}))
 jest.mock('@/services/storage/wiki', () => ({
   getPage: jest.fn(),
   getPageByTitle: jest.fn(),
@@ -33,6 +43,7 @@ jest.mock('@/services/storage/entities', () => ({
 jest.mock('@/services/storage/reframes', () => ({ listReframesForBelief: jest.fn() }))
 
 const mockSynth = synthesizePage as jest.Mock
+const mockSynthReGround = synthesizePageReGround as jest.Mock
 const mockRegen = regeneratePage as jest.Mock
 const mockRegenContent = regeneratePageContent as jest.Mock
 const mockGetByTitle = getPageByTitle as jest.Mock
@@ -42,6 +53,20 @@ const mockUpdate = updatePage as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
 const mockCountEntity = countEntriesForEntity as jest.Mock
 const mockListReframes = listReframesForBelief as jest.Mock
+
+// Entry-query mocks used by re-grounding (sampleEntriesForPage). These override
+// the real functions imported by engine.ts. Type-only imports (type Entry) are
+// erased at compile-time, so only the runtime values need mocking.
+jest.mock('@/services/storage/entries', () => ({
+  listEntriesByEmotion: jest.fn(),
+  listEntriesByDistortion: jest.fn(),
+  listEntriesByTopicOrTopic2: jest.fn(),
+  listEntriesForEntity: jest.fn(),
+}))
+const mockEntriesByEmotion = (listEntriesByEmotion as unknown as jest.Mock)
+const mockEntriesByDistortion = (listEntriesByDistortion as unknown as jest.Mock)
+const mockEntriesByTopic = (listEntriesByTopicOrTopic2 as unknown as jest.Mock)
+const mockEntriesForEntity = (listEntriesForEntity as unknown as jest.Mock)
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -269,6 +294,98 @@ describe('updateWikiForEntry', () => {
     await updateWikiForEntry(entry({ distortion: 'none' }))
 
     expect(mockListReframes).not.toHaveBeenCalled()
+  })
+
+  describe('re-grounding (every 10 entries)', () => {
+    const oldPage = (over: Partial<WikiPage> = {}): WikiPage => ({
+      id: 'p9',
+      title: 'Anxiety',
+      category: 'emotion',
+      content: 'You tend to worry before meetings.',
+      entry_count: 10,                  // triggers re-grounding
+      version: 7,
+      version_history: [],
+      created_at: Date.now() - 2 * 24 * 60 * 60 * 1000, // older than 24h
+      updated_at: 100,
+      dismissed_at: null,
+      corrected_at: null,
+      merged_into: null,
+      ...over,
+    })
+    const sampleEntry = {
+      situation: 'Had a tough standup',
+      thought: 'Everyone saw me stumble',
+      created_at: 1710000000000,
+    }
+
+    beforeEach(() => {
+      mockSynthReGround.mockReset()
+      mockSynthReGround.mockResolvedValue(ok('re-grounded content'))
+      mockEntriesByEmotion.mockReset()
+      mockEntriesByEmotion.mockResolvedValue(ok([sampleEntry]))
+    })
+
+    it('uses re-grounding synthesis at entry_count % 10 === 0', async () => {
+      mockGetByTitle.mockResolvedValue(ok(oldPage()))
+
+      await updateWikiForEntry(entry({ distortion: 'none' }))
+
+      expect(mockSynthReGround).toHaveBeenCalled()
+      expect(mockSynth).not.toHaveBeenCalled()
+    })
+
+    it('passes sampled past entries to the re-ground prompt', async () => {
+      mockGetByTitle.mockResolvedValue(ok(oldPage()))
+
+      await updateWikiForEntry(entry({ distortion: 'none' }))
+
+      expect(mockSynthReGround).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pastEntries: expect.arrayContaining([
+            expect.objectContaining({ situation: 'Had a tough standup' }),
+          ]),
+        })
+      )
+    })
+
+    it('still uses normal synthesis when entry_count is not a multiple of 10', async () => {
+      mockGetByTitle.mockResolvedValue(ok(oldPage({ entry_count: 7 })))
+
+      await updateWikiForEntry(entry({ distortion: 'none' }))
+
+      expect(mockSynth).toHaveBeenCalled()
+      expect(mockSynthReGround).not.toHaveBeenCalled()
+    })
+
+    it('falls back to normal synthesis when past entry queries come back empty', async () => {
+      mockGetByTitle.mockResolvedValue(ok(oldPage()))
+      mockEntriesByEmotion.mockResolvedValue(ok([])) // empty
+
+      await updateWikiForEntry(entry({ distortion: 'none' }))
+
+      // No past entries → falls through to normal synth
+      expect(mockSynth).toHaveBeenCalled()
+      expect(mockSynthReGround).not.toHaveBeenCalled()
+    })
+
+    it('skips re-grounding for a page younger than 24h', async () => {
+      const freshPage = oldPage({ created_at: Date.now() - 1000 }) // 1 second old
+      mockGetByTitle.mockResolvedValue(ok(freshPage))
+
+      await updateWikiForEntry(entry({ distortion: 'none' }))
+
+      expect(mockSynth).toHaveBeenCalled()
+      expect(mockSynthReGround).not.toHaveBeenCalled()
+    })
+
+    it('skips re-grounding for entry_count === 0 (no prior)', async () => {
+      mockGetByTitle.mockResolvedValue(ok(oldPage({ entry_count: 0 })))
+
+      await updateWikiForEntry(entry({ distortion: 'none' }))
+
+      expect(mockSynth).toHaveBeenCalled()
+      expect(mockSynthReGround).not.toHaveBeenCalled()
+    })
   })
 })
 

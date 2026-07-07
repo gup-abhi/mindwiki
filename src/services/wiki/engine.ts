@@ -1,5 +1,11 @@
-import { synthesizePage, regeneratePage } from '@/services/llm/deep-model'
-import { type Entry } from '@/services/storage/entries'
+import { synthesizePage, synthesizePageReGround, regeneratePage } from '@/services/llm/deep-model'
+import {
+  type Entry,
+  listEntriesByEmotion,
+  listEntriesByDistortion,
+  listEntriesByTopicOrTopic2,
+  listEntriesForEntity,
+} from '@/services/storage/entries'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
 import { listReframesForBelief } from '@/services/storage/reframes'
 import {
@@ -23,6 +29,40 @@ export interface Topic {
 const RECURRENCE_THRESHOLD = 2
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+// Re-grounding interval: every 10 entries the page synthesises from source
+// entries rather than the incremental telephone chain. Smooths drift while
+// keeping 90% of passes cheap (no extra entry queries).
+const RE_GROUND_INTERVAL = 10
+// A page must exist at least this long before its first re-ground, so a brand-
+// new page with content from its first 10 entries doesn't double-synthesise.
+const RE_GROUND_AGE_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Sample recent entries that shaped a wiki page, for a re-grounding pass.
+ * Routes by category to the right storage query. Returns up to K entries,
+ * newest first. Best-effort — returns empty on any failure so the caller
+ * falls through to normal incremental synthesis.
+ */
+async function sampleEntriesForPage(
+  title: string,
+  category: string,
+  maxEntries: number
+): Promise<Entry[]> {
+  const queries: Record<string, () => Promise<Result<Entry[]>>> = {
+    emotion: () => listEntriesByEmotion(title),
+    distortion: () => listEntriesByDistortion(title),
+    theme: () => listEntriesByTopicOrTopic2(title),
+  }
+  // Entity categories route through the entity join table
+  const entityTypes = ['person', 'place', 'activity', 'belief', 'behavior']
+  const q = entityTypes.includes(category)
+    ? () => listEntriesForEntity(category as any, title)
+    : queries[category]
+  if (!q) return []
+  const res = await q()
+  return res.success ? res.data.slice(0, maxEntries) : []
+}
 
 async function recurringEntityTopics(entryId: string): Promise<Topic[]> {
   const res = await listEntitiesForEntry(entryId)
@@ -139,16 +179,60 @@ export async function updateWikiForEntry(
       baseContent && page
         ? Math.max(0, Math.floor((entry.created_at - page.updated_at) / WEEK_MS))
         : null
-    const synth = await synthesizePage({
-      title: effectiveTitle,
-      category,
-      existingContent: baseContent,
-      situation: entry.situation,
-      thought: entry.thought,
-      distortion: entry.distortion,
-      reframe,
-      weeksSinceUpdate,
-    })
+
+    // Re-grounding: every RE_GROUND_INTERVAL entries, synthesise from source
+    // entries instead of the incremental telephone chain. Resets drift to zero.
+    const isReGround =
+      page != null &&
+      page.entry_count > 0 &&
+      page.entry_count % RE_GROUND_INTERVAL === 0 &&
+      !page.dismissed_at &&
+      Date.now() - page.created_at > RE_GROUND_AGE_MS
+
+    let synth: Result<string>
+    if (isReGround) {
+      const pastEntries = await sampleEntriesForPage(effectiveTitle, category, 6)
+      if (pastEntries.length > 0 && weeksSinceUpdate != null) {
+        synth = await synthesizePageReGround({
+          title: effectiveTitle,
+          category,
+          existingContent: baseContent,
+          situation: entry.situation,
+          thought: entry.thought,
+          distortion: entry.distortion,
+          reframe,
+          weeksSinceUpdate,
+          pastEntries: pastEntries.map((e) => ({
+            situation: e.situation,
+            thought: e.thought,
+            created_at: e.created_at,
+          })),
+        })
+      } else {
+        // No past entries to ground from — fall through to normal synthesis
+        synth = await synthesizePage({
+          title: effectiveTitle,
+          category,
+          existingContent: baseContent,
+          situation: entry.situation,
+          thought: entry.thought,
+          distortion: entry.distortion,
+          reframe,
+          weeksSinceUpdate,
+        })
+      }
+    } else {
+      synth = await synthesizePage({
+        title: effectiveTitle,
+        category,
+        existingContent: baseContent,
+        situation: entry.situation,
+        thought: entry.thought,
+        distortion: entry.distortion,
+        reframe,
+        weeksSinceUpdate,
+      })
+    }
     if (!synth.success) {
       if (__DEV__) console.log(`[wiki] synth failed: ${synth.error.code}`)
       continue

@@ -7,6 +7,7 @@ import { DevStreakDebug } from '@/components/DevStreakDebug'
 import { DevSeedDigest } from '@/components/DevSeedDigest'
 import { DevSeedTrend } from '@/components/DevSeedTrend'
 import { DevDriftReport } from '@/components/DevDriftReport'
+import { DevReGround } from '@/components/DevReGround'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
 import { useBiometricLock } from '@/hooks/useBiometricLock'
@@ -236,6 +237,7 @@ export default function Settings() {
           <DevSeedDigest />
           <DevSeedTrend />
           <DevDriftReport />
+          <DevReGround />
         </>
       )}
 

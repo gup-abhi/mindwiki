@@ -1,4 +1,4 @@
-import { buildUpdatePagePrompt } from '@/services/llm/prompts/update-page'
+import { buildUpdatePagePrompt, buildReGroundPrompt } from '@/services/llm/prompts/update-page'
 
 const base = {
   title: 'Work',
@@ -68,6 +68,89 @@ describe('buildUpdatePagePrompt — recency hint', () => {
   it('adds no hint when weeksSinceUpdate is absent (back-compat)', () => {
     const prompt = buildUpdatePagePrompt(withContent)
     expect(prompt).not.toMatch(/since this page was last shaped/i)
+  })
+})
+
+describe('buildReGroundPrompt', () => {
+  const pastEntries = [
+    { situation: 'Had a tough standup', thought: 'Everyone thinks my updates are weak', created_at: 1710000000000 },
+    { situation: 'Missed a deadline', thought: 'I am unreliable', created_at: 1710100000000 },
+  ]
+
+  it('includes the re-grounding instruction line', () => {
+    const prompt = buildReGroundPrompt({ ...base, pastEntries })
+    expect(prompt).toMatch(/Re-synthesize it based on the current page/i)
+    expect(prompt).toMatch(/past entries below/i)
+  })
+
+  it('grounds in past entries as the primary evidence', () => {
+    const prompt = buildReGroundPrompt({ ...base, pastEntries })
+    expect(prompt).toMatch(/Ground your synthesis in these as the primary evidence/i)
+    expect(prompt).not.toMatch(/Weave the new reflection into the page/i)
+  })
+
+  it('formats past entries as date-keyed blocks with no labels', () => {
+    const prompt = buildReGroundPrompt({ ...base, pastEntries })
+    expect(prompt).toMatch(/2024-03-09 —/)
+    expect(prompt).toMatch(/2024-03-10 —/)
+    // Past entries should NOT be rendered as labelled blocks (those leak into output).
+    // The word "Situation:" appears in PAGE_STYLE as a negative example, which is fine.
+    // Check instead that past entries aren't labelled in the data section:
+    const pastSection = prompt.split('Past entries (newest first):')[1] ?? ''
+    expect(pastSection).not.toMatch(/^Situation:/m)
+    expect(pastSection).not.toMatch(/^Thought:/m)
+  })
+
+  it('does not include past-entries sections when there are none (fallback)', () => {
+    const prompt = buildReGroundPrompt({ ...base, pastEntries: [] })
+    expect(prompt).toMatch(/past entries below/i)
+    expect(prompt).not.toMatch(/newest first:\n\n/)
+  })
+
+  it('trims existing content to the tighter re-ground cap (1200 chars)', () => {
+    const content = 'x'.repeat(4000)
+    const prompt = buildReGroundPrompt({ ...base, existingContent: content, pastEntries })
+    expect(prompt).toContain(`${'x'.repeat(1200)}…`)
+    expect(prompt).not.toContain('x'.repeat(1201))
+  })
+
+  it('deduplicates past entries with identical text (keeps newest date)', () => {
+    const dupe = [
+      { situation: 'Same thing', thought: 'Same thought', created_at: 1710000000000 },
+      { situation: 'Same thing', thought: 'Same thought', created_at: 1710100000000 },
+    ]
+    const prompt = buildReGroundPrompt({ ...base, pastEntries: dupe })
+    // Both dates could appear if dedup failed — count occurrences of "Same thing"
+    expect(prompt.match(/Same thing/g)?.length ?? 0).toBe(1)
+    // The newer date should win
+    expect(prompt).toMatch(/2024-03-10 —/)
+  })
+
+  it('formats the current page as a prior (not the source of truth)', () => {
+    const prompt = buildReGroundPrompt({ ...base, existingContent: 'You worry about work.', pastEntries })
+    expect(prompt).toMatch(/Current page \(as prior\)/)
+    expect(prompt).toContain('You worry about work.')
+  })
+
+  it('still folds in the reframe line when on a belief page', () => {
+    const prompt = buildReGroundPrompt({
+      ...base,
+      category: 'belief',
+      reframe: 'I can be nervous and still capable',
+      pastEntries,
+    })
+    expect(prompt).toMatch(/more balanced view/i)
+    expect(prompt).toContain('I can be nervous and still capable')
+  })
+
+  it('includes recency hint when the page has been quiet', () => {
+    const prompt = buildReGroundPrompt({
+      ...base,
+      existingContent: 'You worry about work.',
+      weeksSinceUpdate: 5,
+      pastEntries,
+    })
+    expect(prompt).toMatch(/roughly 5 weeks/i)
   })
 })
 

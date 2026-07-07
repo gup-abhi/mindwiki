@@ -11,14 +11,14 @@
  *    no headings, no section labels). It's model-independent, so a future
  *    on-device eval can score REAL model output with the exact same checker.
  *  - The fixture table drives realistic model outputs through the real
- *    `synthesizePage` pipeline (only the LLM call is mocked) and asserts the
- *    structured outcome — kept / stripped-then-kept / rejected — and that every
- *    page that survives meets the house style.
+ *    `synthesizePage` / `synthesizePageReGround` pipelines (only the LLM call
+ *    is mocked) and asserts the structured outcome — kept / stripped-then-kept /
+ *    rejected — and that every page that survives meets the house style.
  *
  * To extend: add a fixture. When the new model leaks in a new way, add a raw
  * sample here and (if needed) a strip pattern in deep-model's SCAFFOLDING_LINE.
  */
-import { synthesizePage } from '@/services/llm/deep-model'
+import { synthesizePage, synthesizePageReGround } from '@/services/llm/deep-model'
 import { LLMBridge } from '@/native/LLMBridge'
 
 jest.mock('@/native/LLMBridge', () => ({
@@ -33,6 +33,11 @@ const input = {
   situation: 'a meeting',
   thought: 'I will fail',
 }
+
+const pastEntries = [
+  { situation: 'Missed a deadline', thought: 'I am unreliable', created_at: 1710000000000 },
+  { situation: 'Team retro went badly', thought: 'Everyone thinks I underperform', created_at: 1710100000000 },
+]
 
 /**
  * Returns the ways `content` breaks the wiki house style — empty array means a
@@ -172,6 +177,78 @@ describe('synthesizePage eval fixtures', () => {
         expect(result.data).toBe(f.expectContent)
       }
       // Every page that reaches the wiki must meet the house style.
+      expect(checkHouseStyle(result.data)).toEqual([])
+    })
+  })
+})
+
+interface ReGroundFixture {
+  name: string
+  raw: string
+  outcome: 'kept' | 'rejected'
+  expectContent?: string
+}
+
+const reGroundInput = {
+  ...input,
+  existingContent: 'You tend to expect the worst before a deadline.',
+  pastEntries,
+}
+
+const reGroundFixtures: ReGroundFixture[] = [
+  {
+    name: 're-ground: clean multi-paragraph prose passes through',
+    raw: 'You feel dread before big meetings, even though they usually go fine. Lately this has eased as you notice your preparation pays off.',
+    outcome: 'kept',
+  },
+  {
+    name: 're-ground: "Current page:" and "Past entries:" label lines are stripped',
+    raw:
+      'Current page:\n' +
+      'You tend to expect the worst before a deadline.\n' +
+      'Past entries:\n' +
+      'Missed a deadline — you felt unreliable.\n' +
+      'This pattern shows up most around work.',
+    outcome: 'kept',
+    // The scaffolding labels are stripped, leaving the prose lines between them
+    expectContent: 'You tend to expect the worst before a deadline.\nMissed a deadline — you felt unreliable.\nThis pattern shows up most around work.',
+  },
+  {
+    name: 're-ground: output that is only scaffolding is rejected',
+    raw: 'Current page:\nNew entry:\nPast entries:',
+    outcome: 'rejected',
+  },
+  {
+    name: 're-ground: "Past entries:" label stripped, real prose survives',
+    raw:
+      'Past entries:\n' +
+      'You tend to brace for the worst.\n' +
+      'You notice that missed deadlines feel catastrophic even when the fallout is minor.',
+    outcome: 'kept',
+    // Only the "Past entries:" line is removed; the content line and prose remain
+    expectContent: 'You tend to brace for the worst.\nYou notice that missed deadlines feel catastrophic even when the fallout is minor.',
+  },
+]
+
+describe('synthesizePageReGround eval fixtures', () => {
+  beforeEach(() => mockSynthesise.mockReset())
+
+  reGroundFixtures.forEach((f) => {
+    it(f.name, async () => {
+      mockSynthesise.mockResolvedValue({ text: f.raw })
+      const result = await synthesizePageReGround(reGroundInput)
+
+      if (f.outcome === 'rejected') {
+        expect(result.success).toBe(false)
+        if (!result.success) expect(result.error.code).toBe('REGROUND_VALIDATION_FAILED')
+        return
+      }
+
+      expect(result.success).toBe(true)
+      if (!result.success) return
+      if (f.expectContent !== undefined) {
+        expect(result.data).toBe(f.expectContent)
+      }
       expect(checkHouseStyle(result.data)).toEqual([])
     })
   })

@@ -263,7 +263,7 @@ describe('WikiPageScreen', () => {
       loading: false,
     })
     render(<WikiPageScreen />)
-    expect(screen.getByText('1 previous version')).toBeTruthy()
+    expect(screen.getByText('Previous versions')).toBeTruthy()
   })
 
   it('shows a not-found state', () => {

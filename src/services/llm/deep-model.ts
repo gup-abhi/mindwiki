@@ -12,8 +12,10 @@ import { buildAffirmationPrompt, type AffirmationInput } from './prompts/affirma
 import {
   buildUpdatePagePrompt,
   buildRewritePagePrompt,
+  buildReGroundPrompt,
   type UpdatePageInput,
   type RewritePageInput,
+  type ReGroundInput,
 } from './prompts/update-page'
 import { ConversationReplySchema, ConversationSummarySchema } from './schemas/conversation.schema'
 import { AffirmationSchema } from './schemas/challenge.schema'
@@ -64,6 +66,9 @@ const SCAFFOLDING_LINE = [
   /^situation:/i,
   /^thought:/i,
   /^behaviou?r:/i,
+  // Re-grounding prompt labels
+  /^past entries:/i,
+  /^new entry:/i,
 ]
 function stripScaffolding(text: string): string {
   return text
@@ -153,6 +158,31 @@ export async function synthesizePage(input: UpdatePageInput): Promise<Result<str
   const parsed = WikiContentSchema.safeParse(stripScaffolding(raw))
   if (!parsed.success) {
     return err('SYNTH_VALIDATION_FAILED', 'Synthesized content failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Synthesize updated wiki-page content using past source entries as primary
+ * evidence rather than the incremental telephone chain. Same model, same schema,
+ * different prompt. Used at periodic intervals (every 10 entries per page).
+ * Never throws; errors carry a code only, never entry/page text.
+ */
+export async function synthesizePageReGround(input: ReGroundInput): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildReGroundPrompt(input), {
+      maxTokens: 400,
+      temperature: 0.5,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('REGROUND_INFERENCE_FAILED', 'Deep model re-ground inference failed', e)
+  }
+
+  const parsed = WikiContentSchema.safeParse(stripScaffolding(raw))
+  if (!parsed.success) {
+    return err('REGROUND_VALIDATION_FAILED', 'Re-grounded content failed validation')
   }
   return ok(parsed.data)
 }

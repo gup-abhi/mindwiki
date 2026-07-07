@@ -453,6 +453,30 @@ export function listEntriesByTopic(label: string, db: SqliteDatabase = getDb()):
 }
 
 /**
+ * List journal entries whose topic OR topic2 equals `value` (case-insensitive),
+ * newest first — same as listEntriesByTopic but also matches the secondary topic
+ * column. Needed for re-grounding a theme page (the page title may appear as
+ * either the primary or secondary topic).
+ */
+export async function listEntriesByTopicOrTopic2(
+  value: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<Entry[]>> {
+  try {
+    const res = await db.execute(
+      `SELECT * FROM entries
+        WHERE (topic = ? COLLATE NOCASE OR topic2 = ? COLLATE NOCASE)
+          AND source = 'journal'
+        ORDER BY created_at DESC`,
+      [value, value]
+    )
+    return ok(res.rows.map(rowToEntry))
+  } catch (e) {
+    return err('ENTRY_LIST_BY_TOPIC_FAILED', 'Failed to list entries by topic', e)
+  }
+}
+
+/**
  * List journal entries that mention an entity (person/place/activity), newest
  * first — the entries behind a person/place/activity graph node. Reflect-chat
  * entries are excluded, matching listEntriesByColumn.
