@@ -383,9 +383,15 @@ export function useConversation(initialQuestion?: string) {
     [generateReply]
   )
 
-  const newConversation = useCallback(() => {
+  const newConversation = useCallback(async () => {
     retryRef.current = null
     useChatStore.getState().reset()
+    // Refresh the conversation list so a just-ended conversation appears
+    // immediately in the history tab instead of waiting for the next
+    // useFocusEffect (which only fires on screen-focus, not within-tab
+    // navigation like hardware-back → start screen).
+    const res = await listConversations()
+    if (res.success) setHistory(res.data)
   }, [])
 
   const loadConversation = useCallback(async (id: string) => {
