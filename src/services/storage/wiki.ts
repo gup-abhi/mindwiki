@@ -11,6 +11,36 @@ export interface WikiPageVersion {
   updated_at: number
 }
 
+// Version-history cap: keep the first version, monthly snapshots from the middle,
+// and the KEEP_LAST_N most recent versions. Sync re-uploads the whole row, so an
+// unbounded history turns into an O(n²) liability in both storage and bandwidth.
+const MAX_VERSION_HISTORY = 20
+const KEEP_LAST_N = 10
+
+export function capVersionHistory(history: WikiPageVersion[]): WikiPageVersion[] {
+  if (history.length <= MAX_VERSION_HISTORY) return history
+
+  // Always preserve the first version (v1 — the original synthesis)
+  const first = [history[0]]
+
+  // Always preserve the N most recent versions (fine-grained recent evolution)
+  const lastN = history.slice(-KEEP_LAST_N)
+
+  // For everything in between, keep at most one per calendar month
+  const mid = history.slice(1, -KEEP_LAST_N)
+  const monthly: WikiPageVersion[] = []
+  let currentMonth = ''
+  for (const v of mid) {
+    const month = new Date(v.updated_at).toISOString().slice(0, 7) // YYYY-MM
+    if (month !== currentMonth) {
+      monthly.push(v)
+      currentMonth = month
+    }
+  }
+
+  return [...first, ...monthly, ...lastN]
+}
+
 export interface WikiPage {
   id: string
   title: string
@@ -217,10 +247,11 @@ export async function updatePage(
     }
 
     const prev = current.data
-    const history: WikiPageVersion[] = [
+    const rawHistory: WikiPageVersion[] = [
       ...prev.version_history,
       { version: prev.version, content: prev.content, updated_at: prev.updated_at },
     ]
+    const history = capVersionHistory(rawHistory)
     const now = Date.now()
     const next: WikiPage = {
       ...prev,
@@ -272,10 +303,11 @@ export async function correctPage(
     }
 
     const prev = current.data
-    const history: WikiPageVersion[] = [
+    const rawHistory: WikiPageVersion[] = [
       ...prev.version_history,
       { version: prev.version, content: prev.content, updated_at: prev.updated_at },
     ]
+    const history = capVersionHistory(rawHistory)
     const now = Date.now()
     const next: WikiPage = {
       ...prev,
@@ -320,10 +352,11 @@ export async function regeneratePageContent(
     }
 
     const prev = current.data
-    const history: WikiPageVersion[] = [
+    const rawHistory: WikiPageVersion[] = [
       ...prev.version_history,
       { version: prev.version, content: prev.content, updated_at: prev.updated_at },
     ]
+    const history = capVersionHistory(rawHistory)
     const now = Date.now()
     const next: WikiPage = {
       ...prev,

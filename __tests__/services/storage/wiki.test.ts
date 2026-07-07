@@ -1,5 +1,6 @@
 import { type SqliteDatabase } from '@/services/storage/db'
 import {
+  capVersionHistory,
   correctPage,
   createPage,
   deleteEmptyPages,
@@ -11,6 +12,7 @@ import {
   regeneratePageContent,
   restorePage,
   updatePage,
+  type WikiPageVersion,
 } from '@/services/storage/wiki'
 
 let mockUuidCounter = 0
@@ -316,5 +318,73 @@ describe('storage/wiki CRUD', () => {
     const r = await restorePage('ghost', db)
     expect(r.success).toBe(false)
     if (!r.success) expect(r.error.code).toBe('WIKI_NOT_FOUND')
+  })
+
+  it('capVersionHistory keeps the first, monthly mid, and last N versions', () => {
+    // 30 versions: many cluster in the same months so monthly dedup trims the mid
+    const versions: WikiPageVersion[] = [
+      // v1 — Jan 2025 (1st)
+      { version: 1, content: 'v1', updated_at: new Date('2025-01-05').getTime() },
+      // v2–v8 — Feb 2025 (7 updates, dedup to 1)
+      ...Array.from({ length: 7 }, (_, i) => ({
+        version: i + 2, content: `v${i + 2}`, updated_at: new Date('2025-02-10').getTime() + i * 86_400_000,
+      })),
+      // v9–v11 — Mar 2025 (3 updates, dedup to 1)
+      ...Array.from({ length: 3 }, (_, i) => ({
+        version: i + 9, content: `v${i + 9}`, updated_at: new Date('2025-03-15').getTime() + i * 86_400_000,
+      })),
+      // v12 — Apr 2025 (1 update counted)
+      { version: 12, content: 'v12', updated_at: new Date('2025-04-01').getTime() },
+      // v13 — May 2025 (1 update counted)
+      { version: 13, content: 'v13', updated_at: new Date('2025-05-01').getTime() },
+      // v14–v20 — Jul 2025 (7 updates, dedup to 1; note Jun has 0)
+      ...Array.from({ length: 7 }, (_, i) => ({
+        version: i + 14, content: `v${i + 14}`, updated_at: new Date('2025-07-10').getTime() + i * 86_400_000,
+      })),
+      // v21–v30 — last 10 untouched
+      ...Array.from({ length: 10 }, (_, i) => ({
+        version: i + 21, content: `v${i + 21}`, updated_at: new Date('2025-12-01').getTime() + i * 86_400_000,
+      })),
+    ].sort((a, b) => a.version - b.version)
+
+    const capped = capVersionHistory(versions)
+    expect(capped.length).toBeLessThanOrEqual(20)
+    // First version is always present
+    expect(capped[0].version).toBe(1)
+    // Last 10 versions are always present
+    expect(capped.slice(-10).map((v) => v.version)).toEqual([21, 22, 23, 24, 25, 26, 27, 28, 29, 30])
+    // Monthly mid — at most one per distinct YYYY-MM between v2 and v20
+    const mid = capped.slice(1, -10)
+    const months = mid.map((v) => new Date(v.updated_at).toISOString().slice(0, 7))
+    expect(new Set(months).size).toBe(months.length) // no duplicate months
+    // Expected months: Feb, Mar, Apr, May, Jul
+    expect(months).toEqual(['2025-02', '2025-03', '2025-04', '2025-05', '2025-07'])
+  })
+
+  it('capVersionHistory does not trim when under the limit', () => {
+    const versions: WikiPageVersion[] = Array.from({ length: 15 }, (_, i) => ({
+      version: i + 1,
+      content: `v${i + 1}`,
+      updated_at: Date.now() - i * 86_400_000,
+    }))
+    const capped = capVersionHistory(versions)
+    expect(capped).toEqual(versions)
+  })
+
+  it('updatePage caps version_history past 20 versions', async () => {
+    const { db } = createFakeDb()
+    const created = await createPage({ title: 'Anxiety', content: 'v1' }, db)
+    const id = created.success ? created.data.id : ''
+
+    // Simulate 25 updates — history should be capped
+    for (let i = 2; i <= 26; i++) {
+      await updatePage(id, `v${i}`, db)
+    }
+    const page = await getPage(id, db)
+    expect(page.success && page.data?.version_history.length).toBeLessThanOrEqual(20)
+    // First entry is v1
+    expect(page.success && page.data?.version_history[0].version).toBe(1)
+    // Last entry is v25
+    expect(page.success && page.data?.version_history.slice(-1)[0].version).toBe(25)
   })
 })
