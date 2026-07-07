@@ -5,6 +5,8 @@ import {
   singularizeLabel,
   normalizeEntities,
   normalizePhrases,
+  canonicalizeBelief,
+  normalizeBeliefs,
 } from '@/services/llm/taxonomy'
 
 describe('controlled vocabulary', () => {
@@ -83,5 +85,71 @@ describe('normalizePhrases', () => {
     expect(normalizePhrases(['my worth depends on others'])).toEqual([
       'My worth depends on others',
     ])
+  })
+})
+
+describe('canonicalizeBelief', () => {
+  it('expands contractions so surface variants collapse', () => {
+    expect(canonicalizeBelief("I'm not good enough")).toBe('I am not good enough')
+    expect(canonicalizeBelief("don't belong here")).toBe('do not belong here')
+    expect(canonicalizeBelief("I'll never be happy")).toBe('I will never be happy')
+    expect(canonicalizeBelief("I've failed again")).toBe('I have failed again')
+  })
+
+  it('drops leading "that" / "the idea that" / "the thought that"', () => {
+    expect(canonicalizeBelief('That I am not good enough')).toBe('I am not good enough')
+    expect(canonicalizeBelief('the idea that I will fail')).toBe('I will fail')
+    expect(canonicalizeBelief('the thought that people leave')).toBe('people leave')
+  })
+
+  it('drops weak intensifiers but preserves the core claim', () => {
+    expect(canonicalizeBelief('I am really not good enough')).toBe('I am not good enough')
+    expect(canonicalizeBelief('I am just too anxious')).toBe('I am too anxious')
+    expect(canonicalizeBelief('I truly cannot do this')).toBe('I cannot do this')
+    // preserves strong modals that change meaning
+    expect(canonicalizeBelief('I never do anything right')).toBe('I never do anything right')
+    expect(canonicalizeBelief('People always leave')).toBe('People always leave')
+  })
+
+  it('composes: contract + drop-leading + drop-intensifier', () => {
+    expect(canonicalizeBelief("That I'm really just not good enough")).toBe('I am not good enough')
+    expect(canonicalizeBelief("the thought that you don't truly care")).toBe('you do not care')
+  })
+
+  it('handles empty input', () => {
+    expect(canonicalizeBelief('')).toBe('')
+    expect(canonicalizeBelief('   ')).toBe('')
+  })
+})
+
+describe('normalizeBeliefs', () => {
+  it('collapses three surface variants of the same core belief into one label', () => {
+    expect(
+      normalizeBeliefs([
+        "I'm not good enough",
+        'That I am really not good enough',
+        'I am not good enough',
+      ])
+    ).toEqual(['I am not good enough'])
+  })
+
+  it('keeps distinct beliefs separate, capped at default max 2', () => {
+    expect(
+      normalizeBeliefs([
+        "I'm not good enough",
+        'People will leave',
+        'I have to be perfect',
+      ])
+    ).toEqual(['I am not good enough', 'People will leave'])
+  })
+
+  it('drops none values (post-canonicalization)', () => {
+    expect(normalizeBeliefs(['none', 'I am not good enough'])).toEqual(['I am not good enough'])
+  })
+
+  it('caps at 2 by default', () => {
+    expect(
+      normalizeBeliefs(['I am not good enough', 'People will leave', 'I have to be perfect'])
+    ).toHaveLength(2)
   })
 })

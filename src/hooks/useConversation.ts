@@ -25,6 +25,7 @@ import { listEdges, listNodes, type GraphEdge, type GraphNode } from '@/services
 import { listPages, type WikiPage } from '@/services/storage/wiki'
 import { respond, updateRunningSummary } from '@/services/wiki/conversation'
 import { backfillStaleEmbeddings } from '@/services/wiki/embeddings'
+import { backfillBeliefEmbeddings } from '@/services/wiki/belief-snap'
 import { suggestedQuestions } from '@/services/wiki/query'
 import { useChatStore, type UIMessage } from '@/store/chat.store'
 
@@ -143,7 +144,10 @@ export function useConversation(initialQuestion?: string) {
           // (covers users already past onboarding) and bring page vectors up to
           // date so semantic ranking has something to match against. Failures are
           // swallowed — Reflect just stays on lexical ranking.
-          void ensureEmbedModel().then(() => backfillStaleEmbeddings(pageList))
+          void ensureEmbedModel().then(() => {
+            backfillStaleEmbeddings(pageList)
+            backfillBeliefEmbeddings()
+          })
         }
       )
       // On blur: the chat is no longer live, so drain the deferred captures —

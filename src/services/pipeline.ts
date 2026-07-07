@@ -14,6 +14,7 @@ import {
 } from '@/services/storage/entries'
 import { isModelDownloaded } from '@/services/llm/model-manager'
 import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
+import { snapBeliefsSemantic } from '@/services/wiki/belief-snap'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { updateWikiForEntry } from '@/services/wiki/engine'
@@ -41,11 +42,15 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // Persist entities before graph/wiki run — the graph reads them for
   // person/place/activity nodes and the wiki uses the recurrence count (which
   // must include this entry). Cheap DB write; await it.
+  // Run the beliefs through the semantic-deup layer so near-synonyms ("I am not
+  // good enough" / "I am inadequate") collapse to the same stored label — the
+  // exact normalization already handles surface variants via canonicalizeBelief.
+  const beliefs = await snapBeliefsSemantic(ex.beliefs)
   const entities: NewEntity[] = [
     ...ex.people.map((label) => ({ type: 'person' as const, label })),
     ...ex.places.map((label) => ({ type: 'place' as const, label })),
     ...ex.activities.map((label) => ({ type: 'activity' as const, label })),
-    ...ex.beliefs.map((label) => ({ type: 'belief' as const, label })),
+    ...beliefs.map((label) => ({ type: 'belief' as const, label })),
     ...ex.behaviors.map((label) => ({ type: 'behavior' as const, label })),
   ]
   await setEntitiesForEntry(entry.id, entities)

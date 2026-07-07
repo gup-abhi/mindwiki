@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -258,5 +258,11 @@ describe('migration 007 (pursuits)', () => {
     expect(MIGRATIONS[20].version).toBe(21)
     expect(MIGRATIONS[20].name).toBe('entry_raw_text')
     expect(MIGRATIONS[20].statements).toEqual(['ALTER TABLE entries ADD COLUMN raw_text TEXT'])
+  })
+
+  it('is registered as version 22 and creates the entity_embeddings table', () => {
+    expect(MIGRATIONS[21].version).toBe(22)
+    expect(MIGRATIONS[21].name).toBe('entity_embeddings')
+    expect(MIGRATIONS[21].statements.some((s) => s.includes('CREATE TABLE IF NOT EXISTS entity_embeddings'))).toBe(true)
   })
 })

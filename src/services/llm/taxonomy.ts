@@ -249,3 +249,109 @@ export function normalizePhrases(raw: string[], max = 2): string[] {
   }
   return out
 }
+
+// Common contractions expanded so surface variants collapse to the same stem
+// before dedup. Order matters: "won't" before general n't, "I'm" before shorter.
+const CONTRACTIONS: [RegExp, string][] = [
+  [/\bwon't\b/g, 'will not'],
+  [/\bcan't\b/g, 'cannot'],
+  [/\blet's\b/g, 'let us'],
+  [/\bI'm\b/g, 'I am'],
+  [/\byou're\b/g, 'you are'],
+  [/\bhe's\b/g, 'he is'],
+  [/\bshe's\b/g, 'she is'],
+  [/\bit's\b/g, 'it is'],
+  [/\bwe're\b/g, 'we are'],
+  [/\bthey're\b/g, 'they are'],
+  [/\bI've\b/g, 'I have'],
+  [/\byou've\b/g, 'you have'],
+  [/\bwe've\b/g, 'we have'],
+  [/\bthey've\b/g, 'they have'],
+  [/\bI'll\b/g, 'I will'],
+  [/\byou'll\b/g, 'you will'],
+  [/\bhe'll\b/g, 'he will'],
+  [/\bshe'll\b/g, 'she will'],
+  [/\bwe'll\b/g, 'we will'],
+  [/\bthey'll\b/g, 'they will'],
+  [/\bI'd\b/g, 'I would'],
+  [/\byou'd\b/g, 'you would'],
+  [/\bhe'd\b/g, 'he would'],
+  [/\bshe'd\b/g, 'she would'],
+  [/\bwe'd\b/g, 'we would'],
+  [/\bthey'd\b/g, 'they would'],
+  [/\bdon't\b/g, 'do not'],
+  [/\bdoesn't\b/g, 'does not'],
+  [/\bdidn't\b/g, 'did not'],
+  [/\bwouldn't\b/g, 'would not'],
+  [/\bcouldn't\b/g, 'could not'],
+  [/\bshouldn't\b/g, 'should not'],
+  [/\bmustn't\b/g, 'must not'],
+  [/\bhaven't\b/g, 'have not'],
+  [/\bhasn't\b/g, 'has not'],
+  [/\bhadn't\b/g, 'had not'],
+  [/\baren't\b/g, 'are not'],
+  [/\bisn't\b/g, 'is not'],
+  [/\bwasn't\b/g, 'was not'],
+  [/\bweren't\b/g, 'were not'],
+  [/\bneedn't\b/g, 'need not'],
+]
+
+/** Weak intensifiers that add emphasis without changing the core claim — dropping
+ *  them lets "I am really not good enough" and "I am not good enough" collapse.
+ *  Preserves strong modals (never, always, ever) that change the logical meaning. */
+const DROP_INTENSIFIERS = /\b(really|just|quite|truly|absolutely|extremely)\s+/gi
+
+/** Leading "That" / "The thought that" frame that wraps a belief but isn't part of it.
+ *  Applied AFTER contraction expansion so patterns are simpler. */
+const BELIEF_LEADING = /^(that\s+|the\s+(idea|thought|feeling)\s+that\s+)/i
+
+/**
+ * Canonicalize a single belief phrase so sentence-level variants collapse across
+ * entries. Lossless transforms only — the core claim is unchanged, just the
+ * surface form is normalised:
+ *
+ *   1. Expand contractions ("I'm" → "I am", "don't" → "do not")
+ *   2. Drop leading "that" / "the idea that" / "the thought that"
+ *   3. Drop weak intensifiers ("really", "just", "quite", "truly")
+ *   4. Strip trailing punctuation (periods, spaces)
+ *   5. Normalise whitespace
+ *
+ * "I'm not good enough." and "That I am really not good enough" → both
+ * canonicalize to "I am not good enough" — a single label that accumulates.
+ */
+export function canonicalizeBelief(text: string): string {
+  let s = text.trim()
+  if (!s) return s
+  for (const [re, replacement] of CONTRACTIONS) s = s.replace(re, replacement)
+  s = s.replace(BELIEF_LEADING, '')
+  s = s.replace(DROP_INTENSIFIERS, '')
+  s = s.replace(/[.\s]+$/, '')
+  return s.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Normalize raw belief labels from the model: canonicalize (folding surface
+ * variants to a stable stem), then dedupe case-insensitively — so three entries
+ * each expressing the same core belief but phrased differently ("I'm not good
+ * enough", "That I am really not good enough", "I am not good enough") collapse
+ * to one label and the ≥2 recurrence gate opens.
+ *
+ * Behaviors (short noun-style labels like "Avoidance") still use
+ * {@link normalizePhrases} directly — they need leading-article stripping, not
+ * sentence canonicalization.
+ */
+export function normalizeBeliefs(raw: string[], max = 2): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const can = canonicalizeBelief(item)
+    // After canonicalization the belief might collapse to nothing ("just" alone)
+    if (!can || can.toLowerCase() === 'none') continue
+    const key = can.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(can.charAt(0).toUpperCase() + can.slice(1))
+    if (out.length >= max) break
+  }
+  return out
+}

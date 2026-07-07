@@ -26,7 +26,7 @@ import { buildDeepenPrompt, type DeepenPromptInput } from './prompts/deepen'
 import { DeepenQuestionSchema } from './schemas/deepen.schema'
 import { buildExtractPrompt, type ExtractPromptInput, type ExtractOptions } from './prompts/extract-entry'
 import { EntryExtractSchema, type EntryExtract } from './schemas/entry-extract.schema'
-import { canonicalizeEmotion, canonicalizeDistortion, canonicalizeLabel, singularizeLabel, normalizeEntities, normalizePhrases } from './taxonomy'
+import { canonicalizeEmotion, canonicalizeDistortion, canonicalizeLabel, singularizeLabel, normalizeEntities, normalizePhrases, normalizeBeliefs } from './taxonomy'
 
 // Below this confidence we don't trust the distortion call enough to record it —
 // a shaky distortion would otherwise seed a (gated, but still) graph node and
@@ -120,7 +120,7 @@ export async function extractEntry(
     people: normalizeEntities(parsed.data.people),
     places: normalizeEntities(parsed.data.places),
     activities: normalizeEntities(parsed.data.activities),
-    beliefs: normalizePhrases(parsed.data.beliefs),
+    beliefs: normalizeBeliefs(parsed.data.beliefs),
     behaviors: normalizePhrases(parsed.data.behaviors),
     restatement: parsed.data.restatement.trim(),
   })

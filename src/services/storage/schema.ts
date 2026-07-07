@@ -475,3 +475,23 @@ export const migration021: Migration = {
   name: 'entry_raw_text',
   statements: [`ALTER TABLE entries ADD COLUMN raw_text TEXT`],
 }
+
+// Migration 022 — entity embeddings for semantic belief canonicalization. One
+// row per entity label+type, storing the bge-small vector and a content hash
+// so re-embedding only needs to run on labels not yet stored. NOT synced (the
+// vector depends on this device's embedding model, like page_embeddings).
+export const migration022: Migration = {
+  version: 22,
+  name: 'entity_embeddings',
+  statements: [
+    `CREATE TABLE IF NOT EXISTS entity_embeddings (
+      label TEXT NOT NULL,
+      type TEXT NOT NULL,
+      dim INTEGER NOT NULL,
+      vector TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (label, type)
+    )`,
+  ],
+}

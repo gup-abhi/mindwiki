@@ -93,6 +93,23 @@ export async function listEntitiesForEntry(
 }
 
 /** Number of distinct entries that mention an entity — the wiki recurrence gate. */
+/** All distinct labels for belief-type entities — used by the semantic dedup
+ *  step to look for near-duplicate beliefs across entries. Best-effort; caller
+ *  treats empty result as "no existing labels to compare against". */
+export async function listDistinctBeliefLabels(
+  db: SqliteDatabase = getDb()
+): Promise<Result<string[]>> {
+  try {
+    const res = await db.execute(
+      'SELECT DISTINCT label FROM entry_entities WHERE type = ? ORDER BY label COLLATE NOCASE',
+      ['belief']
+    )
+    return ok(res.rows.map((r) => String(r.label)))
+  } catch (e) {
+    return err('BELIEF_LABEL_LIST_FAILED', 'Failed to list distinct belief labels', e)
+  }
+}
+
 export async function countEntriesForEntity(
   type: EntityType,
   label: string,

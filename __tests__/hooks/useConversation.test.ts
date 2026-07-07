@@ -29,6 +29,9 @@ jest.mock('@/services/crisis/detector', () => ({
 jest.mock('@/services/wiki/embeddings', () => ({
   backfillStaleEmbeddings: jest.fn().mockResolvedValue(undefined),
 }))
+jest.mock('@/services/wiki/belief-snap', () => ({
+  backfillBeliefEmbeddings: jest.fn().mockResolvedValue(undefined),
+}))
 jest.mock('@/services/wiki/query', () => ({
   suggestedQuestions: jest.fn().mockReturnValue([]),
 }))
