@@ -63,10 +63,12 @@ export default function QueryScreen() {
     )
   }, [])
 
-  // Re-pin when a conversation loads, a turn is added, or a reply streams in.
+  // Re-pin when a conversation loads or a turn is added/streamed — but only
+  // inside an active thread, never on the start screen (which shows suggestions
+  // and history in descending order and shouldn't scroll to bottom).
   useEffect(() => {
-    scrollToBottom()
-  }, [messages, streaming, scrollToBottom])
+    if (!isEmpty) scrollToBottom()
+  }, [messages, streaming, scrollToBottom, isEmpty])
 
   // Android hardware back: when a conversation is open, return to the Reflect
   // start screen instead of leaving to Home. On the start screen, let the
@@ -109,7 +111,7 @@ export default function QueryScreen() {
           style={styles.flex}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          onContentSizeChange={scrollToBottom}
+          onContentSizeChange={isEmpty ? undefined : scrollToBottom}
         >
           {isEmpty ? (
             <View>
