@@ -38,6 +38,7 @@ export default function QueryScreen() {
   const { messages, streaming, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
     useConversation(initial)
   const scrollRef = useRef<ScrollView>(null)
+  const savedScrollY = useRef(0)
   const [composerSeed, setComposerSeed] = useState<{ text: string; nonce: number } | null>(null)
   const isEmpty = messages.length === 0
   const [tab, setTab] = useState<'start' | 'history'>('start')
@@ -69,6 +70,27 @@ export default function QueryScreen() {
   useEffect(() => {
     if (!isEmpty) scrollToBottom()
   }, [messages, streaming, scrollToBottom, isEmpty])
+
+  // Save the start screen's scroll position before entering a conversation,
+  // and restore it when returning. Without this, closing a conversation resets
+  // the history/suggestions list to the top — disorienting when the user was
+  // scrolled deep into their past conversations.
+  const onStartScroll = useCallback(
+    (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+      if (isEmpty) savedScrollY.current = e.nativeEvent.contentOffset.y
+    },
+    [isEmpty]
+  )
+  const restoreScroll = useCallback(() => {
+    if (!isEmpty || savedScrollY.current <= 0) return
+    requestAnimationFrame(() =>
+      scrollRef.current?.scrollTo({ y: savedScrollY.current, animated: false })
+    )
+  }, [isEmpty])
+  // Restore after the start screen content (history list, suggestions) renders.
+  useEffect(() => {
+    if (isEmpty) restoreScroll()
+  }, [history, tab, isEmpty, restoreScroll])
 
   // Android hardware back: when a conversation is open, return to the Reflect
   // start screen instead of leaving to Home. On the start screen, let the
@@ -111,6 +133,8 @@ export default function QueryScreen() {
           style={styles.flex}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          onScroll={isEmpty ? onStartScroll : undefined}
+          scrollEventThrottle={16}
           onContentSizeChange={isEmpty ? undefined : scrollToBottom}
         >
           {isEmpty ? (
