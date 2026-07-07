@@ -128,6 +128,51 @@ describe('respond', () => {
     expect(mockConverse.mock.calls[0][0].summary).toBe('recap')
   })
 
+  it('strips a trailing question when the previous reply also ended with ?', async () => {
+    mockConverse.mockResolvedValue(ok('That sounds tough. What happened next?'))
+    const history = [
+      { role: 'user' as const, content: 'work was brutal' },
+      { role: 'assistant' as const, content: 'What made it so hard today?' },
+    ]
+    const res = await respond({ history, message: 'deadlines piled up', pages: [], nodes: [], edges: [] })
+    expect(res.success).toBe(true)
+    if (res.success) {
+      // Trailing question sentence stripped — the prompt asks for alternation
+      // but the 3B model didn't obey; the post-guard enforces it.
+      expect(res.data.text).toBe('That sounds tough.')
+      expect(res.data.text).not.toMatch(/\?\s*$/)
+    }
+  })
+
+  it('keeps the reply when the previous turn did NOT end with a question', async () => {
+    mockConverse.mockResolvedValue(ok('I hear you. What happened next?'))
+    const history = [
+      { role: 'user' as const, content: 'work was brutal' },
+      { role: 'assistant' as const, content: 'That sounds rough.' },
+    ]
+    const res = await respond({ history, message: 'deadlines', pages: [], nodes: [], edges: [] })
+    expect(res.success).toBe(true)
+    if (res.success) {
+      // Previous reply didn't end with ? — no guard needed, trailing ? is fine.
+      expect(res.data.text).toBe('I hear you. What happened next?')
+    }
+  })
+
+  it('keeps a standalone question even when the previous reply ended with ?', async () => {
+    mockConverse.mockResolvedValue(ok('When did this start?'))
+    const history = [
+      { role: 'user' as const, content: 'work was brutal' },
+      { role: 'assistant' as const, content: 'What made it so hard today?' },
+    ]
+    const res = await respond({ history, message: 'a few weeks ago', pages: [], nodes: [], edges: [] })
+    expect(res.success).toBe(true)
+    if (res.success) {
+      // Only one sentence and it's a question — stripping would leave a fragment
+      // ("When did this start") that's worse than the original.
+      expect(res.data.text).toBe('When did this start?')
+    }
+  })
+
   it('propagates a model failure', async () => {
     mockConverse.mockResolvedValue(err('CONVERSE_INFERENCE_FAILED', 'down'))
     const res = await respond({ history: [], message: 'hi', pages: [], nodes: [], edges: [] })

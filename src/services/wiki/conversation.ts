@@ -36,6 +36,29 @@ const MAX_PAGE_CHARS = 600
 const MAX_HISTORY_MESSAGES = 8 // ~4 user/assistant turns
 const MAX_CONNECTION_PAGES = 2
 const MAX_NEIGHBORS = 3
+
+// Sentence-ending punctuation used by the question-alternation guard. The 3B
+// model ignores the prompt-level NO_QUESTION_STEER ~15% of the time on device;
+// this post-guard makes the contract enforceable regardless of model compliance.
+const QUESTION_RE = /\?\s*$/
+
+/**
+ * Deterministic post-guard: if the previous assistant turn ended with `?` and
+ * the new reply does too, strip the trailing question sentence from the reply.
+ * The prompt asks the model to alternate; when it doesn't obey, this enforces
+ * it without mutilating a message that's entirely a question (no preceding
+ * sentence to preserve).
+ */
+function stripTrailingQuestion(text: string): string {
+  if (!QUESTION_RE.test(text)) return text
+  const idx = text.lastIndexOf('?')
+  // Find the sentence boundary before the question — if none exists, the reply
+  // is a standalone question and we keep it rather than leaving a fragment.
+  const sentStart = idx > 0 ? text.lastIndexOf('.', idx - 1) : -1
+  if (sentStart < 0) return text
+  const stripped = text.slice(0, sentStart + 1).trim()
+  return stripped.length > 0 ? stripped : text
+}
 // Only ground in a page the message genuinely points to. rankPages scores a
 // title-term match at 5 and each content hit at 1 (+≤1 richness), so an
 // incidental single word (~1) falls below this floor while a title match or
@@ -213,8 +236,20 @@ export async function respond(
   const res = await converseFromWiki({ history: trimmed, message, context: effective, summary }, onToken)
   if (!res.success) return res
 
+  let text = res.data
+  // Question-alternation post-guard: if the companion's last turn in history
+  // ended with a question AND the new reply also ends with one, chop the
+  // trailing question sentence. The prompt asks for alternation; this enforces
+  // it when the small model ignores the steer.
+  if (history.length > 0) {
+    const lastReply = [...history].reverse().find((m) => m.role === 'assistant')
+    if (lastReply && /\?\s*$/.test(lastReply.content)) {
+      text = stripTrailingQuestion(text)
+    }
+  }
+
   // Chips still show the grounding pages even on a titles-only turn.
-  return ok({ text: res.data, sources })
+  return ok({ text, sources })
 }
 
 export interface SummaryState {
