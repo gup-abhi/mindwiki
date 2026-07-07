@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import type { WikiPageVersion } from '@/services/storage/wiki'
 import { Alert, StyleSheet, View } from 'react-native'
 
 import { Button, Card, Divider, ProgressBar, Screen, Text, TextField } from '@/components/ui'
@@ -75,6 +76,20 @@ export default function WikiPageScreen() {
   }
 
   const history = page.version_history ?? []
+  // Show at most 5 versions, newest per day only (dedup by date)
+  const compactHistory = (() => {
+    const seen = new Set<string>()
+    const result: WikiPageVersion[] = []
+    for (let i = history.length - 1; i >= 0; i--) {
+      const dateKey = new Date(history[i].updated_at).toLocaleDateString()
+      if (!seen.has(dateKey)) {
+        seen.add(dateKey)
+        result.push(history[i])
+        if (result.length >= 5) break
+      }
+    }
+    return result
+  })()
   const richness = Math.min(page.entry_count, RICHNESS_TARGET) / RICHNESS_TARGET
 
   return (
@@ -144,17 +159,22 @@ export default function WikiPageScreen() {
         </View>
       )}
 
-      {history.length > 0 && (
+      {compactHistory.length > 0 && (
         <View style={styles.history}>
           <Divider />
           <Text variant="label" color="textSecondary" style={styles.historyTitle}>
-            {history.length} previous {history.length === 1 ? 'version' : 'versions'}
+            Previous versions
           </Text>
-          {history.map((v) => (
+          {compactHistory.map((v) => (
             <Text key={v.version} variant="caption" color="textMuted">
               v{v.version} · {new Date(v.updated_at).toLocaleDateString()}
             </Text>
           ))}
+          {history.length > compactHistory.length && (
+            <Text variant="caption" color="textMuted">
+              +{history.length - compactHistory.length} older versions
+            </Text>
+          )}
         </View>
       )}
 
