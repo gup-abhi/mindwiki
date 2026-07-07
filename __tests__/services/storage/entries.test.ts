@@ -134,9 +134,9 @@ function createFakeDb() {
         return { rows: [], rowsAffected: affected }
       }
       if (/^UPDATE entries SET/.test(sql)) {
-        const [emotion, distortion, mood_score, topic, tagged_at, id] = params
+        const [emotion, distortion, mood_score, topic, topic2, tagged_at, id] = params
         const row = rows.get(String(id))
-        if (row) Object.assign(row, { emotion, distortion, mood_score, topic, tagged_at })
+        if (row) Object.assign(row, { emotion, distortion, mood_score, topic, topic2, tagged_at })
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^DELETE FROM entries WHERE id/.test(sql)) {
@@ -242,7 +242,7 @@ describe('storage/entries CRUD', () => {
     await createEntry({ mood: 3, situation: '', thought: '' }, db) // quick mood-log, no text
     const tagged = await createEntry({ mood: 3, situation: 'already indexed', thought: '' }, db)
     if (tagged.success) {
-      await applyTags(tagged.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+      await applyTags(tagged.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X', topic2: '' }, db)
     }
 
     const result = await listUnindexedEntries(50, db)
@@ -258,12 +258,12 @@ describe('storage/entries CRUD', () => {
     // tagged + wiki-pending → included
     const pending = await createEntry({ mood: 3, situation: 'tagged, wiki interrupted', thought: '' }, db)
     if (pending.success) {
-      await applyTags(pending.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+      await applyTags(pending.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X', topic2: '' }, db)
     }
     // tagged + wiki-indexed → excluded
     const done = await createEntry({ mood: 3, situation: 'fully indexed', thought: '' }, db)
     if (done.success) {
-      await applyTags(done.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+      await applyTags(done.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X', topic2: '' }, db)
       await markWikiIndexed(done.data.id, db)
     }
     // never tagged → excluded (that's listUnindexedEntries' job, not this one)
@@ -281,7 +281,7 @@ describe('storage/entries CRUD', () => {
     const { db } = createFakeDb()
     const e = await createEntry({ mood: 3, situation: 'tagged', thought: '' }, db)
     if (!e.success) throw new Error('setup')
-    await applyTags(e.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+    await applyTags(e.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X', topic2: '' }, db)
 
     const before = await listWikiPendingEntries(50, db)
     expect(before.success && before.data).toHaveLength(1)
@@ -299,11 +299,11 @@ describe('storage/entries CRUD', () => {
     const { db } = createFakeDb()
     const pending = await createEntry({ mood: 3, situation: 'tagged, graph interrupted', thought: '' }, db)
     if (pending.success) {
-      await applyTags(pending.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+      await applyTags(pending.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X', topic2: '' }, db)
     }
     const done = await createEntry({ mood: 3, situation: 'graph landed', thought: '' }, db)
     if (done.success) {
-      await applyTags(done.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }, db)
+      await applyTags(done.data.id, { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X', topic2: '' }, db)
       await markGraphIndexed(done.data.id, db)
     }
     await createEntry({ mood: 3, situation: 'untagged', thought: '' }, db) // excluded
@@ -320,7 +320,7 @@ describe('storage/entries CRUD', () => {
     const { db } = createFakeDb()
     const a = await createEntry({ mood: 3, situation: 'first', thought: '' }, db)
     const b = await createEntry({ mood: 3, situation: 'second', thought: '' }, db)
-    const tag = { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X' }
+    const tag = { emotion: 'Joy', distortion: 'none', mood_score: 0.8, topic: 'X', topic2: '' }
     if (a.success) await applyTags(a.data.id, tag, db)
     if (b.success) await applyTags(b.data.id, tag, db)
     await createEntry({ mood: 3, situation: 'untagged', thought: '' }, db) // stays pending-ineligible
@@ -345,7 +345,7 @@ describe('storage/entries CRUD', () => {
     // Pin created_at so ordering is deterministic (createEntry uses Date.now()).
     if (a.success) rows.get(a.data.id)!.created_at = 100
     if (b.success) rows.get(b.data.id)!.created_at = 200
-    const tag = { distortion: 'none', mood_score: 0.2, topic: 'work' }
+    const tag = { distortion: 'none', mood_score: 0.2, topic: 'work', topic2: '' }
     if (a.success) await applyTags(a.data.id, { emotion: 'Anxiety', ...tag }, db)
     if (b.success) await applyTags(b.data.id, { emotion: 'anxiety', ...tag }, db)
     if (reflect.success) await applyTags(reflect.data.id, { emotion: 'anxiety', ...tag }, db)
@@ -361,7 +361,7 @@ describe('storage/entries CRUD', () => {
     const { db } = createFakeDb()
     const e = await createEntry({ mood: 3, situation: 'standup', thought: 't' }, db)
     if (e.success) {
-      await applyTags(e.data.id, { emotion: 'calm', distortion: 'none', mood_score: 0.6, topic: 'Work' }, db)
+      await applyTags(e.data.id, { emotion: 'calm', distortion: 'none', mood_score: 0.6, topic: 'Work', topic2: '' }, db)
     }
     const res = await listEntriesByTopic('work', db)
     expect(res.success && res.data).toHaveLength(1)
@@ -398,7 +398,7 @@ describe('storage/entries CRUD', () => {
     const created = await createEntry({ mood: 2, situation: 's', thought: 't' }, db)
     const id = created.success ? created.data.id : ''
 
-    const tagged = await applyTags(id, { emotion: 'anxiety', distortion: 'catastrophizing', mood_score: 0.3, topic: 'Work' }, db)
+    const tagged = await applyTags(id, { emotion: 'anxiety', distortion: 'catastrophizing', mood_score: 0.3, topic: 'Work', topic2: '' }, db)
     expect(tagged.success).toBe(true)
 
     const found = await getEntry(id, db)
@@ -424,7 +424,7 @@ describe('storage/entries CRUD', () => {
     const id = created.success ? created.data.id : ''
 
     // The model infers 'anxiety' — stored in `emotion`, leaving the named feeling intact.
-    await applyTags(id, { emotion: 'anxiety', distortion: 'none', mood_score: 0.6, topic: 'Work' }, db)
+    await applyTags(id, { emotion: 'anxiety', distortion: 'none', mood_score: 0.6, topic: 'Work', topic2: '' }, db)
     const found = await getEntry(id, db)
     expect(found.success && found.data?.named_emotion).toBe('Hopeful') // user's, untouched
     expect(found.success && found.data?.emotion).toBe('anxiety') // model's, the graph signal

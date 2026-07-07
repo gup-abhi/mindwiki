@@ -87,7 +87,7 @@ const extract = (over: Record<string, unknown> = {}) =>
     distortion: 'none',
     distortion_confidence: 0,
     mood_score: 0.4,
-    topic: 'Work',
+    topics: ['Work'],
     people: [],
     places: [],
     activities: [],
@@ -111,6 +111,7 @@ const entry = (overrides: Partial<Entry> = {}): Entry => ({
   distortion: null,
   mood_score: null,
   topic: null,
+  topic2: null,
   tagged_at: null,
   wiki_indexed_at: null,
   graph_indexed_at: null,
@@ -157,20 +158,21 @@ describe('processEntry', () => {
       distortion: 'none',
       mood_score: 0.4,
       topic: 'Work',
+      topic2: '',
     })
     // entities persisted (people + places mapped to typed rows)
     expect(mockSetEntities).toHaveBeenCalledWith('e1', [
       { type: 'person', label: 'Sarah' },
       { type: 'place', label: 'Office' },
     ])
-    // graph + wiki kicked off with the extracted entry + topic
+    // graph + wiki kicked off with the extracted entry + topics array
     expect(mockUpdateGraph).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'e1', emotion: 'Anxiety' }),
-      'Work'
+      ['Work']
     )
     expect(mockUpdateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'e1', emotion: 'Anxiety', distortion: 'none' }),
-      'Work'
+      ['Work']
     )
     expect(mockBegin).toHaveBeenCalledTimes(1)
     expect(mockEnd).toHaveBeenCalledTimes(1)
@@ -261,7 +263,7 @@ describe('captureReflectMessage', () => {
   })
 
   it('extracts a question but never ingests it (recurrence gate — one-off query)', async () => {
-    mockExtractEntry.mockResolvedValue(extract({ topic: 'Sadness triggers' }))
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Sadness triggers'] }))
 
     await captureReflectMessage('What tends to trigger my Sadness?')
 
@@ -273,7 +275,7 @@ describe('captureReflectMessage', () => {
   })
 
   it('skips the FIRST mention of a theme but parks its text with the count', async () => {
-    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Boundaries'] }))
 
     await captureReflectMessage('I think I need firmer boundaries')
 
@@ -287,7 +289,7 @@ describe('captureReflectMessage', () => {
 
   it('captures a theme once it recurs (second mention, legacy bare counter)', async () => {
     mockGetSetting.mockResolvedValue({ success: true, data: '1' }) // seen once, pre-parking format
-    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Boundaries'] }))
 
     await captureReflectMessage('I really do need firmer boundaries with work')
 
@@ -307,7 +309,7 @@ describe('captureReflectMessage', () => {
       success: true,
       data: JSON.stringify({ count: 1, last: Date.now(), first: 'I think I need firmer boundaries' }),
     })
-    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Boundaries'] }))
 
     await captureReflectMessage('Boundaries keep slipping at work')
     await flush()
@@ -337,7 +339,7 @@ describe('captureReflectMessage', () => {
   it('stores the distilled restatement as situation, keeping the raw message for provenance', async () => {
     mockGetSetting.mockResolvedValue({ success: true, data: '1' }) // gate passes
     mockExtractEntry.mockResolvedValue(
-      extract({ topic: 'Sleep', restatement: 'My anxiety is worse at night' })
+      extract({ topics: ['Sleep'], restatement: 'My anxiety is worse at night' })
     )
 
     await captureReflectMessage("yeah exactly, and it's worse at night", 'Companion: sounds like anxiety')
@@ -361,7 +363,7 @@ describe('captureReflectMessage', () => {
 
   it('falls back to the raw message when the restatement comes back empty', async () => {
     mockGetSetting.mockResolvedValue({ success: true, data: '1' }) // gate passes
-    mockExtractEntry.mockResolvedValue(extract({ topic: 'Sleep', restatement: '' }))
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Sleep'], restatement: '' }))
 
     await captureReflectMessage('I sleep badly before deadlines')
     await flush()
@@ -380,7 +382,7 @@ describe('captureReflectMessage', () => {
       data: JSON.stringify({ count: 1, last: Date.now(), first: 'the first statement' }),
     })
     mockExtractEntry
-      .mockResolvedValueOnce(extract({ topic: 'Boundaries' })) // current message
+      .mockResolvedValueOnce(extract({ topics: ['Boundaries'] })) // current message
       .mockResolvedValueOnce(err('EXTRACT_INFERENCE_FAILED', 'model busy')) // parked retry
     await captureReflectMessage('boundaries again today')
     await flush()
@@ -400,7 +402,7 @@ describe('captureReflectMessage', () => {
         first: 'a long-forgotten statement',
       }),
     })
-    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Boundaries'] }))
 
     await captureReflectMessage('I need firmer boundaries')
 
@@ -411,7 +413,7 @@ describe('captureReflectMessage', () => {
   })
 
   it('skips a statement with no real theme', async () => {
-    mockExtractEntry.mockResolvedValue(extract({ topic: 'none' }))
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['none'] }))
 
     await captureReflectMessage('thanks, that helps')
 
@@ -436,7 +438,7 @@ describe('deferred reflect capture queue', () => {
   })
 
   it('queueing does no model work; flush processes messages in order, then drains', async () => {
-    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Boundaries'] }))
 
     queueReflectCapture('first boundaries note')
     queueReflectCapture('second boundaries note', 'Companion: context')
@@ -467,7 +469,7 @@ describe('deferred reflect capture queue', () => {
     mockExtractEntry.mockImplementation(async () => {
       // A live chat regains focus while the first capture is mid-flight.
       pauseReflectCaptures()
-      return extract({ topic: 'Boundaries' })
+      return extract({ topics: ['Boundaries'] })
     })
     queueReflectCapture('first note')
     queueReflectCapture('second note')
@@ -477,7 +479,7 @@ describe('deferred reflect capture queue', () => {
     expect(mockExtractEntry).toHaveBeenCalledTimes(1)
 
     resumeReflectCaptures()
-    mockExtractEntry.mockResolvedValue(extract({ topic: 'Boundaries' }))
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Boundaries'] }))
     await flushReflectCaptures()
     expect(mockExtractEntry).toHaveBeenCalledTimes(2)
   })
@@ -485,7 +487,7 @@ describe('deferred reflect capture queue', () => {
   it('a failing capture never blocks the rest of the queue', async () => {
     mockExtractEntry
       .mockRejectedValueOnce(new Error('model exploded'))
-      .mockResolvedValue(extract({ topic: 'Sleep' }))
+      .mockResolvedValue(extract({ topics: ['Sleep'] }))
 
     queueReflectCapture('this one fails')
     queueReflectCapture('this one still runs')

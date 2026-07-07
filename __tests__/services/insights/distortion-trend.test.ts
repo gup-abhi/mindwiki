@@ -18,6 +18,7 @@ const base = (over: Partial<Entry> = {}): Entry => ({
   distortion: 'none', // tagged, no distortion, unless overridden
   mood_score: null,
   topic: null,
+  topic2: null,
   tagged_at: now,
   wiki_indexed_at: null,
   graph_indexed_at: null,

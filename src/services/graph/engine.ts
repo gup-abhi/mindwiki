@@ -11,7 +11,7 @@ import {
   listEntriesForGraph,
   countEntriesByEmotion,
   countEntriesByDistortion,
-  countEntriesByTopic,
+  countEntriesByAnyTopic,
   markAllGraphIndexed,
   type Entry,
 } from '@/services/storage/entries'
@@ -36,7 +36,7 @@ async function liveSupportCount(type: NodeType, label: string): Promise<number> 
       : type === 'distortion'
         ? await countEntriesByDistortion(label)
         : type === 'situation'
-          ? await countEntriesByTopic(label)
+          ? await countEntriesByAnyTopic(label)
           : await countEntriesForEntity(type as EntityType, label)
   return r.success ? r.data : Infinity
 }
@@ -54,7 +54,7 @@ async function liveSupportCount(type: NodeType, label: string): Promise<number> 
  */
 export async function updateGraphForEntry(
   entry: Entry,
-  topic?: string | null,
+  topics?: string[] | null,
   dismissed?: Set<string>,
   support: SupportCounter = liveSupportCount
 ): Promise<Result<void>> {
@@ -91,8 +91,9 @@ export async function updateGraphForEntry(
       }
     }
 
-    const theme = topic?.trim()
-    if (theme && !labels.has(theme.toLowerCase())) {
+    for (const topic of topics ?? []) {
+      const theme = topic.trim()
+      if (!theme || labels.has(theme.toLowerCase())) continue
       // Reuse an existing same-label node (any type) so "Work" the theme and
       // "Work" the place stay one node; otherwise it's a new theme node.
       const existing = await findNodeByLabel(theme)
@@ -140,7 +141,8 @@ export async function rebuildGraph(): Promise<Result<void>> {
     const entries = await listEntriesForGraph(10000)
     if (!entries.success) return entries
     for (const entry of entries.data) {
-      await updateGraphForEntry(entry, entry.topic, dismissed, support)
+      const themes = [entry.topic, entry.topic2].filter((t): t is string => !!t && t.length > 0)
+      await updateGraphForEntry(entry, themes, dismissed, support)
     }
     // The graph now reflects every entry — clear the graph-heal backlog (and
     // re-stamp any entry whose graph_indexed_at a sync pull's REPLACE wiped).
@@ -166,7 +168,12 @@ async function precomputedSupport(db = getDb()): Promise<SupportCounter> {
   }
   const emotion = await groupCount('SELECT emotion AS k, COUNT(*) AS n FROM entries GROUP BY emotion COLLATE NOCASE')
   const distortion = await groupCount('SELECT distortion AS k, COUNT(*) AS n FROM entries GROUP BY distortion COLLATE NOCASE')
-  const topic = await groupCount('SELECT topic AS k, COUNT(*) AS n FROM entries GROUP BY topic COLLATE NOCASE')
+  // Situation node recurrence counts both topic and topic2. Build a unified map
+  // by summing the per-entry distribution of each label.
+  const topic2 = await groupCount('SELECT topic2 AS k, COUNT(*) AS n FROM entries GROUP BY topic2 COLLATE NOCASE')
+  const topic1 = await groupCount('SELECT topic AS k, COUNT(*) AS n FROM entries GROUP BY topic COLLATE NOCASE')
+  const topic = new Map<string, number>([...topic1])
+  for (const [k, n] of topic2) topic.set(k, (topic.get(k) ?? 0) + n)
 
   const entityRes = await db.execute(
     'SELECT type, label, COUNT(DISTINCT entry_id) AS n FROM entry_entities GROUP BY type, label COLLATE NOCASE'

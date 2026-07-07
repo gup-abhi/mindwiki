@@ -16,7 +16,7 @@ const entry = (id: string, year: number, month: number, day: number, hour = 9): 
   distortion: null,
   mood_score: null,
   topic: null,
-  tagged_at: null,
+  topic2: null,  tagged_at: null,
   wiki_indexed_at: null,
   graph_indexed_at: null,
   raw_text: null,

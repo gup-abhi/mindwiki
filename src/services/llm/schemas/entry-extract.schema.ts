@@ -11,7 +11,11 @@ export const EntryExtractSchema = z.object({
   // 0..1 confidence in the distortion call; below threshold the caller drops it.
   distortion_confidence: z.number().min(0).max(1).catch(0),
   mood_score: z.number().min(0).max(1), // 0 = very negative … 1 = very positive
-  topic: z.string().min(1), // short concrete theme — routes a wiki page + situation node
+  // 1–2 short concrete themes — each routes a wiki page + situation node.
+  // An entry about work stress bleeding into the marriage gets ["Work", "Marriage"]
+  // so both pages compound. Tolerant: absent/bad field defaults to [] and the
+  // caller skips indexing rather than failing the whole extract (ADR 004).
+  topics: z.array(z.string()).default([]).catch([]),
   // Concrete entities → entry_entities rows + graph nodes. Tolerant: a bad list
   // never fails the whole extract (ADR 004); it just yields no entities.
   people: z.array(z.string()).default([]).catch([]),

@@ -32,11 +32,14 @@ export interface ProcessResult {
  * Reflect-chat capture so there is one indexing path. Best-effort, never throws.
  */
 async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
+  const primaryTopic = ex.topics[0] ?? ''
+  const secondaryTopic = ex.topics[1] ?? ''
   await applyTags(entry.id, {
     emotion: ex.emotion,
     distortion: ex.distortion,
     mood_score: ex.mood_score,
-    topic: ex.topic,
+    topic: primaryTopic,
+    topic2: secondaryTopic,
   })
 
   // Persist entities before graph/wiki run — the graph reads them for
@@ -61,12 +64,14 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // refocus. Mirrors what a sync pull does.
   useSyncStore.getState().bumpRevision()
 
+  const topics = ex.topics.filter((t) => t.length > 0).slice(0, 2)
   const taggedEntry: Entry = {
     ...entry,
     emotion: ex.emotion,
     distortion: ex.distortion,
     mood_score: ex.mood_score,
-    topic: ex.topic,
+    topic: primaryTopic,
+    topic2: secondaryTopic,
     tagged_at: Date.now(),
   }
   // Graph update is cheap (DB only). Await it and mark on success: an
@@ -74,7 +79,7 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // a full rebuild — additive edges forbid a per-entry re-run). Awaiting also
   // means nothing is in flight when catch-up's rebuild runs. This whole function
   // is already background (callers `void` it), so the extra await costs no UX.
-  const graph = await updateGraphForEntry(taggedEntry, ex.topic)
+  const graph = await updateGraphForEntry(taggedEntry, topics)
   if (graph.success) await markGraphIndexed(entry.id)
 
   // Wiki synthesis is the slow deep-model step — track it for the indicator.
@@ -84,7 +89,7 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // by re-churning every launch.
   useWikiStore.getState().begin()
   try {
-    const wiki = await updateWikiForEntry(taggedEntry, ex.topic)
+    const wiki = await updateWikiForEntry(taggedEntry, topics)
     if (wiki.success) await markWikiIndexed(entry.id)
   } finally {
     useWikiStore.getState().end()
@@ -165,7 +170,8 @@ export async function catchUpUnindexed(): Promise<void> {
 async function wikiIndexOnly(entry: Entry): Promise<void> {
   useWikiStore.getState().begin()
   try {
-    const res = await updateWikiForEntry(entry, entry.topic)
+    const themes = [entry.topic, entry.topic2].filter((t): t is string => !!t && t.length > 0)
+    const res = await updateWikiForEntry(entry, themes)
     if (res.success) await markWikiIndexed(entry.id)
   } finally {
     useWikiStore.getState().end()
@@ -358,7 +364,7 @@ export async function captureReflectMessage(
   )
   if (!ex.success) return
 
-  const theme = ex.data.topic.trim()
+  const theme = ex.data.topics[0]?.trim()
   if (!theme || theme.toLowerCase() === 'none') return // no trackable statement
 
   // Count this mention; only ingest from the Nth onward.

@@ -33,18 +33,24 @@ const page = (over: Partial<WikiPage>): WikiPage => ({
 
 // Fake DB backing the raw queries dedupeTopics issues.
 function createFakeDb() {
-  const entries = new Map<string, { id: string; topic: string }>()
+  const entries = new Map<string, { id: string; topic: string; topic2: string }>()
   const titleUpdates: Array<{ id: string; title: string }> = []
   const merges: Array<{ id: string; into: string }> = []
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
-      if (/^SELECT id, topic FROM entries/.test(sql)) {
+      if (/^SELECT id, topic, topic2 FROM entries/.test(sql)) {
         return { rows: [...entries.values()], rowsAffected: 0 }
       }
-      if (/^UPDATE entries SET topic/.test(sql)) {
+      if (/^UPDATE entries SET topic /.test(sql)) {
         const [topic, id] = params as string[]
         const row = entries.get(String(id))
         if (row) row.topic = String(topic)
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^UPDATE entries SET topic2/.test(sql)) {
+        const [topic, id] = params as string[]
+        const row = entries.get(String(id))
+        if (row) row.topic2 = String(topic)
         return { rows: [], rowsAffected: 1 }
       }
       if (/^UPDATE wiki_pages SET title/.test(sql)) {
@@ -76,9 +82,9 @@ describe('dedupeTopics', () => {
 
   it('re-derives plural entry topics to their singular form', async () => {
     const { db, entries } = createFakeDb()
-    entries.set('e1', { id: 'e1', topic: 'Relationships' })
-    entries.set('e2', { id: 'e2', topic: 'Relationship' }) // already singular
-    entries.set('e3', { id: 'e3', topic: 'Stress' }) // unchanged
+    entries.set('e1', { id: 'e1', topic: 'Relationships', topic2: '' })
+    entries.set('e2', { id: 'e2', topic: 'Relationship', topic2: '' }) // already singular
+    entries.set('e3', { id: 'e3', topic: 'Stress', topic2: '' }) // unchanged
 
     const res = await dedupeTopics(db)
 

@@ -117,6 +117,7 @@ jest.mock('@/services/storage/entries', () => {
         distortion: null,
         mood_score: null,
         topic: null,
+        topic2: null,
         tagged_at: null,
         wiki_indexed_at: null,
         graph_indexed_at: null,
@@ -171,7 +172,7 @@ const { createEntry: mockCreateEntry } = jest.requireMock('@/services/storage/en
   createEntry: jest.Mock
 }
 
-// Deep extract with an already-canonical topic (extractEntry canonicalizes on the
+// Deep extract with already-canonical topics (extractEntry canonicalizes on the
 // real path; the recurrence gate and page title both key on this string).
 const extract = (topic: string) => ({
   success: true,
@@ -180,7 +181,7 @@ const extract = (topic: string) => ({
     distortion: 'none',
     distortion_confidence: 0,
     mood_score: 0.4,
-    topic,
+    topics: [topic],
     people: [],
     places: [],
     activities: [],

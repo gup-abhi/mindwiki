@@ -111,12 +111,17 @@ export async function extractEntry(
       ? canonicalizeDistortion(parsed.data.distortion)
       : 'none'
 
+  const topics = parsed.data.topics
+    .filter((t: string) => t && t.trim().toLowerCase() !== 'none')
+    .slice(0, 2)
+    .map((t: string) => singularizeLabel(canonicalizeLabel(t)))
+
   return ok({
     emotion: canonicalizeEmotion(parsed.data.emotion),
     distortion,
     distortion_confidence: parsed.data.distortion_confidence,
     mood_score: parsed.data.mood_score,
-    topic: singularizeLabel(canonicalizeLabel(parsed.data.topic)),
+    topics,
     people: normalizeEntities(parsed.data.people),
     places: normalizeEntities(parsed.data.places),
     activities: normalizeEntities(parsed.data.activities),

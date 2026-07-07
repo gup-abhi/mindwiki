@@ -33,6 +33,7 @@ const make = (over: Partial<Entry> = {}): Entry => ({
   distortion: 'catastrophizing',
   mood_score: 0.2,
   topic: 'Work',
+  topic2: null,
   tagged_at: 1,
   wiki_indexed_at: null,
   graph_indexed_at: null,

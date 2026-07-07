@@ -20,7 +20,7 @@ function EntryCardBase({ entry, onPress }: EntryCardProps) {
   const styles = useThemedStyles(makeStyles)
   const moodOnly = entry.situation.trim() === ''
   const tags = entry.emotion
-    ? [entry.emotion, entry.topic].filter((t): t is string => !!t && t !== 'none').join(' · ')
+    ? [entry.emotion, entry.topic, entry.topic2].filter((t): t is string => !!t && t !== 'none').join(' · ')
     : null
 
   return (

@@ -48,6 +48,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   distortion: 'catastrophizing',
   mood_score: 0.2,
   topic: null,
+  topic2: null,
   tagged_at: 1,
   wiki_indexed_at: null,
   graph_indexed_at: null,
@@ -74,7 +75,7 @@ describe('updateGraphForEntry', () => {
   })
 
   it('upserts a node per tag and an edge per co-occurring pair', async () => {
-    await updateGraphForEntry(entry(), 'Work', undefined, HIGH) // emotion + distortion + theme = 3 nodes
+    await updateGraphForEntry(entry(), ['Work'], undefined, HIGH) // emotion + distortion + theme = 3 nodes
 
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
     expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
@@ -84,7 +85,7 @@ describe('updateGraphForEntry', () => {
   })
 
   it('skips distortion "none" and makes no edge for a single node', async () => {
-    await updateGraphForEntry(entry({ distortion: 'none' }), undefined, undefined, HIGH) // only emotion (no topic)
+    await updateGraphForEntry(entry({ distortion: 'none' }), undefined, undefined, HIGH) // only emotion
 
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
@@ -97,7 +98,7 @@ describe('updateGraphForEntry', () => {
   })
 
   it('skips a theme node that just repeats the emotion (case-insensitive)', async () => {
-    await updateGraphForEntry(entry({ emotion: 'loneliness', distortion: 'none' }), 'Loneliness', undefined, HIGH)
+    await updateGraphForEntry(entry({ emotion: 'loneliness', distortion: 'none' }), ['Loneliness'], undefined, HIGH)
 
     // only the emotion node — no duplicate "situation" node for the same word
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
@@ -108,7 +109,7 @@ describe('updateGraphForEntry', () => {
   it('attaches a theme to an existing same-label node instead of duplicating it', async () => {
     // A "Work" place node already exists from a prior entry.
     mockFindNode.mockResolvedValue(ok({ id: 'wk', type: 'place', label: 'Work', frequency: 3 }))
-    await updateGraphForEntry(entry({ distortion: 'none' }), 'Work', undefined, HIGH) // emotion + theme "Work"
+    await updateGraphForEntry(entry({ distortion: 'none' }), ['Work'], undefined, HIGH) // emotion + theme "Work"
 
     // the theme reuses the existing place node — no second "situation" node
     expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Work')
@@ -119,7 +120,7 @@ describe('updateGraphForEntry', () => {
     mockListEntities.mockResolvedValue(
       ok([{ id: 'x1', entry_id: 'e1', type: 'place', label: 'Gym', created_at: 0 }])
     )
-    await updateGraphForEntry(entry({ distortion: 'none' }), 'gym', undefined, HIGH) // theme echoes the place
+    await updateGraphForEntry(entry({ distortion: 'none' }), ['gym'], undefined, HIGH) // theme echoes the place
 
     expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Gym')
     expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'gym')
@@ -128,7 +129,7 @@ describe('updateGraphForEntry', () => {
 
   it('skips a dropped node (and any edge to it) when deriving from an entry', async () => {
     // emotion "anxiety" was dropped — only the distortion node should be built.
-    await updateGraphForEntry(entry(), null, new Set(['emotion:anxiety']), HIGH)
+    await updateGraphForEntry(entry(), undefined, new Set(['emotion:anxiety']), HIGH)
 
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
     expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
@@ -143,7 +144,7 @@ describe('updateGraphForEntry', () => {
         { id: 'x2', entry_id: 'e1', type: 'place', label: 'Office', created_at: 0 },
       ])
     )
-    await updateGraphForEntry(entry({ distortion: 'none' }), null, undefined, HIGH) // emotion + 2 entities = 3 nodes
+    await updateGraphForEntry(entry({ distortion: 'none' }), undefined, undefined, HIGH) // emotion + 2 entities = 3 nodes
 
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
     expect(mockUpsertNode).toHaveBeenCalledWith('person', 'Sarah')
@@ -154,7 +155,7 @@ describe('updateGraphForEntry', () => {
   describe('recurrence gate', () => {
     it('creates no node when a signal appears in only one entry', async () => {
       const ONCE: SupportCounter = async () => 1
-      await updateGraphForEntry(entry(), 'Work', undefined, ONCE)
+      await updateGraphForEntry(entry(), ['Work'], undefined, ONCE)
       expect(mockUpsertNode).not.toHaveBeenCalled() // emotion, distortion, theme all uncorroborated
       expect(mockUpsertEdge).not.toHaveBeenCalled()
     })
@@ -162,7 +163,7 @@ describe('updateGraphForEntry', () => {
     it('materializes only the signals corroborated by >=2 entries', async () => {
       // Emotion recurs; the distortion + theme are one-offs.
       const sup: SupportCounter = async (type) => (type === 'emotion' ? 2 : 1)
-      await updateGraphForEntry(entry(), 'Work', undefined, sup)
+      await updateGraphForEntry(entry(), ['Work'], undefined, sup)
 
       expect(mockUpsertNode).toHaveBeenCalledTimes(1)
       expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')

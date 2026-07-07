@@ -476,6 +476,16 @@ export const migration021: Migration = {
   statements: [`ALTER TABLE entries ADD COLUMN raw_text TEXT`],
 }
 
+// Migration 023 — second topic for multi-theme entries. An entry about work
+// stress bleeding into the marriage now contributes to both pages, not just one.
+// The primary topic stays in `topic` (backward-compat, graph situation nodes, all
+// existing queries); `topic2` holds the secondary theme. Nullable. Synced.
+export const migration023: Migration = {
+  version: 23,
+  name: 'entry_topic2',
+  statements: [`ALTER TABLE entries ADD COLUMN topic2 TEXT`],
+}
+
 // Migration 022 — entity embeddings for semantic belief canonicalization. One
 // row per entity label+type, storing the bge-small vector and a content hash
 // so re-embedding only needs to run on labels not yet stored. NOT synced (the

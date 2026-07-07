@@ -105,7 +105,10 @@ export default function EntryDetailScreen() {
         (e) =>
           e.id !== entry.id &&
           ((!!entry.emotion && e.emotion === entry.emotion) ||
-            (!!entry.topic && e.topic === entry.topic))
+            (!!entry.topic && e.topic === entry.topic) ||
+            (!!entry.topic2 && e.topic === entry.topic2) ||
+            (!!entry.topic && e.topic2 === entry.topic) ||
+            (!!entry.topic2 && e.topic2 === entry.topic2))
       )
       .slice(0, 3)
   }, [entries, entry])
@@ -145,6 +148,7 @@ export default function EntryDetailScreen() {
     entry.emotion,
     entry.distortion && entry.distortion !== 'none' ? entry.distortion : null,
     entry.topic,
+    entry.topic2,
   ].filter((t): t is string => {
     if (!t || t === 'none') return false
     const key = t.toLowerCase()

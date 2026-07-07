@@ -23,6 +23,7 @@ const entry = (mood: number, ts: number): Entry => ({
   distortion: null,
   mood_score: null,
   topic: null,
+  topic2: null,
   tagged_at: null,
   wiki_indexed_at: null,
   graph_indexed_at: null,

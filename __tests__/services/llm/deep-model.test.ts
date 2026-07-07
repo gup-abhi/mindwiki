@@ -407,7 +407,7 @@ describe('extractEntry', () => {
     mockSynthesise.mockResolvedValue({
       text:
         '{"emotion":"joyful","distortion":"none","distortion_confidence":0.0,"mood_score":0.9,' +
-        '"topic":"the app","people":[],"places":[],"activities":["the app"," me "]}',
+        '"topics":["the app"],"people":[],"places":[],"activities":["the app"," me "]}',
     })
     const result = await extractEntry(exInput)
     expect(result.success).toBe(true)
@@ -415,7 +415,7 @@ describe('extractEntry', () => {
       expect(result.data.emotion).toBe('Joy') // snapped via alias
       expect(result.data.distortion).toBe('none')
       expect(result.data.mood_score).toBe(0.9)
-      expect(result.data.topic).toBe('App') // "the app" -> "App"
+      expect(result.data.topics).toEqual(['App']) // "the app" -> "App"
       expect(result.data.activities).toEqual(['App']) // "the app" canon, "me" dropped
     }
   })
@@ -424,7 +424,7 @@ describe('extractEntry', () => {
     mockSynthesise.mockResolvedValue({
       text:
         '{"emotion":"Anxiety","distortion":"Catastrophizing","distortion_confidence":0.3,' +
-        '"mood_score":0.2,"topic":"Work"}',
+        '"mood_score":0.2,"topics":["Work"]}',
     })
     const result = await extractEntry(exInput)
     expect(result.success).toBe(true)
@@ -438,7 +438,7 @@ describe('extractEntry', () => {
     mockSynthesise.mockResolvedValue({
       text:
         '{"emotion":"Anxiety","distortion":"none","distortion_confidence":0.0,"mood_score":0.3,' +
-        '"topic":"Work","beliefs":["i am not good enough.","none"],"behaviors":["  avoidance "]}',
+        '"topics":["Work"],"beliefs":["i am not good enough.","none"],"behaviors":["  avoidance "]}',
     })
     const result = await extractEntry(exInput)
     expect(result.success).toBe(true)
@@ -450,7 +450,7 @@ describe('extractEntry', () => {
 
   it('defaults beliefs/behaviors to [] when the model omits them', async () => {
     mockSynthesise.mockResolvedValue({
-      text: '{"emotion":"Anxiety","distortion":"none","distortion_confidence":0.0,"mood_score":0.3,"topic":"Work"}',
+      text: '{"emotion":"Anxiety","distortion":"none","distortion_confidence":0.0,"mood_score":0.3,"topics":["Work"]}',
     })
     const result = await extractEntry(exInput)
     expect(result.success && result.data.beliefs).toEqual([])

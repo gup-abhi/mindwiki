@@ -19,13 +19,13 @@ const mockGetTokens = getTokens as jest.Mock
 // Must mirror TABLES.entries.columns in engine.ts (the order applyRemote binds).
 const ENTRY_COLS = [
   'id', 'created_at', 'mood', 'situation', 'thought', 'behavior',
-  'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'tagged_at', 'source',
+  'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'topic2', 'tagged_at', 'raw_text', 'source',
 ]
 
 const entryRow = (id: string, over: Record<string, unknown> = {}) => ({
   id, created_at: 1000, mood: 3, situation: 's', thought: 't', behavior: null,
   closing_note: null, emotion: null, named_emotion: null, energy: null, distortion: null,
-  mood_score: null, tagged_at: null,
+  mood_score: null, topic: null, topic2: null, tagged_at: null, raw_text: null,
   ...over,
 })
 

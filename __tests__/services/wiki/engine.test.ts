@@ -57,6 +57,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   distortion: 'catastrophizing',
   mood_score: 0.2,
   topic: null,
+  topic2: null,
   tagged_at: 1,
   wiki_indexed_at: null,
   graph_indexed_at: null,
@@ -81,14 +82,21 @@ describe('candidateTopics', () => {
   })
 
   it('adds a de-duplicated theme topic when provided', () => {
-    const topics = candidateTopics(entry({ distortion: 'none' }), 'Work')
+    const topics = candidateTopics(entry({ distortion: 'none' }), ['Work'])
     expect(topics).toEqual([
       { title: 'Anxiety', category: 'emotion' },
       { title: 'Work', category: 'theme' },
     ])
     // a theme equal to an existing topic is de-duped
-    const deduped = candidateTopics(entry({ distortion: 'none' }), 'anxiety')
+    const deduped = candidateTopics(entry({ distortion: 'none' }), ['anxiety'])
     expect(deduped).toEqual([{ title: 'Anxiety', category: 'emotion' }])
+    // multiple themes all land (de-duped against each other + existing)
+    const multi = candidateTopics(entry({ distortion: 'none' }), ['Work', 'Marriage'])
+    expect(multi).toEqual([
+      { title: 'Anxiety', category: 'emotion' },
+      { title: 'Work', category: 'theme' },
+      { title: 'Marriage', category: 'theme' },
+    ])
   })
 })
 
@@ -140,7 +148,7 @@ describe('updateWikiForEntry', () => {
       ok({ id: 'survivor', title: 'Work stress', category: 'theme', content: 'live take', merged_into: null })
     )
 
-    const result = await updateWikiForEntry(entry({ emotion: null, distortion: 'none' }), 'Job pressure')
+    const result = await updateWikiForEntry(entry({ emotion: null, distortion: 'none' }), ['Job pressure'])
 
     // Built on the survivor's content + title, and wrote to the survivor's id.
     expect(mockSynth).toHaveBeenCalledWith(

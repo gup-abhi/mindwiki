@@ -26,15 +26,22 @@ export async function dedupeTopics(
   db: SqliteDatabase = getDb()
 ): Promise<Result<{ entriesUpdated: number; pagesMerged: number }>> {
   try {
-    // 1. Re-derive entries.topic to the singular canonical form.
+    // 1. Re-derive entries.topic and entries.topic2 to the singular canonical form.
     let entriesUpdated = 0
-    const er = await db.execute("SELECT id, topic FROM entries WHERE topic IS NOT NULL AND topic <> ''")
+    const er = await db.execute("SELECT id, topic, topic2 FROM entries WHERE (topic IS NOT NULL AND topic <> '') OR (topic2 IS NOT NULL AND topic2 <> '')")
     for (const row of er.rows) {
       const id = String(row.id)
-      const current = String(row.topic)
-      const next = canonicalTopic(current)
+      const current = row.topic ? String(row.topic) : null
+      const next = current ? canonicalTopic(current) : null
       if (next && next !== current) {
         await db.execute('UPDATE entries SET topic = ? WHERE id = ?', [next, id])
+        await enqueueUpsert('entries', id, db)
+        entriesUpdated++
+      }
+      const current2 = row.topic2 ? String(row.topic2) : null
+      const next2 = current2 ? canonicalTopic(current2) : null
+      if (next2 && next2 !== current2) {
+        await db.execute('UPDATE entries SET topic2 = ? WHERE id = ?', [next2, id])
         await enqueueUpsert('entries', id, db)
         entriesUpdated++
       }

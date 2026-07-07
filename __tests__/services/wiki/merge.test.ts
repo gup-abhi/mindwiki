@@ -113,18 +113,26 @@ describe('suggestMerges', () => {
 
 // Fake DB backing the raw queries mergePages issues.
 function createFakeDb() {
-  const entries = new Map<string, { id: string; topic: string }>()
+  const entries = new Map<string, { id: string; topic: string; topic2: string }>()
   const pageUpdates: Array<{ sql: 'merged_into' | 'entry_count'; params: unknown[] }> = []
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
-      if (/^SELECT id FROM entries WHERE topic/.test(sql)) {
-        const [topic] = params as string[]
+      if (/^SELECT.*FROM entries WHERE topic.+\? OR topic2/.test(sql)) {
+        const [t1, t2] = params as string[]
         return {
-          rows: [...entries.values()].filter((e) => e.topic === topic).map((e) => ({ id: e.id })),
+          rows: [...entries.values()]
+            .filter((e) => e.topic === t1 || e.topic2 === t2)
+            .map((e) => ({ id: e.id, topic: e.topic, topic2: e.topic2 })),
           rowsAffected: 0,
         }
       }
-      if (/^UPDATE entries SET topic/.test(sql)) {
+      if (/^UPDATE entries SET topic2/.test(sql)) {
+        const [topic, id] = params as string[]
+        const row = entries.get(String(id))
+        if (row) row.topic2 = String(topic)
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^UPDATE entries SET topic /.test(sql)) {
         const [topic, id] = params as string[]
         const row = entries.get(String(id))
         if (row) row.topic = String(topic)
@@ -156,9 +164,9 @@ describe('mergePages', () => {
 
   it('re-points the loser topic entries onto the survivor and enqueues them', async () => {
     const { db, entries } = createFakeDb()
-    entries.set('e1', { id: 'e1', topic: 'Job pressure' })
-    entries.set('e2', { id: 'e2', topic: 'Job pressure' })
-    entries.set('e3', { id: 'e3', topic: 'Cooking' }) // untouched
+    entries.set('e1', { id: 'e1', topic: 'Job pressure', topic2: '' })
+    entries.set('e2', { id: 'e2', topic: 'Job pressure', topic2: '' })
+    entries.set('e3', { id: 'e3', topic: 'Cooking', topic2: '' }) // untouched
 
     const survivor = page({ id: 's', title: 'Work stress', entry_count: 5 })
     const loser = page({ id: 'l', title: 'Job pressure', entry_count: 3 })

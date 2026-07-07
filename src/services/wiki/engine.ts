@@ -61,26 +61,30 @@ async function resolveSurvivor(page: WikiPage | null): Promise<WikiPage | null> 
 
 /**
  * Wiki page topics an entry contributes to: emotion + distortion (from the
- * persisted tags) plus an optional theme/topic (transient, from the fast model).
+ * persisted tags) plus optional themes (1–2, from the deep-model extract).
  * De-duplicated by title.
  */
-export function candidateTopics(entry: Entry, topic?: string | null): Topic[] {
-  const topics: Topic[] = []
+export function candidateTopics(entry: Entry, topics?: string[] | null): Topic[] {
+  const topicsList: Topic[] = []
   const seen = new Set<string>()
   const add = (raw: string, category: string) => {
     const title = titleCase(raw)
     const key = title.toLowerCase()
     if (title && !seen.has(key)) {
       seen.add(key)
-      topics.push({ title, category })
+      topicsList.push({ title, category })
     }
   }
   if (entry.emotion && entry.emotion.trim()) add(entry.emotion, 'emotion')
   if (entry.distortion && entry.distortion.trim().toLowerCase() !== 'none') {
     add(entry.distortion, 'distortion')
   }
-  if (topic && topic.trim()) add(topic, 'theme')
-  return topics
+  if (topics) {
+    for (const t of topics) {
+      if (t && t.trim()) add(t, 'theme')
+    }
+  }
+  return topicsList
 }
 
 /**
@@ -91,20 +95,20 @@ export function candidateTopics(entry: Entry, topic?: string | null): Topic[] {
  */
 export async function updateWikiForEntry(
   entry: Entry,
-  topic?: string | null
+  topics?: string[] | null
 ): Promise<Result<string[]>> {
   const updated: string[] = []
-  const topics = candidateTopics(entry, topic)
+  const topicList = candidateTopics(entry, topics)
   // Add recurring people/places/activities, skipping any title already covered
   // by an emotion/distortion/theme topic (get-or-create matches on title alone).
-  const seen = new Set(topics.map((t) => t.title.toLowerCase()))
+  const seen = new Set(topicList.map((t) => t.title.toLowerCase()))
   for (const t of await recurringEntityTopics(entry.id)) {
     if (seen.has(t.title.toLowerCase())) continue
     seen.add(t.title.toLowerCase())
-    topics.push(t)
+    topicList.push(t)
   }
 
-  for (const topic of topics) {
+  for (const topic of topicList) {
     const existing = await getPageByTitle(topic.title)
     if (!existing.success) continue
     // If this title was merged into another page, build on the survivor instead
@@ -185,7 +189,9 @@ export interface LineagePage {
  * compounding knowledge the entry fed. Best-effort; never throws.
  */
 export async function lineageForEntry(entry: Entry): Promise<Result<LineagePage[]>> {
-  const topics = candidateTopics(entry, entry.topic)
+  // Build topic list from primary + secondary themes, both persisted on entry.
+  const themes = [entry.topic, entry.topic2].filter((t): t is string => !!t && t.trim().length > 0)
+  const topics = candidateTopics(entry, themes)
   const seen = new Set(topics.map((t) => t.title.toLowerCase()))
   for (const t of await recurringEntityTopics(entry.id)) {
     if (seen.has(t.title.toLowerCase())) continue

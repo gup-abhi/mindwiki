@@ -90,12 +90,25 @@ export async function mergePages(
 
     // 1. Re-point the loser's entries onto the survivor's topic.
     let entriesRepointed = 0
-    const er = await db.execute('SELECT id FROM entries WHERE topic = ?', [loser.title])
+    const er = await db.execute('SELECT id, topic, topic2 FROM entries WHERE topic = ? OR topic2 = ?', [loser.title, loser.title])
     for (const row of er.rows) {
       const id = String(row.id)
-      await db.execute('UPDATE entries SET topic = ? WHERE id = ?', [survivor.title, id])
-      await enqueueUpsert('entries', id, db)
-      entriesRepointed++
+      const curTopic = row.topic ? String(row.topic) : ''
+      const curTopic2 = row.topic2 ? String(row.topic2) : ''
+      // If topic equals the loser, replace it; otherwise it's topic2, replace that.
+      if (curTopic.toLowerCase() === loser.title.toLowerCase()) {
+        if (survivor.title !== curTopic) {
+          await db.execute('UPDATE entries SET topic = ? WHERE id = ?', [survivor.title, id])
+          await enqueueUpsert('entries', id, db)
+          entriesRepointed++
+        }
+      } else if (curTopic2.toLowerCase() === loser.title.toLowerCase()) {
+        if (survivor.title !== curTopic2) {
+          await db.execute('UPDATE entries SET topic2 = ? WHERE id = ?', [survivor.title, id])
+          await enqueueUpsert('entries', id, db)
+          entriesRepointed++
+        }
+      }
     }
 
     // 2. Flag the loser as merged into the survivor.

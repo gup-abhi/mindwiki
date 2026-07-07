@@ -50,6 +50,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   distortion: null,
   mood_score: 0.2,
   topic: null,
+  topic2: null,
   tagged_at: 1,
   wiki_indexed_at: null,
   graph_indexed_at: null,

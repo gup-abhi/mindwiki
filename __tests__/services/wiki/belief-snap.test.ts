@@ -3,7 +3,7 @@ import { snapBeliefSemantic, snapBeliefsSemantic, backfillBeliefEmbeddings } fro
 import { embedText } from '@/services/wiki/embeddings'
 
 jest.mock('@/services/wiki/embeddings', () => ({
-  embedText: jest.fn<Promise<{ success: true; data: number[] } | { success: false; error: string }>, [string]>(),
+  embedText: jest.fn<Promise<{ success: true; data: number[] } | { success: false; error: { code: string; message: string } }>, [string]>(),
 }))
 
 jest.mock('@/services/storage/entity-embeddings', () => ({
@@ -90,7 +90,7 @@ describe('snapBeliefSemantic', () => {
         ['I am not good enough', { label: 'I am not good enough', type: 'belief', vector: WORTHLESS_VEC, contentHash: '' }],
       ]),
     })
-    mockEmbedText.mockResolvedValue({ success: false, error: 'EMBED_FAILED' })
+    mockEmbedText.mockResolvedValue({ success: false, error: { code: 'EMBED_FAILED', message: 'Embedding failed' } })
 
     const result = await snapBeliefSemantic('I feel worthless')
     expect(result).toBe('I feel worthless')

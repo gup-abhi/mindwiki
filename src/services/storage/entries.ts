@@ -27,8 +27,10 @@ export interface Entry {
   energy: number | null
   distortion: string | null
   mood_score: number | null
-  /** Fast-model theme (1–3 words) — persisted so the graph rebuilds across devices. */
+  /** Primary theme (canonicalized, first of 1–2). Synced. */
   topic: string | null
+  /** Secondary theme (canonicalized). Synced; null when only one theme. */
+  topic2: string | null
   tagged_at: number | null
   /** When wiki synthesis for this entry last resolved. Set after (not before)
    * the deep-model wiki step so catch-up can find entries interrupted mid-
@@ -60,12 +62,14 @@ export interface NewEntry {
   raw_text?: string | null
 }
 
-/** Fast-model output applied after the entry is saved. */
+/** Deep-model output applied after the entry is saved. */
 export interface EntryTags {
   emotion: string
   distortion: string
   mood_score: number
   topic: string
+  /** Second theme; empty string when only one. */
+  topic2: string
 }
 
 function rowToEntry(row: Record<string, unknown>): Entry {
@@ -85,6 +89,7 @@ function rowToEntry(row: Record<string, unknown>): Entry {
     distortion: str(row.distortion),
     mood_score: num(row.mood_score),
     topic: str(row.topic),
+    topic2: str(row.topic2),
     tagged_at: num(row.tagged_at),
     wiki_indexed_at: num(row.wiki_indexed_at),
     graph_indexed_at: num(row.graph_indexed_at),
@@ -111,6 +116,7 @@ export async function createEntry(
     distortion: null,
     mood_score: null,
     topic: null,
+    topic2: null,
     tagged_at: null,
     wiki_indexed_at: null,
     graph_indexed_at: null,
@@ -341,8 +347,8 @@ export async function applyTags(
 ): Promise<Result<void>> {
   try {
     await db.execute(
-      'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, tagged_at = ? WHERE id = ?',
-      [tags.emotion, tags.distortion, tags.mood_score, tags.topic, Date.now(), id]
+      'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, topic2 = ?, tagged_at = ? WHERE id = ?',
+      [tags.emotion, tags.distortion, tags.mood_score, tags.topic, tags.topic2, Date.now(), id]
     )
     await enqueueUpsert('entries', id, db) // tagging changes the row → re-sync
     return ok(undefined)
@@ -383,6 +389,33 @@ export function countEntriesByDistortion(label: string, db: SqliteDatabase = get
 
 export function countEntriesByTopic(label: string, db: SqliteDatabase = getDb()): Promise<Result<number>> {
   return countEntriesByColumn('topic', label, db)
+}
+
+/**
+ * Count entries whose topic OR topic2 equals `value` (case-insensitive) — the
+ * recurrence gate for situation graph nodes. A secondary theme must count toward
+ * the same label's recurrence so "Work" as a second topic reaches the gate as
+ * fast as "Work" as the primary topic. Counts journal + reflect entries.
+ */
+export function countEntriesByAnyTopic(label: string, db: SqliteDatabase = getDb()): Promise<Result<number>> {
+  return _countEntriesByOrColumn('topic', 'topic2', label, db)
+}
+
+async function _countEntriesByOrColumn(
+  col1: string,
+  col2: string,
+  value: string,
+  db: SqliteDatabase
+): Promise<Result<number>> {
+  try {
+    const res = await db.execute(
+      `SELECT COUNT(*) AS n FROM entries WHERE ${col1} = ? COLLATE NOCASE OR ${col2} = ? COLLATE NOCASE`,
+      [value, value]
+    )
+    return ok(Number(res.rows[0]?.n ?? 0))
+  } catch (e) {
+    return err('ENTRY_TAG_COUNT_FAILED', 'Failed to count entries by tag', e)
+  }
 }
 
 /**
