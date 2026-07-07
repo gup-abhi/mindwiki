@@ -7,6 +7,7 @@ import { PageTrendView, TrendLegend } from '@/components/wiki/PageTrendView'
 import { AffectMapView } from '@/components/insights/AffectMapView'
 import { DistortionTrendView } from '@/components/insights/DistortionTrendView'
 import { useEntries } from '@/hooks/useEntries'
+import { useStreakFreezes } from '@/hooks/useStreakFreezes'
 import { useTrendingPages } from '@/hooks/useWiki'
 import {
   moodByDay,
@@ -27,6 +28,7 @@ export default function TrendsScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const { entries } = useEntries()
+  const { frozenDays } = useStreakFreezes()
 
   const trending = useTrendingPages()
   const now = Date.now()
@@ -85,7 +87,7 @@ export default function TrendsScreen() {
             <Text variant="subtitle" color="textSecondary" style={styles.cardTitle}>
               {monthLabel}
             </Text>
-            <MoodCalendar weeks={weeks} />
+            <MoodCalendar weeks={weeks} year={today.getFullYear()} month={today.getMonth()} frozenDays={frozenDays} />
           </Card>
 
           {rhythm && (
@@ -156,8 +158,9 @@ function MoodTrendChart({ data }: { data: DayMood[] }) {
 
 const DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
-/** A month grid with each day tinted on the mood scale (empty = no entry). */
-function MoodCalendar({ weeks }: { weeks: MonthCell[][] }) {
+/** A month grid with each day tinted on the mood scale (empty = no entry).
+ * Frozen days (streak-freeze) show ❄ on the cell. */
+function MoodCalendar({ weeks, year, month, frozenDays }: { weeks: MonthCell[][]; year: number; month: number; frozenDays: Set<number> }) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   return (
@@ -174,6 +177,8 @@ function MoodCalendar({ weeks }: { weeks: MonthCell[][] }) {
           {week.map((cell, ci) => {
             if (cell.day == null) return <View key={ci} style={styles.cell} />
             const filled = cell.avg != null
+            const dayIdx = cell.day != null ? Math.floor(Date.UTC(year, month, cell.day) / 86_400_000) : -1
+            const isFrozen = cell.day != null ? frozenDays.has(dayIdx) : false
             return (
               <View key={ci} style={styles.cell}>
                 <View
@@ -184,9 +189,15 @@ function MoodCalendar({ weeks }: { weeks: MonthCell[][] }) {
                       : styles.cellEmpty,
                   ]}
                 >
-                  <Text variant="caption" color={filled ? 'textInverse' : 'textMuted'}>
-                    {cell.day}
-                  </Text>
+                  {isFrozen ? (
+                    <Text variant="caption" color={filled ? 'textInverse' : 'textMuted'}>
+                      ❄
+                    </Text>
+                  ) : (
+                    <Text variant="caption" color={filled ? 'textInverse' : 'textMuted'}>
+                      {cell.day}
+                    </Text>
+                  )}
                 </View>
               </View>
             )
