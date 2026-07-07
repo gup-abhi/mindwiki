@@ -42,6 +42,7 @@ export default function QueryScreen() {
   const summaryCrisisTier = useChatStore((s) => s.summaryCrisisTier)
   const scrollRef = useRef<ScrollView>(null)
   const savedScrollY = useRef(0)
+  const userScrolling = useRef(false)
   const [composerSeed, setComposerSeed] = useState<{ text: string; nonce: number } | null>(null)
   const isEmpty = messages.length === 0
   const [tab, setTab] = useState<'start' | 'history'>('start')
@@ -78,21 +79,41 @@ export default function QueryScreen() {
   // and restore it when returning. Without this, closing a conversation resets
   // the history/suggestions list to the top — disorienting when the user was
   // scrolled deep into their past conversations.
-  const onStartScroll = useCallback(
+  //
+  // A ref tracks whether the current scroll event came from a user drag (vs a
+  // programmatic reflow-settle when content shrinks on chat exit). Content-shrink
+  // events fire at y=0 while isEmpty is already true and would clobber the real
+  // saved position, so only capture during user-initiated scroll phases.
+  const onStartScrollBeginDrag = useCallback(
     (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+      userScrolling.current = true
       if (isEmpty) savedScrollY.current = e.nativeEvent.contentOffset.y
     },
     [isEmpty]
   )
+  const onStartScrollEndDrag = useCallback(() => {
+    userScrolling.current = false
+  }, [])
+  const onStartMomentumScrollEnd = useCallback(() => {
+    userScrolling.current = false
+  }, [])
+  const onStartScroll = useCallback(
+    (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+      if (isEmpty && userScrolling.current) {
+        savedScrollY.current = e.nativeEvent.contentOffset.y
+      }
+    },
+    [isEmpty]
+  )
   const restoreScroll = useCallback(() => {
-    if (!isEmpty || savedScrollY.current <= 0) return
+    if (!isEmpty) return
     requestAnimationFrame(() =>
-      scrollRef.current?.scrollTo({ y: savedScrollY.current, animated: false })
+      requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, savedScrollY.current), animated: false }))
     )
   }, [isEmpty])
   // Restore after the start screen content (history list, suggestions) renders.
   useEffect(() => {
-    if (isEmpty) restoreScroll()
+    if (isEmpty && history.length > 0) restoreScroll()
   }, [history, tab, isEmpty, restoreScroll])
 
   // Android hardware back: when a conversation is open, return to the Reflect
@@ -138,6 +159,9 @@ export default function QueryScreen() {
           keyboardShouldPersistTaps="handled"
           onScroll={isEmpty ? onStartScroll : undefined}
           scrollEventThrottle={16}
+          onScrollBeginDrag={isEmpty ? onStartScrollBeginDrag : undefined}
+          onScrollEndDrag={isEmpty ? onStartScrollEndDrag : undefined}
+          onMomentumScrollEnd={isEmpty ? onStartMomentumScrollEnd : undefined}
           onContentSizeChange={isEmpty ? undefined : scrollToBottom}
         >
           {isEmpty ? (
