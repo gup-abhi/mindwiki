@@ -57,20 +57,23 @@ export default function Home() {
   )
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
 
-  // Which wiki pages the most recent entry reshaped (compounding beat).
+  // Which wiki pages the most recent tagged entry reshaped (compounding beat).
+  // Falls back through entries until it finds one with topics set — avoids a blank
+  // card when the very latest entry hasn't been tagged by the deep model yet.
   const [reshaped, setReshaped] = useState<LineagePage[] | null>(null)
-  const lastEntry = entries[0]
+  const taggedEntry = useMemo(() => entries.find((e) => e.topic || e.topic2), [entries])
+  const lineageTarget = taggedEntry ?? entries[0]
   useEffect(() => {
     let active = true
-    if (!lastEntry) {
+    if (!lineageTarget) {
       setReshaped(null)
       return
     }
-    lineageForEntry(lastEntry).then((res) => {
+    lineageForEntry(lineageTarget).then((res) => {
       if (active) setReshaped(res.success ? res.data : null)
     })
     return () => { active = false }
-  }, [lastEntry])
+  }, [lineageTarget])
 
   // Offer to save an at-risk streak once per launch.
   const [rescueOpen, setRescueOpen] = useState(false)
