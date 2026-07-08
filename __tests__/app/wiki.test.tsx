@@ -1,7 +1,7 @@
 import { Alert } from 'react-native'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
 
-import WikiBrowse from '@/app/(tabs)/wiki/index'
+import YouScreen from '@/app/(tabs)/you'
 import WikiCategoryScreen from '@/app/wiki/category/[category]'
 import WikiPageScreen from '@/app/wiki/[id]'
 import { type PageTrend } from '@/services/insights/page-trend'
@@ -14,6 +14,22 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockParams,
 }))
 
+jest.mock('@/hooks/useEntries', () => ({ useEntries: () => ({ entries: [] }) }))
+jest.mock('@/hooks/useStreakFreezes', () => ({
+  useStreakFreezes: () => ({ frozenDays: new Set<number>() }),
+}))
+jest.mock('@/hooks/useDigest', () => ({ useDigest: () => ({ digest: null, loading: true, synthesizing: false }) }))
+jest.mock('@/services/storage/graph', () => ({ dismissNode: jest.fn() }))
+jest.mock('@/store/wiki.store', () => ({ useWikiStore: () => ({ pending: 0 }) }))
+jest.mock('@/hooks/useGraph', () => ({
+  useGraph: () => ({ nodes: [], edges: [], refresh: jest.fn() }),
+  useNodeContext: () => ({ context: null, loading: false }),
+  useNodeDismissals: () => ({ dismissals: [], refresh: jest.fn() }),
+}))
+jest.mock('react-native-webview', () => ({
+  default: () => null,
+  WebView: () => null,
+}))
 const mockUseWikiPages = jest.fn()
 const mockUseWikiPage = jest.fn()
 const mockUseDismissedPages = jest.fn(() => ({
@@ -55,12 +71,16 @@ const mixedPages = [
   { id: 'p4', title: 'Work', category: 'theme', entry_count: 5 },
 ]
 
-describe('WikiBrowse (category list)', () => {
+describe('WikiBrowse (category list, inside You tab > Pages segment)', () => {
   beforeEach(() => {
     mockPush.mockReset()
     mockParams = { id: 'p1' }
     mockUseDismissedPages.mockReturnValue({ pages: [], loading: false, refresh: jest.fn() })
   })
+
+  function renderPages() {
+    render(<YouScreen />)
+  }
 
   it('shows the dropped-insights footer and opens it when pages were dropped', () => {
     mockUseWikiPages.mockReturnValue({ pages: mixedPages, loading: false })
@@ -69,20 +89,20 @@ describe('WikiBrowse (category list)', () => {
       loading: false,
       refresh: jest.fn(),
     })
-    render(<WikiBrowse />)
+    renderPages()
     fireEvent.press(screen.getByText('Dropped insights'))
     expect(mockPush).toHaveBeenCalledWith('/wiki/dismissed')
   })
 
   it('hides the dropped-insights footer when nothing is dropped', () => {
     mockUseWikiPages.mockReturnValue({ pages: mixedPages, loading: false })
-    render(<WikiBrowse />)
+    renderPages()
     expect(screen.queryByText('Dropped insights')).toBeNull()
   })
 
   it('lists categories with page counts and opens one', () => {
     mockUseWikiPages.mockReturnValue({ pages: mixedPages, loading: false })
-    render(<WikiBrowse />)
+    renderPages()
     expect(screen.getByText('Emotions')).toBeTruthy()
     expect(screen.getByText('2 pages')).toBeTruthy() // two emotion pages
     expect(screen.getByText('Distortions')).toBeTruthy()
@@ -93,7 +113,7 @@ describe('WikiBrowse (category list)', () => {
 
   it('shows an empty state when there are no pages', () => {
     mockUseWikiPages.mockReturnValue({ pages: [], loading: false })
-    render(<WikiBrowse />)
+    renderPages()
     expect(screen.getByText(/No pages yet/)).toBeTruthy()
   })
 })

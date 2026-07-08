@@ -36,6 +36,8 @@ jest.mock('@/hooks/useModelDownload', () => ({
 }))
 
 const mockWiki = jest.fn(() => ({ pages: [] as WikiPage[], loading: false }))
+jest.mock('@/services/wiki/engine', () => ({ lineageForEntry: jest.fn() }))
+const mockLineage = jest.mocked(require('@/services/wiki/engine').lineageForEntry)
 jest.mock('@/hooks/useWiki', () => ({ useWikiPages: () => mockWiki() }))
 
 const mockChallengeCheckIn = jest.fn()
@@ -71,6 +73,7 @@ describe('Home entries list', () => {
     mockWiki.mockReturnValue({ pages: [], loading: false })
     mockChallengeCheckIn.mockReset()
     mockChallenge.mockReturnValue({ challenge: null, streak: 0, doneToday: false, checkIn: mockChallengeCheckIn })
+    mockLineage.mockResolvedValue({ success: true, data: [] })
     useWikiStore.setState({ pending: 0 })
   })
 

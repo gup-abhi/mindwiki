@@ -1,7 +1,7 @@
 import { Alert } from 'react-native'
 import { render, screen, fireEvent } from '@testing-library/react-native'
 
-import GraphScreen from '@/app/(tabs)/graph'
+import YouScreen from '@/app/(tabs)/you'
 import { dismissNode } from '@/services/storage/graph'
 
 const mockUseGraph = jest.fn()
@@ -25,6 +25,9 @@ let mockParams: Record<string, string> = {}
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
   useLocalSearchParams: () => mockParams,
+  useFocusEffect: (cb: () => void) => {
+    require('react').useEffect(() => cb(), [])
+  },
 }))
 
 // The 3D graph runs in a WebView, which can't render under the test runner. Stub
@@ -45,15 +48,36 @@ jest.mock('@/components/graph/Graph3D', () => {
   }
 })
 
+// Mocks for YouScreen segments other than Map
+jest.mock('@/hooks/useWiki', () => ({
+  useWikiPages: () => ({ pages: [], loading: false }),
+  useDismissedPages: () => ({ pages: [], loading: false, refresh: jest.fn() }),
+  useTrendingPages: () => [],
+}))
+jest.mock('@/hooks/useEntries', () => ({ useEntries: () => ({ entries: [] }) }))
+jest.mock('@/hooks/useStreakFreezes', () => ({
+  useStreakFreezes: () => ({ frozenDays: new Set<number>() }),
+}))
+jest.mock('@/hooks/useMergeSuggestions', () => ({
+  useMergeSuggestions: () => ({ suggestions: [], dismiss: jest.fn() }),
+}))
+jest.mock('@/hooks/useDigest', () => ({ useDigest: () => ({ digest: null, loading: true, synthesizing: false }) }))
+jest.mock('@/store/wiki.store', () => ({ useWikiStore: () => ({ pending: 0 }) }))
+
 const nodes = [
   { id: 'n1', type: 'emotion', label: 'Anxiety', frequency: 3, created_at: 0, updated_at: 0 },
   { id: 'n2', type: 'situation', label: 'Work', frequency: 1, created_at: 0, updated_at: 0 },
 ]
 const edges = [{ id: 'e1', source_id: 'n1', target_id: 'n2', weight: 2, created_at: 0, updated_at: 0 }]
 
-describe('GraphScreen', () => {
+function renderMap() {
+  render(<YouScreen />)
+  fireEvent.press(screen.getByTestId('you-tab-map'))
+}
+
+describe('GraphScreen (inside You tab > Map segment)', () => {
   beforeEach(() => {
-    mockUseGraph.mockReturnValue({ nodes, edges, layout: new Map(), refresh: mockRefresh })
+    mockUseGraph.mockReturnValue({ nodes, edges, refresh: mockRefresh })
     mockUseNodeContext.mockReturnValue({ context: null, loading: false })
     mockUseNodeDismissals.mockReturnValue({ dismissals: [], refresh: jest.fn() })
     mockPush.mockReset()
@@ -63,7 +87,7 @@ describe('GraphScreen', () => {
   })
 
   it('renders filter pills and a node per visible node', () => {
-    render(<GraphScreen />)
+    renderMap()
     expect(screen.getByText('all')).toBeTruthy()
     expect(screen.getByText('emotion')).toBeTruthy()
     expect(screen.getAllByTestId('graph-node')).toHaveLength(2)
@@ -71,18 +95,18 @@ describe('GraphScreen', () => {
 
   it('focuses a node from a deep-link focus param (case-insensitive)', () => {
     mockParams = { focus: 'work' }
-    render(<GraphScreen />)
+    renderMap()
     expect(screen.getByText('situation · appeared 1 time')).toBeTruthy()
   })
 
   it('ignores a focus param that matches no node', () => {
     mockParams = { focus: 'nonexistent' }
-    render(<GraphScreen />)
+    renderMap()
     expect(screen.queryByText(/appeared/)).toBeNull()
   })
 
   it('shows a node detail card on tap', () => {
-    render(<GraphScreen />)
+    renderMap()
     fireEvent.press(screen.getAllByTestId('graph-node')[0])
     expect(screen.getByText('emotion · appeared 3 times')).toBeTruthy()
   })
@@ -95,7 +119,7 @@ describe('GraphScreen', () => {
       },
       loading: false,
     })
-    render(<GraphScreen />)
+    renderMap()
     fireEvent.press(screen.getAllByTestId('graph-node')[0])
 
     fireEvent.press(screen.getByTestId('graph-node-page'))
@@ -106,8 +130,8 @@ describe('GraphScreen', () => {
   })
 
   it('shows an empty state with no nodes', () => {
-    mockUseGraph.mockReturnValue({ nodes: [], edges: [], layout: new Map(), refresh: mockRefresh })
-    render(<GraphScreen />)
+    mockUseGraph.mockReturnValue({ nodes: [], edges: [], refresh: mockRefresh })
+    renderMap()
     expect(screen.getByText(/No connections yet/)).toBeTruthy()
   })
 
@@ -115,7 +139,7 @@ describe('GraphScreen', () => {
     const spy = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, btns) => {
       btns?.find((b) => b.style === 'destructive')?.onPress?.()
     })
-    render(<GraphScreen />)
+    renderMap()
     fireEvent.press(screen.getAllByTestId('graph-node')[0])
     fireEvent.press(screen.getByTestId('graph-drop'))
     expect(spy).toHaveBeenCalled()
@@ -128,13 +152,13 @@ describe('GraphScreen', () => {
       dismissals: [{ id: 'emotion:anxiety', type: 'emotion', label: 'Anxiety', dismissed_at: 1, updated_at: 1 }],
       refresh: jest.fn(),
     })
-    render(<GraphScreen />)
+    renderMap()
     fireEvent.press(screen.getByTestId('graph-hidden-link'))
     expect(mockPush).toHaveBeenCalledWith('/graph/hidden')
   })
 
   it('hides the Hidden link when nothing is dropped', () => {
-    render(<GraphScreen />)
+    renderMap()
     expect(screen.queryByTestId('graph-hidden-link')).toBeNull()
   })
 })

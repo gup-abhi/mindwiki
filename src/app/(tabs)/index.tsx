@@ -18,6 +18,9 @@ import { useWikiStore } from '@/store/wiki.store'
 import { computeStreak, streakRescue, weekActivity } from '@/services/notifications/streak'
 import { homeMessage } from '@/services/notifications/home-message'
 import { StreakCard } from '@/components/StreakCard'
+import { WhatChangedCard } from '@/components/home/WhatChangedCard'
+import { lineageForEntry } from '@/services/wiki/engine'
+import { type LineagePage } from '@/services/wiki/engine'
 import { StreakRescueModal } from '@/components/StreakRescueModal'
 import { SyncBanner } from '@/components/SyncBanner'
 import { generateDigest } from '@/services/digest/generator'
@@ -53,6 +56,21 @@ export default function Home() {
     [timestamps, frozenDays]
   )
   const digestReady = useMemo(() => generateDigest(entries, Date.now()) !== null, [entries])
+
+  // Which wiki pages the most recent entry reshaped (compounding beat).
+  const [reshaped, setReshaped] = useState<LineagePage[] | null>(null)
+  const lastEntry = entries[0]
+  useEffect(() => {
+    let active = true
+    if (!lastEntry) {
+      setReshaped(null)
+      return
+    }
+    lineageForEntry(lastEntry).then((res) => {
+      if (active) setReshaped(res.success ? res.data : null)
+    })
+    return () => { active = false }
+  }, [lastEntry])
 
   // Offer to save an at-risk streak once per launch.
   const [rescueOpen, setRescueOpen] = useState(false)
@@ -119,6 +137,7 @@ export default function Home() {
               freezesAvailable={journalStreak.freezesAvailable}
               onPress={() => router.push('/trends')}
             />
+            <WhatChangedCard pages={reshaped} />
             <ModelDownloadCard />
             <RecoverySetupCard />
             {digestReady && (

@@ -181,4 +181,20 @@ describe('QueryScreen (reflective conversation)', () => {
     fireEvent.press(screen.getByText('A past chat'))
     expect(mockLoad).toHaveBeenCalledWith('c1')
   })
+
+  it('shows guided paths on the Paths tab', () => {
+    mockUse.mockReturnValue(base)
+    render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('tab-paths'))
+    expect(screen.getByText('Guided reflections')).toBeTruthy()
+    expect(screen.getByText('Slow down and untangle what’s piling up.')).toBeTruthy()
+  })
+
+  it('opens the path runner from the Paths tab', () => {
+    mockUse.mockReturnValue(base)
+    render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('tab-paths'))
+    fireEvent.press(screen.getByTestId('path-overwhelmed'))
+    expect(mockPush).toHaveBeenCalledWith('/paths/overwhelmed')
+  })
 })

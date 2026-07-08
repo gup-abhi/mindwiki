@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import {
   ActivityIndicator,
   BackHandler,
@@ -17,6 +17,7 @@ import { MessageBubble } from '@/components/wiki/MessageBubble'
 import { useConversation } from '@/hooks/useConversation'
 import { useChatStore } from '@/store/chat.store'
 import { CRISIS_RESOURCES } from '@/services/crisis/resources'
+import { GUIDED_PATHS } from '@/lib/guided-paths'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 
 // Feeling/struggle chips that seed the composer, so the user can start by naming
@@ -44,8 +45,9 @@ export default function QueryScreen() {
   const savedScrollY = useRef(0)
   const userScrolling = useRef(false)
   const [composerSeed, setComposerSeed] = useState<{ text: string; nonce: number } | null>(null)
+  const router = useRouter()
   const isEmpty = messages.length === 0
-  const [tab, setTab] = useState<'start' | 'history'>('start')
+  const [tab, setTab] = useState<'start' | 'history' | 'paths'>('start')
 
   // Tapping the Reflect tab always returns to the start screen (suggestions +
   // past conversations) — but returning from a pushed page (e.g. a source chip
@@ -191,6 +193,16 @@ export default function QueryScreen() {
                     History
                   </Text>
                 </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  style={[styles.segment, tab === 'paths' && styles.segmentActive]}
+                  onPress={() => setTab('paths')}
+                  testID="tab-paths"
+                >
+                  <Text variant="label" color={tab === 'paths' ? 'primaryText' : 'textSecondary'}>
+                    Paths
+                  </Text>
+                </Pressable>
               </View>
 
               {tab === 'start' ? (
@@ -234,6 +246,32 @@ export default function QueryScreen() {
                       ))}
                     </View>
                   )}
+                </View>
+              ) : tab === 'paths' ? (
+                <View style={styles.pathsContainer}>
+                  <Text variant="label" color="accent" style={styles.sectionLabel}>
+                    Guided reflections
+                  </Text>
+                  <Text variant="body" color="textSecondary" style={styles.pathsIntro}>
+                    A few gentle prompts to work through, one at a time. Whatever you write feeds your wiki.
+                  </Text>
+                  {GUIDED_PATHS.map((path) => (
+                    <Card
+                      key={path.id}
+                      variant="surface"
+                      style={styles.pathCard}
+                      onPress={() => router.push(`/paths/${path.id}`)}
+                      testID={`path-${path.id}`}
+                    >
+                      <Text variant="heading">{path.title}</Text>
+                      <Text variant="body" color="textSecondary" style={styles.pathCardDesc}>
+                        {path.description}
+                      </Text>
+                      <Text variant="caption" color="textMuted" style={styles.pathCardMeta}>
+                        {path.steps.length} prompts
+                      </Text>
+                    </Card>
+                  ))}
                 </View>
               ) : history.length > 0 ? (
                 history.map((c) => (
@@ -327,6 +365,11 @@ const makeStyles = (t: Theme) =>
     suggestion: { marginBottom: t.spacing.sm },
     historyRow: { paddingVertical: t.spacing.md },
     historyDate: { marginTop: t.spacing.xs },
+    pathsContainer: { marginTop: t.spacing.md },
+    pathsIntro: { marginBottom: t.spacing.lg },
+    pathCard: { marginBottom: t.spacing.md },
+    pathCardDesc: { marginTop: t.spacing.xs },
+    pathCardMeta: { marginTop: t.spacing.sm },
     assistantWrap: { alignItems: 'flex-start', marginBottom: t.spacing.md },
     crisisResourceStrip: {
       paddingVertical: t.spacing.sm,

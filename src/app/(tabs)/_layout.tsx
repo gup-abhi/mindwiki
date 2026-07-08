@@ -31,20 +31,11 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="wiki/index"
+        name="you"
         options={{
-          title: 'Insights',
+          title: 'You',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'book' : 'book-outline'} color={color} size={size} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="graph"
-        options={{
-          title: 'Connections',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'git-network' : 'git-network-outline'} color={color} size={size} />
+            <Ionicons name={focused ? 'apps' : 'apps-outline'} color={color} size={size} />
           ),
         }}
       />
