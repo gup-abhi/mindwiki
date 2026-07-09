@@ -1,4 +1,5 @@
 import { getSetting, setSetting } from '@/services/storage/settings'
+import { getDb } from '@/services/storage/db'
 import { lineageForEntry } from '@/services/wiki/engine'
 import { isModelDownloaded } from '@/services/llm/model-manager'
 
@@ -24,19 +25,46 @@ export interface FirstRunStatus {
 }
 
 /**
+ * Lightweight existence check — is there at least one row in the entries
+ * table? Exported for testability (tests mock this directly instead of the
+ * DB layer). Best-effort: returns false on failure.
+ */
+export async function hasExistingEntries(): Promise<boolean> {
+  try {
+    const res = await getDb().execute('SELECT COUNT(*) AS c FROM entries LIMIT 1')
+    return Number(res.rows[0]?.c ?? 0) > 0
+  } catch {
+    return false
+  }
+}
+
+/**
  * Check the first-run status after the carousel is dismissed. Returns whether
  * a first-run path should run, which path to use, and whether the deep model
  * is ready (drives the post-path polling timeout).
+ *
+ * Skips the first run if the flag is set OR if entries already exist — protects
+ * existing accounts on a new device / re-install from being routed through the
+ * onboarding path.
  *
  * Best-effort: a storage failure returns `{ shouldRun: true }` — safer to
  * re-run the path than to skip it and leave the user in a cold start.
  */
 export async function firstRunStatus(): Promise<FirstRunStatus> {
   const flag = await getSetting(FIRST_RUN_FLAG)
-  const completed = flag.success && flag.data === '1'
+  if (flag.success && flag.data === '1') {
+    return { shouldRun: false, pathId: FIRST_RUN_PATH_ID, deepReady: await isModelDownloaded('deep') }
+  }
+
+  // Existing entries mean this is an existing user, not a fresh install.
+  if (await hasExistingEntries()) {
+    // Mark complete silently so we never check again.
+    await setSetting(FIRST_RUN_FLAG, '1').catch(() => undefined)
+    return { shouldRun: false, pathId: FIRST_RUN_PATH_ID, deepReady: await isModelDownloaded('deep') }
+  }
 
   return {
-    shouldRun: !completed,
+    shouldRun: true,
     pathId: FIRST_RUN_PATH_ID,
     deepReady: await isModelDownloaded('deep'),
   }
