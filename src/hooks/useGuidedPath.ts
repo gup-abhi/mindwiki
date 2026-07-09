@@ -57,11 +57,11 @@ export function useGuidedPath(pathId: string) {
     })
   }, [path, stepIndex, answers])
 
-  const finish = useCallback(async (): Promise<CrisisAssessment> => {
+  const finish = useCallback(async (): Promise<{ crisis: CrisisAssessment; entryIds: string[] }> => {
     setSubmitting(true)
-    const crisis = await capturePathAnswers(answers)
+    const result = await capturePathAnswers(answers)
     setSubmitting(false)
-    return crisis
+    return result
   }, [answers])
 
   return {

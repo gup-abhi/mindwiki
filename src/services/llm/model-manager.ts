@@ -62,6 +62,42 @@ export async function areModelsReady(): Promise<boolean> {
 }
 
 /**
+ * True when enough models are present to start journaling. Only the fast model
+ * is required (crisis scoring + fast tags + embeddings). The deep model (wiki
+ * synthesis) and embed model (semantic retrieval) download behind the user.
+ * Used by the cold-start staged-download path so the app is usable while the
+ * heavy models arrive.
+ */
+export async function canStart(): Promise<boolean> {
+  return isModelDownloaded('fast')
+}
+
+// ─── Deep-model-ready observer ───────────────────────────────────────────────
+// Lets mid-session code (pipeline catch-up, model-download card) react when
+// the deep model finishes downloading while the user is already journaling.
+
+type DeepModelCallback = () => void
+let _deepReadyCallbacks: DeepModelCallback[] = []
+
+/** Register a callback that fires once when the deep model finishes downloading. */
+export function onDeepModelReady(cb: DeepModelCallback): void {
+  _deepReadyCallbacks.push(cb)
+}
+
+/** Remove all deep-model-ready callbacks (e.g. on unmount or logout). */
+export function clearDeepModelReadyCallbacks(): void {
+  _deepReadyCallbacks = []
+}
+
+function _notifyDeepReady(): void {
+  const cbs = _deepReadyCallbacks.slice()
+  _deepReadyCallbacks = []
+  for (const cb of cbs) {
+    try { cb() } catch { /* best-effort — one bad callback never blocks the rest */ }
+  }
+}
+
+/**
  * Best-effort, idempotent fetch of the optional embedding model. New users get
  * it during the onboarding download; this covers users already past onboarding
  * (fast+deep present, so the onboarding flow never re-runs). Safe to call often —
@@ -99,6 +135,12 @@ export async function downloadModel(
     if (!res) return err('MODEL_DOWNLOAD_FAILED', `Download interrupted for ${kind} model`)
 
     await FileSystem.moveAsync({ from: partUri, to: finalUri })
+
+    // Notify deep-model-ready observers. A successful download of the deep
+    // model lets mid-session code (pipeline catch-up) start indexing entries
+    // that were saved while only the fast model was present.
+    if (kind === 'deep') _notifyDeepReady()
+
     return ok(true)
   } catch (e) {
     return err('MODEL_DOWNLOAD_FAILED', `Failed to download ${kind} model`, e)

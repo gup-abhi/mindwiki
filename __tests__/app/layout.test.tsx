@@ -30,6 +30,9 @@ jest.mock('expo-router', () => {
   const { Text } = require('react-native')
   return { Stack: () => <Text>stack-rendered</Text> }
 })
+// useFirstRunRedirect fires router.replace; stub it in layout tests so the
+// route tree doesn't change during gate tests.
+jest.mock('@/hooks/useFirstRunRedirect', () => ({ useFirstRunRedirect: jest.fn() }))
 
 const mockInitStorage = initStorage as jest.Mock
 

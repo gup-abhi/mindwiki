@@ -6,19 +6,25 @@ import { Button, Chip, ProgressBar, Screen, Text, TextField } from '@/components
 import { type Theme, useThemedStyles } from '@/theme'
 import { haptics } from '@/lib/haptics'
 import { useGuidedPath } from '@/hooks/useGuidedPath'
+import { markFirstRunComplete, firstWikiPage } from '@/services/onboarding/first-run'
 
 /**
  * Guided-path runner: steps through a path's prompts one at a time, with an
  * optional "go deeper" follow-up per step. On finish each answer is captured into
  * the wiki/graph and, if the answers surface a confident crisis signal, routes to
  * /crisis — safety parity with a journal save.
+ *
+ * When `firstRun=1` is passed, the finish flow also marks the first run complete
+ * and routes the user to their first wiki page (the "This is your wiki" aha moment),
+ * unless /crisis takes priority.
  */
 export default function PathRunnerScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, firstRun } = useLocalSearchParams<{ id: string; firstRun?: string }>()
   const p = useGuidedPath(id ?? '')
   const [completed, setCompleted] = useState(false)
+  const [firstRunRedirecting, setFirstRunRedirecting] = useState(false)
 
   if (!p.path) {
     return (
@@ -39,9 +45,13 @@ export default function PathRunnerScreen() {
             Nicely done
           </Text>
           <Text variant="body" color="textSecondary" style={styles.doneBody}>
-            What you wrote is saved and woven into your wiki.
+            {firstRunRedirecting
+              ? 'Finding your first insight page…'
+              : 'What you wrote is saved and woven into your wiki.'}
           </Text>
-          <Button title="Done" fullWidth onPress={() => router.replace('/')} />
+          {!firstRunRedirecting && (
+            <Button title="Done" fullWidth onPress={() => router.replace('/')} />
+          )}
         </View>
       </Screen>
     )
@@ -50,16 +60,39 @@ export default function PathRunnerScreen() {
   const step = p.path.steps[p.stepIndex]
 
   const onFinish = async () => {
-    const crisis = await p.finish()
+    const { crisis, entryIds } = await p.finish()
     haptics.success()
+
+    // Crisis takes priority over first-run routing — safety first.
     if (crisis.tier >= 2) {
       router.replace({
         pathname: '/crisis',
         params: { tier: String(crisis.tier), conf: String(crisis.confidence) },
       })
-    } else {
-      setCompleted(true)
+      return
     }
+
+    // First-run path: mark complete, poll for first wiki page, then route to it.
+    if (firstRun === '1') {
+      if (entryIds.length > 0) {
+        setFirstRunRedirecting(true)
+        await markFirstRunComplete(entryIds)
+        const page = await firstWikiPage(entryIds, 20_000)
+        setFirstRunRedirecting(false)
+        if (page) {
+          router.replace({ pathname: `/wiki/${page.id}`, params: { firstRun: '1' } })
+          return
+        }
+        // Poll timed out — fall through to normal completed state; the
+        // WhatChangedCard on Home picks up the pages when synthesis finishes.
+      } else {
+        // All answers were blank — still mark first run complete so the user
+        // isn't trapped in a first-run loop.
+        await markFirstRunComplete([])
+      }
+    }
+
+    setCompleted(true)
   }
 
   return (
@@ -115,7 +148,7 @@ export default function PathRunnerScreen() {
           {p.isLast ? (
             <Button
               title="Finish"
-              loading={p.submitting}
+              loading={p.submitting || firstRunRedirecting}
               disabled={!p.hasAnyAnswer}
               fullWidth
               onPress={onFinish}

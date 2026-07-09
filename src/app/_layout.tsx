@@ -23,6 +23,7 @@ import { AuthScreen } from '@/components/auth/AuthScreen'
 import { LockScreen } from '@/components/auth/LockScreen'
 import { CoverScreen } from '@/components/CoverScreen'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
+import { useFirstRunRedirect } from '@/hooks/useFirstRunRedirect'
 import { hasSeenOnboarding, markOnboardingSeen } from '@/services/onboarding/seen'
 import { ThemeProvider, type Theme, useTheme, useThemedStyles } from '@/theme'
 
@@ -37,6 +38,9 @@ type StorageStatus = 'idle' | 'loading' | 'ready' | 'error'
  */
 function AppRoot() {
   useSync()
+  // One-time first-run redirect: after the carousel, route the user through a
+  // guided path so they produce entries and see their first wiki page.
+  useFirstRunRedirect()
   // Overlay (not swap) the lock so navigation state survives lock/unlock.
   const locked = useAppLock()
   // Only after the cold-start lock decision is made, so the cover doesn't mount
