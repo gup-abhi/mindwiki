@@ -16,6 +16,7 @@
 import { firstRunStatus, markFirstRunComplete, firstWikiPage, hasExistingEntries } from '@/services/onboarding/first-run'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
+import { hasSeenOnboarding } from '@/services/onboarding/seen'
 import { lineageForEntry } from '@/services/wiki/engine'
 import { isModelDownloaded, onDeepModelReady, clearDeepModelReadyCallbacks } from '@/services/llm/model-manager'
 import { downloadModel } from '@/services/llm/model-manager'
@@ -28,6 +29,14 @@ import { ok, err } from '@/types/result'
 jest.mock('@/services/storage/settings', () => ({
   getSetting: jest.fn(),
   setSetting: jest.fn(),
+}))
+
+// hasSeenOnboarding is imported by firstRunStatus — mock it so no
+// SecureStore calls in tests. Default true = carousel was shown, so
+// the first-run redirect checks can proceed.
+jest.mock('@/services/onboarding/seen', () => ({
+  hasSeenOnboarding: jest.fn().mockResolvedValue(true),
+  markOnboardingSeen: jest.fn(),
 }))
 
 jest.mock('@/services/wiki/engine', () => ({
@@ -63,6 +72,7 @@ jest.mock('@/services/storage/db', () => {
 
 const mockGetSetting = getSetting as jest.Mock
 const mockSetSetting = setSetting as jest.Mock
+const mockHasSeenOnboarding = hasSeenOnboarding as jest.Mock
 const mockLineageForEntry = lineageForEntry as jest.Mock
 const mockIsModelDownloaded = isModelDownloaded as jest.Mock
 const mockCanStart = canStart as jest.Mock
@@ -80,9 +90,10 @@ describe('P1 — firstRunStatus (flag path)', () => {
   beforeEach(() => {
     mockGetSetting.mockReset()
     mockIsModelDownloaded.mockReset()
+    mockHasSeenOnboarding.mockReset().mockResolvedValue(true)
   })
 
-  it('returns shouldRun:true on fresh install (flag not set)', async () => {
+  it('returns shouldRun:true on fresh install (no flag, carousel shown, 0 entries)', async () => {
     mockGetSetting.mockResolvedValue(ok(null))
     mockIsModelDownloaded.mockResolvedValue(true)
     const status = await firstRunStatus()
@@ -112,6 +123,14 @@ describe('P1 — firstRunStatus (flag path)', () => {
     mockGetSetting.mockResolvedValue(err('SETTINGS_GET_FAILED', 'disk error'))
     mockIsModelDownloaded.mockResolvedValue(true)
     expect((await firstRunStatus()).shouldRun).toBe(true)
+  })
+
+  it('returns shouldRun:false when carousel was never shown (SecureStore survived re-install)', async () => {
+    mockGetSetting.mockResolvedValue(ok(null))
+    mockIsModelDownloaded.mockResolvedValue(true)
+    mockHasSeenOnboarding.mockResolvedValue(false)
+    const status = await firstRunStatus()
+    expect(status.shouldRun).toBe(false)
   })
 })
 

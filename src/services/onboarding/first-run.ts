@@ -2,6 +2,7 @@ import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
 import { lineageForEntry } from '@/services/wiki/engine'
 import { isModelDownloaded } from '@/services/llm/model-manager'
+import { hasSeenOnboarding } from '@/services/onboarding/seen'
 
 // Settings keys (persisted across sessions, never synced).
 const FIRST_RUN_FLAG = 'onboarding:first_run_complete'
@@ -43,9 +44,12 @@ export async function hasExistingEntries(): Promise<boolean> {
  * a first-run path should run, which path to use, and whether the deep model
  * is ready (drives the post-path polling timeout).
  *
- * Skips the first run if the flag is set OR if entries already exist — protects
- * existing accounts on a new device / re-install from being routed through the
- * onboarding path.
+ * Skips the first run if:
+ *  - The completion flag is set, OR
+ *  - The onboarding carousel was never shown (possible on re-install where
+ *    SecureStore/Keychain data carried over), because the carousel is the
+ *    user's introduction to the product and must precede the guided path, OR
+ *  - Entries already exist (existing account on a new device).
  *
  * Best-effort: a storage failure returns `{ shouldRun: true }` — safer to
  * re-run the path than to skip it and leave the user in a cold start.
@@ -56,9 +60,16 @@ export async function firstRunStatus(): Promise<FirstRunStatus> {
     return { shouldRun: false, pathId: FIRST_RUN_PATH_ID, deepReady: await isModelDownloaded('deep') }
   }
 
+  // If the onboarding carousel was never shown (Keychain survived an install
+  // wipe), don't skip straight to the guided path — the carousel introduces
+  // the product. The AppGate renders it before AppRoot in the same session,
+  // but this is a cross-session safety net.
+  if (!(await hasSeenOnboarding())) {
+    return { shouldRun: false, pathId: FIRST_RUN_PATH_ID, deepReady: await isModelDownloaded('deep') }
+  }
+
   // Existing entries mean this is an existing user, not a fresh install.
   if (await hasExistingEntries()) {
-    // Mark complete silently so we never check again.
     await setSetting(FIRST_RUN_FLAG, '1').catch(() => undefined)
     return { shouldRun: false, pathId: FIRST_RUN_PATH_ID, deepReady: await isModelDownloaded('deep') }
   }
