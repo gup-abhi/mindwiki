@@ -15,7 +15,7 @@ const RICHNESS_TARGET = 10 // entries at which the richness bar is full
 export default function WikiPageScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { id } = useLocalSearchParams<{ id?: string }>()
+  const { id, firstRun } = useLocalSearchParams<{ id?: string; firstRun?: string }>()
   const { page, loading, dismiss, restore, correct, regenerate, regenerating } = useWikiPage(id)
   const trend = usePageTrend(page)
   const [draft, setDraft] = useState<string | null>(null) // non-null while editing
@@ -104,6 +104,15 @@ export default function WikiPageScreen() {
         <ProgressBar progress={richness} />
       </View>
 
+      {firstRun === '1' && (
+        <Card variant="sunken" style={styles.firstRunCard} testID="wiki-first-run-card">
+          <Text variant="subtitle">This is your wiki</Text>
+          <Text variant="body" color="textSecondary">
+            It grows every time you write. Each entry quietly shapes your insight pages — so you never
+            have to re-read old notes to find the thread.
+          </Text>
+        </Card>
+      )}
       <Markdown content={page.content} />
 
       {trend?.message && page.dismissed_at == null && (
@@ -258,6 +267,7 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     meta: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
+    firstRunCard: { marginBottom: t.spacing.xl },
     richness: { marginBottom: t.spacing.xl },
     trendSection: { marginTop: t.spacing['2xl'], gap: t.spacing.md },
     trendTitle: {},

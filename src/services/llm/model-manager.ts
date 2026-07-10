@@ -62,6 +62,17 @@ export async function areModelsReady(): Promise<boolean> {
 }
 
 /**
+ * True when enough models are present to start journaling. Only the fast model
+ * is required (crisis scoring + fast tags + embeddings). The deep model (wiki
+ * synthesis) and embed model (semantic retrieval) download behind the user.
+ * Used by the cold-start staged-download path so the app is usable while the
+ * heavy models arrive.
+ */
+export async function canStart(): Promise<boolean> {
+  return isModelDownloaded('fast')
+}
+
+/**
  * Best-effort, idempotent fetch of the optional embedding model. New users get
  * it during the onboarding download; this covers users already past onboarding
  * (fast+deep present, so the onboarding flow never re-runs). Safe to call often —
@@ -99,6 +110,7 @@ export async function downloadModel(
     if (!res) return err('MODEL_DOWNLOAD_FAILED', `Download interrupted for ${kind} model`)
 
     await FileSystem.moveAsync({ from: partUri, to: finalUri })
+
     return ok(true)
   } catch (e) {
     return err('MODEL_DOWNLOAD_FAILED', `Failed to download ${kind} model`, e)

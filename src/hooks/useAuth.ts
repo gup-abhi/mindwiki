@@ -47,7 +47,9 @@ export function useAuth() {
 
   /** Enter the app after the user confirms they've saved their recovery phrase. */
   const confirmPhrase = useCallback(() => {
-    if (pendingPhrase) useAuthStore.getState().setAuthenticated(pendingPhrase.accountId)
+    // isNewAccount=true: this is the only path that just registered a fresh
+    // account, so it's the only one that shows the welcome tour + guided path.
+    if (pendingPhrase) useAuthStore.getState().setAuthenticated(pendingPhrase.accountId, true)
   }, [pendingPhrase])
 
   /** Recover with the phrase, set a new password, then enter the app. */

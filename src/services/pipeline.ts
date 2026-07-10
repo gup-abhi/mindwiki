@@ -179,6 +179,21 @@ async function wikiIndexOnly(entry: Entry): Promise<void> {
 }
 
 /**
+ * Mid-session catch-up: trigger when the deep model finishes downloading
+ * during an active session. Safe to call multiple times — each pass
+ * snapshots its target list so re-entry is idempotent. Best-effort, never
+ * throws. Delegates directly to catchUpUnindexed, which checks model
+ * presence internally (cheap file stat, fine to call redundantly).
+ */
+export async function triggerCatchUp(): Promise<void> {
+  try {
+    await catchUpUnindexed()
+  } catch {
+    // best-effort — a failure never propagates
+  }
+}
+
+/**
  * Post-save processing for an entry (run after createEntry, off the save path):
  *   1. fast-model crisis score -> crisis assessment (sync; the only blocking step)
  *   2. deep-model extraction -> tags + entities + graph + wiki (background)
@@ -399,6 +414,12 @@ export async function captureReflectMessage(
   await ingestReflectStatement(message, ex.data)
 }
 
+export interface PathCaptureResult {
+  crisis: CrisisAssessment
+  /** The IDs of the created path entries, in order. Empty when all answers were blank. */
+  entryIds: string[]
+}
+
 /**
  * Capture the answers from a completed guided path. Each non-empty answer becomes
  * its own `source:'path'` entry, indexed into the wiki/graph immediately — no
@@ -406,14 +427,13 @@ export async function captureReflectMessage(
  * reflection, it isn't incidental. Path entries stay out of the journal timeline
  * (which filters `source='journal'`) but compound the knowledge base like any entry.
  *
- * Returns one crisis assessment over the combined answers so the runner can route
- * to /crisis — safety parity with a journal save, since paths deliberately probe
- * hard feelings. The crisis score is the only blocking step; indexing is background.
- * Never throws.
+ * Returns the crisis assessment (for /crisis routing) AND the created entry IDs
+ * (for first-run wiki-page routing). The crisis score is the only blocking step;
+ * indexing is background. Never throws.
  */
-export async function capturePathAnswers(answers: string[]): Promise<CrisisAssessment> {
+export async function capturePathAnswers(answers: string[]): Promise<PathCaptureResult> {
   const nonEmpty = answers.map((a) => a.trim()).filter((a) => a !== '')
-  if (nonEmpty.length === 0) return assessCrisis('', 0)
+  if (nonEmpty.length === 0) return { crisis: assessCrisis('', 0), entryIds: [] }
 
   // Synchronous, safety-critical: one fast-model crisis score over the combined
   // answers; the keyword net still fires on failure.
@@ -437,7 +457,7 @@ export async function capturePathAnswers(answers: string[]): Promise<CrisisAsses
   // Enrich each entry (tags → graph + wiki) in the background — never blocks completion.
   void indexPathEntries(created)
 
-  return crisis
+  return { crisis, entryIds: created.map((e) => e.id) }
 }
 
 // A path answer has no self-rated mood; the column is inert for path entries, so

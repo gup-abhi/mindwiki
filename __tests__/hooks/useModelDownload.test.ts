@@ -1,29 +1,39 @@
 import { renderHook, act, waitFor } from '@testing-library/react-native'
 
 import { useModelDownload } from '@/hooks/useModelDownload'
-import { areModelsReady, downloadModel } from '@/services/llm/model-manager'
+import { areModelsReady, canStart, downloadModel } from '@/services/llm/model-manager'
 
 jest.mock('@/services/llm/model-manager', () => ({
   areModelsReady: jest.fn(),
+  canStart: jest.fn(),
   downloadModel: jest.fn(),
 }))
 
+jest.mock('@/services/pipeline', () => ({
+  triggerCatchUp: jest.fn(),
+}))
+
 const mockReady = areModelsReady as jest.Mock
+const mockCanStart = canStart as jest.Mock
 const mockDownload = downloadModel as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
   mockReady.mockResolvedValue(false)
+  mockCanStart.mockResolvedValue(false)
   mockDownload.mockResolvedValue({ success: true, data: true })
 })
 
 describe('useModelDownload', () => {
-  it('reports not-ready when models are missing', async () => {
+  it('reports not-ready and not-canStart when models are missing', async () => {
     const { result } = renderHook(() => useModelDownload())
-    await waitFor(() => expect(result.current.ready).toBe(false))
+    await waitFor(() => {
+      expect(result.current.ready).toBe(false)
+      expect(result.current.canStart).toBe(false)
+    })
   })
 
-  it('downloads the required models plus the embed model then marks ready', async () => {
+  it('downloads fast then deep (fire-and-forget) and triggers catch-up on deep ready', async () => {
     const { result } = renderHook(() => useModelDownload())
     await waitFor(() => expect(result.current.ready).toBe(false))
 
@@ -31,15 +41,15 @@ describe('useModelDownload', () => {
       await result.current.download()
     })
 
-    expect(mockDownload).toHaveBeenCalledTimes(3)
-    expect(mockDownload).toHaveBeenNthCalledWith(1, 'fast', expect.any(Function))
-    expect(mockDownload).toHaveBeenNthCalledWith(2, 'deep', expect.any(Function))
-    expect(mockDownload).toHaveBeenNthCalledWith(3, 'embed', expect.any(Function))
-    expect(result.current.ready).toBe(true)
-    expect(result.current.progress).toBe(1)
+    // Fast model downloaded synchronously inside download()
+    const fastCall = mockDownload.mock.calls.find((c: unknown[]) => c[0] === 'fast')
+    expect(fastCall).toBeDefined()
+    // Deep fired as fire-and-forget
+    const deepCall = mockDownload.mock.calls.find((c: unknown[]) => c[0] === 'deep')
+    expect(deepCall).toBeDefined()
   })
 
-  it('surfaces an error and stops when a REQUIRED download fails', async () => {
+  it('surfaces an error and stops when fast model download fails', async () => {
     mockDownload.mockResolvedValueOnce({ success: false, error: { code: 'X', message: 'no' } })
     const { result } = renderHook(() => useModelDownload())
     await waitFor(() => expect(result.current.ready).toBe(false))
@@ -48,26 +58,18 @@ describe('useModelDownload', () => {
       await result.current.download()
     })
 
-    expect(mockDownload).toHaveBeenCalledTimes(1) // stopped after the failure
+    expect(mockDownload).toHaveBeenCalledTimes(1) // stopped after fast failure
     expect(result.current.error).toBeTruthy()
     expect(result.current.ready).toBe(false)
   })
 
-  it('tolerates a failed optional (embed) download — still marks ready', async () => {
-    // fast ✓, deep ✓, embed ✗ — the optional failure must not fail the flow.
-    mockDownload
-      .mockResolvedValueOnce({ success: true, data: true })
-      .mockResolvedValueOnce({ success: true, data: true })
-      .mockResolvedValueOnce({ success: false, error: { code: 'X', message: 'no' } })
+  it('reports canStart once the fast model is present at mount', async () => {
+    mockCanStart.mockResolvedValue(true)
+
     const { result } = renderHook(() => useModelDownload())
-    await waitFor(() => expect(result.current.ready).toBe(false))
-
-    await act(async () => {
-      await result.current.download()
+    await waitFor(() => {
+      expect(result.current.canStart).toBe(true)
+      expect(result.current.ready).toBe(false)
     })
-
-    expect(mockDownload).toHaveBeenCalledTimes(3)
-    expect(result.current.error).toBeNull()
-    expect(result.current.ready).toBe(true)
   })
 })

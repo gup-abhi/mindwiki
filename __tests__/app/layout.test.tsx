@@ -2,7 +2,6 @@ import { render, screen, waitFor } from '@testing-library/react-native'
 
 import RootLayout from '@/app/_layout'
 import { initStorage } from '@/services/storage/bootstrap'
-import { hasSeenOnboarding } from '@/services/onboarding/seen'
 import { useAuthStore } from '@/store/auth.store'
 import { ok, err } from '@/types/result'
 
@@ -14,11 +13,11 @@ jest.mock('@/services/auth/auth.service', () => ({
   loginNewDevice: jest.fn(),
 }))
 jest.mock('@/hooks/useSync', () => ({ useSync: jest.fn() }))
-// The welcome tour is exercised in OnboardingCarousel.test; here assume it's
-// already been seen so the gate falls through to the app.
-jest.mock('@/services/onboarding/seen', () => ({
-  hasSeenOnboarding: jest.fn(() => Promise.resolve(true)),
-  markOnboardingSeen: jest.fn(() => Promise.resolve()),
+// The welcome tour + guided path are for brand-new accounts only, gated on the
+// auth store's isNewAccount. beginOnboardingModelDownload is fired from the
+// carousel CTA; stub it so the gate tests don't touch the model manager.
+jest.mock('@/services/onboarding/first-run', () => ({
+  beginOnboardingModelDownload: jest.fn(),
 }))
 // ThemeProvider hydrates the saved theme preference from settings once
 // authenticated; stub it so the gate test doesn't touch the encrypted DB.
@@ -30,6 +29,12 @@ jest.mock('expo-router', () => {
   const { Text } = require('react-native')
   return { Stack: () => <Text>stack-rendered</Text> }
 })
+// useFirstRunRedirect fires router.replace; stub it in layout tests so the
+// route tree doesn't change during gate tests.
+jest.mock('@/hooks/useFirstRunRedirect', () => ({
+  useFirstRunRedirect: jest.fn(),
+  resetFirstRunRedirect: jest.fn(),
+}))
 
 const mockInitStorage = initStorage as jest.Mock
 
@@ -37,7 +42,7 @@ describe('RootLayout — auth gate then DB open', () => {
   beforeEach(() => {
     mockInitStorage.mockReset()
     mockInitStorage.mockResolvedValue(ok(undefined))
-    useAuthStore.setState({ status: 'loading', accountId: null })
+    useAuthStore.setState({ status: 'loading', accountId: null, isNewAccount: false })
   })
 
   it('shows a spinner while the session is resolving', () => {
@@ -59,12 +64,18 @@ describe('RootLayout — auth gate then DB open', () => {
     expect(mockInitStorage).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the welcome tour on first run, before the app', async () => {
-    ;(hasSeenOnboarding as jest.Mock).mockResolvedValueOnce(false)
-    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+  it('shows the welcome tour for a brand-new account, before the app', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1', isNewAccount: true })
     render(<RootLayout />)
     await waitFor(() => expect(screen.getByTestId('onboarding')).toBeTruthy())
     expect(screen.queryByText('stack-rendered')).toBeNull()
+  })
+
+  it('skips the welcome tour for an existing account (login/returning session)', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1', isNewAccount: false })
+    render(<RootLayout />)
+    await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())
+    expect(screen.queryByTestId('onboarding')).toBeNull()
   })
 
   it('shows an error state when the DB fails to open', async () => {

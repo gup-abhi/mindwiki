@@ -533,7 +533,7 @@ describe('capturePathAnswers', () => {
     expect(mockScoreCrisis).toHaveBeenCalledWith(
       expect.objectContaining({ situation: 'first\nsecond' })
     )
-    expect(result.tier).toBeGreaterThanOrEqual(2) // 0.9 confidence → confident tier
+    expect(result.crisis.tier).toBeGreaterThanOrEqual(2) // 0.9 confidence → confident tier
   })
 
   it('does nothing and reports no crisis when every answer is blank', async () => {
@@ -541,7 +541,7 @@ describe('capturePathAnswers', () => {
 
     expect(mockScoreCrisis).not.toHaveBeenCalled()
     expect(mockCreateEntry).not.toHaveBeenCalled()
-    expect(result.tier).toBe(0)
+    expect(result.crisis.tier).toBe(0)
   })
 
   it('still creates the entry when the extract fails, but skips indexing (ADR 004)', async () => {

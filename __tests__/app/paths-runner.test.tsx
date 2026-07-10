@@ -31,7 +31,7 @@ const baseHook = () => ({
   next: jest.fn(),
   back: jest.fn(),
   deepen: jest.fn(),
-  finish: jest.fn().mockResolvedValue({ tier: 0, confidence: 0, keywordMatch: false }),
+  finish: jest.fn().mockResolvedValue({ crisis: { tier: 0, confidence: 0, keywordMatch: false }, entryIds: [] }),
 })
 
 describe('PathRunnerScreen', () => {
@@ -89,7 +89,7 @@ describe('PathRunnerScreen', () => {
       isFirst: false,
       isLast: true,
       hasAnyAnswer: true,
-      finish: jest.fn().mockResolvedValue({ tier: 3, confidence: 0.9, keywordMatch: true }),
+      finish: jest.fn().mockResolvedValue({ crisis: { tier: 3, confidence: 0.9, keywordMatch: true }, entryIds: [] }),
     }
     render(<PathRunnerScreen />)
     fireEvent.press(screen.getByTestId('path-finish'))

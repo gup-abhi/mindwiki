@@ -8,14 +8,27 @@ describe('auth.store', () => {
     expect(useAuthStore.getState().accountId).toBeNull()
   })
 
-  it('setAuthenticated records the account id', () => {
+  it('setAuthenticated records the account id and defaults isNewAccount to false', () => {
     useAuthStore.getState().setAuthenticated('acc1')
-    expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
+    expect(useAuthStore.getState()).toMatchObject({
+      status: 'authenticated',
+      accountId: 'acc1',
+      isNewAccount: false,
+    })
   })
 
-  it('setUnauthenticated clears the account', () => {
-    useAuthStore.getState().setAuthenticated('acc1')
+  it('setAuthenticated flags a brand-new account when told', () => {
+    useAuthStore.getState().setAuthenticated('acc1', true)
+    expect(useAuthStore.getState().isNewAccount).toBe(true)
+  })
+
+  it('setUnauthenticated clears the account and the new-account flag', () => {
+    useAuthStore.getState().setAuthenticated('acc1', true)
     useAuthStore.getState().setUnauthenticated()
-    expect(useAuthStore.getState()).toMatchObject({ status: 'unauthenticated', accountId: null })
+    expect(useAuthStore.getState()).toMatchObject({
+      status: 'unauthenticated',
+      accountId: null,
+      isNewAccount: false,
+    })
   })
 })

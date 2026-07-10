@@ -23,7 +23,8 @@ import { AuthScreen } from '@/components/auth/AuthScreen'
 import { LockScreen } from '@/components/auth/LockScreen'
 import { CoverScreen } from '@/components/CoverScreen'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
-import { hasSeenOnboarding, markOnboardingSeen } from '@/services/onboarding/seen'
+import { useFirstRunRedirect, resetFirstRunRedirect } from '@/hooks/useFirstRunRedirect'
+import { beginOnboardingModelDownload } from '@/services/onboarding/first-run'
 import { ThemeProvider, type Theme, useTheme, useThemedStyles } from '@/theme'
 
 // Hold the native splash until our custom fonts are ready (best-effort).
@@ -37,6 +38,9 @@ type StorageStatus = 'idle' | 'loading' | 'ready' | 'error'
  */
 function AppRoot() {
   useSync()
+  // One-time first-run redirect: after the carousel, route the user through a
+  // guided path so they produce entries and see their first wiki page.
+  useFirstRunRedirect()
   // Overlay (not swap) the lock so navigation state survives lock/unlock.
   const locked = useAppLock()
   // Only after the cold-start lock decision is made, so the cover doesn't mount
@@ -55,12 +59,17 @@ function AppRoot() {
 /** Auth + encrypted-DB gate. Rendered inside the theme + safe-area providers. */
 function AppGate() {
   const authStatus = useAuthStore((s) => s.status)
+  // The welcome tour + guided first run are for brand-new accounts only. This is
+  // true solely on the register→confirm-phrase path this session; login,
+  // recovery, device pairing, and a returning session all leave it false.
+  const isNewAccount = useAuthStore((s) => s.isNewAccount)
   const theme = useTheme()
   const styles = useThemedStyles(makeStyles)
   const [storage, setStorage] = useState<StorageStatus>('idle')
   const [message, setMessage] = useState('')
-  // null = not yet resolved; gates the one-time welcome tour after the DB opens.
-  const [onboarded, setOnboarded] = useState<boolean | null>(null)
+  // Session-local: set once the new user dismisses the tour, so it doesn't
+  // re-show while isNewAccount stays true for the rest of this session.
+  const [carouselDone, setCarouselDone] = useState(false)
 
   // Launch: configure notifications + resolve the session. No DB access yet.
   useEffect(() => {
@@ -72,7 +81,12 @@ function AppGate() {
   // storage to 'idle' so the next sign-in re-runs initStorage and opens a fresh
   // DB keyed to the new account (otherwise it stays 'ready' on the stale handle).
   useEffect(() => {
-    if (authStatus === 'unauthenticated') setStorage('idle')
+    if (authStatus === 'unauthenticated') {
+      setStorage('idle')
+      // Clear the session-global first-run guard so a different account signing
+      // in on this same app session can still be routed through its first run.
+      resetFirstRunRedirect()
+    }
   }, [authStatus])
 
   // Open the encrypted DB only after auth — so it's keyed with the correct
@@ -91,13 +105,6 @@ function AppGate() {
       }
     })
   }, [authStatus, storage])
-
-  // Resolve the one-time tour flag once the DB is open (so it shows after the
-  // recovery-phrase step on first register, never before the app is reachable).
-  useEffect(() => {
-    if (storage !== 'ready') return
-    void hasSeenOnboarding().then(setOnboarded)
-  }, [storage])
 
   if (authStatus === 'loading') {
     return (
@@ -120,7 +127,7 @@ function AppGate() {
       </View>
     )
   }
-  if (storage !== 'ready' || onboarded === null) {
+  if (storage !== 'ready') {
     return (
       <View testID="storage-loading" style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.accent} />
@@ -128,13 +135,18 @@ function AppGate() {
     )
   }
 
-  // First run on this device: show the welcome tour once, then enter the app.
-  if (!onboarded) {
+  // Brand-new account (register→confirm this session): show the welcome tour
+  // once, then enter the app. Existing accounts (login/recover/pairing/returning
+  // session) skip straight to AppRoot.
+  if (isNewAccount && !carouselDone) {
     return (
       <OnboardingCarousel
         onDone={() => {
-          void markOnboardingSeen()
-          setOnboarded(true)
+          // Consent point: start the ~2.8 GB model download (over Wi-Fi) in the
+          // background so the models arrive while the user completes the guided
+          // path. Fire-and-forget; the Home ModelDownloadCard remains as retry.
+          beginOnboardingModelDownload()
+          setCarouselDone(true)
         }}
       />
     )
