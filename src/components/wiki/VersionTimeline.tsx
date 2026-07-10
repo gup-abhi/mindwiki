@@ -60,8 +60,14 @@ export const VersionTimeline = ({
               {!isLast && <View style={[styles.line, styles.lineDown]} />}
             </View>
 
-            {/* Label */}
-            <View style={[styles.label, isHighlighted && styles.labelHighlight]}>
+            {/* Label — tappable same as the dot */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Version ${v.version} from ${formatRelative(v.updated_at)}`}
+              onPress={() => onSelect(v.version)}
+              style={[styles.label, isHighlighted && styles.labelHighlight]}
+              testID={`timeline-label-v${v.version}`}
+            >
               <Text
                 variant={isHighlighted ? 'bodyStrong' : 'caption'}
                 color={isHighlighted ? 'textPrimary' : 'textSecondary'}
@@ -74,7 +80,7 @@ export const VersionTimeline = ({
               >
                 {formatRelative(v.updated_at)}
               </Text>
-            </View>
+            </Pressable>
           </View>
         )
       })}
