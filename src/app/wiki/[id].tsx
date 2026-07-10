@@ -1,7 +1,6 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import type { WikiPageVersion } from '@/services/storage/wiki'
-import { Alert, StyleSheet, View } from 'react-native'
+import { Alert, Pressable, StyleSheet, View } from 'react-native'
 
 import { Button, Card, Divider, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
@@ -75,21 +74,6 @@ export default function WikiPageScreen() {
     )
   }
 
-  const history = page.version_history ?? []
-  // Show at most 5 versions, newest per day only (dedup by date)
-  const compactHistory = (() => {
-    const seen = new Set<string>()
-    const result: WikiPageVersion[] = []
-    for (let i = history.length - 1; i >= 0; i--) {
-      const dateKey = new Date(history[i].updated_at).toLocaleDateString()
-      if (!seen.has(dateKey)) {
-        seen.add(dateKey)
-        result.push(history[i])
-        if (result.length >= 5) break
-      }
-    }
-    return result
-  })()
   const richness = Math.min(page.entry_count, RICHNESS_TARGET) / RICHNESS_TARGET
 
   return (
@@ -168,24 +152,38 @@ export default function WikiPageScreen() {
         </View>
       )}
 
-      {compactHistory.length > 0 && (
+      {(page.version_history ?? []).length > 0 ? (
         <View style={styles.history}>
           <Divider />
           <Text variant="label" color="textSecondary" style={styles.historyTitle}>
             Previous versions
           </Text>
-          {compactHistory.map((v) => (
-            <Text key={v.version} variant="caption" color="textMuted">
-              v{v.version} · {new Date(v.updated_at).toLocaleDateString()}
+          <Text variant="caption" color="textMuted" style={styles.historyCount}>
+            {page.version} versions · first{' '}
+            {new Date(page.version_history[0]?.updated_at ?? page.created_at).toLocaleDateString()}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push(`/wiki/${page.id}/evolution`)}
+            style={styles.evolutionLink}
+            testID="wiki-see-evolution"
+          >
+            <Text variant="label" color="accent">
+              See evolution →
             </Text>
-          ))}
-          {history.length > compactHistory.length && (
-            <Text variant="caption" color="textMuted">
-              +{history.length - compactHistory.length} older versions
-            </Text>
-          )}
+          </Pressable>
         </View>
-      )}
+      ) : (page.version_history ?? []).length === 0 && page.version >= 2 ? (
+        <View style={styles.history}>
+          <Divider />
+          <Text variant="label" color="textSecondary" style={styles.historyTitle}>
+            Previous versions
+          </Text>
+          <Text variant="caption" color="textMuted">
+            v{page.version} current
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.feedback}>
         <Divider />
@@ -278,6 +276,8 @@ const makeStyles = (t: Theme) =>
     reframeToggle: { marginTop: t.spacing.xs },
     history: { marginTop: t.spacing['2xl'], paddingTop: t.spacing.md, gap: t.spacing.xs },
     historyTitle: { marginBottom: t.spacing.xs },
+    historyCount: { marginBottom: t.spacing.sm },
+    evolutionLink: { paddingVertical: t.spacing.sm },
     feedback: { marginTop: t.spacing['2xl'], paddingTop: t.spacing.md, gap: t.spacing.md },
     droppedCard: { gap: t.spacing.sm, alignItems: 'flex-start' },
     droppedHint: {},

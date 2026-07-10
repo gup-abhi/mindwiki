@@ -11,6 +11,7 @@ import {
   restorePage,
   type WikiPage,
 } from '@/services/storage/wiki'
+import { pageEvolution, type EvolutionData } from '@/services/wiki/evolution'
 import { lineageForEntry, regeneratePageVoice, type LineagePage } from '@/services/wiki/engine'
 import { type Entry } from '@/services/storage/entries'
 import {
@@ -208,4 +209,38 @@ export function useTrendingPages(): PageTrendEntry[] {
   )
 
   return items
+}
+
+/**
+ * Evolution timeline for a single wiki page: the ordered list of versions
+ * (from version_history) plus the current state. Null when the page has no
+ * history yet. Re-computes when the page's version or version_history changes.
+ */
+export function usePageEvolution(pageId: string | undefined): {
+  evolution: EvolutionData | null
+  loading: boolean
+} {
+  const [evolution, setEvolution] = useState<EvolutionData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    if (!pageId) {
+      setEvolution(null)
+      setLoading(false)
+      return
+    }
+    void getPage(pageId).then((res) => {
+      if (!active) return
+      if (res.success && res.data && res.data.version_history.length > 0) {
+        setEvolution(pageEvolution(res.data))
+      } else {
+        setEvolution(null)
+      }
+      setLoading(false)
+    })
+    return () => { active = false }
+  }, [pageId])
+
+  return { evolution, loading }
 }

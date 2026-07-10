@@ -229,6 +229,24 @@ export default function EntryDetailScreen() {
         </Pressable>
       ) : null}
 
+      {lineage.length > 0 && (
+        <View style={styles.linkSection}>
+          {lineage.slice(0, 3).map((p) => (
+            <Pressable
+              key={p.id}
+              accessibilityRole="button"
+              onPress={() => router.push(`/wiki/${p.id}/evolution`)}
+              style={styles.evolutionRow}
+              testID="entry-evolution-link"
+            >
+              <Text variant="label" color="accent">
+                How “{p.title}” evolved from entry to entry ›
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {related.length > 0 ? (
         <View style={styles.linkSection}>
           <Text variant="label" color="accent" style={styles.sectionLabel}>
@@ -296,6 +314,7 @@ const makeStyles = (t: Theme) =>
     graphLink: { marginTop: t.spacing.lg },
     linkSection: { marginTop: t.spacing['2xl'] },
     linkRow: { paddingVertical: t.spacing.sm },
+    evolutionRow: { paddingVertical: t.spacing.sm },
     nav: {
       flexDirection: 'row',
       justifyContent: 'space-between',
