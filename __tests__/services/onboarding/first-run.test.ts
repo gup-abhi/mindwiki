@@ -13,13 +13,13 @@
  * by construction once both are individually verified.
  */
 
-import { firstRunStatus, markFirstRunComplete, firstWikiPage, hasExistingEntries } from '@/services/onboarding/first-run'
+import { firstRunStatus, markFirstRunComplete, firstWikiPage, hasExistingEntries, beginOnboardingModelDownload } from '@/services/onboarding/first-run'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
 import { getEntry } from '@/services/storage/entries'
-import { hasSeenOnboarding } from '@/services/onboarding/seen'
+import { useAuthStore } from '@/store/auth.store'
 import { lineageForEntry } from '@/services/wiki/engine'
-import { isModelDownloaded, canStart } from '@/services/llm/model-manager'
+import { isModelDownloaded, canStart, areModelsReady, downloadModel } from '@/services/llm/model-manager'
 import { catchUpUnindexed, triggerCatchUp } from '@/services/pipeline'
 import { ok, err } from '@/types/result'
 
@@ -30,14 +30,6 @@ jest.mock('@/services/storage/settings', () => ({
   setSetting: jest.fn(),
 }))
 
-// hasSeenOnboarding is imported by firstRunStatus — mock it so no
-// SecureStore calls in tests. Default true = carousel was shown, so
-// the first-run redirect checks can proceed.
-jest.mock('@/services/onboarding/seen', () => ({
-  hasSeenOnboarding: jest.fn().mockResolvedValue(true),
-  markOnboardingSeen: jest.fn(),
-}))
-
 jest.mock('@/services/wiki/engine', () => ({
   lineageForEntry: jest.fn(),
 }))
@@ -45,6 +37,8 @@ jest.mock('@/services/wiki/engine', () => ({
 jest.mock('@/services/llm/model-manager', () => ({
   isModelDownloaded: jest.fn(),
   canStart: jest.fn(),
+  areModelsReady: jest.fn(),
+  downloadModel: jest.fn(),
 }))
 
 jest.mock('@/services/pipeline', () => {
@@ -73,10 +67,11 @@ jest.mock('@/services/storage/db', () => {
 const mockGetSetting = getSetting as jest.Mock
 const mockSetSetting = setSetting as jest.Mock
 const mockGetEntry = getEntry as jest.Mock
-const mockHasSeenOnboarding = hasSeenOnboarding as jest.Mock
 const mockLineageForEntry = lineageForEntry as jest.Mock
 const mockIsModelDownloaded = isModelDownloaded as jest.Mock
 const mockCanStart = canStart as jest.Mock
+const mockAreModelsReady = areModelsReady as jest.Mock
+const mockDownloadModel = downloadModel as jest.Mock
 const mockCatchUpUnindexed = catchUpUnindexed as jest.Mock
 
 const FIRST_RUN_FLAG = 'onboarding:first_run_complete'
@@ -90,28 +85,18 @@ const flush = () => new Promise<void>((r) => setImmediate(r))
 describe('P1 — firstRunStatus (flag path)', () => {
   beforeEach(() => {
     mockGetSetting.mockReset()
+    mockSetSetting.mockReset().mockResolvedValue(ok(undefined))
     mockIsModelDownloaded.mockReset()
-    mockHasSeenOnboarding.mockReset().mockResolvedValue(true)
+    // Default: this session just registered a brand-new account.
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1', isNewAccount: true })
   })
 
-  it('returns shouldRun:true on fresh install (no flag, carousel shown, 0 entries)', async () => {
+  it('returns shouldRun:true for a brand-new account (no flag, 0 entries)', async () => {
     mockGetSetting.mockResolvedValue(ok(null))
     mockIsModelDownloaded.mockResolvedValue(true)
     const status = await firstRunStatus()
     expect(status.shouldRun).toBe(true)
     expect(status.pathId).toBe('overwhelmed')
-  })
-
-  it('returns deep model readiness when present', async () => {
-    mockGetSetting.mockResolvedValue(ok(null))
-    mockIsModelDownloaded.mockResolvedValue(true)
-    expect((await firstRunStatus()).deepReady).toBe(true)
-  })
-
-  it('reports deepReady:false when deep model absent', async () => {
-    mockGetSetting.mockResolvedValue(ok(null))
-    mockIsModelDownloaded.mockImplementation(async (kind: string) => kind !== 'deep')
-    expect((await firstRunStatus()).deepReady).toBe(false)
   })
 
   it('returns shouldRun:false when the flag is set', async () => {
@@ -120,18 +105,45 @@ describe('P1 — firstRunStatus (flag path)', () => {
     expect((await firstRunStatus()).shouldRun).toBe(false)
   })
 
-  it('falls back to shouldRun:true when getSetting fails', async () => {
+  it('falls back to shouldRun:true when getSetting fails (new account, no entries)', async () => {
     mockGetSetting.mockResolvedValue(err('SETTINGS_GET_FAILED', 'disk error'))
     mockIsModelDownloaded.mockResolvedValue(true)
     expect((await firstRunStatus()).shouldRun).toBe(true)
   })
 
-  it('returns shouldRun:false when carousel was never shown (SecureStore survived re-install)', async () => {
+  it('returns shouldRun:false for an existing account (login/returning session)', async () => {
+    useAuthStore.setState({ isNewAccount: false })
     mockGetSetting.mockResolvedValue(ok(null))
     mockIsModelDownloaded.mockResolvedValue(true)
-    mockHasSeenOnboarding.mockResolvedValue(false)
-    const status = await firstRunStatus()
-    expect(status.shouldRun).toBe(false)
+    expect((await firstRunStatus()).shouldRun).toBe(false)
+  })
+
+  it('resumes after a kill: returning session, path started but not complete', async () => {
+    // App was killed mid-cold-start, so isNewAccount is lost — but the durable
+    // FIRST_RUN_STARTED marker survives and FIRST_RUN_FLAG (complete) is unset.
+    useAuthStore.setState({ isNewAccount: false })
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key === 'onboarding:first_run_started' ? ok('1') : ok(null)
+    )
+    mockIsModelDownloaded.mockResolvedValue(true)
+    expect((await firstRunStatus()).shouldRun).toBe(true)
+  })
+
+  it('does NOT resume once complete, even if started is still set', async () => {
+    useAuthStore.setState({ isNewAccount: false })
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key === 'onboarding:first_run_complete' ? ok('1') : ok('1')
+    )
+    mockIsModelDownloaded.mockResolvedValue(true)
+    expect((await firstRunStatus()).shouldRun).toBe(false)
+  })
+
+  it('persists the started marker on a new-account run so a kill can resume', async () => {
+    mockGetSetting.mockResolvedValue(ok(null))
+    mockSetSetting.mockReset().mockResolvedValue(ok(undefined))
+    mockIsModelDownloaded.mockResolvedValue(true)
+    await firstRunStatus()
+    expect(mockSetSetting).toHaveBeenCalledWith('onboarding:first_run_started', '1')
   })
 })
 
@@ -300,6 +312,41 @@ describe('P2 — canStart', () => {
     mockIsModelDownloaded.mockImplementation(async (kind: string) => kind === 'fast')
     expect(await mockCanStart()).toBe(true)
     expect(await mockCanStart()).toBe(true)
+  })
+})
+
+describe('P2 — beginOnboardingModelDownload', () => {
+  beforeEach(() => {
+    mockAreModelsReady.mockReset()
+    mockDownloadModel.mockReset()
+    mockCatchUpUnindexed.mockReset().mockResolvedValue(undefined)
+  })
+
+  // The once-per-session guard is a module-level singleton that can't be reset
+  // between tests, so this single test exercises the full staged sequence AND
+  // the idempotency guard together (the meaningful contract).
+  it('stages fast → deep → catch-up → embed, then no-ops on repeat', async () => {
+    mockAreModelsReady.mockResolvedValue(false)
+    mockDownloadModel.mockResolvedValue(ok(true))
+
+    beginOnboardingModelDownload()
+    // Let the fire-and-forget chain settle (fast → deep → catch-up → embed).
+    await flush()
+    await flush()
+    await flush()
+    await flush()
+
+    expect(mockDownloadModel).toHaveBeenCalledWith('fast')
+    expect(mockDownloadModel).toHaveBeenCalledWith('deep')
+    // embed only runs on the deep-success branch (after triggerCatchUp), so its
+    // presence proves the full staged sequence completed.
+    expect(mockDownloadModel).toHaveBeenCalledWith('embed')
+
+    // Second call is a no-op — the guard prevents a duplicate download.
+    const callCount = mockDownloadModel.mock.calls.length
+    beginOnboardingModelDownload()
+    await flush()
+    expect(mockDownloadModel.mock.calls.length).toBe(callCount)
   })
 })
 

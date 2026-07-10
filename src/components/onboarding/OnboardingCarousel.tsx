@@ -114,6 +114,12 @@ export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
       </View>
 
       <View style={styles.footer}>
+        {isLast && (
+          <Text variant="caption" color="textMuted" style={styles.consent}>
+            Tapping below downloads the on-device AI (~2.8 GB) over Wi-Fi so
+            everything runs privately on your phone.
+          </Text>
+        )}
         <Button
           title={isLast ? 'Start journaling' : 'Next'}
           onPress={goNext}
@@ -145,4 +151,5 @@ const makeStyles = (t: Theme) =>
     dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: t.colors.divider },
     dotActive: { backgroundColor: t.colors.accent, width: 20 },
     footer: { paddingHorizontal: t.spacing['2xl'], paddingBottom: t.spacing.xl },
+    consent: { textAlign: 'center', marginBottom: t.spacing.md, lineHeight: 18 },
   })

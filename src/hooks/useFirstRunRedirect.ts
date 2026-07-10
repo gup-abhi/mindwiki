@@ -6,6 +6,16 @@ import { firstRunStatus } from '@/services/onboarding/first-run'
 let _firstRunRedirectedOnce = false
 
 /**
+ * Reset the once-per-session redirect guard. Called on logout so that a
+ * different account signing in on the same app session can still be routed
+ * through its own first-run path (the guard is a session-global, not a
+ * per-account flag).
+ */
+export function resetFirstRunRedirect(): void {
+  _firstRunRedirectedOnce = false
+}
+
+/**
  * Redirect the user through the first-run guided path once per device install.
  * Called from AppRoot after the onboarding carousel is dismissed. Detects
  * whether a first run is pending and, if so, replaces the current route with

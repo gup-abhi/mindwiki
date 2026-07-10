@@ -2,11 +2,13 @@ import { getEntry } from '@/services/storage/entries'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
 import { lineageForEntry } from '@/services/wiki/engine'
-import { isModelDownloaded } from '@/services/llm/model-manager'
-import { hasSeenOnboarding } from '@/services/onboarding/seen'
+import { areModelsReady, downloadModel } from '@/services/llm/model-manager'
+import { triggerCatchUp } from '@/services/pipeline'
+import { useAuthStore } from '@/store/auth.store'
 
 // Settings keys (persisted across sessions, never synced).
 const FIRST_RUN_FLAG = 'onboarding:first_run_complete'
+const FIRST_RUN_STARTED = 'onboarding:first_run_started'
 const FIRST_RUN_ENTRY_IDS = 'onboarding:first_run_entry_ids'
 
 // The path most suitable for a first-run — broad appeal, 4 prompts (not
@@ -22,8 +24,6 @@ export interface FirstRunStatus {
   shouldRun: boolean
   /** The guided path ID to route the user through for their first run. */
   pathId: string
-  /** Whether the deep model is already downloaded — affects post-path poll timeout. */
-  deepReady: boolean
 }
 
 /**
@@ -42,43 +42,56 @@ export async function hasExistingEntries(): Promise<boolean> {
 
 /**
  * Check the first-run status after the carousel is dismissed. Returns whether
- * a first-run path should run, which path to use, and whether the deep model
- * is ready (drives the post-path polling timeout).
+ * a first-run path should run and which path to use.
  *
- * Skips the first run if:
- *  - The completion flag is set, OR
- *  - The onboarding carousel was never shown (possible on re-install where
- *    SecureStore/Keychain data carried over), because the carousel is the
- *    user's introduction to the product and must precede the guided path, OR
- *  - Entries already exist (existing account on a new device).
+ * A first run should run when EITHER:
+ *  - This session just registered a fresh account (isNewAccount), OR
+ *  - A prior session began the guided path but never finished it — the durable
+ *    FIRST_RUN_STARTED marker is set while FIRST_RUN_FLAG (complete) is not.
+ *    This is the resume-after-kill case: isNewAccount is session-only and a
+ *    kill+reopen hydrates as a returning session, so the flag alone would lose
+ *    an in-progress cold start.
  *
- * Best-effort: a storage failure returns `{ shouldRun: true }` — safer to
- * re-run the path than to skip it and leave the user in a cold start.
+ * In all cases it's suppressed once the completion flag is set. The STARTED
+ * marker lives in per-account encrypted settings, so logout's DB wipe clears it
+ * — an existing account signing in on a new device never inherits it.
+ *
+ * On the first (new-account) run, persists FIRST_RUN_STARTED so the path can be
+ * resumed if the app is killed before markFirstRunComplete.
  */
 export async function firstRunStatus(): Promise<FirstRunStatus> {
-  const flag = await getSetting(FIRST_RUN_FLAG)
-  if (flag.success && flag.data === '1') {
-    return { shouldRun: false, pathId: FIRST_RUN_PATH_ID, deepReady: await isModelDownloaded('deep') }
+  // Already finished: never re-run, regardless of session or markers.
+  const complete = await getSetting(FIRST_RUN_FLAG)
+  if (complete.success && complete.data === '1') {
+    return { shouldRun: false, pathId: FIRST_RUN_PATH_ID }
   }
 
-  // If the onboarding carousel was never shown (Keychain survived an install
-  // wipe), don't skip straight to the guided path — the carousel introduces
-  // the product. The AppGate renders it before AppRoot in the same session,
-  // but this is a cross-session safety net.
-  if (!(await hasSeenOnboarding())) {
-    return { shouldRun: false, pathId: FIRST_RUN_PATH_ID, deepReady: await isModelDownloaded('deep') }
+  const isNewAccount = useAuthStore.getState().isNewAccount
+
+  // Resume-after-kill: a prior session started the path but didn't complete it.
+  // The marker is per-account (DB settings, wiped on logout), so only the very
+  // account that began the cold start can resume it.
+  if (!isNewAccount) {
+    const started = await getSetting(FIRST_RUN_STARTED)
+    if (!(started.success && started.data === '1')) {
+      // Not a new-account session and no in-progress path → returning user.
+      return { shouldRun: false, pathId: FIRST_RUN_PATH_ID }
+    }
   }
 
-  // Existing entries mean this is an existing user, not a fresh install.
+  // Defensive: a brand-new account starts with an empty DB. If entries somehow
+  // exist, treat it as already-onboarded rather than re-running the path.
   if (await hasExistingEntries()) {
     await setSetting(FIRST_RUN_FLAG, '1').catch(() => undefined)
-    return { shouldRun: false, pathId: FIRST_RUN_PATH_ID, deepReady: await isModelDownloaded('deep') }
+    return { shouldRun: false, pathId: FIRST_RUN_PATH_ID }
   }
+
+  // Mark the path as started so a kill before completion can resume it.
+  await setSetting(FIRST_RUN_STARTED, '1').catch(() => undefined)
 
   return {
     shouldRun: true,
     pathId: FIRST_RUN_PATH_ID,
-    deepReady: await isModelDownloaded('deep'),
   }
 }
 
@@ -132,4 +145,42 @@ export async function firstWikiPage(
   }
 
   return null
+}
+
+// Once-per-session guard: the carousel's onDone may fire more than once across
+// re-renders, and we must not start two concurrent downloads of the same file.
+let _onboardingDownloadStarted = false
+
+/**
+ * Kick off the model download from the onboarding carousel's consent step, so
+ * a fresh-install user's models arrive in the background while they complete
+ * the guided path. Fire-and-forget: never awaited, never throws.
+ *
+ * Staged to mirror useModelDownload.download() (the Home ModelDownloadCard) but
+ * without React state — the fast model unblocks journaling, then the deep model
+ * downloads behind the user and triggers catch-up synthesis of any path entries
+ * captured before it arrived, then the optional embed model.
+ *
+ * No-ops if both required models are already present (re-install with models on
+ * disk) or if it has already run this session.
+ */
+export function beginOnboardingModelDownload(): void {
+  if (_onboardingDownloadStarted) return
+  _onboardingDownloadStarted = true
+
+  void (async () => {
+    if (await areModelsReady()) return
+
+    // Phase 0: fast model — required to start journaling. Stop on failure; the
+    // Home ModelDownloadCard remains as the user's retry path.
+    const fastRes = await downloadModel('fast')
+    if (!fastRes.success) return
+
+    // Phase 1: deep model in the background. On success, heal any path entries
+    // captured before it arrived, then fetch the optional embed model.
+    const deepRes = await downloadModel('deep')
+    if (!deepRes.success) return
+    void triggerCatchUp()
+    void downloadModel('embed')
+  })()
 }
