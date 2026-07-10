@@ -7,8 +7,6 @@ jest.mock('@/services/llm/model-manager', () => ({
   areModelsReady: jest.fn(),
   canStart: jest.fn(),
   downloadModel: jest.fn(),
-  onDeepModelReady: jest.fn(),
-  clearDeepModelReadyCallbacks: jest.fn(),
 }))
 
 jest.mock('@/services/pipeline', () => ({

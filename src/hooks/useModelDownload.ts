@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { type ModelKind } from '@/native/LLMBridge'
-import { areModelsReady, canStart, downloadModel, onDeepModelReady, clearDeepModelReadyCallbacks } from '@/services/llm/model-manager'
+import { areModelsReady, canStart, downloadModel } from '@/services/llm/model-manager'
 import { triggerCatchUp } from '@/services/pipeline'
 
 // Required models block app readiness; the embed model is optional (Reflect

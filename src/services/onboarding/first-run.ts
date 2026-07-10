@@ -1,3 +1,4 @@
+import { getEntry } from '@/services/storage/entries'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
 import { lineageForEntry } from '@/services/wiki/engine'
@@ -113,27 +114,13 @@ export async function firstWikiPage(
 
   while (Date.now() < deadline) {
     for (const id of entryIds) {
-      const res = await lineageForEntry({
-        id,
-        created_at: 0,
-        mood: 3,
-        situation: '',
-        thought: '',
-        behavior: null,
-        closing_note: null,
-        emotion: null,
-        named_emotion: null,
-        energy: null,
-        distortion: null,
-        mood_score: null,
-        topic: null,
-        topic2: null,
-        tagged_at: null,
-        wiki_indexed_at: null,
-        graph_indexed_at: null,
-        raw_text: null,
-        source: 'path',
-      } as any)
+      // Fetch the real entry from the DB — indexFromExtract (called by
+      // capturePathAnswers via indexPathEntries) populates emotion, distortion,
+      // topic, and topic2 via applyTags, so by the time this poll loop runs the
+      // DB has the fields lineageForEntry needs to find the resulting wiki pages.
+      const entryRes = await getEntry(id)
+      if (!entryRes.success || !entryRes.data) continue
+      const res = await lineageForEntry(entryRes.data)
       if (res.success && res.data.length > 0) {
         return { id: res.data[0].id, title: res.data[0].title }
       }

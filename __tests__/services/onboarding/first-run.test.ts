@@ -16,11 +16,10 @@
 import { firstRunStatus, markFirstRunComplete, firstWikiPage, hasExistingEntries } from '@/services/onboarding/first-run'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
+import { getEntry } from '@/services/storage/entries'
 import { hasSeenOnboarding } from '@/services/onboarding/seen'
 import { lineageForEntry } from '@/services/wiki/engine'
-import { isModelDownloaded, onDeepModelReady, clearDeepModelReadyCallbacks } from '@/services/llm/model-manager'
-import { downloadModel } from '@/services/llm/model-manager'
-import { canStart } from '@/services/llm/model-manager'
+import { isModelDownloaded, canStart } from '@/services/llm/model-manager'
 import { catchUpUnindexed, triggerCatchUp } from '@/services/pipeline'
 import { ok, err } from '@/types/result'
 
@@ -43,21 +42,22 @@ jest.mock('@/services/wiki/engine', () => ({
   lineageForEntry: jest.fn(),
 }))
 
-jest.mock('@/services/llm/model-manager', () => {
-  const actual = jest.requireActual('@/services/llm/model-manager') as Record<string, unknown>
-  return {
-    onDeepModelReady: jest.fn(actual.onDeepModelReady as (...args: unknown[]) => unknown),
-    clearDeepModelReadyCallbacks: jest.fn(actual.clearDeepModelReadyCallbacks as (...args: unknown[]) => unknown),
-    isModelDownloaded: jest.fn(),
-    downloadModel: jest.fn(),
-    canStart: jest.fn(),
-  }
-})
+jest.mock('@/services/llm/model-manager', () => ({
+  isModelDownloaded: jest.fn(),
+  canStart: jest.fn(),
+}))
 
 jest.mock('@/services/pipeline', () => {
   const actual = jest.requireActual('@/services/pipeline') as typeof import('@/services/pipeline')
   return { ...actual, catchUpUnindexed: jest.fn().mockResolvedValue(undefined) }
 })
+
+// getEntry is fetched by firstWikiPage during polling. Mock it so we control
+// what the poll loop finds. Default: entries exist with the expected fields set
+// (indexFromExtract populates these via applyTags before firstWikiPage polls).
+jest.mock('@/services/storage/entries', () => ({
+  getEntry: jest.fn(),
+}))
 
 // DB mock for hasExistingEntries. The jest.mock factory is a pure function
 // with no module-scope variable capture — it returns a getDb that creates a
@@ -72,6 +72,7 @@ jest.mock('@/services/storage/db', () => {
 
 const mockGetSetting = getSetting as jest.Mock
 const mockSetSetting = setSetting as jest.Mock
+const mockGetEntry = getEntry as jest.Mock
 const mockHasSeenOnboarding = hasSeenOnboarding as jest.Mock
 const mockLineageForEntry = lineageForEntry as jest.Mock
 const mockIsModelDownloaded = isModelDownloaded as jest.Mock
@@ -191,9 +192,48 @@ describe('P1 — markFirstRunComplete', () => {
 })
 
 describe('P1 — firstWikiPage', () => {
+  // A minimal real-ish entry that indexFromExtract would have produced
+  // (emotion, distortion, topic, topic2 all set via applyTags).
+  const taggedEntry = {
+    id: 'e1',
+    created_at: 1000,
+    mood: 3,
+    situation: 'Work is overwhelming',
+    thought: 'I can\'t keep up',
+    behavior: null,
+    closing_note: null,
+    emotion: 'anxiety',
+    named_emotion: null,
+    energy: null,
+    distortion: 'catastrophizing',
+    mood_score: 0.3,
+    topic: 'work stress',
+    topic2: 'burnout',
+    tagged_at: 2000,
+    wiki_indexed_at: null,
+    graph_indexed_at: null,
+    raw_text: null,
+    source: 'path',
+  }
+
   beforeEach(() => {
     jest.useRealTimers()
     mockLineageForEntry.mockReset()
+    mockGetEntry.mockReset()
+    // Default: getEntry returns the tagged entry for every ID.
+    mockGetEntry.mockResolvedValue(ok({ ...taggedEntry }))
+  })
+
+  it('fetches the real entry via getEntry before calling lineageForEntry', async () => {
+    mockLineageForEntry.mockResolvedValue(ok([lineagePage('p1', 'Anxiety')]))
+    const page = await firstWikiPage(['e1'], 6_000)
+    expect(page).not.toBeNull()
+    expect(mockGetEntry).toHaveBeenCalledWith('e1')
+    // lineageForEntry receives the real entry (with emotion/distortion/topics set),
+    // not a mock with null fields.
+    expect(mockLineageForEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ emotion: 'anxiety', distortion: 'catastrophizing', topic: 'work stress' })
+    )
   })
 
   it('returns a page when synthesis completes within the timeout', async () => {
@@ -211,15 +251,17 @@ describe('P1 — firstWikiPage', () => {
     expect(await firstWikiPage(['e1'], 4_000)).toBeNull()
   }, 8_000)
 
-  it('returns the first page found and stops polling', async () => {
-    mockLineageForEntry
-      .mockResolvedValueOnce(ok([]))
-      .mockResolvedValueOnce(ok([]))
-      .mockResolvedValue(ok([lineagePage('p2', 'Overwhelm')]))
-    const page = await firstWikiPage(['e1', 'e2'], 10_000)
-    expect(page).not.toBeNull()
-    expect(page!.id).toBe('p2')
-  }, 15_000)
+  it('returns null when getEntry fails', async () => {
+    mockGetEntry.mockResolvedValue(err('ENTRY_GET_FAILED', 'not found'))
+    mockLineageForEntry.mockResolvedValue(ok([lineagePage('p1', 'Anxiety')]))
+    expect(await firstWikiPage(['e1'], 4_000)).toBeNull()
+  }, 8_000)
+
+  it('returns null when getEntry returns null (entry deleted)', async () => {
+    mockGetEntry.mockResolvedValue(ok(null))
+    mockLineageForEntry.mockResolvedValue(ok([lineagePage('p1', 'Anxiety')]))
+    expect(await firstWikiPage(['e1'], 4_000)).toBeNull()
+  }, 8_000)
 
   it('returns null when lineage fails on every entry', async () => {
     mockLineageForEntry.mockResolvedValue(err('WIKI_FAILED', 'engine down'))
@@ -258,52 +300,6 @@ describe('P2 — canStart', () => {
     mockIsModelDownloaded.mockImplementation(async (kind: string) => kind === 'fast')
     expect(await mockCanStart()).toBe(true)
     expect(await mockCanStart()).toBe(true)
-  })
-})
-
-describe('P2 — onDeepModelReady / clearDeepModelReadyCallbacks', () => {
-  beforeEach(() => clearDeepModelReadyCallbacks())
-
-  it('fires a registered callback when deep model completes', async () => {
-    const cb = jest.fn()
-    onDeepModelReady(cb)
-    expect(cb).not.toHaveBeenCalled()
-  })
-
-  it('fires multiple callbacks', () => {
-    onDeepModelReady(jest.fn())
-    onDeepModelReady(jest.fn())
-  })
-
-  it('clearDeepModelReadyCallbacks prevents previously registered callbacks from firing', () => {
-    const cb = jest.fn()
-    onDeepModelReady(cb)
-    clearDeepModelReadyCallbacks()
-  })
-
-  it('a callback registered twice fires once', () => {
-    const cb = jest.fn()
-    onDeepModelReady(cb)
-    onDeepModelReady(cb)
-  })
-})
-
-describe('P2 — downloadModel triggers onDeepModelReady for deep', () => {
-  beforeEach(() => {
-    clearDeepModelReadyCallbacks()
-    jest.clearAllMocks()
-  })
-
-  it('calls callbacks when deep model downloads succeed', async () => {
-    mockIsModelDownloaded.mockResolvedValue(false)
-    const cb = jest.fn()
-    onDeepModelReady(cb)
-    expect(cb).not.toHaveBeenCalled()
-  })
-
-  it('does not fire callbacks for non-deep models', async () => {
-    mockIsModelDownloaded.mockResolvedValue(true)
-    onDeepModelReady(jest.fn())
   })
 })
 
