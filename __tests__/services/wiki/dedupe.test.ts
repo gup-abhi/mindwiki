@@ -28,6 +28,7 @@ const page = (over: Partial<WikiPage>): WikiPage => ({
   dismissed_at: null,
   corrected_at: null,
   merged_into: null,
+  aggregated_upto: 0,
   ...over,
 })
 

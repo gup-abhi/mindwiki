@@ -13,9 +13,11 @@ import {
   buildUpdatePagePrompt,
   buildRewritePagePrompt,
   buildReGroundPrompt,
+  buildEmotionPagePrompt,
   type UpdatePageInput,
   type RewritePageInput,
   type ReGroundInput,
+  type EmotionPageInput,
 } from './prompts/update-page'
 import { ConversationReplySchema, ConversationSummarySchema } from './schemas/conversation.schema'
 import { AffirmationSchema } from './schemas/challenge.schema'
@@ -158,6 +160,32 @@ export async function synthesizePage(input: UpdatePageInput): Promise<Result<str
   const parsed = WikiContentSchema.safeParse(stripScaffolding(raw))
   if (!parsed.success) {
     return err('SYNTH_VALIDATION_FAILED', 'Synthesized content failed validation')
+  }
+  return ok(parsed.data)
+}
+
+/**
+ * Synthesize an emotion wiki page from aggregate data instead of per-entry
+ * incremental prose. Same model, same schema, different prompt. Used on a
+ * periodic schedule (global trigger every 20 emotion taggings per emotion).
+ * Never throws; returns Result. Errors carry a code only, never entry/page
+ * text or aggregate details.
+ */
+export async function synthesizeEmotionPage(input: EmotionPageInput): Promise<Result<string>> {
+  let raw: string
+  try {
+    const output = await LLMBridge.synthesise(buildEmotionPagePrompt(input), {
+      maxTokens: 400,
+      temperature: 0.5,
+    })
+    raw = output.text
+  } catch (e) {
+    return err('EMOTION_SYNTH_INFERENCE_FAILED', 'Emotion aggregate inference failed', e)
+  }
+
+  const parsed = WikiContentSchema.safeParse(stripScaffolding(raw))
+  if (!parsed.success) {
+    return err('EMOTION_SYNTH_VALIDATION_FAILED', 'Emotion aggregate content failed validation')
   }
   return ok(parsed.data)
 }

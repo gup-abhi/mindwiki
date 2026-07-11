@@ -43,6 +43,7 @@ function page(title: string, content: string, over: Partial<WikiPage> = {}): Wik
     dismissed_at: null,
     corrected_at: null,
     merged_into: null,
+    aggregated_upto: 0,
     ...over,
   }
 }

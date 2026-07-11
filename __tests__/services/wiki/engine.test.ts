@@ -10,6 +10,8 @@ import {
   getPageByTitle,
   createPage,
   updatePage,
+  ticklePageCount,
+  setAggregatedUpto,
   regeneratePageContent,
   type WikiPage,
 } from '@/services/storage/wiki'
@@ -34,6 +36,8 @@ jest.mock('@/services/storage/wiki', () => ({
   getPageByTitle: jest.fn(),
   createPage: jest.fn(),
   updatePage: jest.fn(),
+  ticklePageCount: jest.fn(),
+  setAggregatedUpto: jest.fn(),
   regeneratePageContent: jest.fn(),
 }))
 jest.mock('@/services/storage/entities', () => ({
@@ -50,6 +54,8 @@ const mockGetByTitle = getPageByTitle as jest.Mock
 const mockGetPage = getPage as jest.Mock
 const mockCreate = createPage as jest.Mock
 const mockUpdate = updatePage as jest.Mock
+const mockTickleCount = ticklePageCount as jest.Mock
+const mockSetAggUpto = setAggregatedUpto as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
 const mockCountEntity = countEntriesForEntity as jest.Mock
 const mockListReframes = listReframesForBelief as jest.Mock
@@ -76,7 +82,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   thought: 'I will fail',
   behavior: null,
   closing_note: null,
-  emotion: 'anxiety',
+  emotion: null,                    // synthesis tests use distortion/theme; emotion is tested separately
   named_emotion: null,
   energy: null,
   distortion: 'catastrophizing',
@@ -93,30 +99,30 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
 
 describe('candidateTopics', () => {
   it('derives title-cased emotion + distortion topics', () => {
-    expect(candidateTopics(entry())).toEqual([
+    expect(candidateTopics(entry({ emotion: 'anxiety' }))).toEqual([
       { title: 'Anxiety', category: 'emotion' },
       { title: 'Catastrophizing', category: 'distortion' },
     ])
   })
 
   it('skips distortion "none" and untagged entries', () => {
-    expect(candidateTopics(entry({ distortion: 'none' }))).toEqual([
+    expect(candidateTopics(entry({ emotion: 'anxiety', distortion: 'none' }))).toEqual([
       { title: 'Anxiety', category: 'emotion' },
     ])
     expect(candidateTopics(entry({ emotion: null, distortion: null }))).toEqual([])
   })
 
   it('adds a de-duplicated theme topic when provided', () => {
-    const topics = candidateTopics(entry({ distortion: 'none' }), ['Work'])
+    const topics = candidateTopics(entry({ emotion: 'anxiety', distortion: 'none' }), ['Work'])
     expect(topics).toEqual([
       { title: 'Anxiety', category: 'emotion' },
       { title: 'Work', category: 'theme' },
     ])
     // a theme equal to an existing topic is de-duped
-    const deduped = candidateTopics(entry({ distortion: 'none' }), ['anxiety'])
+    const deduped = candidateTopics(entry({ emotion: 'anxiety', distortion: 'none' }), ['anxiety'])
     expect(deduped).toEqual([{ title: 'Anxiety', category: 'emotion' }])
     // multiple themes all land (de-duped against each other + existing)
-    const multi = candidateTopics(entry({ distortion: 'none' }), ['Work', 'Marriage'])
+    const multi = candidateTopics(entry({ emotion: 'anxiety', distortion: 'none' }), ['Work', 'Marriage'])
     expect(multi).toEqual([
       { title: 'Anxiety', category: 'emotion' },
       { title: 'Work', category: 'theme' },
@@ -136,6 +142,9 @@ describe('updateWikiForEntry', () => {
     mockCountEntity.mockReset()
     mockSynth.mockResolvedValue(ok('synthesized content'))
     mockUpdate.mockResolvedValue(ok({}))
+    mockTickleCount.mockReset()
+    mockTickleCount.mockResolvedValue(ok({ id: 'p', entry_count: 5 }))
+    mockSetAggUpto.mockReset()
     mockListEntities.mockResolvedValue(ok([])) // no entities by default
     mockCountEntity.mockResolvedValue(ok(0))
     mockListReframes.mockReset().mockResolvedValue(ok([])) // no reframes by default
@@ -145,21 +154,21 @@ describe('updateWikiForEntry', () => {
     mockGetByTitle.mockResolvedValue(ok(null))
     mockCreate.mockImplementation(async (input) => ok({ id: 'p', title: input.title, category: input.category, content: '' }))
 
-    const result = await updateWikiForEntry(entry({ distortion: 'none' }))
+    const result = await updateWikiForEntry(entry({ emotion: null }))
 
-    expect(mockCreate).toHaveBeenCalledWith({ title: 'Anxiety', category: 'emotion' })
+    expect(mockCreate).toHaveBeenCalledWith({ title: 'Catastrophizing', category: 'distortion' })
     expect(mockUpdate).toHaveBeenCalledWith('p', 'synthesized content')
-    expect(result.success && result.data).toEqual(['Anxiety'])
+    expect(result.success && result.data).toEqual(['Catastrophizing'])
   })
 
   it('updates an existing page without recreating it', async () => {
-    mockGetByTitle.mockResolvedValue(ok({ id: 'p9', title: 'Anxiety', category: 'emotion', content: 'old' }))
+    mockGetByTitle.mockResolvedValue(ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'old' }))
 
-    const result = await updateWikiForEntry(entry({ distortion: 'none' }))
+    const result = await updateWikiForEntry(entry({ emotion: null }))
 
     expect(mockCreate).not.toHaveBeenCalled()
     expect(mockUpdate).toHaveBeenCalledWith('p9', 'synthesized content')
-    expect(result.success && result.data).toEqual(['Anxiety'])
+    expect(result.success && result.data).toEqual(['Catastrophizing'])
   })
 
   it('follows a merged topic to its survivor instead of the hidden page', async () => {
@@ -186,10 +195,10 @@ describe('updateWikiForEntry', () => {
 
   it('regenerates a dropped page from scratch (ignores its dismissed content)', async () => {
     mockGetByTitle.mockResolvedValue(
-      ok({ id: 'p9', title: 'Anxiety', category: 'emotion', content: 'wrong old take', dismissed_at: 123 })
+      ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'wrong old take', dismissed_at: 123 })
     )
 
-    await updateWikiForEntry(entry({ distortion: 'none' }))
+    await updateWikiForEntry(entry({ emotion: null }))
 
     // synthesized fresh — the dismissed content is NOT fed back in
     expect(mockSynth).toHaveBeenCalledWith(expect.objectContaining({ existingContent: '' }))
@@ -198,19 +207,19 @@ describe('updateWikiForEntry', () => {
 
   it('builds on existing content for an active (non-dismissed) page', async () => {
     mockGetByTitle.mockResolvedValue(
-      ok({ id: 'p9', title: 'Anxiety', category: 'emotion', content: 'good prior take', dismissed_at: null })
+      ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'good prior take', dismissed_at: null })
     )
 
-    await updateWikiForEntry(entry({ distortion: 'none' }))
+    await updateWikiForEntry(entry({ emotion: null }))
 
     expect(mockSynth).toHaveBeenCalledWith(expect.objectContaining({ existingContent: 'good prior take' }))
   })
 
   it('skips a page when synthesis fails (best-effort)', async () => {
-    mockGetByTitle.mockResolvedValue(ok({ id: 'p', title: 'Anxiety', category: 'emotion', content: '' }))
+    mockGetByTitle.mockResolvedValue(ok({ id: 'p', title: 'Catastrophizing', category: 'distortion', content: '' }))
     mockSynth.mockResolvedValue(err('SYNTH_INFERENCE_FAILED', 'down'))
 
-    const result = await updateWikiForEntry(entry({ distortion: 'none' }))
+    const result = await updateWikiForEntry(entry({ emotion: null }))
 
     expect(mockUpdate).not.toHaveBeenCalled()
     expect(result.success && result.data).toEqual([])
@@ -223,7 +232,7 @@ describe('updateWikiForEntry', () => {
       ok({ id: 'p', title: input.title, category: input.category, content: '' })
     )
 
-    const result = await updateWikiForEntry(entry({ distortion: 'none' }))
+    const result = await updateWikiForEntry(entry({ emotion: null }))
 
     // synthesis is attempted before any page is created, so a failure leaves nothing
     expect(mockCreate).not.toHaveBeenCalled()
@@ -240,17 +249,17 @@ describe('updateWikiForEntry', () => {
       ok([{ id: 'x1', entry_id: 'e1', type: 'person', label: 'Sarah', created_at: 0 }])
     )
 
-    // First mention: count = 1 → no page for Sarah (only the emotion page)
+    // First mention: count = 1 → no page for Sarah (only the emotion page, which is silently tickled)
     mockCountEntity.mockResolvedValue(ok(1))
-    const first = await updateWikiForEntry(entry({ distortion: 'none' }))
-    expect(first.success && first.data).toEqual(['Anxiety'])
+    const first = await updateWikiForEntry(entry({ emotion: 'anxiety', distortion: 'none' }))
+    expect(first.success && first.data).toEqual([])
     expect(mockCreate).not.toHaveBeenCalledWith({ title: 'Sarah', category: 'person' })
 
     // Second mention: count = 2 → Sarah earns a page
     mockCountEntity.mockResolvedValue(ok(2))
-    const second = await updateWikiForEntry(entry({ distortion: 'none' }))
+    const second = await updateWikiForEntry(entry({ emotion: 'anxiety', distortion: 'none' }))
     expect(mockCreate).toHaveBeenCalledWith({ title: 'Sarah', category: 'person' })
-    expect(second.success && second.data).toEqual(['Anxiety', 'Sarah'])
+    expect(second.success && second.data).toEqual(['Sarah'])
   })
 
   it('folds the writer’s latest reframe into a belief page synthesis', async () => {
@@ -276,7 +285,7 @@ describe('updateWikiForEntry', () => {
       ])
     )
 
-    await updateWikiForEntry(entry({ distortion: 'none' }))
+    await updateWikiForEntry(entry({ emotion: null, distortion: 'none' }))
 
     expect(mockListReframes).toHaveBeenCalledWith('I am not good enough')
     expect(mockSynth).toHaveBeenCalledWith(
@@ -289,9 +298,9 @@ describe('updateWikiForEntry', () => {
   })
 
   it('does not look up reframes for non-belief pages', async () => {
-    mockGetByTitle.mockResolvedValue(ok({ id: 'p9', title: 'Anxiety', category: 'emotion', content: 'old' }))
+    mockGetByTitle.mockResolvedValue(ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'old' }))
 
-    await updateWikiForEntry(entry({ distortion: 'none' }))
+    await updateWikiForEntry(entry({ emotion: null }))
 
     expect(mockListReframes).not.toHaveBeenCalled()
   })
@@ -299,9 +308,9 @@ describe('updateWikiForEntry', () => {
   describe('re-grounding (every 10 entries)', () => {
     const oldPage = (over: Partial<WikiPage> = {}): WikiPage => ({
       id: 'p9',
-      title: 'Anxiety',
-      category: 'emotion',
-      content: 'You tend to worry before meetings.',
+      title: 'Catastrophizing',
+      category: 'distortion',
+      content: 'You tend to assume worst-case outcomes.',
       entry_count: 10,                  // triggers re-grounding
       version: 7,
       version_history: [],
@@ -310,6 +319,7 @@ describe('updateWikiForEntry', () => {
       dismissed_at: null,
       corrected_at: null,
       merged_into: null,
+      aggregated_upto: 0,
       ...over,
     })
     const sampleEntry = {
@@ -321,14 +331,14 @@ describe('updateWikiForEntry', () => {
     beforeEach(() => {
       mockSynthReGround.mockReset()
       mockSynthReGround.mockResolvedValue(ok('re-grounded content'))
-      mockEntriesByEmotion.mockReset()
-      mockEntriesByEmotion.mockResolvedValue(ok([sampleEntry]))
+      mockEntriesByDistortion.mockReset()
+      mockEntriesByDistortion.mockResolvedValue(ok([sampleEntry]))
     })
 
     it('uses re-grounding synthesis at entry_count % 10 === 0', async () => {
       mockGetByTitle.mockResolvedValue(ok(oldPage()))
 
-      await updateWikiForEntry(entry({ distortion: 'none' }))
+      await updateWikiForEntry(entry({ emotion: null }))
 
       expect(mockSynthReGround).toHaveBeenCalled()
       expect(mockSynth).not.toHaveBeenCalled()
@@ -337,7 +347,7 @@ describe('updateWikiForEntry', () => {
     it('passes sampled past entries to the re-ground prompt', async () => {
       mockGetByTitle.mockResolvedValue(ok(oldPage()))
 
-      await updateWikiForEntry(entry({ distortion: 'none' }))
+      await updateWikiForEntry(entry({ emotion: null }))
 
       expect(mockSynthReGround).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -351,7 +361,7 @@ describe('updateWikiForEntry', () => {
     it('still uses normal synthesis when entry_count is not a multiple of 10', async () => {
       mockGetByTitle.mockResolvedValue(ok(oldPage({ entry_count: 7 })))
 
-      await updateWikiForEntry(entry({ distortion: 'none' }))
+      await updateWikiForEntry(entry({ emotion: null }))
 
       expect(mockSynth).toHaveBeenCalled()
       expect(mockSynthReGround).not.toHaveBeenCalled()
@@ -359,9 +369,9 @@ describe('updateWikiForEntry', () => {
 
     it('falls back to normal synthesis when past entry queries come back empty', async () => {
       mockGetByTitle.mockResolvedValue(ok(oldPage()))
-      mockEntriesByEmotion.mockResolvedValue(ok([])) // empty
+      mockEntriesByDistortion.mockResolvedValue(ok([])) // empty
 
-      await updateWikiForEntry(entry({ distortion: 'none' }))
+      await updateWikiForEntry(entry({ emotion: null }))
 
       // No past entries → falls through to normal synth
       expect(mockSynth).toHaveBeenCalled()
@@ -372,7 +382,7 @@ describe('updateWikiForEntry', () => {
       const freshPage = oldPage({ created_at: Date.now() - 1000 }) // 1 second old
       mockGetByTitle.mockResolvedValue(ok(freshPage))
 
-      await updateWikiForEntry(entry({ distortion: 'none' }))
+      await updateWikiForEntry(entry({ emotion: null }))
 
       expect(mockSynth).toHaveBeenCalled()
       expect(mockSynthReGround).not.toHaveBeenCalled()
@@ -381,7 +391,7 @@ describe('updateWikiForEntry', () => {
     it('skips re-grounding for entry_count === 0 (no prior)', async () => {
       mockGetByTitle.mockResolvedValue(ok(oldPage({ entry_count: 0 })))
 
-      await updateWikiForEntry(entry({ distortion: 'none' }))
+      await updateWikiForEntry(entry({ emotion: null }))
 
       expect(mockSynth).toHaveBeenCalled()
       expect(mockSynthReGround).not.toHaveBeenCalled()
@@ -441,6 +451,7 @@ describe('lineageForEntry', () => {
     dismissed_at: null,
     corrected_at: null,
     merged_into: null,
+    aggregated_upto: 0,
     ...over,
   })
 
@@ -460,7 +471,7 @@ describe('lineageForEntry', () => {
       return Promise.resolve(ok(null))
     })
 
-    const res = await lineageForEntry(entry())
+    const res = await lineageForEntry(entry({ emotion: 'anxiety' }))
 
     expect(res.success).toBe(true)
     if (!res.success) return

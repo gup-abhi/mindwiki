@@ -1,4 +1,5 @@
 import { synthesisHint } from '../reference'
+import { type EmotionAggregate } from '@/services/wiki/aggregates'
 
 export interface UpdatePageInput {
   title: string
@@ -137,6 +138,107 @@ export function buildRewritePagePrompt({ title, category, content }: RewritePage
     'Output ONLY the rewritten page, no preamble, no headings, no labels.',
     '',
     `Page to rewrite:\n${content.trim()}`,
+  ].join('\n')
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Emotion aggregate prompt
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface EmotionPageInput {
+  title: string
+  category: string | null
+  existingContent: string
+  data: EmotionAggregate
+  /** Whole weeks since the page was last updated, for temporal framing. */
+  weeksSinceUpdate: number | null
+}
+
+/** Cap for existing emotion page content folded into the prompt. Emotion pages
+ *  grow large (highest-traffic category) but the aggregate should speak from
+ *  the data, not the length of the existing mush. */
+const MAX_EXISTING_CHARS_EMOTION = 800
+
+/**
+ * Instruction for the deep model to synthesise an emotion page from aggregate
+ * data rather than per-entry incremental prose. Output is the page's markdown
+ * only. Runs on-device; raw entry text never leaves the device.
+ */
+export function buildEmotionPagePrompt({
+  title,
+  existingContent,
+  data,
+  weeksSinceUpdate,
+}: EmotionPageInput): string {
+  const trimmed = existingContent.trim()
+  const existing = trimmed.length > MAX_EXISTING_CHARS_EMOTION
+    ? `${trimmed.slice(0, MAX_EXISTING_CHARS_EMOTION)}…`
+    : trimmed
+
+  const situationLines = data.topSituations.length > 0
+    ? data.topSituations.map((s) => `  • ${s.pattern} — mentioned ${s.count} time${s.count !== 1 ? 's' : ''}`).join('\n')
+    : '  (not enough data yet)'
+
+  const trendLine = (() => {
+    if (data.moodTrend.direction === 'insufficient_data') return ''
+    const recent = data.moodTrend.recentAvg != null ? data.moodTrend.recentAvg.toFixed(1) : '?'
+    const prior = data.moodTrend.priorAvg != null ? data.moodTrend.priorAvg.toFixed(1) : '?'
+    const dir = data.moodTrend.direction === 'up' ? 'improving slightly' :
+                data.moodTrend.direction === 'down' ? 'intensifying slightly' :
+                'roughly stable'
+    return `- Mood when feeling this: ${recent} (last 4 weeks) vs ${prior} (prior 4 weeks) — ${dir}`
+  })()
+
+  const freqLine = data.recentCount.last8weeks > 0
+    ? `- Frequency: ~${Math.round(data.recentCount.last8weeks / 8)} check-ins per week over the past 8 weeks`
+    : ''
+
+  const recentLines = data.recentExamples.length > 0
+    ? '\n' + data.recentExamples.map((e) => {
+        const date = new Date(e.created_at).toISOString().slice(0, 10)
+        const body = [e.situation.trim(), e.thought.trim()].filter(Boolean).join('. ')
+        return `  ${date} — ${body}`
+      }).join('\n')
+    : ''
+
+  const coOccurLine = data.coOccurringEmotions.length > 0
+    ? `- Often accompanies: ${data.coOccurringEmotions.map((c) => `${c.emotion}`).join(', ')}`
+    : ''
+
+  const recencyLine =
+    weeksSinceUpdate != null && weeksSinceUpdate >= 2
+      ? `\nIt has been about ${weeksSinceUpdate} weeks since this page was last updated. Where it fits naturally, reflect how this emotion has changed over that time.`
+      : ''
+
+  return [
+    `You maintain a personal wiki page titled "${title}" (emotion).`,
+    '',
+    `This page tracks how the writer experiences ${title.toLocaleLowerCase()} — not a list of events,`,
+    'but an evolving picture of what triggers it, how intense it feels, and how it\'s changing.',
+    '',
+    'Re-synthesise the page from the aggregate data below. Do NOT just repeat the data —',
+    'turn it into warm, readable prose about the writer\'s patterns with this emotion.',
+    '',
+    'Style:',
+    '- Write in second person ("you", "your") — the page is about THEIR patterns.',
+    '- Never use labels, headings, or sections like "Situation:", "Thought:", or "#" marks.',
+    '- Be specific and concise — no generic filler.',
+    '- If there are concrete recent examples, weave in 1-2 naturally ("Recently, when…").',
+    '- If the trend is up or down, reflect that ("This has been coming up more lately…").',
+    '- If there\'s no trend yet (new pattern), just describe what you see so far.',
+    ...(recencyLine ? [recencyLine] : []),
+    '',
+    'Aggregate data:',
+    ...(freqLine ? [freqLine] : []),
+    ...(trendLine ? [trendLine] : []),
+    ...(coOccurLine ? [coOccurLine] : []),
+    'Most common triggers:',
+    situationLines,
+    ...(recentLines ? [`\nRecent examples:${recentLines}`] : []),
+    '',
+    existing ? `Current page (as prior):\n${existing}` : 'The page is currently empty — write the first version.',
+    '',
+    'Output ONLY the re-synthesised page content, no preamble, no headings, no labels.',
   ].join('\n')
 }
 
