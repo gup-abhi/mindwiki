@@ -7,6 +7,10 @@ export interface UpdatePageInput {
   existingContent: string
   situation: string
   thought: string
+  /** The user's own balanced perspective (entry step 5) — their CBT restructuring
+   *  in their own words. Folded into the reflection as the "revising, not accepting"
+   *  signal, like the belief reframe line but from the user themselves. */
+  closingNote?: string | null
   /** Canonical distortion tag for the entry (optional) — grounds the synthesis. */
   distortion?: string | null
   /** The writer's latest balanced reframe of this belief (belief pages only) — so
@@ -68,6 +72,7 @@ export function buildUpdatePagePrompt({
   existingContent,
   situation,
   thought,
+  closingNote,
   distortion,
   reframe,
   weeksSinceUpdate,
@@ -78,7 +83,18 @@ export function buildUpdatePagePrompt({
   // Present the new material as one reflection. Labelled "Situation:/Thought:"
   // bullets get parroted back by the small model as literal headings, which is
   // not what a synthesized wiki page should look like.
-  const reflection = [situation.trim(), thought.trim()].filter(Boolean).join('\n\n')
+  const reflectionParts = [situation.trim(), thought.trim()]
+  // The closing note is the user's own balanced perspective (the CBT
+  // reframe they wrote themselves). Fold it in as context the writer is
+  // actively revising — not as a standalone labelled section. When present,
+  // prefix it so the model reads it as the user-revised view, not a second
+  // thought to synthesise into generic content.
+  if (closingNote && closingNote.trim()) {
+    reflectionParts.push(
+      `The writer's own reframe of this: "${closingNote.trim()}"`
+    )
+  }
+  const reflection = reflectionParts.filter(Boolean).join('\n\n')
   // KB grounding as a single instruction line (never a labelled data block —
   // those leak into the page). Empty when there's no distortion.
   const hint = synthesisHint(distortion)
@@ -294,6 +310,7 @@ export function buildReGroundPrompt({
   existingContent,
   situation,
   thought,
+  closingNote,
   distortion,
   reframe,
   weeksSinceUpdate,
@@ -304,7 +321,13 @@ export function buildReGroundPrompt({
     trimmed.length > MAX_EXISTING_CHARS_REGROUND
       ? `${trimmed.slice(0, MAX_EXISTING_CHARS_REGROUND)}…`
       : trimmed
-  const reflection = [situation.trim(), thought.trim()].filter(Boolean).join('\n\n')
+  const reflectionParts = [situation.trim(), thought.trim()]
+  if (closingNote && closingNote.trim()) {
+    reflectionParts.push(
+      `The writer's own reframe of this: "${closingNote.trim()}"`
+    )
+  }
+  const reflection = reflectionParts.filter(Boolean).join('\n\n')
   const hint = synthesisHint(distortion)
   const reframeLine =
     reframe && reframe.trim()
