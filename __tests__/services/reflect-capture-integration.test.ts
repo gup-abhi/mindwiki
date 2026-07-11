@@ -46,6 +46,7 @@ jest.mock('@/services/storage/wiki', () => {
         entry_count: 0,
         version: 1,
         version_history: [],
+        aggregated_upto: 0,
         created_at: now,
         updated_at: now,
         dismissed_at: null,
@@ -72,6 +73,15 @@ jest.mock('@/services/storage/wiki', () => {
       }
       return { success: true, data: null }
     }),
+    ticklePageCount: jest.fn(async (id: string) => {
+      const p = [...pages.values()].find((x) => x.id === id)
+      if (p) {
+        p.entry_count = (p.entry_count as number) + 1
+        return { success: true, data: p }
+      }
+      return { success: false, error: { code: 'WIKI_NOT_FOUND', message: '' } }
+    }),
+    setAggregatedUpto: jest.fn(async () => {}),
     __getAllPages: () =>
       [...pages.values()].filter((p) => p.dismissed_at == null && p.merged_into == null),
     __reset: () => {

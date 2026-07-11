@@ -60,6 +60,10 @@ export interface WikiPage {
    * id. Hidden from both the active wiki and "Dropped insights" — it was
    * consolidated, not dropped by the user. Null for normal pages. */
   merged_into: string | null
+  /** Entry_count at which the last aggregate synthesis was applied. Pages with
+   * aggregated_upto == null are treated as 0 (first aggregate due). Emotion
+   * pages only; all others ignore this field. */
+  aggregated_upto: number
 }
 
 export interface NewWikiPage {
@@ -84,6 +88,7 @@ function rowToPage(row: Record<string, unknown>): WikiPage {
     entry_count: Number(row.entry_count ?? 0),
     version: Number(row.version ?? 1),
     version_history: history,
+    aggregated_upto: row.aggregated_upto == null ? 0 : Number(row.aggregated_upto),
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
     dismissed_at: row.dismissed_at == null ? null : Number(row.dismissed_at),
@@ -105,6 +110,7 @@ export async function createPage(
     entry_count: 0,
     version: 1,
     version_history: [],
+    aggregated_upto: 0,
     created_at: now,
     updated_at: now,
     dismissed_at: null,
@@ -148,6 +154,58 @@ export async function getPageByTitle(
     return ok(row ? rowToPage(row) : null)
   } catch (e) {
     return err('WIKI_GET_FAILED', 'Failed to read wiki page', e)
+  }
+}
+
+/**
+ * Increment an emotion page's entry_count without changing its content.
+ * Emotion pages skip per-entry synthesis in favour of periodic aggregate
+ * synthesis, so we still need the counter for RICHNESS_BOOST in search.
+ * Returns the updated page or an error if the page doesn't exist.
+ */
+export async function ticklePageCount(
+  id: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPage>> {
+  try {
+    const current = await getPage(id, db)
+    if (!current.success) return current
+    if (current.data == null) {
+      return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    }
+    const now = Date.now()
+    const next: WikiPage = {
+      ...current.data,
+      entry_count: current.data.entry_count + 1,
+      updated_at: now,
+    }
+    await db.execute(
+      'UPDATE wiki_pages SET entry_count = ?, updated_at = ? WHERE id = ?',
+      [next.entry_count, now, id]
+    )
+    await enqueueUpsert('wiki_pages', id, db)
+    return ok(next)
+  } catch (e) {
+    return err('WIKI_TICKLE_FAILED', 'Failed to tickle wiki page entry count', e)
+  }
+}
+
+/**
+ * Set aggregated_upto on an emotion page to the given value. Called after an
+ * aggregate synthesis to mark how many entries have been accounted for, so the
+ * next re-synthesis only fires when AGGREGATE_BATCH_SIZE new entries have
+ * accumulated. Best-effort; never throws.
+ */
+export async function setAggregatedUpto(
+  id: string,
+  upto: number,
+  db: SqliteDatabase = getDb()
+): Promise<void> {
+  try {
+    await db.execute('UPDATE wiki_pages SET aggregated_upto = ? WHERE id = ?', [upto, id])
+    // Content is unchanged, so no sync enqueue needed.
+  } catch {
+    // Best-effort — the counter will catch up on the next aggregate.
   }
 }
 

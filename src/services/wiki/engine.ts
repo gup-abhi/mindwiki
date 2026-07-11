@@ -1,4 +1,4 @@
-import { synthesizePage, synthesizePageReGround, regeneratePage } from '@/services/llm/deep-model'
+import { synthesizePage, synthesizePageReGround, synthesizeEmotionPage, regeneratePage } from '@/services/llm/deep-model'
 import {
   type Entry,
   listEntriesByEmotion,
@@ -13,9 +13,13 @@ import {
   getPageByTitle,
   createPage,
   updatePage,
+  ticklePageCount,
+  setAggregatedUpto,
   regeneratePageContent,
+  listPages,
   type WikiPage,
 } from '@/services/storage/wiki'
+import { buildEmotionAggregate } from '@/services/wiki/aggregates'
 import { type Result, ok } from '@/types/result'
 
 export interface Topic {
@@ -37,6 +41,17 @@ const RE_GROUND_INTERVAL = 10
 // A page must exist at least this long before its first re-ground, so a brand-
 // new page with content from its first 10 entries doesn't double-synthesise.
 const RE_GROUND_AGE_MS = 24 * 60 * 60 * 1000
+
+// Emotion aggregate interval: after every N total emotion taggings (any
+// emotion), scan all emotion pages for aggregate synthesis due.
+const AGGREGATE_INTERVAL_TAGS = 20
+// Minimum entry_count before an emotion page gets its first aggregate.
+const AGGREGATE_MIN_ENTRIES = 5
+// Minimum age before first aggregate, so a brand-new page isn't immediately
+// synthesised — there's no history to aggregate from.
+const AGGREGATE_MIN_AGE_MS = 24 * 60 * 60 * 1000
+// How many new entries are needed since the last aggregate to re-synthesise.
+const AGGREGATE_BATCH_SIZE = 10
 
 /**
  * Sample recent entries that shaped a wiki page, for a re-grounding pass.
@@ -155,6 +170,14 @@ export async function updateWikiForEntry(
     // of re-synthesizing into the hidden (merged) page.
     const page = await resolveSurvivor(existing.data)
 
+    // Emotion pages use periodic aggregate synthesis, not per-entry rewrites.
+    // Just increment the counter and schedule a future aggregate.
+    const category = page?.category ?? topic.category
+    if (category === 'emotion') {
+      await tickleEmotionPage(entry, topic, page)
+      continue
+    }
+
     // Synthesize first. A failed synthesis must never leave a blank, 0-entry
     // page behind (it would surface as an empty wiki page), so a brand-new page
     // is only created once we actually have content for it.
@@ -164,7 +187,6 @@ export async function updateWikiForEntry(
     // Synthesize under the resolved page's own title (a merged loser resolves to
     // the survivor, whose title differs from this entry's topic).
     const effectiveTitle = page?.title ?? topic.title
-    const category = page?.category ?? topic.category
     // For a belief page, fold in the writer's latest reframe so the synthesis
     // reflects how they're revising the belief — not just restating it.
     let reframe: string | null = null
@@ -297,6 +319,119 @@ export async function lineageForEntry(entry: Entry): Promise<Result<LineagePage[
   }
   return ok(out)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Emotion aggregate routing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Global tally of emotion taggings since last aggregate check. Resets on each
+ *  scan; used to gate AGGREGATE_INTERVAL_TAGS without persisting state. */
+let emotionTagTally = 0
+
+/**
+ * Tickle an emotion page: create the page if it doesn't exist yet (with a
+ * placeholder), increment the counter, and check whether the global trigger
+ * should fire an aggregate scan.
+ */
+async function tickleEmotionPage(
+  entry: Entry,
+  topic: Topic,
+  page: WikiPage | null
+): Promise<void> {
+  // Create the page if missing — placeholder content prevents a blank entry
+  // in the wiki list while the page waits for its first aggregate.
+  let pageId = page?.id
+  if (pageId == null) {
+    const created = await createPage({
+      title: topic.title,
+      category: 'emotion',
+    })
+    if (!created.success) return
+    pageId = created.data.id
+  }
+
+  // Increment the counter without rewriting content
+  const tickled = await ticklePageCount(pageId)
+  if (!tickled.success) return
+
+  // Global tally: every AGGREGATE_INTERVAL_TAGS emotion taggings (any emotion)
+  // triggers a scan of all due emotion pages.
+  emotionTagTally++
+  if (emotionTagTally >= AGGREGATE_INTERVAL_TAGS) {
+    emotionTagTally = 0
+    await maybeRefreshEmotionPages()
+  }
+}
+
+/**
+ * Scan every active emotion page and re-synthesise any that are due for an
+ * aggregate update. A page is due when:
+ *  - entry_count >= AGGREGATE_MIN_ENTRIES (enough data)
+ *  - entry_count - aggregated_upto >= AGGREGATE_BATCH_SIZE (enough new data)
+ *  - The page is older than AGGREGATE_MIN_AGE_MS (has history to aggregate)
+ *  - The page is active (not dismissed, not merged)
+ *
+ * The age gate is on created_at, NOT updated_at: an emotion page is tickled
+ * (its updated_at bumped) on every tagging, so gating on updated_at would
+ * permanently block the daily-touched high-traffic pages this feature targets.
+ *
+ * Best-effort — one page failure does not affect the others. Returns the
+ * number of pages refreshed (for test assertions).
+ */
+export async function maybeRefreshEmotionPages(): Promise<number> {
+  const pagesRes = await listPages()
+  if (!pagesRes.success) return 0
+
+  let refreshed = 0
+  const now = Date.now()
+  for (const page of pagesRes.data) {
+    if (page.category !== 'emotion') continue
+    if (page.entry_count < AGGREGATE_MIN_ENTRIES) continue
+    if (page.entry_count - (page.aggregated_upto ?? 0) < AGGREGATE_BATCH_SIZE) continue
+    if (now - page.created_at < AGGREGATE_MIN_AGE_MS) continue
+
+    const ok = await refreshSingleEmotionPage(page)
+    if (ok) refreshed++
+  }
+  return refreshed
+}
+
+/**
+ * Build the aggregate for one emotion page, synthesise new content, and update
+ * the page. Returns true on success, false on any failure.
+ */
+async function refreshSingleEmotionPage(page: WikiPage): Promise<boolean> {
+  const aggRes = await buildEmotionAggregate(page.title)
+  if (!aggRes.success || !aggRes.data) return false
+
+  const data = aggRes.data
+  if (data.totalCount === 0) return false
+
+  const weeksSinceUpdate =
+    page.content && page.updated_at
+      ? Math.max(0, Math.floor((Date.now() - page.updated_at) / WEEK_MS))
+      : null
+
+  const synth = await synthesizeEmotionPage({
+    title: page.title,
+    category: 'emotion',
+    existingContent: page.content,
+    data,
+    weeksSinceUpdate,
+  })
+  if (!synth.success) return false
+
+  const applied = await regeneratePageContent(page.id, synth.data)
+  if (!applied.success) return false
+
+  // Mark the aggregated_upto so we know where we left off. After a successful
+  // aggregate, reset the marker to the current entry_count (which is unchanged
+  // by regeneratePageContent). The next aggregate fires when AGGREGATE_BATCH_SIZE
+  // new entries have tickled the page.
+  await setAggregatedUpto(page.id, applied.data.entry_count)
+  return true
+}
+
 
 /**
  * Rewrite a single page in the canonical voice (substance unchanged) and persist

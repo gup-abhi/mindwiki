@@ -486,6 +486,20 @@ export const migration023: Migration = {
   statements: [`ALTER TABLE entries ADD COLUMN topic2 TEXT`],
 }
 
+// Migration 024 — aggregated_upto column for emotion aggregate tracking.
+// Emotion pages skip per-entry synthesis in favour of periodic aggregate
+// synthesis from entry data. aggregated_upto records the entry_count at which
+// the last aggregate was applied, so we only re-synthesise when enough new
+// entries have accumulated (AGGREGATE_BATCH_SIZE = 10). Default 0 means the
+// first aggregate will consider all existing entries.
+export const migration024: Migration = {
+  version: 24,
+  name: 'emotion_page_aggregated_upto',
+  statements: [
+    `ALTER TABLE wiki_pages ADD COLUMN aggregated_upto INTEGER NOT NULL DEFAULT 0`,
+  ],
+}
+
 // Migration 022 — entity embeddings for semantic belief canonicalization. One
 // row per entity label+type, storing the bge-small vector and a content hash
 // so re-embedding only needs to run on labels not yet stored. NOT synced (the
