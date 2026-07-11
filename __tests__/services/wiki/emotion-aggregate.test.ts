@@ -100,7 +100,6 @@ const aggregate = () => ({
   topSituations: [{ pattern: 'work', count: 5 }],
   moodTrend: { recentAvg: 2.4, priorAvg: 2.8, direction: 'down' as const },
   recentExamples: [{ situation: 'work', thought: 'stress', created_at: Date.now() }],
-  coOccurringEmotions: [],
 })
 
 describe('updateWikiForEntry — emotion routing', () => {

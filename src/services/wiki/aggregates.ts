@@ -23,8 +23,6 @@ export interface EmotionAggregate {
   }
   /** 2-3 recent entries (newest, distinct situations) as concrete examples. */
   recentExamples: { situation: string; thought: string; created_at: number }[]
-  /** Other emotions that tagged entries co-occur with (top 3). */
-  coOccurringEmotions: { emotion: string; count: number }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -34,7 +32,6 @@ export interface EmotionAggregate {
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 const TOP_SITUATIONS_LIMIT = 5
 const RECENT_EXAMPLES_LIMIT = 3
-const CO_OCCUR_LIMIT = 3
 
 // ---------------------------------------------------------------------------
 // Bucketing helpers (pure, exported for testability)
@@ -125,31 +122,6 @@ export function distinctRecentExamples(
   return out
 }
 
-/** Co-occurring emotions: count every other emotion value across the same
- *  entry list. Emotion pages are keyed on a single canonical term (the
- *  controlled vocabulary), so entries in this list all share this emotion.
- *  The entry's own emotion value is ignored; we count what is NOT the
- *  queried emotion. Since entries carry one emotion, co-occurrence is
- *  across separate entries with different emotions — same period context,
- *  not same entry. Returns the top N most frequent co-occurring emotions. */
-export function countCoOccurringEmotions(
-  entries: Entry[],
-  targetEmotion: string,
-  limit = CO_OCCUR_LIMIT
-): EmotionAggregate['coOccurringEmotions'] {
-  const counts = new Map<string, number>()
-  for (const e of entries) {
-    if (!e.emotion) continue
-    const canon = e.emotion.toLowerCase()
-    if (canon === targetEmotion.toLowerCase()) continue
-    counts.set(canon, (counts.get(canon) ?? 0) + 1)
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([emotion, count]) => ({ emotion, count }))
-}
-
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -185,7 +157,6 @@ export async function buildEmotionAggregate(
     topSituations: countSituations(entries),
     moodTrend: computeMoodTrend(entries),
     recentExamples: distinctRecentExamples(entries),
-    coOccurringEmotions: countCoOccurringEmotions(entries, emotion),
   })
 }
 
@@ -198,6 +169,5 @@ export function emptyAggregate(emotion: string): EmotionAggregate {
     topSituations: [],
     moodTrend: { recentAvg: null, priorAvg: null, direction: 'insufficient_data' },
     recentExamples: [],
-    coOccurringEmotions: [],
   }
 }

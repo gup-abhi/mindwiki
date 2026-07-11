@@ -4,7 +4,6 @@ import {
   countSituations,
   computeMoodTrend,
   distinctRecentExamples,
-  countCoOccurringEmotions,
   buildEmotionAggregate,
   emptyAggregate,
 } from '@/services/wiki/aggregates'
@@ -145,20 +144,6 @@ describe('distinctRecentExamples', () => {
     const res = distinctRecentExamples(entries)
     expect(res).toHaveLength(1)
     expect(res[0].situation).toBe('real')
-  })
-})
-
-describe('countCoOccurringEmotions', () => {
-  it('counts other emotions, excluding the target', () => {
-    const entries = [
-      entry({ emotion: 'Anxiety' }),
-      entry({ emotion: 'Stress' }),
-      entry({ emotion: 'Stress' }),
-      entry({ emotion: 'Sadness' }),
-    ]
-    const res = countCoOccurringEmotions(entries, 'Anxiety')
-    expect(res[0]).toEqual({ emotion: 'stress', count: 2 })
-    expect(res.find((r) => r.emotion === 'anxiety')).toBeUndefined()
   })
 })
 

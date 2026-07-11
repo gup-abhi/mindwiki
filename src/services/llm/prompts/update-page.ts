@@ -201,10 +201,6 @@ export function buildEmotionPagePrompt({
       }).join('\n')
     : ''
 
-  const coOccurLine = data.coOccurringEmotions.length > 0
-    ? `- Often accompanies: ${data.coOccurringEmotions.map((c) => `${c.emotion}`).join(', ')}`
-    : ''
-
   const recencyLine =
     weeksSinceUpdate != null && weeksSinceUpdate >= 2
       ? `\nIt has been about ${weeksSinceUpdate} weeks since this page was last updated. Where it fits naturally, reflect how this emotion has changed over that time.`
@@ -231,7 +227,6 @@ export function buildEmotionPagePrompt({
     'Aggregate data:',
     ...(freqLine ? [freqLine] : []),
     ...(trendLine ? [trendLine] : []),
-    ...(coOccurLine ? [coOccurLine] : []),
     'Most common triggers:',
     situationLines,
     ...(recentLines ? [`\nRecent examples:${recentLines}`] : []),
