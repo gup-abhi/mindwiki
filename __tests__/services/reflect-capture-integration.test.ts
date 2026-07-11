@@ -155,6 +155,12 @@ jest.mock('@/services/graph/engine', () => ({
   rebuildGraph: jest.fn(async () => ({ success: true, data: undefined })),
 }))
 
+// updateWikiForEntry loads the graph for connection lines — empty here.
+jest.mock('@/services/storage/graph', () => ({
+  listNodes: jest.fn(async () => ({ success: true, data: [] })),
+  listEdges: jest.fn(async () => ({ success: true, data: [] })),
+}))
+
 jest.mock('@/services/storage/reframes', () => ({
   listReframesForBelief: jest.fn(async () => ({ success: true, data: [] })),
 }))

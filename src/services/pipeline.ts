@@ -303,9 +303,12 @@ async function ingestReflectStatement(text: string, ex: EntryExtract): Promise<b
  * Capture durable knowledge from a Reflect-chat message into the wiki/graph —
  * deliberately conservative so conversation noise never pollutes the knowledge
  * base. Only the user's own message reaches here (companion turns are never
- * passed in). We then: (1) skip questions, (2) require a real theme, and (3) gate
- * on recurrence — a theme is ingested only once the user has stated it at least
- * MIN_REFLECT_MENTIONS times in Reflect, never on first mention. Qualifying
+ * passed in). We then: (1) extract via the deep model (which also generates a
+ * restatement + topic), (2) require a real theme — topic must be non-empty and
+ * non-"none", and (3) gate on recurrence — a theme is ingested only once the
+ * user has stated it at least MIN_REFLECT_MENTIONS times in Reflect, never on
+ * first mention. A heavy disclosure that ends in "?" isn't skipped; the
+ * recurrence gate is the real noise filter, not trailing punctuation. Qualifying
  * statements are persisted as a `source:'reflect'` entry and indexed like a
  * journal entry. Background, best-effort: never throws, never blocks a reply.
  */

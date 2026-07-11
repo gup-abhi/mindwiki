@@ -11,6 +11,8 @@ import {
   type WikiPage,
 } from '@/services/storage/wiki'
 import { listEntitiesForEntry } from '@/services/storage/entities'
+import { listNodes, listEdges } from '@/services/storage/graph'
+import { connectionLine } from '@/services/graph/neighborhood'
 import { type Entry } from '@/services/storage/entries'
 import { ok, err } from '@/types/result'
 
@@ -40,6 +42,15 @@ jest.mock('@/services/storage/reframes', () => ({ listReframesForBelief: jest.fn
 jest.mock('@/services/wiki/aggregates', () => ({
   buildEmotionAggregate: jest.fn(),
 }))
+// updateWikiForEntry and refreshSingleEmotionPage load the graph for connection
+// lines. Configured per-test; empty by default.
+jest.mock('@/services/storage/graph', () => ({
+  listNodes: jest.fn(),
+  listEdges: jest.fn(),
+}))
+jest.mock('@/services/graph/neighborhood', () => ({
+  connectionLine: jest.fn(),
+}))
 
 const mockGetByTitle = getPageByTitle as jest.Mock
 const mockCreate = createPage as jest.Mock
@@ -50,6 +61,9 @@ const mockListPages = listPages as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
 const mockSynthEmotion = synthesizeEmotionPage as jest.Mock
 const mockBuildAgg = buildEmotionAggregate as jest.Mock
+const mockListNodes = listNodes as jest.Mock
+const mockListEdges = listEdges as jest.Mock
+const mockConnectionLine = connectionLine as jest.Mock
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -110,6 +124,12 @@ describe('updateWikiForEntry — emotion routing', () => {
     mockListPages.mockReset()
     mockListEntities.mockReset()
     mockListEntities.mockResolvedValue(ok([]))
+    mockListNodes.mockReset()
+    mockListEdges.mockReset()
+    mockConnectionLine.mockReset()
+    mockListNodes.mockResolvedValue(ok([]))
+    mockListEdges.mockResolvedValue(ok([]))
+    mockConnectionLine.mockReturnValue(null)
     // Keep the global tally from firing an aggregate scan mid-tickle-test.
     mockListPages.mockResolvedValue(ok([]))
     mockTickle.mockResolvedValue(ok(page()))
@@ -147,6 +167,12 @@ describe('maybeRefreshEmotionPages', () => {
     mockSynthEmotion.mockResolvedValue(ok('fresh aggregate prose'))
     mockRegenContent.mockResolvedValue(ok(page({ entry_count: 20 })))
     mockSetAgg.mockResolvedValue(undefined)
+    mockListNodes.mockReset()
+    mockListEdges.mockReset()
+    mockConnectionLine.mockReset()
+    mockListNodes.mockResolvedValue(ok([]))
+    mockListEdges.mockResolvedValue(ok([]))
+    mockConnectionLine.mockReturnValue(null)
   })
 
   it('refreshes a due emotion page and marks aggregated_upto', async () => {
@@ -158,6 +184,31 @@ describe('maybeRefreshEmotionPages', () => {
     expect(mockSynthEmotion).toHaveBeenCalled()
     expect(mockRegenContent).toHaveBeenCalledWith('p1', 'fresh aggregate prose')
     expect(mockSetAgg).toHaveBeenCalledWith('p1', 20)
+  })
+
+  it('passes the graph connection line to emotion synthesis when the graph has edges', async () => {
+    mockListPages.mockResolvedValue(ok([page()]))
+    mockListNodes.mockResolvedValue(ok([{ id: 'n1', label: 'Anxiety', type: 'emotion', frequency: 20 }]))
+    mockListEdges.mockResolvedValue(ok([{ id: 'ed1', source_id: 'n1', target_id: 'n2', weight: 5 }]))
+    mockConnectionLine.mockReturnValue('Anxiety often comes up with Work, Sleep.')
+
+    await maybeRefreshEmotionPages()
+
+    expect(mockConnectionLine).toHaveBeenCalledWith('Anxiety', expect.any(Array), expect.any(Array))
+    expect(mockSynthEmotion).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionLine: 'Anxiety often comes up with Work, Sleep.' })
+    )
+  })
+
+  it('omits the connection line from emotion synthesis when the graph is empty', async () => {
+    mockListPages.mockResolvedValue(ok([page()]))
+    // defaults: empty graph, connectionLine returns null
+
+    await maybeRefreshEmotionPages()
+
+    expect(mockSynthEmotion).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionLine: null })
+    )
   })
 
   it('does NOT gate on updated_at — a page tickled today still refreshes', async () => {

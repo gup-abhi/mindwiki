@@ -1,3 +1,5 @@
+import { connectionLine } from '@/services/graph/neighborhood'
+import { listNodes, listEdges } from '@/services/storage/graph'
 import { synthesizePage, synthesizePageReGround, synthesizeEmotionPage, regeneratePage } from '@/services/llm/deep-model'
 import {
   type Entry,
@@ -163,6 +165,12 @@ export async function updateWikiForEntry(
     topicList.push(t)
   }
 
+  // Load graph for connection lines — best-effort; failure means no links.
+  const [nodesRes, edgesRes] = await Promise.all([listNodes(), listEdges()])
+  const allNodes = nodesRes.success ? nodesRes.data : []
+  const allEdges = edgesRes.success ? edgesRes.data : []
+  const hasGraph = allNodes.length > 0 && allEdges.length > 0
+
   for (const topic of topicList) {
     const existing = await getPageByTitle(topic.title)
     if (!existing.success) continue
@@ -201,6 +209,10 @@ export async function updateWikiForEntry(
       baseContent && page
         ? Math.max(0, Math.floor((entry.created_at - page.updated_at) / WEEK_MS))
         : null
+    // Graph-connection line: the top co-occurring themes for this page's title,
+    // so synthesis can write about cross-topic relationships. Best-effort — when
+    // the graph is empty or the title isn't a graph node, this is null.
+    const conn = hasGraph ? connectionLine(effectiveTitle, allNodes, allEdges) : null
 
     // Re-grounding: every RE_GROUND_INTERVAL entries, synthesise from source
     // entries instead of the incremental telephone chain. Resets drift to zero.
@@ -224,6 +236,7 @@ export async function updateWikiForEntry(
           closingNote: entry.closing_note,
           distortion: entry.distortion,
           reframe,
+          connectionLine: conn,
           weeksSinceUpdate,
           pastEntries: pastEntries.map((e) => ({
             situation: e.situation,
@@ -242,6 +255,7 @@ export async function updateWikiForEntry(
           closingNote: entry.closing_note,
           distortion: entry.distortion,
           reframe,
+          connectionLine: conn,
           weeksSinceUpdate,
         })
       }
@@ -255,6 +269,7 @@ export async function updateWikiForEntry(
         closingNote: entry.closing_note,
         distortion: entry.distortion,
         reframe,
+        connectionLine: conn,
         weeksSinceUpdate,
       })
     }
@@ -415,11 +430,23 @@ async function refreshSingleEmotionPage(page: WikiPage): Promise<boolean> {
       ? Math.max(0, Math.floor((Date.now() - page.updated_at) / WEEK_MS))
       : null
 
+  // Graph-connection line: the topics this emotion co-occurs with, so the page
+  // can name what it's tangled with. Best-effort — null when the graph is empty
+  // or the emotion isn't a graph node.
+  const [nodesRes, edgesRes] = await Promise.all([listNodes(), listEdges()])
+  const allNodes = nodesRes.success ? nodesRes.data : []
+  const allEdges = edgesRes.success ? edgesRes.data : []
+  const conn =
+    allNodes.length > 0 && allEdges.length > 0
+      ? connectionLine(page.title, allNodes, allEdges)
+      : null
+
   const synth = await synthesizeEmotionPage({
     title: page.title,
     category: 'emotion',
     existingContent: page.content,
     data,
+    connectionLine: conn,
     weeksSinceUpdate,
   })
   if (!synth.success) return false
@@ -435,6 +462,75 @@ async function refreshSingleEmotionPage(page: WikiPage): Promise<boolean> {
   return true
 }
 
+
+/** Progress event emitted per eligible page during a connection-line backfill,
+ *  so a caller (e.g. the dev UI) can show live status instead of one final dump.
+ *  index/total are 1-based over the eligible pages only. */
+export interface BackfillProgress {
+  title: string
+  index: number
+  total: number
+  status: 'start' | 'done' | 'failed'
+}
+
+/**
+ * One-time backfill: rewrite every active non-emotion wiki page that has graph
+ * neighbours, injecting the graph connection line into the rewrite prompt so
+ * existing pages reflect cross-topic relationships the model never knew about.
+ * Emotion pages are excluded (they already surface triggers via aggregate data).
+ * Best-effort: returns the titles successfully rewritten. Never throws.
+ *
+ * Optionally reports per-page progress via onProgress — a 'start' before each
+ * page's (slow, ~15-20s) deep-model rewrite and a 'done'/'failed' after — so the
+ * UI can update in real time rather than waiting for the whole run to finish.
+ */
+export async function backfillConnectionLines(
+  onProgress?: (p: BackfillProgress) => void
+): Promise<Result<string[]>> {
+  // Load graph
+  const [nodesRes, edgesRes] = await Promise.all([listNodes(), listEdges()])
+  const allNodes = nodesRes.success ? nodesRes.data : []
+  const allEdges = edgesRes.success ? edgesRes.data : []
+  if (allNodes.length === 0 || allEdges.length === 0) return ok([])
+
+  const pagesRes = await listPages()
+  if (!pagesRes.success) return ok([])
+
+  // Resolve eligibility up front so progress index/total span only the pages
+  // that will actually be rewritten (a caller shows "2 of 5", not "2 of 40").
+  const eligible = pagesRes.data
+    .filter((page) => page.category !== 'emotion')
+    .map((page) => ({ page, conn: connectionLine(page.title, allNodes, allEdges) }))
+    .filter((e): e is { page: WikiPage; conn: string } => e.conn != null)
+
+  const updated: string[] = []
+  const total = eligible.length
+  for (let i = 0; i < total; i++) {
+    const { page, conn } = eligible[i]
+    onProgress?.({ title: page.title, index: i + 1, total, status: 'start' })
+
+    const synth = await regeneratePage({
+      title: page.title,
+      category: page.category,
+      content: page.content,
+      connectionLine: conn,
+    })
+    if (!synth.success) {
+      onProgress?.({ title: page.title, index: i + 1, total, status: 'failed' })
+      continue
+    }
+
+    const applied = await regeneratePageContent(page.id, synth.data)
+    if (applied.success) {
+      updated.push(page.title)
+      onProgress?.({ title: page.title, index: i + 1, total, status: 'done' })
+    } else {
+      onProgress?.({ title: page.title, index: i + 1, total, status: 'failed' })
+    }
+  }
+
+  return ok(updated)
+}
 
 /**
  * Rewrite a single page in the canonical voice (substance unchanged) and persist

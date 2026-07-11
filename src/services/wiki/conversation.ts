@@ -1,7 +1,7 @@
 import { converseFromWiki, summarizeConversation } from '@/services/llm/deep-model'
 import { expandQueryTerms } from '@/services/llm/fast-model'
 import { type ConversationContext } from '@/services/llm/prompts/conversation'
-import { graphNeighborhood } from '@/services/graph/neighborhood'
+import { connectionLine, graphNeighborhood } from '@/services/graph/neighborhood'
 import { setConversationSummary } from '@/services/storage/chat'
 import { type GraphNode, type GraphEdge } from '@/services/storage/graph'
 import { type WikiPage } from '@/services/storage/wiki'
@@ -35,7 +35,6 @@ const MAX_PAGES = 3
 const MAX_PAGE_CHARS = 600
 const MAX_HISTORY_MESSAGES = 8 // ~4 user/assistant turns
 const MAX_CONNECTION_PAGES = 2
-const MAX_NEIGHBORS = 3
 
 // Sentence-ending punctuation used by the question-alternation guard. The 3B
 // model ignores the prompt-level NO_QUESTION_STEER ~15% of the time on device;
@@ -127,16 +126,6 @@ function expandWithGraph(query: string, nodes: GraphNode[], edges: GraphEdge[]):
     .map(([label]) => label)
 
   return expansion.length ? `${query} ${expansion.join(' ')}` : query
-}
-
-function connectionLine(title: string, nodes: GraphNode[], edges: GraphEdge[]): string | null {
-  const hood = graphNeighborhood(title, nodes, edges, 1)
-  if (!hood || hood.neighbors.length === 0) return null
-  const top = [...hood.neighbors]
-    .sort((a, b) => b.frequency - a.frequency)
-    .slice(0, MAX_NEIGHBORS)
-    .map((n) => n.label)
-  return `${title} often comes up with ${top.join(', ')}.`
 }
 
 /**

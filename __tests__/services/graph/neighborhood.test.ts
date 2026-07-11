@@ -1,11 +1,11 @@
-import { graphNeighborhood } from '@/services/graph/neighborhood'
+import { graphNeighborhood, connectionLine } from '@/services/graph/neighborhood'
 import { type GraphNode, type GraphEdge } from '@/services/storage/graph'
 
-const node = (id: string, label: string): GraphNode => ({
+const node = (id: string, label: string, frequency = 1): GraphNode => ({
   id,
   type: 'emotion',
   label,
-  frequency: 1,
+  frequency,
   created_at: 0,
   updated_at: 0,
 })
@@ -49,5 +49,38 @@ describe('graphNeighborhood', () => {
 
   it('returns null when nothing matches', () => {
     expect(graphNeighborhood('nope', nodes, edges, 1)).toBeNull()
+  })
+})
+
+describe('connectionLine', () => {
+  it('returns a formatted line with top neighbours sorted by frequency', () => {
+    // b (Work, freq=1) is the only neighbour of a (Anxiety)
+    const line = connectionLine('a', nodes, edges)
+    expect(line).toBe('Anxiety often comes up with Work.')
+  })
+
+  it('sorts neighbours by descending frequency and caps at 3', () => {
+    const high = node('h', 'Health', 20)
+    const friends = node('f', 'Friends', 15)
+    const money = node('m', 'Money', 10)
+    const misc = [node('x', 'X', 1), node('y', 'Y', 1)]
+    const allNodes = [node('a', 'Anxiety', 5), high, friends, money, ...misc]
+    const allEdges = [
+      edge('e1', 'a', 'h'),
+      edge('e2', 'a', 'f'),
+      edge('e3', 'a', 'm'),
+      edge('e4', 'a', 'x'),
+      edge('e5', 'a', 'y'),
+    ]
+    const line = connectionLine('a', allNodes, allEdges)
+    expect(line).toBe('Anxiety often comes up with Health, Friends, Money.')
+  })
+
+  it('returns null when the page is not a graph node', () => {
+    expect(connectionLine('Nope', nodes, edges)).toBeNull()
+  })
+
+  it('returns null when the node has no neighbours', () => {
+    expect(connectionLine('d', nodes, edges)).toBeNull()
   })
 })

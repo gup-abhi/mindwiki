@@ -57,3 +57,26 @@ export function graphNeighborhood(
 
   return { node: root, neighbors, edges: collected }
 }
+
+const MAX_NEIGHBORS = 3
+
+/**
+ * A one-line description of a page's top graph connections, e.g.
+ * "Anxiety often comes up with Work, Sleep." Returns null when the title
+ * is not a graph node or has no neighbours. Pure — caller supplies nodes
+ * and edges.
+ */
+export function connectionLine(
+  title: string,
+  nodes: GraphNode[],
+  edges: GraphEdge[]
+): string | null {
+  const hood = graphNeighborhood(title, nodes, edges, 1)
+  if (!hood || hood.neighbors.length === 0) return null
+  const label = hood.node.label
+  const top = [...hood.neighbors]
+    .sort((a, b) => b.frequency - a.frequency)
+    .slice(0, MAX_NEIGHBORS)
+    .map((n) => n.label)
+  return `${label} often comes up with ${top.join(', ')}.`
+}

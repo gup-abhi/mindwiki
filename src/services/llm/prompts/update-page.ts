@@ -16,6 +16,10 @@ export interface UpdatePageInput {
   /** The writer's latest balanced reframe of this belief (belief pages only) — so
    *  the page reflects how they're revising the belief, not just restating it. */
   reframe?: string | null
+  /** Short graph-connection line, e.g. "Anxiety often comes up with Work, Sleep."
+   *  Lets the page reflect cross-topic relationships the graph already knows.
+   *  Empty when the page title isn't a graph node or has no neighbours. */
+  connectionLine?: string | null
   /** Approx. whole weeks between the page's last update and this reflection. Lets
    *  synthesis express evolution ("lately this barely comes up") instead of timeless
    *  prose. Only surfaced past RECENCY_HINT_WEEKS, so daily journaling stays silent. */
@@ -75,6 +79,7 @@ export function buildUpdatePagePrompt({
   closingNote,
   distortion,
   reframe,
+  connectionLine,
   weeksSinceUpdate,
 }: UpdatePageInput): string {
   const trimmed = existingContent.trim()
@@ -111,6 +116,13 @@ export function buildUpdatePagePrompt({
     existing && weeksSinceUpdate != null && weeksSinceUpdate >= RECENCY_HINT_WEEKS
       ? `It has been roughly ${weeksSinceUpdate} weeks since this page was last shaped, and the reflection below is from today. Where it fits naturally, let the page reflect how this theme has changed over that time — whether it has intensified, eased, or shifted focus — but do NOT invent specific past events, dates, or feelings you were not told about.`
       : ''
+  // Graph-connection line: the knowledge graph knows which themes co-occur, and a
+  // page that shows these relationships reads as connected understanding rather than
+  // isolated prose. Optional — when the page title isn't a graph node, this is empty.
+  const connectionLine_ =
+    connectionLine && connectionLine.trim()
+      ? `The knowledge graph shows: ${connectionLine.trim()} If it fits naturally, let the page reflect this — but the page is about "${title}", not its neighbours.`
+      : ''
   return [
     `You maintain a personal wiki page titled "${title}"${category ? ` (${category})` : ''}.`,
     'Weave the new reflection below into the page. Synthesize — merge its insight into the',
@@ -118,6 +130,7 @@ export function buildUpdatePagePrompt({
     ...PAGE_STYLE,
     ...(hint ? [hint] : []),
     ...(reframeLine ? [reframeLine] : []),
+    ...(connectionLine_ ? [connectionLine_] : []),
     ...(recencyLine ? [recencyLine] : []),
     'Do NOT copy the reflection word-for-word. Output ONLY the page content, no preamble.',
     '',
@@ -131,6 +144,9 @@ export interface RewritePageInput {
   title: string
   category: string | null
   content: string
+  /** Short graph-connection line, e.g. "Anxiety often comes up with Work, Sleep."
+   *  Lets the rewrite reflect cross-topic relationships the graph already knows. */
+  connectionLine?: string | null
 }
 
 /**
@@ -139,7 +155,16 @@ export interface RewritePageInput {
  * the entry's "Situation:/Thought:" skeleton, or use the wrong voice) into a
  * consolidated, readable form. Output is the page content only.
  */
-export function buildRewritePagePrompt({ title, category, content }: RewritePageInput): string {
+export function buildRewritePagePrompt({
+  title,
+  category,
+  content,
+  connectionLine,
+}: RewritePageInput): string {
+  const connectionLine_ =
+    connectionLine && connectionLine.trim()
+      ? `The knowledge graph shows: ${connectionLine.trim()} If it fits naturally, let the page reflect this — but the page is about "${title}", not its neighbours.`
+      : ''
   return [
     `Rewrite this personal wiki page titled "${title}"${category ? ` (${category})` : ''}.`,
     'Keep the SAME facts and meaning, but rewrite the wording completely — do NOT copy sentences',
@@ -151,6 +176,7 @@ export function buildRewritePagePrompt({ title, category, content }: RewritePage
     '- Turn a dictionary definition into a direct observation about the reader: "Catastrophizing is',
     '  when someone assumes the worst" → "You tend to assume the worst will happen".',
     ...PAGE_STYLE,
+    ...(connectionLine_ ? [connectionLine_] : []),
     'Output ONLY the rewritten page, no preamble, no headings, no labels.',
     '',
     `Page to rewrite:\n${content.trim()}`,
@@ -166,6 +192,11 @@ export interface EmotionPageInput {
   category: string | null
   existingContent: string
   data: EmotionAggregate
+  /** Short graph-connection line, e.g. "Anxiety often comes up with Work, Sleep."
+   *  Lets an emotion page name the topics it's tangled with — the graph knows
+   *  cross-topic co-occurrence the aggregate's own-situation data doesn't.
+   *  Empty when the emotion isn't a graph node or has no neighbours. */
+  connectionLine?: string | null
   /** Whole weeks since the page was last updated, for temporal framing. */
   weeksSinceUpdate: number | null
 }
@@ -184,6 +215,7 @@ export function buildEmotionPagePrompt({
   title,
   existingContent,
   data,
+  connectionLine,
   weeksSinceUpdate,
 }: EmotionPageInput): string {
   const trimmed = existingContent.trim()
@@ -222,6 +254,14 @@ export function buildEmotionPagePrompt({
       ? `\nIt has been about ${weeksSinceUpdate} weeks since this page was last updated. Where it fits naturally, reflect how this emotion has changed over that time.`
       : ''
 
+  // Graph-connection line: the knowledge graph knows which topics this emotion
+  // co-occurs with (e.g. it's tangled with Work and Sleep) — signal the aggregate's
+  // own-situation data doesn't carry. Optional — empty when the emotion isn't a node.
+  const connectionLine_ =
+    connectionLine && connectionLine.trim()
+      ? `\nThe knowledge graph shows: ${connectionLine.trim()} If it fits naturally, name the topics this emotion is tangled with — but the page is about "${title}", not its neighbours.`
+      : ''
+
   return [
     `You maintain a personal wiki page titled "${title}" (emotion).`,
     '',
@@ -238,6 +278,7 @@ export function buildEmotionPagePrompt({
     '- If there are concrete recent examples, weave in 1-2 naturally ("Recently, when…").',
     '- If the trend is up or down, reflect that ("This has been coming up more lately…").',
     '- If there\'s no trend yet (new pattern), just describe what you see so far.',
+    ...(connectionLine_ ? [connectionLine_] : []),
     ...(recencyLine ? [recencyLine] : []),
     '',
     'Aggregate data:',
@@ -313,6 +354,7 @@ export function buildReGroundPrompt({
   closingNote,
   distortion,
   reframe,
+  connectionLine,
   weeksSinceUpdate,
   pastEntries,
 }: ReGroundInput): string {
@@ -337,6 +379,10 @@ export function buildReGroundPrompt({
     existing && weeksSinceUpdate != null && weeksSinceUpdate >= RECENCY_HINT_WEEKS
       ? `It has been roughly ${weeksSinceUpdate} weeks since this page was last shaped, and the reflection below is from today. Where it fits naturally, let the page reflect how this theme has changed over that time — whether it has intensified, eased, or shifted focus — but do NOT invent specific past events, dates, or feelings you were not told about.`
       : ''
+  const connectionLine_ =
+    connectionLine && connectionLine.trim()
+      ? `The knowledge graph shows: ${connectionLine.trim()} If it fits naturally, let the page reflect this — but the page is about "${title}", not its neighbours.`
+      : ''
   const formattedPast = formatPastEntries(pastEntries)
 
   return [
@@ -345,6 +391,7 @@ export function buildReGroundPrompt({
     ...PAGE_STYLE,
     ...(hint ? [hint] : []),
     ...(reframeLine ? [reframeLine] : []),
+    ...(connectionLine_ ? [connectionLine_] : []),
     ...(recencyLine ? [recencyLine] : []),
     'The "Past entries" below are actual journal entries that shaped this topic.',
     'Ground your synthesis in these as the primary evidence — the current page is',

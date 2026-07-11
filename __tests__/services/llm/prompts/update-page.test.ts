@@ -1,4 +1,10 @@
-import { buildUpdatePagePrompt, buildReGroundPrompt } from '@/services/llm/prompts/update-page'
+import {
+  buildUpdatePagePrompt,
+  buildReGroundPrompt,
+  buildRewritePagePrompt,
+  buildEmotionPagePrompt,
+} from '@/services/llm/prompts/update-page'
+import { type EmotionAggregate } from '@/services/wiki/aggregates'
 
 const base = {
   title: 'Work',
@@ -167,5 +173,110 @@ describe('buildUpdatePagePrompt — existing content cap', () => {
     const prompt = buildUpdatePagePrompt({ ...base, existingContent: content })
     expect(prompt).toContain(`${'x'.repeat(2400)}…`)
     expect(prompt).not.toContain('x'.repeat(2401))
+  })
+})
+
+describe('buildUpdatePagePrompt — connection line', () => {
+  it('injects the connection line as an instruction when provided', () => {
+    const prompt = buildUpdatePagePrompt({
+      ...base,
+      connectionLine: 'Anxiety often comes up with Work, Sleep.',
+    })
+    expect(prompt).toMatch(/knowledge graph shows/i)
+    expect(prompt).toContain('Anxiety often comes up with Work, Sleep.')
+    expect(prompt).toMatch(/the page is about "Work"/i)
+  })
+
+  it('omits the connection line when not provided (back-compat)', () => {
+    const prompt = buildUpdatePagePrompt(base)
+    expect(prompt).not.toMatch(/knowledge graph shows/i)
+  })
+
+  it('omits the connection line when the string is empty', () => {
+    const prompt = buildUpdatePagePrompt({ ...base, connectionLine: '' })
+    expect(prompt).not.toMatch(/knowledge graph shows/i)
+  })
+})
+
+describe('buildReGroundPrompt — connection line', () => {
+  const pastEntries = [
+    { situation: 'Missed a deadline', thought: 'I am unreliable', created_at: 1710100000000 },
+  ]
+
+  it('injects the connection line as an instruction in re-grounding', () => {
+    const prompt = buildReGroundPrompt({
+      ...base,
+      connectionLine: 'Anxiety often comes up with Work.',
+      pastEntries,
+    })
+    expect(prompt).toMatch(/knowledge graph shows/i)
+    expect(prompt).toContain('Anxiety often comes up with Work.')
+    expect(prompt).toMatch(/the page is about "Work"/i)
+  })
+
+  it('omits the connection line in re-grounding when not provided', () => {
+    const prompt = buildReGroundPrompt({ ...base, pastEntries })
+    expect(prompt).not.toMatch(/knowledge graph shows/i)
+  })
+})
+
+describe('buildRewritePagePrompt — connection line', () => {
+  it('injects the connection line when provided', () => {
+    const prompt = buildRewritePagePrompt({
+      title: 'Work',
+      category: 'theme',
+      content: 'You stress about deadlines.',
+      connectionLine: 'Work often comes up with Anxiety.',
+    })
+    expect(prompt).toMatch(/knowledge graph shows/i)
+    expect(prompt).toContain('Work often comes up with Anxiety.')
+    expect(prompt).toMatch(/the page is about "Work"/i)
+  })
+
+  it('omits the connection line when not provided (back-compat)', () => {
+    const prompt = buildRewritePagePrompt({
+      title: 'Work',
+      category: 'theme',
+      content: 'You stress about deadlines.',
+    })
+    expect(prompt).not.toMatch(/knowledge graph shows/i)
+  })
+})
+
+describe('buildEmotionPagePrompt — connection line', () => {
+  const aggregate: EmotionAggregate = {
+    emotion: 'Anxiety',
+    totalCount: 20,
+    recentCount: { last4weeks: 8, last8weeks: 15 },
+    topSituations: [{ pattern: 'work', count: 5 }],
+    moodTrend: { recentAvg: 2.4, priorAvg: 2.8, direction: 'down' },
+    recentExamples: [{ situation: 'work', thought: 'stress', created_at: 1710000000000 }],
+  }
+  const emotionBase = {
+    title: 'Anxiety',
+    category: 'emotion' as const,
+    existingContent: '',
+    data: aggregate,
+    weeksSinceUpdate: null,
+  }
+
+  it('injects the connection line as an instruction when provided', () => {
+    const prompt = buildEmotionPagePrompt({
+      ...emotionBase,
+      connectionLine: 'Anxiety often comes up with Work, Sleep.',
+    })
+    expect(prompt).toMatch(/knowledge graph shows/i)
+    expect(prompt).toContain('Anxiety often comes up with Work, Sleep.')
+    expect(prompt).toMatch(/the page is about "Anxiety"/i)
+  })
+
+  it('omits the connection line when not provided (back-compat)', () => {
+    const prompt = buildEmotionPagePrompt(emotionBase)
+    expect(prompt).not.toMatch(/knowledge graph shows/i)
+  })
+
+  it('omits the connection line when the string is empty', () => {
+    const prompt = buildEmotionPagePrompt({ ...emotionBase, connectionLine: '' })
+    expect(prompt).not.toMatch(/knowledge graph shows/i)
   })
 })
