@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { Alert, Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 
 import { Button, Divider, Screen, Text } from '@/components/ui'
 import { VersionTimeline } from '@/components/wiki/VersionTimeline'
@@ -90,29 +90,26 @@ export default function PageEvolutionScreen() {
       return
     }
     if (timelineVersions.length === 0) return
-    // Start from the oldest version
+    // Start from the oldest version; the effect below drives the advance.
     setSelected(timelineVersions[0].version)
     setIsPlaying(true)
-    advancePlayback(0)
   }, [isPlaying, timelineVersions])
 
-  const advancePlayback = useCallback(
-    (index: number) => {
-      if (index >= timelineVersions.length - 1) {
-        setIsPlaying(false)
-        return
-      }
-      setTimeout(() => {
-        setSelected(timelineVersions[index + 1].version)
-        if (index + 1 < timelineVersions.length - 1) {
-          advancePlayback(index + 1)
-        } else {
-          setIsPlaying(false)
-        }
-      }, PLAYBACK_INTERVAL)
-    },
-    [timelineVersions]
-  )
+  // Drive playback: while playing, schedule a single advance to the next
+  // version. Cleanup cancels the pending step, so pausing, tapping a dot, or
+  // unmounting mid-playback stops it cleanly. Reaching the last version ends.
+  useEffect(() => {
+    if (!isPlaying) return
+    const index = timelineVersions.findIndex((v) => v.version === selected)
+    if (index < 0 || index >= timelineVersions.length - 1) {
+      setIsPlaying(false)
+      return
+    }
+    const timer = setTimeout(() => {
+      setSelected(timelineVersions[index + 1].version)
+    }, PLAYBACK_INTERVAL)
+    return () => clearTimeout(timer)
+  }, [isPlaying, selected, timelineVersions])
 
   const hasHistory = page != null && page.version_history.length > 0
 
