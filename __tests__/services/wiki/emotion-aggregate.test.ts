@@ -186,7 +186,10 @@ describe('maybeRefreshEmotionPages', () => {
     expect(mockSetAgg).toHaveBeenCalledWith('p1', 20)
   })
 
-  it('passes the graph connection line to emotion synthesis when the graph has edges', async () => {
+  it('does NOT load graph data or pass a connection line to emotion synthesis', async () => {
+    // Connections now render as a deterministic structured block, never woven
+    // into LLM prose. emotion page synthesis should not load graph data or
+    // include a connectionLine arg on the synthesis call.
     mockListPages.mockResolvedValue(ok([page()]))
     mockListNodes.mockResolvedValue(ok([{ id: 'n1', label: 'Anxiety', type: 'emotion', frequency: 20 }]))
     mockListEdges.mockResolvedValue(ok([{ id: 'ed1', source_id: 'n1', target_id: 'n2', weight: 5 }]))
@@ -194,21 +197,22 @@ describe('maybeRefreshEmotionPages', () => {
 
     await maybeRefreshEmotionPages()
 
-    expect(mockConnectionLine).toHaveBeenCalledWith('Anxiety', expect.any(Array), expect.any(Array))
-    expect(mockSynthEmotion).toHaveBeenCalledWith(
-      expect.objectContaining({ connectionLine: 'Anxiety often comes up with Work, Sleep.' })
-    )
+    expect(mockListNodes).not.toHaveBeenCalled()
+    expect(mockListEdges).not.toHaveBeenCalled()
+    expect(mockConnectionLine).not.toHaveBeenCalled()
+    const call = mockSynthEmotion.mock.calls[0][0]
+    expect(call.connectionLine).toBeUndefined()
   })
 
   it('omits the connection line from emotion synthesis when the graph is empty', async () => {
     mockListPages.mockResolvedValue(ok([page()]))
-    // defaults: empty graph, connectionLine returns null
 
     await maybeRefreshEmotionPages()
 
-    expect(mockSynthEmotion).toHaveBeenCalledWith(
-      expect.objectContaining({ connectionLine: null })
-    )
+    expect(mockListNodes).not.toHaveBeenCalled()
+    expect(mockListEdges).not.toHaveBeenCalled()
+    const call = mockSynthEmotion.mock.calls[0][0]
+    expect(call.connectionLine).toBeUndefined()
   })
 
   it('does NOT gate on updated_at — a page tickled today still refreshes', async () => {

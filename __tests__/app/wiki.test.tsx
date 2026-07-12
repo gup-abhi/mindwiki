@@ -14,12 +14,19 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockParams,
 }))
 
+jest.mock('@/services/storage/wiki', () => ({
+  listPages: jest.fn(() => Promise.resolve({ success: true, data: [] })),
+}))
 jest.mock('@/hooks/useEntries', () => ({ useEntries: () => ({ entries: [] }) }))
 jest.mock('@/hooks/useStreakFreezes', () => ({
   useStreakFreezes: () => ({ frozenDays: new Set<number>() }),
 }))
 jest.mock('@/hooks/useDigest', () => ({ useDigest: () => ({ digest: null, loading: true, synthesizing: false }) }))
-jest.mock('@/services/storage/graph', () => ({ dismissNode: jest.fn() }))
+jest.mock('@/services/storage/graph', () => ({
+  dismissNode: jest.fn(),
+  listNodes: jest.fn(() => Promise.resolve({ success: true, data: [] })),
+  listEdges: jest.fn(() => Promise.resolve({ success: true, data: [] })),
+}))
 jest.mock('@/store/wiki.store', () => ({ useWikiStore: () => ({ pending: 0 }) }))
 jest.mock('@/hooks/useGraph', () => ({
   useGraph: () => ({ nodes: [], edges: [], refresh: jest.fn() }),

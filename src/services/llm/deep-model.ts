@@ -71,6 +71,13 @@ const SCAFFOLDING_LINE = [
   // Re-grounding prompt labels
   /^past entries:/i,
   /^new entry:/i,
+  // Graph-connection scaffolding: connections now render as a structured block,
+  // never in prose. A line that echoes the old injection ("The knowledge graph
+  // shows…" / "… often comes up with …") is a leak — strip it. The label after
+  // "with" is always a capitalized graph-node title; natural language uses
+  // lowercase, so the uppercase disambiguates.
+  /^the knowledge graph shows/i,
+  /often comes up with [A-Z]/,
 ]
 function stripScaffolding(text: string): string {
   return text

@@ -61,10 +61,32 @@ export function graphNeighborhood(
 const MAX_NEIGHBORS = 3
 
 /**
+ * The top graph-neighbour labels for a page's title, sorted by frequency
+ * (most-co-occurring first), capped at MAX_NEIGHBORS. The structured source
+ * for a page's connections — rendered as deterministic tappable chips on the
+ * page (Level 2), never woven into LLM prose. Returns [] when the title isn't
+ * a graph node or has no neighbours. Pure — caller supplies nodes and edges.
+ */
+export function pageConnections(
+  title: string,
+  nodes: GraphNode[],
+  edges: GraphEdge[]
+): string[] {
+  const hood = graphNeighborhood(title, nodes, edges, 1)
+  if (!hood || hood.neighbors.length === 0) return []
+  return [...hood.neighbors]
+    .sort((a, b) => b.frequency - a.frequency)
+    .slice(0, MAX_NEIGHBORS)
+    .map((n) => n.label)
+}
+
+/**
  * A one-line description of a page's top graph connections, e.g.
  * "Anxiety often comes up with Work, Sleep." Returns null when the title
- * is not a graph node or has no neighbours. Pure — caller supplies nodes
- * and edges.
+ * is not a graph node or has no neighbours. Used by the chat/conversation path
+ * (retrieval context), NOT by page synthesis — connections on a wiki page
+ * render from `pageConnections` as a structured block. Pure — caller supplies
+ * nodes and edges.
  */
 export function connectionLine(
   title: string,
@@ -74,9 +96,6 @@ export function connectionLine(
   const hood = graphNeighborhood(title, nodes, edges, 1)
   if (!hood || hood.neighbors.length === 0) return null
   const label = hood.node.label
-  const top = [...hood.neighbors]
-    .sort((a, b) => b.frequency - a.frequency)
-    .slice(0, MAX_NEIGHBORS)
-    .map((n) => n.label)
+  const top = pageConnections(title, nodes, edges)
   return `${label} often comes up with ${top.join(', ')}.`
 }

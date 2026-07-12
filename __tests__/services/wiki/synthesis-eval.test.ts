@@ -155,6 +155,27 @@ const fixtures: Fixture[] = [
     raw: 'You feel anxious. '.repeat(250), // ~4500 chars
     outcome: 'rejected',
   },
+  {
+    // The literal scaffold leak seen on the backfilled pages — the model
+    // parroted "The knowledge graph shows: …" directly into the prose. Caught
+    // by stripScaffolding (added in deep-model.ts).
+    name: 'knowledge-graph-shows leak is stripped, real prose survives',
+    raw:
+      'The knowledge graph shows: Anxiety often comes up with Work, Sleep.\n' +
+      'You tend to notice it most when work deadlines loom.',
+    outcome: 'kept',
+    expectContent: 'You tend to notice it most when work deadlines loom.',
+  },
+  {
+    // The connection-line sentence itself, injected if a future prompt change
+    // brings it back. The "often comes up with" pattern catches it.
+    name: 'connection line sentence is stripped, real prose survives',
+    raw:
+      'Anxiety often comes up with Work, Sleep.\n' +
+      'You brace for deadlines and then feel the relief when they pass.',
+    outcome: 'kept',
+    expectContent: 'You brace for deadlines and then feel the relief when they pass.',
+  },
 ]
 
 describe('synthesizePage eval fixtures', () => {

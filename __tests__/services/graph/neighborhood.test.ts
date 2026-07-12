@@ -1,4 +1,4 @@
-import { graphNeighborhood, connectionLine } from '@/services/graph/neighborhood'
+import { graphNeighborhood, connectionLine, pageConnections } from '@/services/graph/neighborhood'
 import { type GraphNode, type GraphEdge } from '@/services/storage/graph'
 
 const node = (id: string, label: string, frequency = 1): GraphNode => ({
@@ -82,5 +82,42 @@ describe('connectionLine', () => {
 
   it('returns null when the node has no neighbours', () => {
     expect(connectionLine('d', nodes, edges)).toBeNull()
+  })
+})
+
+describe('pageConnections', () => {
+  // The structured source for the wiki-page connection block (WikiConnections)
+  // — returns just the top-N neighbour labels, not a formatted prose line.
+  it('returns the neighbour label list sorted by frequency', () => {
+    const labels = pageConnections('a', nodes, edges)
+    expect(labels).toEqual(['Work'])
+  })
+
+  it('caps at MAX_NEIGHBORS (3) and sorts by descending frequency', () => {
+    const high = node('h', 'Health', 20)
+    const friends = node('f', 'Friends', 15)
+    const money = node('m', 'Money', 10)
+    const misc = [node('x', 'X', 1), node('y', 'Y', 1)]
+    const allNodes = [node('a', 'Anxiety', 5), high, friends, money, ...misc]
+    const allEdges = [
+      edge('e1', 'a', 'h'),
+      edge('e2', 'a', 'f'),
+      edge('e3', 'a', 'm'),
+      edge('e4', 'a', 'x'),
+      edge('e5', 'a', 'y'),
+    ]
+    expect(pageConnections('a', allNodes, allEdges)).toEqual(['Health', 'Friends', 'Money'])
+  })
+
+  it('returns [] when the title is not a graph node', () => {
+    expect(pageConnections('Nope', nodes, edges)).toEqual([])
+  })
+
+  it('returns [] when the node has no neighbours', () => {
+    expect(pageConnections('d', nodes, edges)).toEqual([])
+  })
+
+  it('matches by case-insensitive label', () => {
+    expect(pageConnections('anxiety', nodes, edges)).toEqual(['Work'])
   })
 })

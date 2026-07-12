@@ -5,6 +5,7 @@ import { Alert, Pressable, StyleSheet, View } from 'react-native'
 import { Button, Card, Divider, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { Markdown } from '@/components/wiki/Markdown'
+import { WikiConnections } from '@/components/wiki/WikiConnections'
 import { PageTrendView, TrendLegend } from '@/components/wiki/PageTrendView'
 import { useWikiPage, usePageTrend } from '@/hooks/useWiki'
 import { useReframes } from '@/hooks/useReframes'
@@ -98,6 +99,8 @@ export default function WikiPageScreen() {
         </Card>
       )}
       <Markdown content={page.content} />
+
+      {page.dismissed_at == null && <WikiConnections title={page.title} />}
 
       {trend?.message && page.dismissed_at == null && (
         <View style={styles.trendSection}>

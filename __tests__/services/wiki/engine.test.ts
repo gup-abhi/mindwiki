@@ -3,7 +3,7 @@ import {
   lineageForEntry,
   updateWikiForEntry,
   regeneratePageVoice,
-  backfillConnectionLines,
+  cleanupConnectionProse,
 } from '@/services/wiki/engine'
 import { synthesizePage, synthesizePageReGround, regeneratePage } from '@/services/llm/deep-model'
 import {
@@ -422,7 +422,10 @@ describe('updateWikiForEntry', () => {
     })
   })
 
-  it('passes the graph connection line to synthesis when graph has edges', async () => {
+  it('does not load graph data or pass any connection line to synthesis', async () => {
+    // Connections now render as a deterministic structured block (WikiConnections),
+    // NOT woven into LLM prose. updateWikiForEntry must not load graph data or
+    // include a connectionLine arg on the synthesis call.
     mockGetByTitle.mockResolvedValue(
       ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'old', dismissed_at: null })
     )
@@ -437,98 +440,58 @@ describe('updateWikiForEntry', () => {
 
     await updateWikiForEntry(entry({ emotion: null }))
 
-    expect(mockListNodes).toHaveBeenCalled()
-    expect(mockListEdges).toHaveBeenCalled()
-    expect(mockConnectionLine).toHaveBeenCalledWith('Catastrophizing', expect.any(Array), expect.any(Array))
-    expect(mockSynth).toHaveBeenCalledWith(expect.objectContaining({ connectionLine: 'Catastrophizing often comes up with Work.' }))
-  })
-
-  it('omits connection line from synthesis when graph is empty', async () => {
-    mockGetByTitle.mockResolvedValue(
-      ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'old', dismissed_at: null })
-    )
-    // graph is empty — listNodes returns empty array
-    mockListNodes.mockResolvedValue(ok([]))
-    mockListEdges.mockResolvedValue(ok([]))
-
-    await updateWikiForEntry(entry({ emotion: null }))
-
-    // connectionLine not passed (null/empty graph means no connection data)
+    expect(mockListNodes).not.toHaveBeenCalled()
+    expect(mockListEdges).not.toHaveBeenCalled()
+    expect(mockConnectionLine).not.toHaveBeenCalled()
     const call = mockSynth.mock.calls[0][0]
-    expect(call.connectionLine).toBeNull()
+    expect(call.connectionLine).toBeUndefined()
   })
 })
 
-describe('backfillConnectionLines', () => {
+describe('cleanupConnectionProse', () => {
   beforeEach(() => {
-    mockRegen.mockReset()
     mockRegenContent.mockReset()
-    mockRegenContent.mockResolvedValue(ok({ id: 'p', content: 'rewritten', entry_count: 5, version: 2 }))
-    mockListNodes.mockReset().mockResolvedValue(ok([]))
-    mockListEdges.mockReset().mockResolvedValue(ok([]))
-    mockConnectionLine.mockReset().mockReturnValue(null)
+    mockRegenContent.mockResolvedValue(ok({ id: 'p', content: 'cleaned', entry_count: 5, version: 2 }))
     mockListPages.mockReset()
     mockListPages.mockResolvedValue(ok([]))
   })
 
-  it('skips emotion pages and pages with no graph neighbours', async () => {
+  it('skips pages with no stale connection prose', async () => {
     mockListPages.mockResolvedValue(ok([
       { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
-      { id: 'p2', title: 'Anxiety', category: 'emotion', content: 'You worry.', entry_count: 5, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
     ]))
-    // Work has no graph neighbours (connectionLine returns null) — skip, Anxiety is emotion — skip
-    // Skipped pages don't get rewritten, so no mockGetByTitle setup needed.
-    // Work has no graph neighbours (connectionLine returns null) — skip
-    const result = await backfillConnectionLines()
-    expect(mockRegen).not.toHaveBeenCalled()
+    const result = await cleanupConnectionProse()
+    expect(mockRegenContent).not.toHaveBeenCalled()
     expect(result.success).toBe(true)
     if (result.success) expect(result.data).toEqual([])
   })
 
-  it('rewrites eligible pages that have graph neighbours', async () => {
+  it('cleans connection-prose pages and the knowledge-graph-shows leak', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
-      { id: 'p2', title: 'Anxiety', category: 'emotion', content: 'You worry.', entry_count: 5, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nThe knowledge graph shows: Work often comes up with Anxiety.\nBack to the page.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p2', title: 'Anxiety', category: 'emotion', content: 'You worry.\nAnxiety often comes up with Work, Sleep.', entry_count: 5, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p3', title: 'Clean', category: 'theme', content: 'A normal page.', entry_count: 1, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
     ]))
-    mockListNodes.mockResolvedValue(ok([
-      { id: 'a', type: 'theme', label: 'Work', frequency: 5, created_at: 0, updated_at: 0 },
-      { id: 'b', type: 'emotion', label: 'Anxiety', frequency: 8, created_at: 0, updated_at: 0 },
-    ]))
-    mockListEdges.mockResolvedValue(ok([
-      { id: 'e1', source_id: 'a', target_id: 'b', weight: 3, created_at: 0, updated_at: 0 },
-    ]))
-    mockConnectionLine.mockImplementation((title: string) =>
-      title === 'Work' ? 'Work often comes up with Anxiety.' : null
-    )
-    mockRegen.mockResolvedValue(ok('rewritten with connection'))
 
-    const result = await backfillConnectionLines()
+    const result = await cleanupConnectionProse()
 
-    expect(mockConnectionLine).toHaveBeenCalledWith('Work', expect.any(Array), expect.any(Array))
-    expect(mockRegen).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Work',
-      connectionLine: 'Work often comes up with Anxiety.',
-    }))
-    // Anxiety is emotion — skipped
-    expect(mockConnectionLine).not.toHaveBeenCalledWith('Anxiety', expect.any(Array), expect.any(Array))
-    if (result.success) expect(result.data).toContain('Work')
-    if (result.success) expect(result.data).not.toContain('Anxiety')
+    expect(mockRegenContent).toHaveBeenCalledTimes(2)
+    expect(mockRegenContent).toHaveBeenCalledWith('p1', 'You stress.\nBack to the page.')
+    expect(mockRegenContent).toHaveBeenCalledWith('p2', 'You worry.')
+    if (result.success) {
+      expect(result.data).toEqual(['Work', 'Anxiety'])
+    }
   })
 
-  it('reports per-page progress as each eligible page starts and finishes', async () => {
+  it('reports per-page progress as each page is cleaned', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
-      { id: 'p2', title: 'Sleep', category: 'theme', content: 'You rest.', entry_count: 4, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p2', title: 'Sleep', category: 'theme', content: 'You rest.\nSleep often comes up with Anxiety.', entry_count: 4, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
     ]))
-    mockListNodes.mockResolvedValue(ok([{ id: 'a', type: 'theme', label: 'Work', frequency: 5, created_at: 0, updated_at: 0 }]))
-    mockListEdges.mockResolvedValue(ok([{ id: 'e1', source_id: 'a', target_id: 'b', weight: 3, created_at: 0, updated_at: 0 }]))
-    mockConnectionLine.mockReturnValue('often comes up with Anxiety.')
-    mockRegen.mockResolvedValue(ok('rewritten'))
 
     const events: Array<{ title: string; index: number; total: number; status: string }> = []
-    await backfillConnectionLines((p) => events.push(p))
+    await cleanupConnectionProse((p) => events.push(p))
 
-    // Two eligible pages → a 'start' then 'done' event for each, in order.
     expect(events).toEqual([
       { title: 'Work', index: 1, total: 2, status: 'start' },
       { title: 'Work', index: 1, total: 2, status: 'done' },
@@ -537,36 +500,29 @@ describe('backfillConnectionLines', () => {
     ])
   })
 
-  it('reports a failed status when a page rewrite fails', async () => {
+  it('reports a failed status when persist fails', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
     ]))
-    mockListNodes.mockResolvedValue(ok([{ id: 'a', type: 'theme', label: 'Work', frequency: 5, created_at: 0, updated_at: 0 }]))
-    mockListEdges.mockResolvedValue(ok([{ id: 'e1', source_id: 'a', target_id: 'b', weight: 3, created_at: 0, updated_at: 0 }]))
-    mockConnectionLine.mockReturnValue('often comes up with Anxiety.')
-    mockRegen.mockResolvedValue(err('DEEP_MODEL_INFERENCE_FAILED', 'down'))
+    mockRegenContent.mockResolvedValue(err('WIKI_REGEN_FAILED', 'down'))
 
     const events: Array<{ title: string; status: string }> = []
-    await backfillConnectionLines((p) => events.push({ title: p.title, status: p.status }))
+    const result = await cleanupConnectionProse((p) => events.push({ title: p.title, status: p.status }))
 
     expect(events).toEqual([
       { title: 'Work', status: 'start' },
       { title: 'Work', status: 'failed' },
     ])
+    if (result.success) expect(result.data).toEqual([])
   })
 
-  it('works with no callback (back-compat)', async () => {
+  it('works with no callback', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
     ]))
-    mockListNodes.mockResolvedValue(ok([{ id: 'a', type: 'theme', label: 'Work', frequency: 5, created_at: 0, updated_at: 0 }]))
-    mockListEdges.mockResolvedValue(ok([{ id: 'e1', source_id: 'a', target_id: 'b', weight: 3, created_at: 0, updated_at: 0 }]))
-    mockConnectionLine.mockReturnValue('often comes up with Anxiety.')
-    mockRegen.mockResolvedValue(ok('rewritten'))
-
-    const result = await backfillConnectionLines()
+    const result = await cleanupConnectionProse()
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toContain('Work')
+    if (result.success) expect(result.data).toEqual(['Work'])
   })
 })
 

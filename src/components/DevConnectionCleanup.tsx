@@ -3,17 +3,20 @@ import { StyleSheet, View } from 'react-native'
 
 import { Button, Card, Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
-import { backfillConnectionLines } from '@/services/wiki/engine'
+import { cleanupConnectionProse } from '@/services/wiki/engine'
+import { stripConnectionProse } from '@/services/wiki/cleanup'
 import { useSyncStore } from '@/store/sync.store'
 
 /**
- * Dev-only: rewrite every active non-emotion wiki page that has graph neighbours,
- * injecting the graph connection line so existing pages reflect cross-topic
- * relationships. Runs on the deep model — expect ~15-20s per page on device.
- * Only rendered under __DEV__.
+ * Dev-only: one-time cleanup that strips the connection-line prose (and the
+ * "knowledge graph shows" scaffold leak) the old "connections in synthesis
+ * prose" approach baked into stored page content. Connections now render as a
+ * deterministic structured block (WikiConnections), so the stale prose is
+ * removed from each active page that still carries it — deterministically, no
+ * LLM call. Only rendered under __DEV__.
  */
 
-export function DevConnectionBackfill() {
+export function DevConnectionCleanup() {
   const styles = useThemedStyles(makeStyles)
   const [busy, setBusy] = useState(false)
   const [log, setLog] = useState<string[]>([])
@@ -22,7 +25,7 @@ export function DevConnectionBackfill() {
     setLog((prev) => [...prev, msg])
   }
 
-  // Replace the last log line — used to transition a page's "rewriting" line to
+  // Replace the last log line — used to transition a page's "cleaning" line to
   // its "done"/"failed" result in place, so each page stays on one line.
   function replaceLast(msg: string) {
     setLog((prev) => (prev.length > 0 ? [...prev.slice(0, -1), msg] : [msg]))
@@ -33,29 +36,17 @@ export function DevConnectionBackfill() {
     setLog([])
     try {
       const { listPages } = await import('@/services/storage/wiki')
-      const { listNodes, listEdges } = await import('@/services/storage/graph')
-      const { connectionLine } = await import('@/services/graph/neighborhood')
-      const [nodesRes, edgesRes] = await Promise.all([listNodes(), listEdges()])
-      const nodes = nodesRes.success ? nodesRes.data : []
-      const edges = edgesRes.success ? edgesRes.data : []
-      if (nodes.length === 0 || edges.length === 0) {
-        append('Graph is empty — no connection lines to backfill.')
-        return
-      }
       const pagesRes = await listPages()
       if (!pagesRes.success) { append('Failed to list pages.'); return }
-      const eligible = pagesRes.data.filter((p) => {
-        if (p.category === 'emotion') return false
-        return connectionLine(p.title, nodes, edges) != null
-      })
+      const eligible = pagesRes.data
+        .map((p) => ({ p, cleaned: stripConnectionProse(p.content) }))
+        .filter((e) => e.cleaned !== e.p.content)
+        .map((e) => e.p.title)
       if (eligible.length === 0) {
-        append('No eligible pages with graph connections found.')
+        append('No pages carry stale connection prose.')
       } else {
-        append(`${eligible.length} page(s) eligible:`)
-        for (const p of eligible) {
-          const line = connectionLine(p.title, nodes, edges)
-          append(`  "${p.title}" — ${line}`)
-        }
+        append(`${eligible.length} page(s) eligible for cleanup:`)
+        for (const t of eligible) append(`  "${t}"`)
       }
     } finally {
       setBusy(false)
@@ -66,20 +57,20 @@ export function DevConnectionBackfill() {
     setBusy(true)
     setLog([])
     try {
-      const result = await backfillConnectionLines((p) => {
+      const result = await cleanupConnectionProse((p) => {
         if (p.status === 'start') {
-          append(`  … "${p.title}" (${p.index}/${p.total}) — rewriting`)
+          append(`  … "${p.title}" (${p.index}/${p.total}) — cleaning`)
         } else if (p.status === 'done') {
           replaceLast(`  ✓ "${p.title}" (${p.index}/${p.total})`)
         } else {
           replaceLast(`  ✗ "${p.title}" (${p.index}/${p.total}) — failed`)
         }
       })
-      if (!result.success) { append('Backfill failed.'); return }
+      if (!result.success) { append('Cleanup failed.'); return }
       if (result.data.length === 0) {
-        append('No pages were rewritten.')
+        append('No pages carried stale connection prose.')
       } else {
-        append(`Done — rewrote ${result.data.length} page(s).`)
+        append(`Done — cleaned ${result.data.length} page(s).`)
       }
       useSyncStore.getState().bumpRevision()
     } finally {
@@ -90,14 +81,14 @@ export function DevConnectionBackfill() {
   return (
     <Card variant="sunken">
       <Text variant="caption" color="textSecondary">
-        Rewrite every active wiki page that has graph connections, injecting the
-        connection line so pages reflect cross-topic relationships. Emotion pages
-        are skipped (they surface triggers via aggregate data).
-        {'\n'}Runs on the deep model — expect ~15-20s per page on device.
+        Strip the old connection-line prose (and any "The knowledge graph shows…"
+        scaffold leak) from every active wiki page. Connections now render as a
+        structured chip block below the page instead of woven into prose — this
+        removes the stale baked-in sentences deterministically (no LLM call).
       </Text>
       <View style={styles.btns}>
-        <Button title="Dry run (list eligible)" fullWidth onPress={() => void dryRun()} loading={busy} testID="dev-conn-backfill-dry" />
-        <Button title="Backfill connection lines" variant="secondary" fullWidth onPress={() => void run()} loading={busy} testID="dev-conn-backfill-run" />
+        <Button title="Dry run (list eligible)" fullWidth onPress={() => void dryRun()} loading={busy} testID="dev-conn-cleanup-dry" />
+        <Button title="Clean stale connection prose" variant="secondary" fullWidth onPress={() => void run()} loading={busy} testID="dev-conn-cleanup-run" />
       </View>
       {log.length > 0 && (
         <View style={styles.log}>
