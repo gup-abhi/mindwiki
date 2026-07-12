@@ -1,4 +1,8 @@
-import { updateWikiForEntry, maybeRefreshEmotionPages } from '@/services/wiki/engine'
+import {
+  updateWikiForEntry,
+  maybeRefreshEmotionPages,
+  backfillEmotionPlaceholders,
+} from '@/services/wiki/engine'
 import { synthesizeEmotionPage } from '@/services/llm/deep-model'
 import { buildEmotionAggregate } from '@/services/wiki/aggregates'
 import {
@@ -151,7 +155,13 @@ describe('updateWikiForEntry — emotion routing', () => {
 
     await updateWikiForEntry(entry())
 
-    expect(mockCreate).toHaveBeenCalledWith({ title: 'Anxiety', category: 'emotion' })
+    // Seeded with placeholder content so a brand-new page isn't blank in the
+    // wiki list while it waits for its first aggregate synthesis.
+    expect(mockCreate).toHaveBeenCalledWith({
+      title: 'Anxiety',
+      category: 'emotion',
+      content: expect.stringContaining('anxiety'),
+    })
     expect(mockTickle).toHaveBeenCalledWith('new-p')
   })
 })
@@ -262,5 +272,57 @@ describe('maybeRefreshEmotionPages', () => {
     mockListPages.mockResolvedValue(ok([page()]))
     expect(await maybeRefreshEmotionPages()).toBe(0)
     expect(mockSetAgg).not.toHaveBeenCalled()
+  })
+})
+
+describe('backfillEmotionPlaceholders', () => {
+  beforeEach(() => {
+    mockListPages.mockReset()
+    mockRegenContent.mockReset()
+    mockRegenContent.mockResolvedValue(ok(page()))
+  })
+
+  it('seeds a blank active emotion page with placeholder text', async () => {
+    mockListPages.mockResolvedValue(ok([page({ id: 'blank', title: 'Joy', content: '' })]))
+
+    const res = await backfillEmotionPlaceholders()
+
+    expect(res.success && res.data).toEqual(['Joy'])
+    const [id, content] = mockRegenContent.mock.calls[0]
+    expect(id).toBe('blank')
+    expect(content).toContain('joy')
+  })
+
+  it('skips emotion pages that already have content', async () => {
+    mockListPages.mockResolvedValue(ok([page({ content: 'real prose' })]))
+
+    const res = await backfillEmotionPlaceholders()
+
+    expect(res.success && res.data).toEqual([])
+    expect(mockRegenContent).not.toHaveBeenCalled()
+  })
+
+  it('skips non-emotion, dismissed, and merged pages', async () => {
+    mockListPages.mockResolvedValue(
+      ok([
+        page({ category: 'theme', content: '' }),
+        page({ content: '', dismissed_at: Date.now() }),
+        page({ content: '', merged_into: 'other' }),
+      ])
+    )
+
+    const res = await backfillEmotionPlaceholders()
+
+    expect(res.success && res.data).toEqual([])
+    expect(mockRegenContent).not.toHaveBeenCalled()
+  })
+
+  it('reports per-page progress', async () => {
+    mockListPages.mockResolvedValue(ok([page({ id: 'blank', title: 'Joy', content: '' })]))
+    const events: string[] = []
+
+    await backfillEmotionPlaceholders((p) => events.push(`${p.status}:${p.index}/${p.total}`))
+
+    expect(events).toEqual(['start:1/1', 'done:1/1'])
   })
 })
