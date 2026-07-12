@@ -333,6 +333,17 @@ export async function lineageForEntry(entry: Entry): Promise<Result<LineagePage[
 let emotionTagTally = 0
 
 /**
+ * First-touch placeholder for a new emotion page. Emotion pages are synthesised
+ * in periodic aggregate batches, not per entry, so a page can sit for several
+ * entries (and up to AGGREGATE_MIN_AGE_MS) before its first real synthesis.
+ * Without seed content it would surface as a blank page in the wiki; this warm
+ * one-liner stands in until the first aggregate replaces it.
+ */
+function emotionPlaceholder(title: string): string {
+  return `You've just started noticing ${title.toLocaleLowerCase()}. As you write more about when it shows up and what surrounds it, this page will grow into a picture of your patterns with it.`
+}
+
+/**
  * Tickle an emotion page: create the page if it doesn't exist yet (with a
  * placeholder), increment the counter, and check whether the global trigger
  * should fire an aggregate scan.
@@ -349,6 +360,7 @@ async function tickleEmotionPage(
     const created = await createPage({
       title: topic.title,
       category: 'emotion',
+      content: emotionPlaceholder(topic.title),
     })
     if (!created.success) return
     pageId = created.data.id
@@ -481,6 +493,47 @@ export async function cleanupConnectionProse(
     onProgress?.({ title: page.title, index: i + 1, total, status: 'start' })
 
     const applied = await regeneratePageContent(page.id, cleaned)
+    if (applied.success) {
+      updated.push(page.title)
+      onProgress?.({ title: page.title, index: i + 1, total, status: 'done' })
+    } else {
+      onProgress?.({ title: page.title, index: i + 1, total, status: 'failed' })
+    }
+  }
+
+  return ok(updated)
+}
+
+/**
+ * One-time backfill: seed active emotion pages that were created blank (before
+ * the first-touch placeholder existed) with the placeholder text, so they no
+ * longer surface as empty pages in the wiki list. Deterministic — no LLM call.
+ * A seeded page is still replaced by its first real aggregate synthesis once it
+ * clears the aggregate gates; this only fills the gap until then. Skips
+ * dismissed and merged pages. Best-effort: returns the titles seeded, never
+ * throws. Optionally reports per-page progress via onProgress.
+ */
+export async function backfillEmotionPlaceholders(
+  onProgress?: (p: CleanupProgress) => void
+): Promise<Result<string[]>> {
+  const pagesRes = await listPages()
+  if (!pagesRes.success) return ok([])
+
+  const eligible = pagesRes.data.filter(
+    (page) =>
+      page.category === 'emotion' &&
+      page.content.trim() === '' &&
+      page.dismissed_at == null &&
+      page.merged_into == null
+  )
+
+  const updated: string[] = []
+  const total = eligible.length
+  for (let i = 0; i < total; i++) {
+    const page = eligible[i]
+    onProgress?.({ title: page.title, index: i + 1, total, status: 'start' })
+
+    const applied = await regeneratePageContent(page.id, emotionPlaceholder(page.title))
     if (applied.success) {
       updated.push(page.title)
       onProgress?.({ title: page.title, index: i + 1, total, status: 'done' })

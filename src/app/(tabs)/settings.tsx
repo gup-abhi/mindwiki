@@ -9,6 +9,7 @@ import { DevSeedTrend } from '@/components/DevSeedTrend'
 import { DevDriftReport } from '@/components/DevDriftReport'
 import { DevReGround } from '@/components/DevReGround'
 import { DevConnectionCleanup } from '@/components/DevConnectionCleanup'
+import { DevEmotionPlaceholderBackfill } from '@/components/DevEmotionPlaceholderBackfill'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
 import { useBiometricLock } from '@/hooks/useBiometricLock'
@@ -240,6 +241,7 @@ export default function Settings() {
           <DevDriftReport />
           <DevReGround />
           <DevConnectionCleanup />
+          <DevEmotionPlaceholderBackfill />
         </>
       )}
 
