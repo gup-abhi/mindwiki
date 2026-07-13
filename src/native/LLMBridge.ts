@@ -105,9 +105,9 @@ function withModelLock<T>(
   })
 }
 
-async function ensureLoaded(kind: ModelKind): Promise<LlamaContext> {
-  const existing = contexts[kind]
-  if (existing) return existing
+// Load a fresh context for a kind. Does NOT cache — callers decide whether to
+// hold the handle (completions cache it; embed loads one per call, see runEmbed).
+async function loadContext(kind: ModelKind): Promise<LlamaContext> {
   const model = modelLoadPath(kind)
   try {
     // The embedding model loads in embedding mode (mean-pooled, L2-normalized so
@@ -122,12 +122,18 @@ async function ensureLoaded(kind: ModelKind): Promise<LlamaContext> {
       kind === 'embed'
         ? { model, embedding: true, pooling_type: 'mean' as const, embd_normalize: 2, n_ctx: 512 }
         : { model, n_ctx: 2048, n_threads: 6, n_threads_batch: 6 }
-    const ctx = await initLlama(params)
-    contexts[kind] = ctx
-    return ctx
+    return await initLlama(params)
   } catch (e) {
     throw new Error(`Failed to load ${kind} model — download the AI models in the app first. (${String(e)})`)
   }
+}
+
+async function ensureLoaded(kind: ModelKind): Promise<LlamaContext> {
+  const existing = contexts[kind]
+  if (existing) return existing
+  const ctx = await loadContext(kind)
+  contexts[kind] = ctx
+  return ctx
 }
 
 // Qwen2.5 uses ChatML. Build the prompt directly to avoid llama.rn's chat-template
@@ -256,26 +262,31 @@ async function runEmbed(text: string): Promise<number[]> {
   // call. Cost: ~1-2s load per embed — backfill over hundreds of pages is
   // bounded (sequential, best-effort), and a chat reply that needs an embed
   // blocks for the same ~1-2s.
-  const ctx = await ensureLoaded('embed')
-  try {
-    const vec = await withModelLock('embed', async () => {
+  //
+  // The ENTIRE lifecycle (load → embed → release) runs inside the lock as one
+  // atomic unit. Splitting it — loading before the lock or releasing after —
+  // lets a second embed reuse this call's context (reintroducing the very leak
+  // this fix prevents) and then get its context released mid-embed. Serializing
+  // the whole thing guarantees each embed owns a fresh context end to end.
+  return withModelLock('embed', async () => {
+    // Load a fresh context each call. Bypass ensureLoaded's cache so a stray
+    // cached context can never be reused; store it only so a caller inspecting
+    // `contexts.embed` sees the in-flight one, then drop it on the way out.
+    const ctx = await loadContext('embed')
+    contexts.embed = ctx
+    try {
       const r = await ctx.embedding(text)
       return r.embedding
-    })
-    return vec
-  } finally {
-    // Drop the context so the NEXT embed starts clean. release() returns void
-    // on success; never throw from finally — would mask the embed's own error.
-    try {
-      await ctx.release()
-    } catch {
-      // best-effort
+    } finally {
+      try {
+        await ctx.release()
+      } catch {
+        // best-effort — release() returns void on success; never throw from
+        // finally, it would mask the embed's own error.
+      }
+      delete contexts.embed
     }
-    delete contexts.embed
-    // Also drop the embed queue's lock state — the previous run is over, no
-    // pending items to keep.
-    delete queues.embed
-  }
+  })
 }
 
 export const LLMBridge: ILLMBridge = {

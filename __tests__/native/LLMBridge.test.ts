@@ -168,4 +168,44 @@ describe('LLMBridge (llama.rn)', () => {
     expect(r1).toEqual([0.1, 0.2])
     expect(r2).toEqual([0.1, 0.2])
   })
+
+  it('a staggered second embed never shares or releases a context in use', async () => {
+    // The recreate-per-embed fix only holds if the WHOLE lifecycle (load →
+    // embed → release) is serialized under the model lock. The dangerous
+    // interleaving is STAGGERED, not simultaneous: a live query embed (B) calls
+    // ensureLoaded AFTER a background backfill embed (A) has stored its context
+    // but BEFORE A's finally releases it. If load/release sit outside the lock,
+    // B reuses A's context (reintroducing the state leak) and A then releases it
+    // out from under B mid-embed. Each embed must own a fresh context end to end.
+    let nextId = 0
+    const initLlama = jest.fn().mockImplementation(() => {
+      const id = nextId++
+      let released = false
+      return Promise.resolve({
+        id,
+        embedding: jest.fn().mockImplementation(async () => {
+          if (released) throw new Error('embedding called on a released context')
+          await new Promise((r) => setTimeout(r, 20))
+          if (released) throw new Error('context released mid-embed')
+          return { embedding: [id] }
+        }),
+        release: jest.fn().mockImplementation(async () => {
+          released = true
+        }),
+      })
+    })
+    jest.doMock('llama.rn', () => ({ initLlama }))
+
+    const { LLMBridge } = require('@/native/LLMBridge')
+    // A starts and gets into its embedding call…
+    const a = LLMBridge.embed('a')
+    await new Promise((r) => setTimeout(r, 5))
+    // …then B arrives while A is still mid-embed. On the buggy path B would see
+    // A's stored context and reuse it; A's finally would then release it under B.
+    const b = LLMBridge.embed('b')
+    const [ra, rb] = await Promise.all([a, b])
+
+    expect(initLlama).toHaveBeenCalledTimes(2) // each embed loaded its own context
+    expect(ra).not.toEqual(rb) // different context ids → contexts were not shared
+  })
 })
