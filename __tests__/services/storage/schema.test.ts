@@ -46,8 +46,8 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
+    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -271,6 +271,19 @@ describe('migration 007 (pursuits)', () => {
     expect(MIGRATIONS[22].name).toBe('entry_topic2')
     expect(MIGRATIONS[22].statements).toEqual([
       'ALTER TABLE entries ADD COLUMN topic2 TEXT',
+    ])
+  })
+
+  it('is registered as version 25 and wipes both embedding caches for the model swap', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 25)!
+    expect(m).toBeDefined()
+    expect(m.name).toBe('wipe_embeddings_for_gemma')
+    // The stale 384-dim bge/MiniLM vectors are incompatible with the 768-dim
+    // EmbeddingGemma model. Both tables are unsynced derived caches, so a clean
+    // wipe is safe — the existing backfill repopulates them on next launch.
+    expect(m.statements).toEqual([
+      'DELETE FROM entity_embeddings',
+      'DELETE FROM page_embeddings',
     ])
   })
 })

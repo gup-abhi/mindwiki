@@ -21,13 +21,17 @@ export const MODELS: Record<ModelKind, ModelSpec> = {
     url: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf',
     approxBytes: 1_900_000_000,
   },
-  // Dedicated sentence-embedding model (bge-small-en-v1.5, 384-dim, F16 ~67MB)
-  // for semantic wiki retrieval in Reflect. Optional — a missing embed model
-  // degrades to lexical ranking, so its download is non-fatal.
+  // Dedicated sentence-embedding model (EmbeddingGemma-300m, 768-dim, Q8_0
+  // ~328MB) for semantic wiki retrieval in Reflect and belief canonicalization.
+  // Replaced bge-small (a defective GGUF that returned all-zero vectors on-device
+  // and in an independent runtime); EmbeddingGemma verified nonzero + clean
+  // belief-synonym separation off-device. Needs a task prefix at embed time (see
+  // embeddings.ts). New filename forces a fresh download over any stale bge file.
+  // Optional — a missing embed model degrades to lexical ranking, so non-fatal.
   embed: {
-    filename: 'embed-model.gguf',
-    url: 'https://huggingface.co/CompendiumLabs/bge-small-en-v1.5-gguf/resolve/main/bge-small-en-v1.5-f16.gguf',
-    approxBytes: 67_000_000,
+    filename: 'embed-gemma.gguf',
+    url: 'https://huggingface.co/ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/resolve/main/embeddinggemma-300m-qat-Q8_0.gguf',
+    approxBytes: 328_577_056,
   },
 }
 

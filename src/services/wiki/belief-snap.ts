@@ -3,10 +3,12 @@ import { listEntityEmbeddings, upsertEntityEmbedding, backfillEntityEmbeddings }
 import { cosine } from '@/services/wiki/search'
 import { canonicalizeBelief } from '@/services/llm/taxonomy'
 
-// bge-small sits on a high cosine baseline (~0.3+ for unrelated text). Belief
-// near-synonyms ("I am not good enough" vs "I am inadequate") score ~0.65-0.8.
-// Anything at or above this threshold is snapped to the existing label.
-const BELIEF_COSINE_THRESHOLD = 0.65
+// EmbeddingGemma-300m (768-dim, task-prefixed) separates belief synonyms cleanly:
+// off-device probe scored near-synonyms 0.77-0.99 and a distinct belief ("People
+// will abandon me") at 0.63 — a ~0.15 gap. 0.72 sits in that gap: above the
+// weakest synonym snaps ("I am never enough" 0.77, "I feel worthless" 0.79) while
+// the distinct belief (0.63) stays its own page. Anything at or above snaps.
+const BELIEF_COSINE_THRESHOLD = 0.72
 
 /**
  * Given a canonicalized belief label, look through stored belief embeddings for

@@ -136,4 +136,36 @@ describe('LLMBridge (llama.rn)', () => {
       /download the AI models in the app first/
     )
   })
+
+  it('recreates the embed context per call so state cannot leak across embeds', async () => {
+    // clearCache(true) is also a no-op for the embed KV leak on this llama.rn
+    // build (device: cos(a1,a2) still 0.655, even on first cold call ≈0.8 then
+    // settling to 0.655). The leak survives every reset llama.rn exposes. The
+    // only working workaround is to throw the context away and load a fresh one
+    // per embed — the binding cannot leak state into a brand-new context.
+    // initLlama returns a NEW context object per call (different .id) so we
+    // can detect the recreate.
+    let nextId = 0
+    const initLlama = jest.fn().mockImplementation(() => {
+      const id = nextId++
+      return Promise.resolve({
+        id,
+        embedding: jest.fn().mockResolvedValue({ embedding: [0.1, 0.2] }),
+        clearCache: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
+      })
+    })
+    jest.doMock('llama.rn', () => ({ initLlama }))
+
+    const { LLMBridge } = require('@/native/LLMBridge')
+    const r1 = await LLMBridge.embed('first')
+    const r2 = await LLMBridge.embed('second')
+
+    // Two separate context lifecycles — release was called on the first before
+    // the second was loaded, and the embedding context object held by the two
+    // calls is NOT the same.
+    expect(initLlama).toHaveBeenCalledTimes(2)
+    expect(r1).toEqual([0.1, 0.2])
+    expect(r2).toEqual([0.1, 0.2])
+  })
 })

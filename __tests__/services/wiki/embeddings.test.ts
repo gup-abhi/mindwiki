@@ -11,6 +11,7 @@
 import { cosine, rankPages, rankPagesHybrid, type QueryEmbeddings } from '@/services/wiki/search'
 import {
   contentHash,
+  embedText,
   embedPage,
   backfillStaleEmbeddings,
   buildQueryEmbeddings,
@@ -74,6 +75,27 @@ describe('cosine', () => {
     expect(cosine([1, 2], [1, 2, 3])).toBe(0)
     expect(cosine([], [])).toBe(0)
     expect(cosine([0, 0], [1, 1])).toBe(0)
+  })
+})
+
+describe('embedText', () => {
+  beforeEach(() => mockEmbed.mockReset())
+
+  // EmbeddingGemma requires a task prefix; the model card's semantic-similarity
+  // format is "task: sentence similarity | query: {text}". The prefix must be
+  // applied to EVERY embedded string (belief labels, page text, and queries
+  // alike) so all vectors live in the same task space — that symmetry is what
+  // the off-device separation check validated.
+  it('prepends the EmbeddingGemma sentence-similarity task prefix before embedding', async () => {
+    mockEmbed.mockResolvedValue([0.1, 0.2, 0.3])
+    await embedText('I am not good enough')
+    expect(mockEmbed).toHaveBeenCalledWith('task: sentence similarity | query: I am not good enough')
+  })
+
+  it('surfaces an empty vector as an error (best-effort contract unchanged)', async () => {
+    mockEmbed.mockResolvedValue([])
+    const res = await embedText('x')
+    expect(res.success).toBe(false)
   })
 })
 

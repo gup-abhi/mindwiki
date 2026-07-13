@@ -249,12 +249,32 @@ async function runConversation(
 }
 
 async function runEmbed(text: string): Promise<number[]> {
+  // llama.rn's ctx.embedding() leaks state across calls and clearCache(true) is
+  // a no-op for the leak on this build (device: cos(a1,a2)=0.655 cold→warm, the
+  // binding appends to a shared KV with no n_past control). The only working
+  // workaround is to throw the embed context away and load a fresh one per
+  // call. Cost: ~1-2s load per embed — backfill over hundreds of pages is
+  // bounded (sequential, best-effort), and a chat reply that needs an embed
+  // blocks for the same ~1-2s.
   const ctx = await ensureLoaded('embed')
   try {
-    const res = await withModelLock('embed', () => ctx.embedding(text))
-    return res.embedding
-  } catch (e) {
-    throw new Error(`Embedding failed for embed model: ${String(e)}`)
+    const vec = await withModelLock('embed', async () => {
+      const r = await ctx.embedding(text)
+      return r.embedding
+    })
+    return vec
+  } finally {
+    // Drop the context so the NEXT embed starts clean. release() returns void
+    // on success; never throw from finally — would mask the embed's own error.
+    try {
+      await ctx.release()
+    } catch {
+      // best-effort
+    }
+    delete contexts.embed
+    // Also drop the embed queue's lock state — the previous run is over, no
+    // pending items to keep.
+    delete queues.embed
   }
 }
 

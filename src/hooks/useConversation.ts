@@ -143,10 +143,13 @@ export function useConversation(initialQuestion?: string) {
           // Background, best-effort: make sure the optional embed model is present
           // (covers users already past onboarding) and bring page vectors up to
           // date so semantic ranking has something to match against. Failures are
-          // swallowed — Reflect just stays on lexical ranking.
-          void ensureEmbedModel().then(() => {
-            backfillStaleEmbeddings(pageList)
-            backfillBeliefEmbeddings()
+          // swallowed — Reflect just stays on lexical ranking. Log the result so
+          // it's visible in logcat and we can confirm a backfill drained
+          // (0 means "everything was already up to date").
+          void ensureEmbedModel().then(async () => {
+            const pages = await backfillStaleEmbeddings(pageList)
+            const beliefs = await backfillBeliefEmbeddings()
+            console.log(`[reflect-backfill] pages: ${pages}/${pageList.length}, beliefs: ${beliefs}`)
           })
         }
       )

@@ -519,3 +519,20 @@ export const migration022: Migration = {
     )`,
   ],
 }
+
+// Migration 025 — wipe embedding caches for the EmbeddingGemma swap. The embed
+// model changed from bge-small/MiniLM (384-dim) to EmbeddingGemma-300m (768-dim),
+// so every stored vector is now the wrong dimensionality. cosine() returns 0 on a
+// length mismatch (safe, no false matches), but backfill hashes the label/content
+// — model-independent — so it would skip these stale rows forever and never
+// re-embed them. Both tables are device-local, unsynced, derived caches, so a
+// clean DELETE is safe: the existing backfill (backfillStaleEmbeddings +
+// backfillBeliefEmbeddings, run on next launch) repopulates them at 768-dim.
+export const migration025: Migration = {
+  version: 25,
+  name: 'wipe_embeddings_for_gemma',
+  statements: [
+    'DELETE FROM entity_embeddings',
+    'DELETE FROM page_embeddings',
+  ],
+}

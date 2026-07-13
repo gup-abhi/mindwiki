@@ -31,10 +31,17 @@ export function contentHash(text: string): string {
   return (h >>> 0).toString(36)
 }
 
+// EmbeddingGemma requires a task prefix — it was trained with one and omitting it
+// degrades vectors. The model card's format for symmetric semantic similarity is
+// "task: sentence similarity | query: {text}". We apply it to EVERY embedded
+// string (belief labels, page text, queries) so all vectors share one task space;
+// that symmetry is what makes cosine between a stored belief and a new one valid.
+const EMBED_TASK_PREFIX = 'task: sentence similarity | query: '
+
 /** Embed arbitrary text into a vector. Best-effort — fails if no embed model. */
 export async function embedText(text: string): Promise<Result<number[]>> {
   try {
-    const vector = await LLMBridge.embed(text)
+    const vector = await LLMBridge.embed(`${EMBED_TASK_PREFIX}${text}`)
     if (!Array.isArray(vector) || vector.length === 0) {
       return err('EMBED_EMPTY', 'Embedding model returned no vector')
     }
