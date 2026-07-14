@@ -1,4 +1,4 @@
-import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native'
+import { StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type TextStyle } from 'react-native'
 
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 
@@ -7,6 +7,7 @@ import { Text } from './Text'
 interface TextFieldProps extends Omit<TextInputProps, 'style'> {
   label?: string
   error?: string
+  style?: StyleProp<TextStyle>
 }
 
 const makeStyles = (t: Theme) =>
@@ -28,7 +29,7 @@ const makeStyles = (t: Theme) =>
   })
 
 /** Themed text input with optional label + error. */
-export function TextField({ label, error, multiline, scrollEnabled, ...rest }: TextFieldProps) {
+export function TextField({ label, error, multiline, scrollEnabled, style, ...rest }: TextFieldProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   return (
@@ -47,7 +48,7 @@ export function TextField({ label, error, multiline, scrollEnabled, ...rest }: T
         // field just grows; callers can still opt back in.
         scrollEnabled={scrollEnabled ?? (multiline ? false : undefined)}
         placeholderTextColor={theme.colors.textMuted}
-        style={[styles.input, multiline && styles.multiline, error ? styles.errorBorder : null]}
+        style={[styles.input, multiline && styles.multiline, error ? styles.errorBorder : null, style]}
       />
       {error ? (
         <Text variant="caption" color="danger">

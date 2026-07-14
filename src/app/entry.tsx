@@ -254,6 +254,12 @@ export default function EntryScreen() {
             value={j.draft.body}
             onChangeText={j.setBody}
             multiline
+            // The write step has no parent ScrollView (split flow dodges the
+            // Android New-Arch touch bug — see the comment in TextField). So
+            // let the field scroll its own content and cap its height, so long
+            // text stays reachable instead of overflowing the screen.
+            scrollEnabled
+            style={styles.bodyInput}
             testID="entry-body"
           />
 
@@ -267,6 +273,10 @@ export default function EntryScreen() {
                 value={j.draft.thought}
                 onChangeText={j.setThought}
                 multiline
+                // Same reasoning as the body field — no parent ScrollView on
+                // this step, so internal scroll is safe.
+                scrollEnabled
+                style={styles.thoughtInput}
                 autoFocus
                 testID="entry-thought"
               />
@@ -323,7 +333,9 @@ const makeStyles = (t: Theme) =>
       marginBottom: t.spacing.md,
     },
     prompt: { flex: 1 },
+    bodyInput: { maxHeight: 240 },
     thought: { marginTop: t.spacing.xl },
+    thoughtInput: { maxHeight: 180 },
     thoughtLabel: { marginBottom: t.spacing.xs },
     addThought: { marginTop: t.spacing.lg, flexDirection: 'row' },
     footer: {
