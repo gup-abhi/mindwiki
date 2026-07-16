@@ -536,3 +536,34 @@ export const migration025: Migration = {
     'DELETE FROM page_embeddings',
   ],
 }
+
+// Migration 026 — re-embed belief labels under the frame-stripped geometry.
+// snapBeliefSemantic now strips the leading "I am [not] …" frame before embedding
+// so content words separate distinct beliefs (the STS prefix over-weighted the
+// shared frame, inverting the window). Stored belief vectors were embedded from the
+// full label, so they're in the old geometry; backfill hashes the raw label (model-
+// independent) and would skip them forever. Delete the belief rows so the next-
+// launch backfillBeliefEmbeddings re-embeds them stripped. Only 'belief' — page and
+// other entity embeddings are unaffected.
+export const migration026: Migration = {
+  version: 26,
+  name: 'reembed_beliefs_frame_stripped',
+  statements: [
+    "DELETE FROM entity_embeddings WHERE type = 'belief'",
+  ],
+}
+
+// Migration 027 — re-embed belief labels AGAIN under the stripped geometry.
+// migration026 wiped the belief rows, but backfillBeliefEmbeddings was still
+// calling embedText (raw label) at the time, so the repopulated vectors landed
+// in the OLD un-stripped geometry — mismatched against the stripped snap query.
+// backfillBeliefEmbeddings now embeds via embedBeliefLabel (stripped); this wipe
+// forces the corrected backfill to re-embed all belief rows stripped. 026 can't
+// be reused — it's already recorded on-device and won't re-run.
+export const migration027: Migration = {
+  version: 27,
+  name: 'reembed_beliefs_stripped_backfill_fix',
+  statements: [
+    "DELETE FROM entity_embeddings WHERE type = 'belief'",
+  ],
+}

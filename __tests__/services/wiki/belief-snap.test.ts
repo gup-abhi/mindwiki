@@ -102,6 +102,21 @@ describe('snapBeliefSemantic', () => {
     const result = await snapBeliefSemantic('I am not good enough')
     expect(result).toBe('I am not good enough')
   })
+
+  it('does NOT merge a belief with its positive reframe (same stripped text, opposite polarity)', async () => {
+    // "I am not good enough" and "I am good enough" both strip to "good enough",
+    // so they embed identically (cosine 1.000). The polarity guard must keep the
+    // positive reframe from snapping to the negative belief.
+    mockListEntityEmbeddings.mockResolvedValue({
+      success: true,
+      data: new Map([
+        ['I am not good enough', { label: 'I am not good enough', type: 'belief', vector: WORTHLESS_VEC, contentHash: '' }],
+      ]),
+    })
+
+    const result = await snapBeliefSemantic('I am good enough')
+    expect(result).toBe('I am good enough')
+  })
 })
 
 describe('snapBeliefsSemantic', () => {
@@ -150,6 +165,8 @@ describe('backfillBeliefEmbeddings', () => {
   it('delegates to backfillEntityEmbeddings with belief type', async () => {
     const result = await backfillBeliefEmbeddings()
     expect(result).toBe(0)
-    expect(backfillEntityEmbeddings).toHaveBeenCalledWith('belief', embedText)
+    // Delegates with the frame-stripped embedder (embedBeliefLabel, private) —
+    // NOT raw embedText — so backfilled vectors match the stripped snap geometry.
+    expect(backfillEntityEmbeddings).toHaveBeenCalledWith('belief', expect.any(Function))
   })
 })

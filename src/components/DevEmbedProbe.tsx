@@ -13,6 +13,12 @@ const PREFIX = 'task: sentence similarity | query: '
 const ANCHOR = 'I am not good enough'
 const SYNONYM = 'I am never enough'
 const DISTINCT = 'People will abandon me'
+// A distinct belief that SHARES the "I am not…" frame + self-worth theme with the
+// anchor — the hard case the original probe never tested. Under the frame-stripped
+// geometry this scores ~0.709 against the anchor (below the 0.78 threshold, so it
+// stays its own page); the calibrate() variants confirm the window opens only when
+// the "I am [not]" frame is stripped before embedding.
+const NEAR_DISTINCT = 'I am not worthy of a good partner'
 
 /** L2 norm of a vector. */
 function norm(v: number[]): number {
@@ -56,6 +62,7 @@ export function DevEmbedProbe() {
       const t2 = performance.now()
       const distinct = await LLMBridge.embed(`${PREFIX}${DISTINCT}`)
       const t3 = performance.now()
+      const nearDistinct = await LLMBridge.embed(`${PREFIX}${NEAR_DISTINCT}`)
       const a2 = await LLMBridge.embed(`${PREFIX}${ANCHOR}`)
       const t4 = performance.now()
       if (!Array.isArray(a1) || a1.length === 0) {
@@ -78,11 +85,14 @@ export function DevEmbedProbe() {
       const selfSim = cosine(a1, a2)
       const synCos = cosine(a1, syn)
       const distinctCos = cosine(a1, distinct)
+      const nearDistinctCos = cosine(a1, nearDistinct)
       append('')
       append(`same-input cos(a1,a2)  ${selfSim.toFixed(3)}   ← must be ≈1.000; <0.999 = state leak between calls`)
-      append(`synonym cos  ${synCos.toFixed(3)}   ← want ~0.77+`)
-      append(`distinct cos ${distinctCos.toFixed(3)}   ← want ~0.63`)
-      append(`gap ${(synCos - distinctCos).toFixed(3)}   ← want clearly positive`)
+      append(`synonym cos       ${synCos.toFixed(3)}   ← want ~0.77+  (should snap)`)
+      append(`near-distinct cos ${nearDistinctCos.toFixed(3)}   ← "${NEAR_DISTINCT}"  (should NOT snap)`)
+      append(`distinct cos      ${distinctCos.toFixed(3)}   ← want ~0.63`)
+      append(`snap threshold is 0.78 — frame-stripped; near-distinct ABOVE it = over-snap`)
+      append(`safe window: near-distinct < T ≤ synonym → T in (${nearDistinctCos.toFixed(3)}, ${synCos.toFixed(3)}]`)
       if (selfSim > 0.999 && synCos - distinctCos > 0.05) {
         append('✓ deterministic + separates: embeddings usable')
       } else if (selfSim <= 0.999) {
@@ -90,6 +100,84 @@ export function DevEmbedProbe() {
       } else {
         append('✗ deterministic but no separation — wrong geometry')
       }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The naive threshold no longer separates the hard case: on device, against
+  // RAW text the near-distinct (0.848) outscores the real synonym (0.772), so no
+  // cutoff separates them — an inverted window. Threshold tuning can't fix that;
+  // the geometry has to change. snapBeliefSemantic strips the leading "I am
+  // [not/never]" frame before embedding so the content word ("partner") dominates
+  // over the shared skeleton, opening a window with the synonym 0.841 above the
+  // near-distinct 0.709 and threshold 0.78 between them. This calibrate() runs
+  // the geometry levers on the SAME three strings and prints whether each opens
+  // a window (near-distinct < synonym):
+  //   1. classification prefix — weights meaning over surface form vs the STS prefix
+  //   2. frame-strip — drop the "I am [not/never]" self-ascription so the
+  //      discriminating content word ("partner") dominates over the shared frame
+  async function calibrate() {
+    setBusy(true)
+    setLog([])
+    try {
+      // Strip a leading first-person self-ascription frame so the content word
+      // carries the signal. Two strengths:
+      //   full    — drops subject AND polarity: "I am not good enough" → "good enough".
+      //             Widest window, but a belief and its NEGATION collapse to the
+      //             same text ("I am good enough" also → "good enough") — unsafe
+      //             when positive reframes coexist with the negative belief.
+      //   subject — drops only "I am/feel/'m", KEEPS not/never:
+      //             "I am not good enough" → "not good enough". Preserves polarity;
+      //             content words still separate distinct beliefs.
+      const stripFull = (s: string) => s.replace(/^i\s+(?:am|feel|'m)\s+(?:not\s+|never\s+)?/i, '').trim()
+      const stripSubject = (s: string) => s.replace(/^i\s+(?:am|feel|'m)\s+/i, '').trim()
+
+      // Measure synonym / near-distinct / distinct cosines under a given prefix
+      // and optional frame-strip, and report whether a window opens.
+      async function variant(name: string, prefix: string, strip: ((s: string) => string) | null) {
+        const t = (s: string) => `${prefix}${strip ? strip(s) : s}`
+        const a = await LLMBridge.embed(t(ANCHOR))
+        const syn = await LLMBridge.embed(t(SYNONYM))
+        const near = await LLMBridge.embed(t(NEAR_DISTINCT))
+        const dist = await LLMBridge.embed(t(DISTINCT))
+        const synCos = cosine(a, syn)
+        const nearCos = cosine(a, near)
+        const distCos = cosine(a, dist)
+        // A window exists if the real synonym outscores the frame-sharing
+        // distinct belief — then a threshold in (near, syn] fixes the bug.
+        const open = synCos > nearCos
+        append('')
+        append(`── ${name} ──`)
+        if (strip) append(`   strip: "${strip(ANCHOR)}" / "${strip(SYNONYM)}" / "${strip(NEAR_DISTINCT)}"`)
+        append(`   synonym       ${synCos.toFixed(3)}`)
+        append(`   near-distinct ${nearCos.toFixed(3)}   ${open ? '' : '← still outscores synonym'}`)
+        append(`   distinct      ${distCos.toFixed(3)}`)
+        append(open ? `   ✓ window opens: T in (${nearCos.toFixed(3)}, ${synCos.toFixed(3)}]` : '   ✗ inverted — this lever does not separate them')
+      }
+
+      append('Testing geometry levers against the inverted window…')
+      await variant('STS prefix, raw (baseline)', PREFIX, null)
+      await variant('STS, subject-strip (keeps not/never)', PREFIX, stripSubject)
+      await variant('STS, full-strip (drops polarity — unsafe)', PREFIX, stripFull)
+
+      // Negation safety. The anchor's positive counter-belief must NOT snap to it —
+      // a reframe ("I am good enough") is a different page from the belief it
+      // counters ("I am not good enough"). full-strip collapses both to
+      // "good enough" (cos≈1.000 → merges, BUG); subject-strip keeps "not" and
+      // should stay well under threshold.
+      const POSITIVE = 'I am good enough'
+      async function negCheck(name: string, strip: (s: string) => string) {
+        const a = await LLMBridge.embed(`${PREFIX}${strip(ANCHOR)}`)
+        const pos = await LLMBridge.embed(`${PREFIX}${strip(POSITIVE)}`)
+        const c = cosine(a, pos)
+        append('')
+        append(`── negation safety: ${name} ──`)
+        append(`   strip: "${strip(ANCHOR)}" vs "${strip(POSITIVE)}"`)
+        append(`   anchor↔positive ${c.toFixed(3)}   ${c >= 0.78 ? '← ✗ WOULD MERGE belief+reframe' : '✓ stays separate'}`)
+      }
+      await negCheck('subject-strip', stripSubject)
+      await negCheck('full-strip', stripFull)
     } finally {
       setBusy(false)
     }
@@ -144,6 +232,7 @@ export function DevEmbedProbe() {
       </Text>
       <View style={styles.btns}>
         <Button title="Probe embeddings" fullWidth onPress={() => void run()} loading={busy} testID="dev-embed-probe-run" />
+        <Button title="Calibrate snap (fix over-snap)" variant="secondary" fullWidth onPress={() => void calibrate()} loading={busy} testID="dev-embed-probe-calib" />
         <Button title="Diagnose backfill (why 0/X?)" variant="secondary" fullWidth onPress={() => void diagnose()} loading={busy} testID="dev-embed-probe-diag" />
       </View>
       {log.length > 0 && (
