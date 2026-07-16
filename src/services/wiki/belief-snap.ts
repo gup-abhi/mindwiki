@@ -1,14 +1,49 @@
+import { type Result } from '@/types/result'
 import { embedText } from '@/services/wiki/embeddings'
 import { listEntityEmbeddings, upsertEntityEmbedding, backfillEntityEmbeddings } from '@/services/storage/entity-embeddings'
 import { cosine } from '@/services/wiki/search'
 import { canonicalizeBelief } from '@/services/llm/taxonomy'
 
-// EmbeddingGemma-300m (768-dim, task-prefixed) separates belief synonyms cleanly:
-// off-device probe scored near-synonyms 0.77-0.99 and a distinct belief ("People
-// will abandon me") at 0.63 — a ~0.15 gap. 0.72 sits in that gap: above the
-// weakest synonym snaps ("I am never enough" 0.77, "I feel worthless" 0.79) while
-// the distinct belief (0.63) stays its own page. Anything at or above snaps.
-const BELIEF_COSINE_THRESHOLD = 0.72
+// Threshold sits in the window opened by frame-stripping (see stripBeliefFrame):
+// on device the true synonym scores 0.841 and a frame-sharing distinct belief 0.709
+// against the anchor "I am not good enough", so 0.78 snaps the synonym while the
+// distinct belief stays its own page. (Raw, un-stripped, the distinct belief 0.848
+// out-scored the synonym 0.772 — an inverted window no threshold could separate.)
+const BELIEF_COSINE_THRESHOLD = 0.78
+
+// EmbeddingGemma + the STS prefix over-weights the shared "I am [not] …" frame on
+// short belief fragments, so a frame-sharing but DISTINCT belief out-scores a true
+// synonym against the anchor — an inverted window no threshold separates (device-
+// measured). Stripping the leading first-person frame before embedding lets the
+// content words dominate and opens a separable window. We strip for the VECTOR only;
+// the full label stays the stored identity and what snapBeliefSemantic returns.
+const BELIEF_FRAME = /^i\s+(?:am|feel|'m)\s+(?:not\s+|never\s+)?/i
+
+/** Drop the leading "I am/feel/'m [not/never]" frame so content words carry the vector. */
+function stripBeliefFrame(label: string): string {
+  return label.replace(BELIEF_FRAME, '').trim()
+}
+
+// stripBeliefFrame removes not/never along with the subject, so a belief
+// ("I am not good enough" → "good enough") and its positive reframe
+// ("I am good enough" → "good enough") collapse to IDENTICAL text (cosine 1.000,
+// device-confirmed). MindWiki's reframe feature creates those positive counter-
+// beliefs, so the snap loop refuses to merge two beliefs whose stripped forms are
+// identical but whose polarity differs. The guard is narrow on purpose: negative
+// beliefs phrased without "not" ("I feel worthless") must still snap to negative
+// synonyms that do have it ("I am not good enough"). isNegatedBelief only flags
+// whether the stripped frame itself carried a negation.
+const BELIEF_FRAME_NEGATED = /^i\s+(?:am|feel|'m)\s+(?:not|never)\s+/i
+
+/** True if the belief's leading frame is negated ("I am not/never …"). */
+function isNegatedBelief(label: string): boolean {
+  return BELIEF_FRAME_NEGATED.test(label)
+}
+
+/** Embed a belief label in the frame-stripped space used for snapping. */
+function embedBeliefLabel(label: string): Promise<Result<number[]>> {
+  return embedText(stripBeliefFrame(label))
+}
 
 /**
  * Given a canonicalized belief label, look through stored belief embeddings for
@@ -28,12 +63,24 @@ export async function snapBeliefSemantic(label: string): Promise<string> {
       return label
     }
 
-    const vec = await embedText(label)
+    const vec = await embedBeliefLabel(label)
     if (!vec.success) return label
 
+    const labelStripped = stripBeliefFrame(label).toLowerCase()
+    const labelNegated = isNegatedBelief(label)
     let bestLabel = label
     let bestScore = BELIEF_COSINE_THRESHOLD
     for (const [existing, emb] of stored.data) {
+      // Guard the reframe collision: if two beliefs strip to the same text but
+      // differ in polarity ("I am not good enough" vs "I am good enough" → both
+      // "good enough"), their vectors are identical (cosine 1.000) yet they're
+      // opposite beliefs — never merge them.
+      if (
+        isNegatedBelief(existing) !== labelNegated &&
+        stripBeliefFrame(existing).toLowerCase() === labelStripped
+      ) {
+        continue
+      }
       const sim = cosine(vec.data, emb.vector)
       if (sim >= bestScore) {
         bestScore = sim
@@ -75,9 +122,15 @@ export async function snapBeliefsSemantic(labels: string[]): Promise<string[]> {
 /**
  * Backfill belief embeddings for all existing belief labels. Best-effort;
  * call once at startup (alongside the page-embedding backfill).
+ *
+ * Embeds via embedBeliefLabel (frame-stripped), NOT embedText — the stored
+ * vectors must live in the same stripped geometry the snap query builds, or
+ * the cosine comparison mixes stripped-vs-raw vectors and the full-strip
+ * window collapses. migration027 wipes the pre-strip belief rows so this
+ * repopulates them under the stripped geometry.
  */
 export async function backfillBeliefEmbeddings(): Promise<number> {
-  return backfillEntityEmbeddings('belief', embedText)
+  return backfillEntityEmbeddings('belief', embedBeliefLabel)
 }
 
 /**
@@ -86,7 +139,7 @@ export async function backfillBeliefEmbeddings(): Promise<number> {
  */
 async function embedThenStore(label: string): Promise<void> {
   try {
-    const vec = await embedText(label)
+    const vec = await embedBeliefLabel(label)
     if (vec.success) await upsertEntityEmbedding(label, 'belief', vec.data)
   } catch {
     // best-effort
