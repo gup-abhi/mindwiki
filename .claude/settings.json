@@ -4,5 +4,28 @@
       "Bash(adb devices *)",
       "Bash(node -e \"console.log\\(require\\('expo-sqlite/package.json'\\).version\\)\")"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/graphify-rebuild.sh\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/graphify-gate.sh\""
+          }
+        ]
+      }
+    ]
   }
 }
