@@ -82,15 +82,26 @@ export function cosine(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb))
 }
 
-// Semantic fusion constants. bge-small sits on a high cosine baseline (unrelated
-// text still scores ~0.3), so we subtract a baseline and only count similarity
-// ABOVE it. The weight is scaled to the lexical scale (title match = 5) so a
-// genuinely on-topic page (cosine ≥ ~0.6 → 0.3 over baseline) contributes ~3
-// points — enough to clear conversation.ts's MIN_RELEVANCE floor on meaning
-// alone, surfacing a page a terse/reworded message shares no words with. These
-// are initial values, tunable on device like MIN_RELEVANCE.
-const SEMANTIC_BASELINE = 0.3
-const SEMANTIC_WEIGHT = 10
+// Semantic fusion constants calibrated for EmbeddingGemma-300m (Q8, 768-dim),
+// swapped in 2026-07-13. Gemma's cosine distribution runs higher and is more
+// compressed than bge-small's, so the old 0.3/10 baseline let an unrelated page
+// (~0.6 cosine) clear conversation.ts's MIN_RELEVANCE 3 floor on semantics alone
+// → over-grounding.
+//
+// Constants come from an on-device probe (DevEmbedProbe → "WS3 ranker probe")
+// over hand-authored query/page pairs, all fixture strings — no user text:
+//   unrelated band 0.42–0.45  (plateau; want ~0 semantic contribution)
+//   loose     band 0.52–0.61  (topical-adjacent; should need lexical help)
+//   related   band 0.68–0.74  (on-topic; must ground on meaning alone)
+//
+// BASELINE 0.45 sits just above the unrelated plateau so unrelated pages
+// contribute ~0. WEIGHT 14 is the floor of the window that separates the bands:
+//   related floor (0.675): 14 × 0.225 = 3.15 ≥ MIN_RELEVANCE 3 (grounds) ✓
+//   loose top   (0.607):  14 × 0.157 = 2.20 < 3 (needs lexical help) ✓
+//   unrelated   (≤0.446): contributes 0 (below baseline) ✓
+// Recalibrate via the probe if the embed model changes again.
+const SEMANTIC_BASELINE = 0.45
+const SEMANTIC_WEIGHT = 14
 
 /**
  * Hybrid ranking: lexical term-overlap PLUS a semantic bonus from embedding
