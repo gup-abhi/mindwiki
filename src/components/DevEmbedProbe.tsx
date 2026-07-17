@@ -223,6 +223,56 @@ export function DevEmbedProbe() {
     }
   }
 
+  // WS3 hybrid-ranker recalibration. The fusion constants in search.ts are the
+  // bge-small-era values (BASELINE 0.3, WEIGHT 10) — EmbeddingGemma's cosine
+  // distribution is higher/compressed, so an unrelated page at cosine ~0.6
+  // clears the MIN_RELEVANCE 3 floor on semantics alone → over-grounding.
+  // This embeds hand-authored query/page pairs at three relevance tiers (all
+  // fixture strings — no user text) and prints the cosines, so the plateau and
+  // the related band can be read off the log and the constants set from data.
+  // Each pair uses the ranker's real prefixes: query → plain text, page →
+  // "title\ncontent", both under the shared STS task prefix.
+  async function ws3() {
+    setBusy(true)
+    setLog([])
+    try {
+      const EMBED = (s: string) => `${PREFIX}${s}`
+      const pairs: { tier: string; query: string; page: string }[] = [
+        // Unrelated: zero topical overlap — should sit on the plateau.
+        { tier: 'unrelated', query: 'how do i bake sourdough', page: 'Job hunting\nSending applications and bracing for silence.' },
+        { tier: 'unrelated', query: 'i want to learn the guitar', page: 'Sleep\nTossing the night before a deadline, foggy the next day.' },
+        { tier: 'loose', query: 'i keep messing up at work', page: 'Sleep\nTossing the night before a deadline, foggy the next day.' },
+        { tier: 'loose', query: 'work is exhausting lately', page: 'Job hunting\nSending applications and bracing for silence.' },
+        // Clearly related: a reworded message vs its topical page.
+        { tier: 'related', query: "i'm dreading the meeting at work tomorrow", page: 'Work anxiety\nYou tense up before meetings and replay them afterward, bracing for criticism.' },
+        { tier: 'related', query: 'i cannot sleep before deadlines', page: 'Sleep\nTossing the night before a deadline, foggy the next day.' },
+        { tier: 'related', query: 'nobody responds to my applications', page: 'Job hunting\nSending applications and bracing for silence.' },
+      ]
+      const byTier: Record<string, number[]> = {}
+      for (const p of pairs) {
+        const q = await LLMBridge.embed(EMBED(p.query))
+        const v = await LLMBridge.embed(EMBED(p.page))
+        const c = cosine(q, v)
+        ;(byTier[p.tier] ??= []).push(c)
+        append(`${p.tier.padEnd(9)} cos ${c.toFixed(3)}   q="${p.query}"`)
+      }
+      append('')
+      const stat = (xs: number[]) =>
+        xs.length ? `${Math.min(...xs).toFixed(3)}–${Math.max(...xs).toFixed(3)} (n=${xs.length})` : '-'
+      append(`unrelated range  ${stat(byTier.unrelated ?? [])}`)
+      append(`loose range      ${stat(byTier.loose ?? [])}`)
+      append(`related range    ${stat(byTier.related ?? [])}`)
+      // Working hypothesis: SEMANTIC_BASELINE = unrelated-plateau (top of the
+      // unrelated band); WEIGHT so that (related - BASELINE) × WEIGHT ≈ 3.
+      const plateau = Math.max(...(byTier.unrelated ?? [0]))
+      const relFloor = Math.min(...(byTier.related ?? [1]))
+      const weight = relFloor > plateau ? (3 / (relFloor - plateau)).toFixed(1) : '?'
+      append(`suggested BASELINE ${plateau.toFixed(2)}   WEIGHT ${weight}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Card variant="sunken">
       <Text variant="caption" color="textSecondary">
@@ -234,6 +284,7 @@ export function DevEmbedProbe() {
         <Button title="Probe embeddings" fullWidth onPress={() => void run()} loading={busy} testID="dev-embed-probe-run" />
         <Button title="Calibrate snap (fix over-snap)" variant="secondary" fullWidth onPress={() => void calibrate()} loading={busy} testID="dev-embed-probe-calib" />
         <Button title="Diagnose backfill (why 0/X?)" variant="secondary" fullWidth onPress={() => void diagnose()} loading={busy} testID="dev-embed-probe-diag" />
+        <Button title="WS3 ranker probe" variant="secondary" fullWidth onPress={() => void ws3()} loading={busy} testID="dev-embed-probe-ws3" />
       </View>
       {log.length > 0 && (
         <View style={styles.log}>
