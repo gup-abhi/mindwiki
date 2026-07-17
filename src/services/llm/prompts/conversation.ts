@@ -10,6 +10,10 @@ export interface ConversationContext {
    *  retrieval is unchanged, so only a reminder is sent (repeated page prose
    *  became a script the model copied verbatim across replies). */
   knownTopics?: string[]
+  /** Pinned steers for durable constraints the user stated (e.g. "no one to
+   *  talk to") — detected over the FULL history so they survive the recent
+   *  window. Injected as a hard block the model must not contradict. */
+  constraints?: string[]
 }
 
 export interface BuildConversationInput {
@@ -20,6 +24,11 @@ export interface BuildConversationInput {
   context: ConversationContext
   /** Rolling recap of earlier turns that fell out of the recent window. */
   summary?: string
+  /** Every assistant turn of the conversation (full history, oldest first),
+   *  used by the repeat guard to catch reflections recycled from before the
+   *  trimmed window. When absent, the guard falls back to assistant turns in
+   *  `history`. */
+  priorReplies?: string[]
 }
 
 // Reflective companion. Therapist-*style* interaction: it engages with whatever
@@ -126,6 +135,20 @@ export function buildConversationMessages({
       '',
       '— Helper notes (private guidance for shaping YOUR reply — never mention, quote, or name these to the user) —',
       ...notes.map((n) => `- ${n.content}`),
+    ].join('\n')
+  }
+
+  // Constraint pins: hard facts the user stated about their circumstances,
+  // detected over the full history by the caller. These override the model's
+  // default reflex (distress → "reach out to someone") when it would contradict
+  // what they told us. Pinned every turn so they hold after the stating message
+  // scrolls out of the recent window.
+  if (context.constraints && context.constraints.length > 0) {
+    system = [
+      system,
+      '',
+      '— Constraints the user has stated (private; never quote or name them — just honour them without exception) —',
+      ...context.constraints.map((c) => `- ${c}`),
     ].join('\n')
   }
 

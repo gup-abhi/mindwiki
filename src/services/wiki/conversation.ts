@@ -1,5 +1,6 @@
 import { converseFromWiki, summarizeConversation } from '@/services/llm/deep-model'
 import { expandQueryTerms } from '@/services/llm/fast-model'
+import { detectConstraints } from '@/services/llm/reference'
 import { type ConversationContext } from '@/services/llm/prompts/conversation'
 import { connectionLine, graphNeighborhood } from '@/services/graph/neighborhood'
 import { setConversationSummary } from '@/services/storage/chat'
@@ -27,6 +28,10 @@ export interface RespondInput {
   edges: GraphEdge[]
   /** Rolling recap of earlier turns that fell out of the recent window. */
   summary?: string
+  /** Active conversation id — keys the per-conversation background dedupe so a
+   *  resumed thread doesn't inherit another conversation's last retrieval key.
+   *  Absent → the shared '' bucket (preserves old single-conversation behavior). */
+  conversationId?: string
 }
 
 // Keep the prompt inside the deep model's n_ctx (2048): cap retrieved pages,
@@ -36,28 +41,6 @@ const MAX_PAGE_CHARS = 600
 const MAX_HISTORY_MESSAGES = 8 // ~4 user/assistant turns
 const MAX_CONNECTION_PAGES = 2
 
-// Sentence-ending punctuation used by the question-alternation guard. The 3B
-// model ignores the prompt-level NO_QUESTION_STEER ~15% of the time on device;
-// this post-guard makes the contract enforceable regardless of model compliance.
-const QUESTION_RE = /\?\s*$/
-
-/**
- * Deterministic post-guard: if the previous assistant turn ended with `?` and
- * the new reply does too, strip the trailing question sentence from the reply.
- * The prompt asks the model to alternate; when it doesn't obey, this enforces
- * it without mutilating a message that's entirely a question (no preceding
- * sentence to preserve).
- */
-function stripTrailingQuestion(text: string): string {
-  if (!QUESTION_RE.test(text)) return text
-  const idx = text.lastIndexOf('?')
-  // Find the sentence boundary before the question — if none exists, the reply
-  // is a standalone question and we keep it rather than leaving a fragment.
-  const sentStart = idx > 0 ? text.lastIndexOf('.', idx - 1) : -1
-  if (sentStart < 0) return text
-  const stripped = text.slice(0, sentStart + 1).trim()
-  return stripped.length > 0 ? stripped : text
-}
 // Only ground in a page the message genuinely points to. rankPages scores a
 // title-term match at 5 and each content hit at 1 (+≤1 richness), so an
 // incidental single word (~1) falls below this floor while a title match or
@@ -143,7 +126,8 @@ export function buildContext(
   edges: GraphEdge[],
   history: ChatMessage[] = [],
   embeddings?: QueryEmbeddings,
-  expansionTerms: string[] = []
+  expansionTerms: string[] = [],
+  constraints: string[] = []
 ): { context: ConversationContext; sources: WikiPage[] } {
   const baseQuery = retrievalQuery(history, message)
   // Both expansions feed the LEXICAL query only — graph (associative neighbours)
@@ -170,6 +154,7 @@ export function buildContext(
       content: p.content.slice(0, MAX_PAGE_CHARS),
     })),
     connections,
+    ...(constraints.length > 0 ? { constraints } : {}),
   }
   return { context, sources }
 }
@@ -178,8 +163,10 @@ export function buildContext(
 // re-injected verbatim. Device testing showed the model treating the repeated
 // page text as a script — identical sentences across three consecutive replies,
 // ignoring the live message. On a repeat, the prompt gets titles only; the
-// summary and history carry the continuity. Reset when a conversation starts.
-let lastBackgroundKey = ''
+// summary and history carry the continuity. Keyed per conversation so resuming
+// thread B never inherits thread A's last key (which produced a spurious
+// titles-only turn); a conversation's entry resets when its history is empty.
+const lastBackgroundKeys = new Map<string, string>()
 
 /**
  * Generate one grounded reflective reply for the conversation. Ranks wiki +
@@ -188,7 +175,7 @@ let lastBackgroundKey = ''
  * validated reply text and the pages it was grounded in.
  */
 export async function respond(
-  { history, message, pages, nodes, edges, summary }: RespondInput,
+  { history, message, pages, nodes, edges, summary, conversationId }: RespondInput,
   onToken?: (token: string) => void
 ): Promise<Result<ConversationReply>> {
   // Two best-effort retrieval aids, run in PARALLEL so neither stacks latency on
@@ -200,6 +187,12 @@ export async function respond(
     buildQueryEmbeddings(q),
     modelExpansion(q),
   ])
+  // Constraints are detected over the FULL history's user turns plus the new
+  // message — BEFORE trimming — so a "no one to talk to" stated 20 turns ago
+  // still pins even though it's long out of the recent window.
+  const userTurns = [...history.filter((m) => m.role === 'user').map((m) => m.content), message]
+  const constraints = detectConstraints(userTurns).map((c) => c.steer)
+
   const { context, sources } = buildContext(
     message,
     pages,
@@ -207,38 +200,42 @@ export async function respond(
     edges,
     history,
     embeddings ?? undefined,
-    expansionTerms
+    expansionTerms,
+    constraints
   )
   const trimmed = history.slice(-MAX_HISTORY_MESSAGES)
 
   // Full background only when retrieval changed; unchanged pages become a
   // titles-only reminder so there is no page prose to copy into the reply.
-  if (history.length === 0) lastBackgroundKey = ''
+  // Per-conversation key so thread B never dedupes against thread A's retrieval.
+  const dedupeKey = conversationId ?? ''
+  if (history.length === 0) lastBackgroundKeys.delete(dedupeKey)
   const key = context.sources.map((s) => s.title).sort().join('|')
   let effective = context
-  if (key !== '' && key === lastBackgroundKey) {
-    effective = { sources: [], connections: [], knownTopics: context.sources.map((s) => s.title) }
+  if (key !== '' && key === lastBackgroundKeys.get(dedupeKey)) {
+    // Titles-only turn: still carry the constraint pins (they're not page prose).
+    effective = {
+      sources: [],
+      connections: [],
+      knownTopics: context.sources.map((s) => s.title),
+      ...(constraints.length > 0 ? { constraints } : {}),
+    }
   } else {
-    lastBackgroundKey = key
+    lastBackgroundKeys.set(dedupeKey, key)
   }
 
-  const res = await converseFromWiki({ history: trimmed, message, context: effective, summary }, onToken)
+  const priorReplies = history.filter((m) => m.role === 'assistant').map((m) => m.content)
+  const res = await converseFromWiki(
+    { history: trimmed, message, context: effective, summary, priorReplies },
+    onToken
+  )
   if (!res.success) return res
 
-  let text = res.data
-  // Question-alternation post-guard: if the companion's last turn in history
-  // ended with a question AND the new reply also ends with one, chop the
-  // trailing question sentence. The prompt asks for alternation; this enforces
-  // it when the small model ignores the steer.
-  if (history.length > 0) {
-    const lastReply = [...history].reverse().find((m) => m.role === 'assistant')
-    if (lastReply && /\?\s*$/.test(lastReply.content)) {
-      text = stripTrailingQuestion(text)
-    }
-  }
-
+  // Question-alternation is enforced inside converseFromWiki (scrubReply +
+  // stream gate, banEndingQuestion) — the single source of truth. respond no
+  // longer re-strips; it returns the model's validated text unmodified.
   // Chips still show the grounding pages even on a titles-only turn.
-  return ok({ text, sources })
+  return ok({ text: res.data, sources })
 }
 
 export interface SummaryState {

@@ -20,6 +20,7 @@
  * raw sample here and (if needed) a rule in `checkReply`.
  */
 import { buildContext, respond } from '@/services/wiki/conversation'
+import { DEFLECT_RE } from '@/services/llm/deep-model'
 import { type WikiPage } from '@/services/storage/wiki'
 import { type GraphNode, type GraphEdge } from '@/services/storage/graph'
 import { LLMBridge } from '@/native/LLMBridge'
@@ -102,6 +103,12 @@ function checkReply(reply: string): string[] {
   ]
   if (CLINICAL.some((re) => re.test(text))) violations.push('clinical language')
 
+  // Advice deflection: redirecting the user to other people/professionals
+  // violates the "reflect, don't prescribe" contract the companion exists on.
+  // Reuses the exact guard the reply path enforces, so this scores real model
+  // output against the same definition.
+  if (DEFLECT_RE.some((re) => re.test(text))) violations.push('deflection')
+
   return violations
 }
 
@@ -137,6 +144,16 @@ describe('checkReply (companion house-style contract)', () => {
       name: 'clinical drift',
       reply: 'It really sounds like you have depression and should take medication for it.',
       expect: ['clinical language'],
+    },
+    {
+      name: 'advice deflection — talk to a friend',
+      reply: 'You should talk to a friend about this.',
+      expect: ['deflection'],
+    },
+    {
+      name: 'clean reflection on loneliness — no deflection',
+      reply: 'I hear how alone that feels. That is a lot to carry by yourself.',
+      expect: [],
     },
     { name: 'empty', reply: '   ', expect: ['empty'] },
   ]
@@ -202,6 +219,24 @@ describe('respond pipeline (LLM mocked)', () => {
     })
     expect(res.success).toBe(false)
     if (!res.success) expect(res.error.code).toBe('CONVERSE_VALIDATION_FAILED')
+  })
+
+  it('a deflection sentence the model emits is stripped before it reaches the user (WS2.E)', async () => {
+    // History seeds the loneliness constraint; the model nonetheless emits a
+    // deflection sentence alongside a reflection. The final respond output must
+    // contain none of the deflection and pass the house-style contract.
+    const history = [
+      { role: 'user' as const, content: "i don't have anyone to talk to" },
+      { role: 'assistant' as const, content: 'That sounds so heavy to carry alone.' },
+    ]
+    mockConverse.mockResolvedValue({
+      text: 'I hear how alone that feels. Maybe reach out to a friend about it. You have held this a while.',
+    })
+    const res = await respond({ history, message: 'still no one', pages: PAGES, nodes: [], edges: [] })
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data.text).not.toMatch(/reach out to a friend/i)
+    expect(checkReply(res.data.text)).toEqual([])
   })
 })
 

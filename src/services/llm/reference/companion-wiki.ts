@@ -42,16 +42,35 @@ const TRIGGERS: Record<string, string[]> = {
   Minimization: ['not a big deal', 'barely counts', "doesn't matter that i", 'nothing special'],
 }
 
-/** The full helper wiki: one note per canonical distortion, carrying the whole
- *  reframe lens (the always-injected guide had room for a one-liner × 8). */
-export const HELPER_NOTES: HelperNote[] = Object.values(DISTORTION_REFERENCE).map((d) => ({
-  id: d.name,
-  title: d.name,
-  triggers: TRIGGERS[d.name] ?? [],
-  content:
-    `Their message may show ${d.definition.toLowerCase()} ` +
-    `(like "${d.examples[0]}"). After validating the feeling, you could gently wonder with them: ${d.reframe}`,
-}))
+// Non-distortion notes: emotional states that need a presence-first response
+// rather than a reframe. Loneliness is the first — the 3B model's reflex on
+// isolation is "suggest people to contact", which contradicts a user who has
+// just said they have no one. This note (and the constraint pins) steer it to
+// stay and witness instead. Appended after the distortion notes so ordering is
+// deterministic; counts toward the same `max` cap.
+const NON_DISTORTION_NOTES: HelperNote[] = [
+  {
+    id: 'Loneliness',
+    title: 'Loneliness',
+    triggers: ['lonely', 'alone', 'no one', 'nobody', 'isolated'],
+    content:
+      'They may be feeling isolated. Do not try to fix the isolation or suggest people to contact — be the one who is listening right now. Name the loneliness gently and stay with it.',
+  },
+]
+
+/** The full helper wiki: one note per canonical distortion (each carrying the
+ *  whole reframe lens), plus non-distortion notes appended in table order. */
+export const HELPER_NOTES: HelperNote[] = [
+  ...Object.values(DISTORTION_REFERENCE).map((d) => ({
+    id: d.name,
+    title: d.name,
+    triggers: TRIGGERS[d.name] ?? [],
+    content:
+      `Their message may show ${d.definition.toLowerCase()} ` +
+      `(like "${d.examples[0]}"). After validating the feeling, you could gently wonder with them: ${d.reframe}`,
+  })),
+  ...NON_DISTORTION_NOTES,
+]
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 

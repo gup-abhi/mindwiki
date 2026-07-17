@@ -179,7 +179,7 @@ export function useConversation(initialQuestion?: string) {
       generationsInFlight.add(conversationId)
       const store = useChatStore.getState()
       const res = await respond(
-        { history: priorHistory, message, pages, nodes, edges, summary: store.summary },
+        { history: priorHistory, message, pages, nodes, edges, summary: store.summary, conversationId },
         // Token streaming appends while this generation is both current and on
         // screen. Superseded generations stop streaming so they can't bleed into
         // a newer reply; off-screen ones skip (the reply still persists on done).
@@ -325,8 +325,13 @@ export function useConversation(initialQuestion?: string) {
           const combined = top
             .map((c) => `— From a previous conversation —\n${c.summary.trim()}`)
             .join('\n\n')
-          const totalCount = top.reduce((acc, c) => acc + c.summary_count, 0)
-          store.setSummary(combined, totalCount)
+          // summaryCount means "messages of THIS new thread already folded into the
+          // recap" — a seed from PRIOR conversations has folded none of the new
+          // thread, so it must start at 0. Using the prior conversations' counts
+          // here made updateRunningSummary treat the new thread's first N messages
+          // as already-summarized, so they scrolled past the recent window and were
+          // never folded into the recap.
+          store.setSummary(combined, 0)
         }
       }
 

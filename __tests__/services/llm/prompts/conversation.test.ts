@@ -60,6 +60,22 @@ describe('buildConversationMessages', () => {
     expect(system.content).not.toMatch(/Helper notes/)
   })
 
+  it('pins stated constraints into the system prompt when present', () => {
+    const context: ConversationContext = {
+      sources: [],
+      connections: [],
+      constraints: ["They have told you they don't have anyone to talk to. Never suggest reaching out."],
+    }
+    const [system] = buildConversationMessages({ history: [], message: 'i feel stuck', context })
+    expect(system.content).toMatch(/Constraints the user has stated/)
+    expect(system.content).toMatch(/Never suggest reaching out/)
+  })
+
+  it('adds no constraint block when there are none', () => {
+    const [system] = buildConversationMessages({ history: [], message: 'hi', context: empty })
+    expect(system.content).not.toMatch(/Constraints the user has stated/)
+  })
+
   it('carries the reflective technique but NOT the clinical distortion taxonomy', () => {
     const [system] = buildConversationMessages({ history: [], message: 'hi', context: empty })
     expect(system.content).toMatch(/reflective companion technique/i)
