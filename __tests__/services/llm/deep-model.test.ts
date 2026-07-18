@@ -178,6 +178,22 @@ describe('converseFromWiki', () => {
     if (res.success) expect(res.data).toBe('It makes sense you feel stuck. That takes real persistence.')
   })
 
+  it('strips a trailing question split on a `!` boundary (WS1.2: guard is the single source of truth)', async () => {
+    const input = {
+      ...cInput,
+      history: [
+        { role: 'user' as const, content: 'work is rough' },
+        { role: 'assistant' as const, content: 'That sounds heavy. What part weighs most?' },
+      ],
+    }
+    // The old respond-level guard split only on '.', so it left this question in
+    // place. sentencesOf splits on '!' too, so the deep-model guard drops it.
+    mockConverse.mockResolvedValue({ text: 'That sounds hard! What happened next?' })
+    const res = await converseFromWiki(input)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('That sounds hard!')
+  })
+
   it('allows a question when the previous reply did not ask one', async () => {
     const input = {
       ...cInput,
@@ -190,6 +206,26 @@ describe('converseFromWiki', () => {
     const res = await converseFromWiki(input)
     expect(res.success).toBe(true)
     if (res.success) expect(res.data).toBe('That’s a lot to carry. What usually helps?')
+  })
+
+  it('suppresses a recycled sentence from before the trimmed window via priorReplies (WS2.D)', async () => {
+    // `history` (trimmed window) has no assistant turn echoing the reflection,
+    // but `priorReplies` carries one from earlier in the conversation. The guard
+    // must drop the recycled first sentence and keep the new second one.
+    const input = {
+      ...cInput,
+      history: [
+        { role: 'user' as const, content: 'still no job' },
+        { role: 'assistant' as const, content: 'You kept going anyway.' },
+      ],
+      priorReplies: ['This cycle of rejection doesn’t define your worth or your future.'],
+    }
+    mockConverse.mockResolvedValue({
+      text: 'This cycle of rejection doesn’t define your worth. Something new came up.',
+    })
+    const res = await converseFromWiki(input)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('Something new came up.')
   })
 
   it('drops a sentence the companion already said, even reworded', async () => {
@@ -231,6 +267,55 @@ describe('converseFromWiki', () => {
     }
     expect(mockConverse).toHaveBeenCalledTimes(2)
     expect(mockConverse.mock.calls[1][1].temperature).toBe(0.8) // hotter retry
+  })
+
+  it('drops an advice-deflection sentence, keeping the reflection (WS2.B)', async () => {
+    mockConverse.mockResolvedValue({ text: 'That sounds heavy. Maybe talk to a friend about it.' })
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('That sounds heavy.')
+  })
+
+  it('keeps a reply that is entirely deflection (never-empty fallback)', async () => {
+    mockConverse.mockResolvedValue({ text: 'Have you considered seeing a therapist?' })
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(true)
+    // Whole reply matched → dropping all would be empty, so keep it as-is.
+    if (res.success) expect(res.data).toBe('Have you considered seeing a therapist?')
+  })
+
+  it('leaves a reply with validation and no deflection unchanged', async () => {
+    mockConverse.mockResolvedValue({ text: 'That really stings. You have been carrying a lot.' })
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('That really stings. You have been carrying a lot.')
+  })
+
+  it('drops deflection paraphrases but keeps first-person presence (WS2.B)', async () => {
+    mockConverse.mockResolvedValue({
+      text: 'I hear you. Reaching out to somebody might help. Open up to your family. I’m here to talk with you.',
+    })
+    const res = await converseFromWiki(cInput)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('I hear you. I’m here to talk with you.')
+  })
+
+  it('holds a deflection sentence in the stream gate — never emitted to onToken (WS2.B)', async () => {
+    const full = 'That sounds so lonely. Maybe reach out to a friend about it. You have held this a while.'
+    mockConverse.mockImplementation(async (_m: unknown, _o: unknown, cb?: (t: string) => void) => {
+      for (let i = 0; i < full.length; i += 6) cb?.(full.slice(i, i + 6))
+      return { text: full }
+    })
+    const onToken = jest.fn()
+    const res = await converseFromWiki(cInput, onToken)
+    // Normalize inter-sentence whitespace: each streamed sentence carries its own
+    // trailing space, so dropping the middle one leaves a cosmetic double space.
+    const streamed = onToken.mock.calls.map((c) => c[0]).join('').replace(/\s+/g, ' ').trim()
+    expect(streamed).toBe('That sounds so lonely. You have held this a while.')
+    // The deflection sentence never reached the UI.
+    expect(streamed).not.toMatch(/reach out to a friend/i)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).toBe('That sounds so lonely. You have held this a while.')
   })
 
   it('streams only sentences that survive cleanup — shown text never retracts', async () => {

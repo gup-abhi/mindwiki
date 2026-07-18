@@ -387,7 +387,7 @@ function sentencesOf(text: string): string[] {
  * Falls back to the original text rather than returning something empty.
  */
 function scrubReply(text: string, banEndingQuestion: boolean): string {
-  let parts = sentencesOf(text).filter((s) => !ANNOUNCE_RE.test(s))
+  let parts = sentencesOf(text).filter((s) => !ANNOUNCE_RE.test(s) && !isDeflection(s))
   if (banEndingQuestion) {
     while (parts.length > 1 && ENDS_WITH_QUESTION_RE.test(parts[parts.length - 1])) parts.pop()
   }
@@ -436,6 +436,22 @@ function dropRepeatedSentences(text: string, isRepeat: (s: string) => boolean): 
 const ANNOUNCE_RE = /\b(given|considering) your (background|history)\b|your (background|history) suggests/i
 const ENDS_WITH_QUESTION_RE = /\?["”’)\]]*\s*$/
 
+// Third-party deflection: sentences that redirect the user to other people or
+// professionals ("talk to a friend", "consider seeing a therapist"). The
+// techniques contract is "reflect, don't prescribe" — the companion is the one
+// who is here — so these are off-style regardless of any stated constraint, and
+// dropped unconditionally. First-person presence ("I'm here to talk with you")
+// must NOT match. The crisis path is separate (a fixed CRISIS_REPLY that never
+// runs through here), so this never suppresses crisis support.
+export const DEFLECT_RE = [
+  // "talk/speak/reach out/open up to <a person>" — verb stems cover -ing forms
+  // ("reaching out to somebody") so paraphrases don't slip past.
+  /\b(talk|talking|speak|speaking|reach out|reaching out|open up|opening up)\s+(to|with)\s+(someone|somebody|a friend|a therapist|a counsellor|a counselor|a professional|your (friend|family|parents|partner|doctor))\b/i,
+  /\bconsider(ed|ing)? (seeing|telling|talking to)\b/i,
+  /\bshare (this|it|that) with\b/i,
+]
+export const isDeflection = (s: string): boolean => DEFLECT_RE.some((re) => re.test(s))
+
 /**
  * Streaming display gate: forwards only sentences that will survive the final
  * cleanup, so the UI never shows text that later retracts (raw token streaming
@@ -461,7 +477,7 @@ function createStreamGate(
         if (!m) break
         const sentence = m[0]
         buffer = buffer.slice(sentence.length)
-        if (ANNOUNCE_RE.test(sentence) || isRepeat(sentence)) continue
+        if (ANNOUNCE_RE.test(sentence) || isDeflection(sentence) || isRepeat(sentence)) continue
         if (banEndingQuestion && ENDS_WITH_QUESTION_RE.test(sentence)) {
           held.push(sentence)
           continue
@@ -489,7 +505,12 @@ export async function converseFromWiki(
   // a model that ignores the steer still cannot ask twice in a row.
   const lastReply = [...input.history].reverse().find((m) => m.role === 'assistant')
   const banEndingQuestion = lastReply != null && /\?\s*$/.test(lastReply.content.trim())
-  const isRepeat = makeRepeatChecker(input.history.filter((m) => m.role === 'assistant').map((m) => m.content))
+  // The repeat guard sees the FULL thread's assistant turns when the caller
+  // supplies priorReplies — otherwise it falls back to the trimmed history.
+  // A reflection recycled from before the recent window would read as canned;
+  // the full-history view catches it.
+  const priorReplies = input.priorReplies ?? input.history.filter((m) => m.role === 'assistant').map((m) => m.content)
+  const isRepeat = makeRepeatChecker(priorReplies)
   const finalize = (raw: string) =>
     dropRepeatedSentences(scrubReply(trimToSentence(raw), banEndingQuestion), isRepeat)
 

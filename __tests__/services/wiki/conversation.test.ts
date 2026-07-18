@@ -129,23 +129,35 @@ describe('respond', () => {
     expect(mockConverse.mock.calls[0][0].summary).toBe('recap')
   })
 
-  it('strips a trailing question when the previous reply also ended with ?', async () => {
-    mockConverse.mockResolvedValue(ok('That sounds tough. What happened next?'))
+  it('returns the model text unmodified — question-alternation is enforced in converseFromWiki', async () => {
+    // WS1.2: respond no longer re-strips trailing questions. converseFromWiki
+    // returns already-scrubbed final text (its own guard handles alternation and
+    // the `!`-boundary case respond's old lastIndexOf('.') missed), so respond
+    // must pass it through verbatim.
+    mockConverse.mockResolvedValue(ok('That sounds tough.'))
     const history = [
       { role: 'user' as const, content: 'work was brutal' },
       { role: 'assistant' as const, content: 'What made it so hard today?' },
     ]
     const res = await respond({ history, message: 'deadlines piled up', pages: [], nodes: [], edges: [] })
     expect(res.success).toBe(true)
-    if (res.success) {
-      // Trailing question sentence stripped — the prompt asks for alternation
-      // but the 3B model didn't obey; the post-guard enforces it.
-      expect(res.data.text).toBe('That sounds tough.')
-      expect(res.data.text).not.toMatch(/\?\s*$/)
-    }
+    if (res.success) expect(res.data.text).toBe('That sounds tough.')
   })
 
-  it('keeps the reply when the previous turn did NOT end with a question', async () => {
+  it('passes the FULL history’s assistant turns as priorReplies, not just the trimmed window (WS2.D)', async () => {
+    mockConverse.mockResolvedValue(ok('ok'))
+    // 20 turns: assistant turn at index 1 ("old reflection") is outside the
+    // 8-message trimmed window but the repeat guard must still see it.
+    const history: ChatMessage[] = Array.from({ length: 20 }, (_, i) => ({
+      role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: i === 1 ? 'old reflection outside the window' : `m${i}`,
+    }))
+    await respond({ history, message: 'now', pages: [], nodes: [], edges: [] })
+    const passed = mockConverse.mock.calls[0][0]
+    expect(passed.priorReplies).toContain('old reflection outside the window')
+  })
+
+  it('does not touch a reply that ends with a question', async () => {
     mockConverse.mockResolvedValue(ok('I hear you. What happened next?'))
     const history = [
       { role: 'user' as const, content: 'work was brutal' },
@@ -153,25 +165,7 @@ describe('respond', () => {
     ]
     const res = await respond({ history, message: 'deadlines', pages: [], nodes: [], edges: [] })
     expect(res.success).toBe(true)
-    if (res.success) {
-      // Previous reply didn't end with ? — no guard needed, trailing ? is fine.
-      expect(res.data.text).toBe('I hear you. What happened next?')
-    }
-  })
-
-  it('keeps a standalone question even when the previous reply ended with ?', async () => {
-    mockConverse.mockResolvedValue(ok('When did this start?'))
-    const history = [
-      { role: 'user' as const, content: 'work was brutal' },
-      { role: 'assistant' as const, content: 'What made it so hard today?' },
-    ]
-    const res = await respond({ history, message: 'a few weeks ago', pages: [], nodes: [], edges: [] })
-    expect(res.success).toBe(true)
-    if (res.success) {
-      // Only one sentence and it's a question — stripping would leave a fragment
-      // ("When did this start") that's worse than the original.
-      expect(res.data.text).toBe('When did this start?')
-    }
+    if (res.success) expect(res.data.text).toBe('I hear you. What happened next?')
   })
 
   it('propagates a model failure', async () => {
@@ -189,12 +183,12 @@ describe('respond', () => {
     ]
 
     // Turn 1 (conversation start): full page content attached.
-    await respond({ history: [], message: 'anxiety', pages, nodes: [], edges: [] })
+    await respond({ history: [], message: 'anxiety', pages, nodes: [], edges: [], conversationId: 'A' })
     const first = mockConverse.mock.calls[0][0].context
     expect(first.sources).toHaveLength(1)
 
     // Turn 2, same retrieval: no page prose (nothing to copy), titles only.
-    const res = await respond({ history: turn, message: 'anxiety again', pages, nodes: [], edges: [] })
+    const res = await respond({ history: turn, message: 'anxiety again', pages, nodes: [], edges: [], conversationId: 'A' })
     const second = mockConverse.mock.calls[1][0].context
     expect(second.sources).toEqual([])
     expect(second.knownTopics).toEqual(['Work'])
@@ -203,10 +197,44 @@ describe('respond', () => {
 
     // Turn 3, retrieval changed: full content attaches again.
     const otherPages = [page({ title: 'Sleep', content: 'sleep sleep sleep restless nights' })]
-    await respond({ history: turn, message: 'sleep', pages: otherPages, nodes: [], edges: [] })
+    await respond({ history: turn, message: 'sleep', pages: otherPages, nodes: [], edges: [], conversationId: 'A' })
     const third = mockConverse.mock.calls[2][0].context
     expect(third.sources).toHaveLength(1)
     expect(third.knownTopics).toBeUndefined()
+  })
+
+  it('carries a constraint stated OUTSIDE the trimmed window into converseFromWiki (WS2.A)', async () => {
+    mockConverse.mockResolvedValue(ok('That sounds so isolating.'))
+    // "no one to talk to" at turn 0, then 10 more turns so it's well past the
+    // 8-message recent window — the constraint must still reach the context.
+    const history: ChatMessage[] = [
+      { role: 'user', content: "i don't have anyone to talk to" },
+      ...Array.from({ length: 10 }, (_, i) => ({
+        role: (i % 2 === 0 ? 'assistant' : 'user') as 'user' | 'assistant',
+        content: `filler ${i}`,
+      })),
+    ]
+    await respond({ history, message: 'still feeling it', pages: [], nodes: [], edges: [] })
+    const passedContext = mockConverse.mock.calls[0][0].context
+    expect(passedContext.constraints).toBeDefined()
+    expect(passedContext.constraints.join(' ')).toMatch(/never suggest reaching out/i)
+  })
+
+  it('does not leak the background key across conversations (WS1.3)', async () => {
+    mockConverse.mockResolvedValue(ok('ok'))
+    const pages = [page({ title: 'Work', content: 'anxiety anxiety anxiety deadlines', entry_count: 3 })]
+
+    // Turn 1 in conversation A: full background, sets A's key to "Work".
+    await respond({ history: [], message: 'anxiety', pages, nodes: [], edges: [], conversationId: 'A' })
+    expect(mockConverse.mock.calls[0][0].context.sources).toHaveLength(1)
+
+    // Turn 1 in a DIFFERENT conversation B with the SAME retrieval. history is
+    // empty (B's first turn), so B must get FULL background — not titles-only
+    // inherited from A's module-level key.
+    await respond({ history: [], message: 'anxiety', pages, nodes: [], edges: [], conversationId: 'B' })
+    const bContext = mockConverse.mock.calls[1][0].context
+    expect(bContext.sources).toHaveLength(1)
+    expect(bContext.knownTopics).toBeUndefined()
   })
 })
 
@@ -239,6 +267,26 @@ describe('updateRunningSummary', () => {
     // only the four oldest were folded in, with the prior recap as the base
     expect(mockSummarize).toHaveBeenCalledWith('prev', messages.slice(0, 4))
     expect(mockSetSummary).toHaveBeenCalledWith('c1', 'Updated recap.', 4)
+  })
+
+  it('a seed count from prior conversations skips the new thread’s early turns (why seed must be 0)', async () => {
+    // Regression shape for WS1.1: if a new thread is seeded with a summaryCount
+    // carried over from PREVIOUS conversations (here 6), updateRunningSummary
+    // treats this thread's first 6 messages as already folded — a 12-message
+    // thread then evicts nothing new (target 4 ≤ 6) and those turns are lost.
+    const messages = Array.from({ length: 12 }, (_, i) => msg(i))
+    const res = await updateRunningSummary('c1', messages, { summary: 'seed', summaryCount: 6 })
+    expect(res.success && res.data).toBeNull() // nothing folded — the bug the fix avoids
+    expect(mockSummarize).not.toHaveBeenCalled()
+  })
+
+  it('with the seed count at 0, the new thread’s evicted turns are folded (the fix)', async () => {
+    mockSummarize.mockResolvedValue(ok('Recap.'))
+    const messages = Array.from({ length: 12 }, (_, i) => msg(i))
+    const res = await updateRunningSummary('c1', messages, { summary: 'seed', summaryCount: 0 })
+    expect(res.success && res.data).toEqual({ summary: 'Recap.', summaryCount: 4 })
+    // Eviction starts at message 0 — no thread turns silently skipped.
+    expect(mockSummarize).toHaveBeenCalledWith('seed', messages.slice(0, 4))
   })
 
   it('only folds turns not already covered by the existing summary', async () => {
