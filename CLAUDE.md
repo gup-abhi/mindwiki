@@ -393,7 +393,7 @@ if (!parsed.success) {
 - **Master key is a random 256-bit key** generated at registration (it is the SQLCipher DB key). It is escrowed wrapped by `Argon2id(password, salt)` (client-side only — the raw key and password are never transmitted). Password change re-wraps the escrow; it does not re-key the DB.
 - Data recovery is via the **recovery phrase** only — the server is zero-knowledge and cannot reset it.
 - All API calls go through `authenticatedFetch()` which handles 401 → token refresh.
-- If `refreshAccessToken()` fails → set auth state `'unauthenticated'` + show re-login. Cached local journaling still works offline; only sync pauses until re-login.
+- If `refreshAccessToken()` fails → set auth state `'unauthenticated'` + show re-login. The whole app is gated: journaling is NOT accessible until re-login. Key + DB stay on disk after session *expiry* (same-account relogin restores without a re-pull); a *logout* wipes key + DB entirely. See `docs/AUTH_DB_LIFECYCLE.md`.
 
 ---
 

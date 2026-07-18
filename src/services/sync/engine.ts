@@ -2,7 +2,7 @@ import { CryptoModule } from '@/native/CryptoModule'
 import { authenticatedFetch } from '@/services/auth/api-client'
 import { getTokens } from '@/services/auth/token-store'
 import { rebuildGraph } from '@/services/graph/engine'
-import { type SqliteDatabase, getDb } from '@/services/storage/db'
+import { type SqliteDatabase, getDb, isWiping } from '@/services/storage/db'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { pendingUploads, markSynced, backfillSyncQueue } from '@/services/storage/sync-queue'
 import { useSyncStore } from '@/store/sync.store'
@@ -241,6 +241,10 @@ export async function pullDelta(
  * call opportunistically when online — never throws.
  */
 export async function sync(): Promise<Result<{ pushed: number; pulled: number }>> {
+  // Bail if a logout wipe is in progress (I5): the DB handle is being deleted,
+  // so there's nothing safe to sync.
+  if (isWiping()) return err('DB_WIPING', 'Sync unavailable during wipe')
+
   const tokens = await getTokens()
   if (!tokens) return err('NOT_AUTHENTICATED', 'No active session')
 

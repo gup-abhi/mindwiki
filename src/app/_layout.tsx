@@ -13,8 +13,10 @@ import {
 import { Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold } from '@expo-google-fonts/nunito'
 
 import { initStorage } from '@/services/storage/bootstrap'
+import { closeDb } from '@/services/storage/db'
 import { configureNotifications } from '@/services/notifications/scheduler'
 import { hydrateAuth } from '@/services/auth/auth.service'
+import { resetSessionStores } from '@/services/auth/session-reset'
 import { useAuthStore } from '@/store/auth.store'
 import { useLockStore } from '@/store/lock.store'
 import { useSync } from '@/hooks/useSync'
@@ -77,11 +79,16 @@ function AppGate() {
     void hydrateAuth()
   }, [])
 
-  // On logout the session ends and logout() deletes the DB + master key; reset
-  // storage to 'idle' so the next sign-in re-runs initStorage and opens a fresh
-  // DB keyed to the new account (otherwise it stays 'ready' on the stale handle).
+  // The session ended. Two paths reach here: logout (which already wiped the DB +
+  // key + stores) and session expiry (which keeps key + DB on disk, R5). Handle
+  // both idempotently: close any open DB handle so none outlives the session
+  // (case 13), reset in-memory stores so a new sign-in can't see residue
+  // (case 12), and set storage 'idle' so the next sign-in re-runs initStorage on
+  // a fresh handle keyed to that account.
   useEffect(() => {
     if (authStatus === 'unauthenticated') {
+      closeDb()
+      resetSessionStores()
       setStorage('idle')
       // Clear the session-global first-run guard so a different account signing
       // in on this same app session can still be routed through its first run.

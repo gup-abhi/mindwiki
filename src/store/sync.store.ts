@@ -21,6 +21,9 @@ interface SyncState {
   restoring: boolean
   beginRestore: () => void
   endRestore: () => void
+  // Reset all fields to initial on session end (logout / account switch), so a
+  // new account can't inherit the previous session's sync flags in memory.
+  reset: () => void
 }
 
 export const useSyncStore = create<SyncState>()(
@@ -47,6 +50,13 @@ export const useSyncStore = create<SyncState>()(
       }),
     endRestore: () =>
       set((s) => {
+        s.restoring = false
+      }),
+    reset: () =>
+      set((s) => {
+        s.revision = 0
+        s.pendingSignal = 0
+        s.syncing = false
         s.restoring = false
       }),
   }))

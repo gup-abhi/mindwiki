@@ -1,4 +1,5 @@
-import { Modal, StyleSheet, View } from 'react-native'
+import { useState } from 'react'
+import { Alert, Modal, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 
 import { Button, Card, Chip, IconButton, Screen, Text } from '@/components/ui'
@@ -50,6 +51,31 @@ export default function Settings() {
     logoutDevice,
   } = useDevices()
   const { logout } = useAuth()
+
+  // Logout is destructive (local wipe). Confirm first (R4), escalating the copy
+  // when unsynced changes would be lost, and attempt one final flush online.
+  const [loggingOut, setLoggingOut] = useState(false)
+  const confirmLogout = () => {
+    if (loggingOut) return
+    const base =
+      'Your journal on this device will be removed. Your account data stays encrypted in your sync backup.'
+    const warning =
+      pending > 0 ? `${pending} ${pending === 1 ? 'entry hasn’t' : 'entries haven’t'} synced yet and will be lost. ` : ''
+    Alert.alert('Log out?', `${warning}${base}`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: async () => {
+          setLoggingOut(true)
+          // Best-effort final flush so pending entries reach the backup before the
+          // wipe; ignore the result — logout proceeds regardless (offline is fine).
+          if (pending > 0) await syncNow()
+          await logout()
+        },
+      },
+    ])
+  }
 
   return (
     <Screen scroll>
@@ -248,7 +274,7 @@ export default function Settings() {
       )}
 
       <View style={styles.logout}>
-        <Button title="Log out" variant="destructive" fullWidth onPress={() => logout()} testID="settings-logout" />
+        <Button title="Log out" variant="destructive" fullWidth loading={loggingOut} onPress={confirmLogout} testID="settings-logout" />
       </View>
     </Screen>
   )
