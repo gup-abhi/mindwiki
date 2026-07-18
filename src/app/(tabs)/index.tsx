@@ -38,7 +38,7 @@ export default function Home() {
   const { entries, count } = useEntries()
   const { pages } = useWikiPages()
   const { challenge, streak, doneToday, checkIn } = useChallenge()
-  const { frozenDays, useFreezes } = useStreakFreezes()
+  const { frozenDays, applyFreezes } = useStreakFreezes()
   const synthesizing = useWikiStore((s) => s.pending > 0)
   // The streak counts journal entries AND completed guided-path answers, so it
   // reads a dedicated source, not the journal-only timeline (`entries`).
@@ -284,7 +284,7 @@ export default function Home() {
         streakLength={rescue.streakLength}
         freezesNeeded={rescue.freezesNeeded}
         onUse={() => {
-          void useFreezes(rescue.daysToFreeze)
+          void applyFreezes(rescue.daysToFreeze)
           setRescueOpen(false)
         }}
         onDismiss={() => setRescueOpen(false)}

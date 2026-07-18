@@ -25,7 +25,7 @@ export function useStreakFreezes() {
   )
 
   // Spend freezes by recording the given missed days as frozen, then reload.
-  const useFreezes = useCallback(
+  const applyFreezes = useCallback(
     async (days: number[]) => {
       if (days.length === 0) return
       await freezeDays(days)
@@ -41,5 +41,5 @@ export function useStreakFreezes() {
     await refresh()
   }, [refresh])
 
-  return { frozenDays, useFreezes, clearFrozen, refresh }
+  return { frozenDays, applyFreezes, clearFrozen, refresh }
 }
