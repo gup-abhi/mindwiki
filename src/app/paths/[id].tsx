@@ -123,7 +123,15 @@ export default function PathRunnerScreen() {
         const page = await firstWikiPage(entryIds, 20_000)
         setFirstRunRedirecting(false)
         if (page) {
-          router.replace({ pathname: `/wiki/${page.id}`, params: { firstRun: '1' } })
+          // Two-step navigation: first restore the tabs (so the root stack has a
+          // Home screen underneath), then push the wiki page on top. This way
+          // Android back naturally pops back to Home instead of exiting the app.
+          // Keep firstRunRedirecting true so the loading text stays visible and
+          // no flash of Home appears between the two navigations.
+          router.replace('/')
+          requestAnimationFrame(() => {
+            router.push({ pathname: `/wiki/${page.id}`, params: { firstRun: '1' } })
+          })
           return
         }
         // Poll timed out — fall through to normal completed state; the

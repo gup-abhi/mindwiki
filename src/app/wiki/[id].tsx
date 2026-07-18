@@ -96,6 +96,13 @@ export default function WikiPageScreen() {
             It grows every time you write. Each entry quietly shapes your insight pages — so you never
             have to re-read old notes to find the thread.
           </Text>
+          <Button
+            title="Take me home"
+            variant="primary"
+            fullWidth
+            onPress={() => router.replace('/')}
+            testID="wiki-first-run-home"
+          />
         </Card>
       )}
       <Markdown content={page.content} />
