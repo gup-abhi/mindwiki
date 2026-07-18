@@ -4,5 +4,5 @@ module.exports = {
   env: {
     jest: true,
   },
-  ignorePatterns: ['/dist/*', '/demo/*'],
+  ignorePatterns: ['/dist/*', '/demo/*', '/server/*'],
 }
