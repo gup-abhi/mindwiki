@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --ignore-scripts
+        # --ignore-scripts skips native module builds (node-gyp, pod-install)
+        # that fail on Linux CI. All native modules are mocked in jest.setup.js.
+
+      - name: TypeScript check
+        run: yarn tsc --noEmit
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Test
+        run: yarn test --ci --maxWorkers 2
