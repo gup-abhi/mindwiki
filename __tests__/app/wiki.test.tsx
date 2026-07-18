@@ -8,11 +8,13 @@ import { type PageTrend } from '@/services/insights/page-trend'
 
 const mockPush = jest.fn()
 const mockBack = jest.fn()
+const mockReplace = jest.fn()
 let mockParams: Record<string, string> = { id: 'p1' }
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, back: mockBack }),
+  useRouter: () => ({ push: mockPush, back: mockBack, replace: mockReplace }),
   useLocalSearchParams: () => mockParams,
 }))
+
 
 jest.mock('@/services/storage/wiki', () => ({
   listPages: jest.fn(() => Promise.resolve({ success: true, data: [] })),
@@ -45,6 +47,10 @@ const mockUseDismissedPages = jest.fn(() => ({
   refresh: jest.fn(),
 }))
 const mockUsePageTrend = jest.fn((): PageTrend | null => null)
+jest.mock('@/services/onboarding/first-run', () => ({
+  getHintSeen: jest.fn().mockResolvedValue(true),
+  markHintSeen: jest.fn().mockResolvedValue(undefined),
+}))
 jest.mock('@/hooks/useWiki', () => ({
   useWikiPages: () => mockUseWikiPages(),
   useWikiPage: () => mockUseWikiPage(),
@@ -206,6 +212,18 @@ describe('WikiPageScreen', () => {
     expect(
       screen.getByText('Anxiety has been coming up less often than it did a month ago.')
     ).toBeTruthy()
+  })
+
+  it('shows a "This is your wiki" card with a "Take me home" button when firstRun=1', () => {
+    mockParams = { id: 'p1', firstRun: '1' }
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 1, entry_count: 3, content: 'c', dismissed_at: null })
+    )
+    render(<WikiPageScreen />)
+    expect(screen.getByTestId('wiki-first-run-card')).toBeTruthy()
+    expect(screen.getByText('Take me home')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('wiki-first-run-home'))
+    expect(mockReplace).toHaveBeenCalledWith('/')
   })
 
   it('offers "This isn’t right" on an active page and confirms before dropping', () => {

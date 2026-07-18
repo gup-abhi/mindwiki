@@ -10,20 +10,26 @@ describe('OnboardingCarousel', () => {
     expect(screen.getByText('Next')).toBeTruthy()
   })
 
-  it('finishes immediately when Skip is pressed', () => {
+  it('shows the inline confirm when Skip is pressed, then calls onDone on Continue', () => {
     const onDone = jest.fn()
     render(<OnboardingCarousel onDone={onDone} />)
     fireEvent.press(screen.getByTestId('onboarding-skip'))
+    // Confirm dialog appears — Cancel and Continue visible.
+    expect(screen.getByTestId('onboarding-skip-cancel')).toBeTruthy()
+    expect(screen.getByTestId('onboarding-skip-confirm')).toBeTruthy()
+    expect(onDone).not.toHaveBeenCalled()
+
+    fireEvent.press(screen.getByTestId('onboarding-skip-confirm'))
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
-  it('advances through the slides and completes from the final CTA', () => {
+  it('advances through the 6 slides and completes from the final CTA', () => {
     const onDone = jest.fn()
     render(<OnboardingCarousel onDone={onDone} />)
 
-    // Four Next presses walk to the last slide; the CTA then changes label.
-    for (let i = 0; i < 4; i++) fireEvent.press(screen.getByTestId('onboarding-next'))
-    expect(screen.getByText('Start journaling')).toBeTruthy()
+    // Five Next presses walk from slide 0 → 5 (6 slides total); the CTA then reads "Begin".
+    for (let i = 0; i < 5; i++) fireEvent.press(screen.getByTestId('onboarding-next'))
+    expect(screen.getByText('Begin')).toBeTruthy()
     expect(onDone).not.toHaveBeenCalled()
 
     fireEvent.press(screen.getByTestId('onboarding-next'))

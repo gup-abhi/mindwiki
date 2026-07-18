@@ -50,6 +50,20 @@ jest.mock('expo-local-authentication', () => ({
 // Device info used to label a paired device.
 jest.mock('expo-device', () => ({ deviceName: 'Test Device', modelName: 'Test Model' }))
 
+// expo-notifications mock: the notification-response listener + deep-link (P1)
+// fire from AppRoot; need the default handlers to exist and not throw. Tests
+// that need specific return values call mockResolvedValue, mockReturnValue, etc.
+jest.mock('expo-notifications', () => ({
+  setNotificationHandler: jest.fn(),
+  scheduleNotificationAsync: jest.fn().mockResolvedValue('mocked-id'),
+  cancelScheduledNotificationAsync: jest.fn().mockResolvedValue(undefined),
+  getPermissionsAsync: jest.fn().mockResolvedValue({ granted: false, canAskAgain: true }),
+  requestPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }),
+  getLastNotificationResponseAsync: jest.fn().mockResolvedValue(null),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  SchedulableTriggerInputTypes: { DATE: 'date', WEEKLY: 'weekly' },
+}))
+
 // In-memory SecureStore so persisted preferences/tokens work in tests.
 jest.mock('expo-secure-store', () => {
   const store = new Map()

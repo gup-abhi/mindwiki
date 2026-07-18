@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { getGuidedPath, type GuidedPath } from '@/lib/guided-paths'
 import { deepenReflection } from '@/services/llm/deep-model'
+import { isModelDownloaded } from '@/services/llm/model-manager'
 import { capturePathAnswers } from '@/services/pipeline'
 import { type CrisisAssessment } from '@/services/crisis/detector'
 
@@ -24,6 +25,22 @@ export function useGuidedPath(pathId: string) {
   )
   const [deepening, setDeepening] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  // Whether the deep model is on disk — "Go deeper" can't work without it. null
+  // while checking; the runner hides the chip during first run until it's true.
+  const [deepReady, setDeepReady] = useState<boolean | null>(null)
+  // Set when the last "go deeper" tap failed (model not ready / inference error)
+  // so the runner can show an honest caption instead of a silent no-op (P7).
+  const [deepenFailed, setDeepenFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void isModelDownloaded('deep').then((r) => {
+      if (!cancelled) setDeepReady(r)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const setAnswer = useCallback((text: string) => {
     setStepIndex((i) => {
@@ -47,9 +64,13 @@ export function useGuidedPath(pathId: string) {
     const answer = answers[stepIndex]?.trim()
     if (!answer) return
     setDeepening(true)
+    setDeepenFailed(false)
     const res = await deepenReflection({ prompt: step.prompt, answer })
     setDeepening(false)
-    if (!res.success) return
+    if (!res.success) {
+      setDeepenFailed(true)
+      return
+    }
     setFollowUps((prev) => {
       const nextFollow = [...prev]
       nextFollow[stepIndex] = res.data
@@ -76,6 +97,8 @@ export function useGuidedPath(pathId: string) {
     hasAnyAnswer: answers.some((a) => a.trim() !== ''),
     deepening,
     submitting,
+    deepReady,
+    deepenFailed,
     setAnswer,
     next,
     back,

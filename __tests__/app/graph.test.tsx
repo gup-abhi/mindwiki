@@ -63,6 +63,10 @@ jest.mock('@/hooks/useMergeSuggestions', () => ({
 }))
 jest.mock('@/hooks/useDigest', () => ({ useDigest: () => ({ digest: null, loading: true, synthesizing: false }) }))
 jest.mock('@/store/wiki.store', () => ({ useWikiStore: () => ({ pending: 0 }) }))
+jest.mock('@/services/onboarding/first-run', () => ({
+  getHintSeen: jest.fn().mockResolvedValue(true),
+  markHintSeen: jest.fn().mockResolvedValue(undefined),
+}))
 
 const nodes = [
   { id: 'n1', type: 'emotion', label: 'Anxiety', frequency: 3, created_at: 0, updated_at: 0 },

@@ -12,7 +12,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Card, Divider, EmptyState, ListRow, Screen, Text } from '@/components/ui'
+import { Card, Chip, Divider, EmptyState, ListRow, Screen, Text } from '@/components/ui'
 import { Graph3D } from '@/components/graph/Graph3D'
 import { MoversStrip } from '@/components/insights/MoversStrip'
 import { MergeSuggestionBanner } from '@/components/wiki/MergeSuggestionBanner'
@@ -26,6 +26,7 @@ import { useStreakFreezes } from '@/hooks/useStreakFreezes'
 import { useGraph, useNodeContext, useNodeDismissals } from '@/hooks/useGraph'
 import { useDigest } from '@/hooks/useDigest'
 import { dismissNode, type GraphNode, type NodeType } from '@/services/storage/graph'
+import { getHintSeen, markHintSeen } from '@/services/onboarding/first-run'
 import {
   moodByDay,
   monthMoodGrid,
@@ -66,6 +67,17 @@ export default function YouScreen() {
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<GraphNode | null>(null)
   const { context } = useNodeContext(selected)
+  // One-time You-tab intro hint (P8). null while checking; false → show; true → hide.
+  const [youHint, setYouHint] = useState<boolean | null>(null)
+
+  // Resolve the one-time hint on first focus.
+  useEffect(() => {
+    let active = true
+    void getHintSeen('you_intro').then((seen) => {
+      if (active) setYouHint(seen)
+    })
+    return () => { active = false }
+  }, [])
 
   // Deep-link from an entry: /graph?focus=<label> — switch to Map and select node.
   const { focus } = useLocalSearchParams<{ focus?: string }>()
@@ -183,6 +195,23 @@ export default function YouScreen() {
             ItemSeparatorComponent={Divider}
             ListHeaderComponent={
               <>
+                {youHint === false && (
+                  <Card variant="sunken" style={styles.hintCard} testID="you-intro-hint">
+                    <View style={styles.hintRow}>
+                      <Text variant="caption" color="textSecondary" style={styles.hintText}>
+                        Your insight pages live here; the Connections view shows how they relate.
+                      </Text>
+                      <Chip
+                        label="Got it"
+                        onPress={() => {
+                          setYouHint(true)
+                          void markHintSeen('you_intro')
+                        }}
+                        testID="you-intro-dismiss"
+                      />
+                    </View>
+                  </Card>
+                )}
                 <MoversStrip />
                 <MergeSuggestionBanner />
               </>
@@ -630,6 +659,9 @@ const makeStyles = (t: Theme) =>
       paddingTop: t.spacing.md,
       paddingBottom: t.spacing['2xl'],
     },
+    hintCard: { marginBottom: t.spacing.sm },
+    hintRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
+    hintText: { flex: 1 },
 
     // Patterns segment
     h1: { marginTop: t.spacing.sm },

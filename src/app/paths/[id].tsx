@@ -6,6 +6,7 @@ import { Button, Chip, ProgressBar, Screen, Text, TextField } from '@/components
 import { type Theme, useThemedStyles } from '@/theme'
 import { haptics } from '@/lib/haptics'
 import { useGuidedPath } from '@/hooks/useGuidedPath'
+import { isModelDownloaded } from '@/services/llm/model-manager'
 import { markFirstRunComplete, firstWikiPage } from '@/services/onboarding/first-run'
 
 /**
@@ -24,6 +25,9 @@ export default function PathRunnerScreen() {
   const { id, firstRun } = useLocalSearchParams<{ id: string; firstRun?: string }>()
   const p = useGuidedPath(id ?? '')
   const [completed, setCompleted] = useState(false)
+  // Deferred completion: deep model not ready, so the aha moment is deferred to a
+  // Home banner/notification once synthesis finishes — not lost.
+  const [deferred, setDeferred] = useState(false)
   const [firstRunRedirecting, setFirstRunRedirecting] = useState(false)
 
   if (!p.path) {
@@ -50,8 +54,38 @@ export default function PathRunnerScreen() {
               : 'What you wrote is saved and woven into your wiki.'}
           </Text>
           {!firstRunRedirecting && (
-            <Button title="Done" fullWidth onPress={() => router.replace('/')} />
+            <>
+              <Button title="Done" fullWidth onPress={() => router.replace('/')} />
+              {p.deepReady === true && (
+                <Text
+                  variant="label"
+                  color="accent"
+                  style={styles.secondaryLink}
+                  onPress={() => router.replace('/(tabs)/query')}
+                  testID="path-try-reflect"
+                >
+                  Later, try Reflect →
+                </Text>
+              )}
+            </>
           )}
+        </View>
+      </Screen>
+    )
+  }
+
+  if (deferred) {
+    return (
+      <Screen>
+        <View style={styles.center}>
+          <Text variant="title" style={styles.doneTitle}>
+            Your first insights are on their way
+          </Text>
+          <Text variant="body" color="textSecondary" style={styles.doneBody}>
+            What you wrote is saved and woven into your wiki. Your private AI is still finishing —
+            we’ll let you know the moment your first insight page is ready.
+          </Text>
+          <Button title="Take me home" fullWidth onPress={() => router.replace('/')} testID="path-take-home" />
         </View>
       </Screen>
     )
@@ -75,12 +109,29 @@ export default function PathRunnerScreen() {
     // First-run path: mark complete, poll for first wiki page, then route to it.
     if (firstRun === '1') {
       if (entryIds.length > 0) {
+        const deepReady = await isModelDownloaded('deep')
+        if (!deepReady) {
+          // Deep model absent → synthesis can't happen yet. Store the entry IDs
+          // so the catch-up announce path can surface the first page later, and
+          // defer the aha moment to a Home banner + notification (P1).
+          await markFirstRunComplete(entryIds)
+          setDeferred(true)
+          return
+        }
         setFirstRunRedirecting(true)
         await markFirstRunComplete(entryIds)
         const page = await firstWikiPage(entryIds, 20_000)
         setFirstRunRedirecting(false)
         if (page) {
-          router.replace({ pathname: `/wiki/${page.id}`, params: { firstRun: '1' } })
+          // Two-step navigation: first restore the tabs (so the root stack has a
+          // Home screen underneath), then push the wiki page on top. This way
+          // Android back naturally pops back to Home instead of exiting the app.
+          // Keep firstRunRedirecting true so the loading text stays visible and
+          // no flash of Home appears between the two navigations.
+          router.replace('/')
+          requestAnimationFrame(() => {
+            router.push({ pathname: `/wiki/${page.id}`, params: { firstRun: '1' } })
+          })
           return
         }
         // Poll timed out — fall through to normal completed state; the
@@ -132,13 +183,21 @@ export default function PathRunnerScreen() {
         </View>
       )}
 
-      <View style={styles.deeperRow}>
-        <Chip
-          label={p.deepening ? 'Thinking…' : '✨ Go deeper'}
-          onPress={p.answer.trim() && !p.deepening ? () => void p.deepen() : undefined}
-          testID="path-deepen"
-        />
-      </View>
+      {firstRun === '1' && p.deepReady === false ? null : p.deepenFailed ? (
+        <View style={styles.deeperRow}>
+          <Text variant="caption" color="textMuted" style={styles.deeperHint} testID="path-deeper-unavailable">
+            Your private AI is still warming up — deeper prompts unlock soon.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.deeperRow}>
+          <Chip
+            label={p.deepening ? 'Thinking…' : '✨ Go deeper'}
+            onPress={p.answer.trim() && !p.deepening ? () => void p.deepen() : undefined}
+            testID="path-deepen"
+          />
+        </View>
+      )}
 
       <View style={styles.footer}>
         {!p.isFirst && (
@@ -179,7 +238,9 @@ const makeStyles = (t: Theme) =>
       backgroundColor: t.colors.accentMuted,
     },
     followUpText: { marginTop: t.spacing.xs },
+    secondaryLink: { marginTop: t.spacing.md },
     deeperRow: { flexDirection: 'row', marginTop: t.spacing.lg },
+    deeperHint: { flex: 1 },
     footer: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md, marginTop: t.spacing['2xl'] },
     footerGrow: { flex: 1 },
   })

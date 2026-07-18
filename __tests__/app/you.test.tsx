@@ -53,6 +53,10 @@ jest.mock('@/hooks/useStreakFreezes', () => ({
 jest.mock('@/hooks/useMergeSuggestions', () => ({
   useMergeSuggestions: () => ({ suggestions: [], dismiss: jest.fn() }),
 }))
+jest.mock('@/services/onboarding/first-run', () => ({
+  getHintSeen: jest.fn().mockResolvedValue(true),
+  markHintSeen: jest.fn().mockResolvedValue(undefined),
+}))
 
 describe('YouScreen', () => {
   beforeEach(() => {

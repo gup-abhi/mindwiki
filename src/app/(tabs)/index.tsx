@@ -19,6 +19,7 @@ import { computeStreak, streakRescue, weekActivity } from '@/services/notificati
 import { homeMessage } from '@/services/notifications/home-message'
 import { StreakCard } from '@/components/StreakCard'
 import { WhatChangedCard } from '@/components/home/WhatChangedCard'
+import { FirstPageReadyBanner } from '@/components/home/FirstPageReadyBanner'
 import { lineageForEntry } from '@/services/wiki/engine'
 import { type LineagePage } from '@/services/wiki/engine'
 import { StreakRescueModal } from '@/components/StreakRescueModal'
@@ -141,6 +142,7 @@ export default function Home() {
               onPress={() => router.push('/trends')}
             />
             <WhatChangedCard pages={reshaped} />
+            <FirstPageReadyBanner />
             <ModelDownloadCard />
             <RecoverySetupCard />
             {digestReady && (

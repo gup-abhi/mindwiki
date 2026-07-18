@@ -5,8 +5,9 @@ import { GUIDED_PATHS } from '@/lib/guided-paths'
 
 const mockReplace = jest.fn()
 const mockBack = jest.fn()
+const mockPush = jest.fn()
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ replace: mockReplace, back: mockBack }),
+  useRouter: () => ({ replace: mockReplace, back: mockBack, push: mockPush }),
   useLocalSearchParams: () => ({ id: 'overwhelmed' }),
 }))
 jest.mock('@/lib/haptics', () => ({ haptics: { success: jest.fn(), light: jest.fn() } }))
