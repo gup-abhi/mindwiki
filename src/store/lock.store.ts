@@ -24,6 +24,8 @@ interface LockState {
   onBackground: () => void
   /** Re-lock on foreground if enabled and the grace period elapsed. */
   onForeground: () => void
+  /** Clear transient lock state on session end; keeps the `enabled` preference. */
+  resetTransient: () => void
 }
 
 export const useLockStore = create<LockState>()(
@@ -56,6 +58,11 @@ export const useLockStore = create<LockState>()(
         if (s.enabled && s.backgroundedAt !== null && Date.now() - s.backgroundedAt > LOCK_GRACE_MS) {
           s.locked = true
         }
+        s.backgroundedAt = null
+      }),
+    resetTransient: () =>
+      set((s) => {
+        s.locked = false
         s.backgroundedAt = null
       }),
   }))

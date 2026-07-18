@@ -9,17 +9,25 @@ import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
 
 jest.mock('@/native/CryptoModule', () => ({
-  CryptoModule: { getKeyFromKeychain: jest.fn(), setKeyInKeychain: jest.fn() },
+  CryptoModule: {
+    getKeyFromKeychain: jest.fn(),
+    setKeyInKeychain: jest.fn(),
+    setKeyOwner: jest.fn(),
+  },
 }))
 jest.mock('@/services/auth/token-store', () => ({
   saveTokens: jest.fn(),
   getTokens: jest.fn(),
   clearTokens: jest.fn(),
 }))
+jest.mock('@/services/auth/wipe-marker', () => ({
+  repairInterruptedWipe: jest.fn(),
+}))
 jest.mock('@/services/auth/device-id', () => ({ getDeviceId: jest.fn(() => Promise.resolve('dev-1')) }))
 
 const mockGetKey = CryptoModule.getKeyFromKeychain as jest.Mock
 const mockSetKey = CryptoModule.setKeyInKeychain as jest.Mock
+const mockSetKeyOwner = CryptoModule.setKeyOwner as jest.Mock
 const mockSave = saveTokens as jest.Mock
 const mockGetTokens = getTokens as jest.Mock
 
@@ -83,6 +91,7 @@ describe('redeemPairing', () => {
 
     expect(res).toEqual({ success: true, data: { accountId: 'acc1' } })
     expect(mockSetKey).toHaveBeenCalledWith(MASTER)
+    expect(mockSetKeyOwner).toHaveBeenCalledWith('acc1') // R3: ownership recorded
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
     expect(useSyncStore.getState().restoring).toBe(true) // banner shows while the first pull lands

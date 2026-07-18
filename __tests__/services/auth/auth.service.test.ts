@@ -11,7 +11,13 @@ import {
 import { wrapMasterKey } from '@/services/auth/crypto'
 import { generateRecoveryPhrase, recoveryKeyFromPhrase } from '@/services/auth/recovery'
 import { saveTokens, getTokens, clearTokens } from '@/services/auth/token-store'
-import { deleteDatabase } from '@/services/storage/db'
+import { deleteDatabase, beginWipe, endWipe } from '@/services/storage/db'
+import { resetSessionStores } from '@/services/auth/session-reset'
+import {
+  setWipePending,
+  clearWipePending,
+  repairInterruptedWipe,
+} from '@/services/auth/wipe-marker'
 import { CryptoModule } from '@/native/CryptoModule'
 import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
@@ -27,15 +33,35 @@ jest.mock('@/native/CryptoModule', () => ({
     deriveKey: jest.fn(),
     setKeyInKeychain: jest.fn(),
     deleteKeyFromKeychain: jest.fn(),
+    setKeyOwner: jest.fn(),
+    getKeyOwner: jest.fn(),
+    deleteKeyOwner: jest.fn(),
   },
 }))
 // Mock the storage module so importing auth.service doesn't pull in op-sqlite
-// (native). logout() calls deleteDatabase(); we only assert it's invoked.
-jest.mock('@/services/storage/db', () => ({ deleteDatabase: jest.fn() }))
+// (native). logout() calls deleteDatabase()/beginWipe/endWipe.
+jest.mock('@/services/storage/db', () => ({
+  deleteDatabase: jest.fn(),
+  beginWipe: jest.fn(),
+  endWipe: jest.fn(),
+}))
 jest.mock('@/services/auth/token-store', () => ({
   saveTokens: jest.fn(),
   clearTokens: jest.fn(),
   getTokens: jest.fn(),
+}))
+// R2/R3: wipe-marker is a unit of its own (wipe-marker.test.ts); stub it here so
+// auth.service tests can spy on whether the repair/wipe-markers were invoked.
+jest.mock('@/services/auth/wipe-marker', () => ({
+  setWipePending: jest.fn(),
+  clearWipePending: jest.fn(),
+  isWipePending: jest.fn(),
+  repairInterruptedWipe: jest.fn(),
+}))
+// Session reset only needs to be invokable here; its behavior is unit-tested via
+// the stores. Mocking avoids importing the store graph into the auth service.
+jest.mock('@/services/auth/session-reset', () => ({
+  resetSessionStores: jest.fn(),
 }))
 // Stable per-device id; mocked so register/login/logout send a known value.
 jest.mock('@/services/auth/device-id', () => ({ getDeviceId: jest.fn(() => Promise.resolve('dev-1')) }))
@@ -44,10 +70,18 @@ const mockGetKey = CryptoModule.getKeyFromKeychain as jest.Mock
 const mockDerive = CryptoModule.deriveKey as jest.Mock
 const mockSetKey = CryptoModule.setKeyInKeychain as jest.Mock
 const mockDeleteKey = CryptoModule.deleteKeyFromKeychain as jest.Mock
+const mockSetKeyOwner = CryptoModule.setKeyOwner as jest.Mock
+const mockDeleteKeyOwner = CryptoModule.deleteKeyOwner as jest.Mock
 const mockSave = saveTokens as jest.Mock
 const mockGetTokens = getTokens as jest.Mock
 const mockClear = clearTokens as jest.Mock
 const mockDeleteDb = deleteDatabase as jest.Mock
+const mockBeginWipe = beginWipe as jest.Mock
+const mockEndWipe = endWipe as jest.Mock
+const mockSetWipePending = setWipePending as jest.Mock
+const mockClearWipePending = clearWipePending as jest.Mock
+const mockRepairWipe = repairInterruptedWipe as jest.Mock
+const mockResetSession = resetSessionStores as jest.Mock
 
 const MASTER = 'ab'.repeat(32)
 const WRAP = 'cd'.repeat(32)
@@ -132,6 +166,7 @@ describe('loginNewDevice', () => {
     expect(body.device_id).toBe('dev-1')
     expect(mockDerive).toHaveBeenCalledWith('password', '00')
     expect(mockSetKey).toHaveBeenCalledWith(MASTER) // account key installed
+    expect(mockSetKeyOwner).toHaveBeenCalledWith('acc1') // R3: ownership recorded
     expect(useAuthStore.getState().status).toBe('authenticated')
     expect(useSyncStore.getState().restoring).toBe(true) // banner shows while the first pull lands
   })
@@ -186,6 +221,7 @@ describe('recoverAccount', () => {
 
     expect(res).toEqual({ success: true, data: { accountId: 'acc1' } })
     expect(mockSetKey).toHaveBeenCalledWith(MASTER)
+    expect(mockSetKeyOwner).toHaveBeenCalledWith('acc1') // R3: ownership recorded
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     // recovery is a wizard — auth is flipped by the hook only after changePassword
     expect(useAuthStore.getState().status).not.toBe('authenticated')
@@ -301,10 +337,36 @@ describe('hydrateAuth', () => {
 })
 
 describe('logout', () => {
-  it('wipes local state: clears tokens, deletes the DB + master key, unauthenticates', async () => {
+  it('wipes local state in R1 order: DB + key before tokens, then stores reset', async () => {
     useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
     mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     ;(global.fetch as jest.Mock).mockResolvedValue(resp(204))
+
+    const calls: string[] = []
+    mockSetWipePending.mockImplementation(() => {
+      calls.push('wipe_pending')
+      return Promise.resolve()
+    })
+    mockBeginWipe.mockImplementation(() => calls.push('begin_wipe'))
+    mockDeleteDb.mockImplementation(() => calls.push('delete_db'))
+    mockDeleteKey.mockImplementation(() => {
+      calls.push('delete_key')
+      return Promise.resolve()
+    })
+    mockDeleteKeyOwner.mockImplementation(() => {
+      calls.push('delete_owner')
+      return Promise.resolve()
+    })
+    mockClear.mockImplementation(() => {
+      calls.push('clear_tokens')
+      return Promise.resolve()
+    })
+    mockClearWipePending.mockImplementation(() => {
+      calls.push('clear_wipe_pending')
+      return Promise.resolve()
+    })
+    mockEndWipe.mockImplementation(() => calls.push('end_wipe'))
+    mockResetSession.mockImplementation(() => calls.push('reset_stores'))
 
     await logout()
 
@@ -312,11 +374,21 @@ describe('logout', () => {
     const [url, init] = (global.fetch as jest.Mock).mock.calls[0]
     expect(url).toMatch(/\/auth\/logout$/)
     expect(JSON.parse(init.body).device_id).toBe('dev-1')
-    // Account isolation: the next account on this device must not inherit the
-    // previous account's master key or database.
-    expect(mockClear).toHaveBeenCalled()
-    expect(mockDeleteDb).toHaveBeenCalled()
-    expect(mockDeleteKey).toHaveBeenCalled()
+
+    // R1 load-bearing ordering: wipe marker + begin are first; DB + key die
+    // BEFORE tokens; marker cleared + wipe ended only after the wipe; store
+    // reset + unauth is last.
+    expect(calls).toEqual([
+      'wipe_pending',
+      'begin_wipe',
+      'delete_db',
+      'delete_key',
+      'delete_owner',
+      'clear_tokens',
+      'clear_wipe_pending',
+      'end_wipe',
+      'reset_stores',
+    ])
     expect(useAuthStore.getState().status).toBe('unauthenticated')
   })
 
@@ -329,6 +401,39 @@ describe('logout', () => {
 
     expect(mockClear).toHaveBeenCalled()
     expect(mockDeleteKey).toHaveBeenCalled()
+    expect(mockDeleteKeyOwner).toHaveBeenCalled()
+    expect(mockClearWipePending).toHaveBeenCalled()
+    expect(mockEndWipe).toHaveBeenCalled()
+    expect(mockResetSession).toHaveBeenCalled()
     expect(useAuthStore.getState().status).toBe('unauthenticated')
+  })
+})
+
+describe('register (account isolation, R3)', () => {
+  it('deletes any pre-existing key + DB before generating a fresh key', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValue(
+      resp(200, { account_id: 'acc1', access_token: 'at', refresh_token: 'rt' })
+    )
+    await register('a@b.com', 'password')
+
+    // The inherited-key hole: a left-over key/DB from a previous account is wiped
+    // before the fresh key is generated for this new account.
+    expect(mockRepairWipe).toHaveBeenCalled()
+    expect(mockDeleteDb).toHaveBeenCalled()
+    expect(mockDeleteKey).toHaveBeenCalled()
+    expect(mockDeleteKeyOwner).toHaveBeenCalled()
+    // A fresh key is read/generated for escrow; ownership is recorded for this account.
+    expect(mockGetKey).toHaveBeenCalledTimes(1)
+    expect(mockSetKeyOwner).toHaveBeenCalledWith('acc1')
+    expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+  })
+})
+
+describe('hydrateAuth (R2)', () => {
+  it('repairs an interrupted wipe before resolving the session', async () => {
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    await hydrateAuth()
+    expect(mockRepairWipe).toHaveBeenCalled()
+    expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
   })
 })

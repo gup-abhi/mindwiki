@@ -3,8 +3,10 @@ import { immer } from 'zustand/middleware/immer'
 
 // Accounts are mandatory (no anonymous mode). 'loading' = launch hydration not
 // yet resolved. 'authenticated' = signed in (master key + session present).
-// 'unauthenticated' = needs login; cached local journaling still works offline,
-// only sync pauses until re-login.
+// 'unauthenticated' = the login screen is shown (session expired or logged out);
+// the whole app is gated, so journaling is NOT accessible until re-login. Key +
+// DB stay on disk after session *expiry* (same-account relogin restores without
+// a re-pull); a *logout* wipes key + DB entirely. See docs/AUTH_DB_LIFECYCLE.md.
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
 
 export interface AuthState {

@@ -3,7 +3,7 @@ import { getRandomBytesAsync } from 'expo-crypto'
 import * as Device from 'expo-device'
 
 import { CryptoModule } from '@/native/CryptoModule'
-import { deleteDatabase } from '@/services/storage/db'
+import { beginWipe, deleteDatabase, endWipe } from '@/services/storage/db'
 import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
@@ -18,7 +18,17 @@ import {
   recoveryHash,
   isValidRecoveryPhrase,
 } from './recovery'
+import { resetSessionStores } from './session-reset'
 import { getTokens, saveTokens, clearTokens } from './token-store'
+import {
+  clearWipePending,
+  repairInterruptedWipe,
+  setWipePending,
+} from './wipe-marker'
+
+// Hard cap on the best-effort server logout call so a hung network never blocks
+// the local wipe (R1 step 3). On timeout we proceed to wipe regardless.
+const SERVER_LOGOUT_TIMEOUT_MS = 5_000
 
 async function randomHex(bytes: number): Promise<string> {
   const arr = await getRandomBytesAsync(bytes)
@@ -43,20 +53,31 @@ interface AuthResponse {
 }
 
 /**
- * Register an account. Escrows the device's CURRENT master key (so existing
- * local data stays decryptable) under TWO independent wrapping keys: an
- * Argon2id(password) key, and a key derived from a generated recovery phrase —
- * the only way back in if the password is forgotten (the server is
- * zero-knowledge and cannot reset it). The server only ever sees
- * SHA-256(password), SHA-256(phrase), and the two encrypted escrow blobs.
- * Returns the recovery phrase so the caller can show it once for the user to
- * save; it is never persisted on-device.
+ * Register an account. Generates a FRESH master key for the new account and
+ * escrows it under TWO independent wrapping keys: an Argon2id(password) key, and
+ * a key derived from a generated recovery phrase — the only way back in if the
+ * password is forgotten (the server is zero-knowledge and cannot reset it). The
+ * server only ever sees SHA-256(password), SHA-256(phrase), and the two
+ * encrypted escrow blobs. Returns the recovery phrase so the caller can show it
+ * once for the user to save; it is never persisted on-device.
+ *
+ * Account isolation (R3): any master key already in the keystore belongs to a
+ * previous account — at register time there is no legitimate local data — so we
+ * wipe key + DB before generating the fresh key. This closes the inherited-key
+ * hole where a kill mid-logout left the old key installed for reuse (cases 7/8).
  */
 export async function register(
   email: string,
   password: string
 ): Promise<Result<{ accountId: string; recoveryPhrase: string }>> {
   try {
+    // Finish any logout wipe the app was killed in the middle of, then ensure no
+    // previous account's key survives to be reused for this new account.
+    await repairInterruptedWipe()
+    deleteDatabase()
+    await CryptoModule.deleteKeyFromKeychain()
+    await CryptoModule.deleteKeyOwner()
+
     const masterKey = await CryptoModule.getKeyFromKeychain()
     const salt = await randomHex(16)
     const wrappingKey = await CryptoModule.deriveKey(password, salt)
@@ -87,6 +108,7 @@ export async function register(
     if (!res.ok) return err('REGISTER_FAILED', `Registration failed (${res.status})`)
 
     const data = (await res.json()) as AuthResponse
+    await CryptoModule.setKeyOwner(data.account_id) // R3: this key belongs to this account
     await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
     // Don't flip auth state yet: the caller shows the recovery phrase first, then
     // authenticates on acknowledgement (so the user can't skip past saving it).
@@ -104,6 +126,7 @@ export async function register(
  */
 export async function loginNewDevice(email: string, password: string): Promise<Result<{ accountId: string }>> {
   try {
+    await repairInterruptedWipe()
     const res = await fetch(`${API_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -128,6 +151,7 @@ export async function loginNewDevice(email: string, password: string): Promise<R
     if (!masterKey.success) return err('LOGIN_DECRYPT_FAILED', 'Wrong password or corrupt escrow')
 
     await CryptoModule.setKeyInKeychain(masterKey.data)
+    await CryptoModule.setKeyOwner(data.account_id) // R3: this key belongs to this account
     await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
     // Signing in on a new device: the encrypted DB is empty until the first pull.
     // Flag a restore so the UI reassures the user their data is on its way.
@@ -152,6 +176,7 @@ export async function recoverAccount(
 ): Promise<Result<{ accountId: string }>> {
   try {
     if (!isValidRecoveryPhrase(phrase)) return err('RECOVER_INVALID_PHRASE', 'Invalid recovery phrase')
+    await repairInterruptedWipe()
 
     const res = await fetch(`${API_URL}/auth/recover`, {
       method: 'POST',
@@ -167,6 +192,7 @@ export async function recoverAccount(
     if (!masterKey.success) return err('RECOVER_DECRYPT_FAILED', 'Wrong phrase or corrupt escrow')
 
     await CryptoModule.setKeyInKeychain(masterKey.data)
+    await CryptoModule.setKeyOwner(data.account_id) // R3: this key belongs to this account
     await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
     return ok({ accountId: data.account_id })
   } catch (e) {
@@ -181,6 +207,9 @@ export async function recoverAccount(
  * state the store starts in.
  */
 export async function hydrateAuth(): Promise<void> {
+  // Finish an interrupted logout wipe before reading the session (R2), so a kill
+  // mid-wipe can't relaunch into a half-torn-down authenticated state.
+  await repairInterruptedWipe()
   const tokens = await getTokens()
   if (tokens) useAuthStore.getState().setAuthenticated(tokens.accountId)
   else useAuthStore.getState().setUnauthenticated()
@@ -261,27 +290,50 @@ export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: stri
 
 /**
  * Sign out: drop the session AND wipe local state — delete the encrypted DB and
- * remove the master key from the keystore. This is required for account
- * isolation: without it, the next account registered/signed-in on this device
- * would inherit the previous account's master key and database (privacy-first —
- * no residual journal data after logout). Re-login re-pulls from the server.
+ * remove the master key from the keystore. Required for account isolation:
+ * without it the next account on this device would inherit the previous
+ * account's key and DB (privacy-first — no residual journal after logout).
+ * Re-login re-pulls from the server.
+ *
+ * Ordering is load-bearing (R1, docs/AUTH_DB_LIFECYCLE.md). A durable
+ * `wipe_pending` marker is set first, and the DB + key die BEFORE tokens are
+ * cleared, so a kill at any point either leaves the user logged in (retryable)
+ * or leaves the marker set for repairInterruptedWipe() to finish — never an
+ * unauthenticated device with the old key + DB still installed (cases 7/8).
  */
 export async function logout(): Promise<void> {
-  // Best-effort: drop this device from the owner's paired-devices list. Runs
-  // while the session is still valid (before clearTokens) and never blocks
-  // logout — if offline, the local wipe still proceeds and the row simply
-  // lingers until the next sign-in/out.
+  // 1. Durable marker: survives a kill so the wipe is always completable.
+  await setWipePending()
+  // 2. Quiesce (I5): fail-close getDb() so in-flight sync / LLM work can't touch
+  //    the handle we're about to delete. Result-wrapped callers degrade to err.
+  beginWipe()
+
+  // 3. Best-effort: drop this device from the owner's paired-devices list, with a
+  //    hard timeout so a hung network never blocks the local wipe. Runs while the
+  //    session is still valid (tokens cleared below).
   try {
-    await authenticatedFetch('/auth/logout', {
-      method: 'POST',
-      body: JSON.stringify({ device_id: await getDeviceId() }),
-    })
+    await Promise.race([
+      authenticatedFetch('/auth/logout', {
+        method: 'POST',
+        body: JSON.stringify({ device_id: await getDeviceId() }),
+      }),
+      new Promise((resolve) => setTimeout(resolve, SERVER_LOGOUT_TIMEOUT_MS)),
+    ])
   } catch {
     // ignore — local logout must always succeed
   }
 
-  await clearTokens()
+  // 4–6. Destroy local state: DB, then key, then tokens (DB/key before tokens).
   deleteDatabase()
   await CryptoModule.deleteKeyFromKeychain()
+  await CryptoModule.deleteKeyOwner()
+  await clearTokens()
+
+  // 7. Wipe complete — clear the marker and lift the guard.
+  await clearWipePending()
+  endWipe()
+
+  // 8. Reset in-memory stores + flip auth state (so no residue survives in RAM).
+  resetSessionStores()
   useAuthStore.getState().setUnauthenticated()
 }
