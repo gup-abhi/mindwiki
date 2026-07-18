@@ -567,3 +567,42 @@ export const migration027: Migration = {
     "DELETE FROM entity_embeddings WHERE type = 'belief'",
   ],
 }
+
+// Migration 028 — enforce case-insensitive label uniqueness on graph_nodes.
+// Every app-level node lookup is COLLATE NOCASE, but the column collated BINARY,
+// so UNIQUE(type,label) was case-sensitive: any path that bypasses the read
+// (concurrent inserts, a sync/restore) could create "Anxiety" and "anxiety" as
+// two permanent nodes. Recreate the table with `label TEXT NOT NULL COLLATE
+// NOCASE` so the UNIQUE index (and upsertNode's ON CONFLICT(type,label)) is
+// case-insensitive. The graph is derived, so drop + recreate is safe — bootstrap
+// runs rebuildGraph() after this migration (same pattern as migration003).
+export const migration028: Migration = {
+  version: 28,
+  name: 'graph_nodes_label_nocase',
+  statements: [
+    // Edges FK-reference graph_nodes(id); drop them first, then the node table.
+    `DROP TABLE graph_edges`,
+    `DROP TABLE graph_nodes`,
+    `CREATE TABLE graph_nodes (
+      id         TEXT PRIMARY KEY,
+      type       TEXT NOT NULL CHECK (type IN
+                 ('emotion','situation','person','belief','behavior','distortion','place','activity')),
+      label      TEXT NOT NULL COLLATE NOCASE,
+      frequency  INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (type, label)
+    )`,
+    `CREATE TABLE graph_edges (
+      id         TEXT PRIMARY KEY,
+      source_id  TEXT NOT NULL REFERENCES graph_nodes(id),
+      target_id  TEXT NOT NULL REFERENCES graph_nodes(id),
+      weight     INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (source_id, target_id)
+    )`,
+    `CREATE INDEX idx_graph_edges_source ON graph_edges (source_id)`,
+    `CREATE INDEX idx_graph_edges_target ON graph_edges (target_id)`,
+  ],
+}

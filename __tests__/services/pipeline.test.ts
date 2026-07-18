@@ -192,6 +192,29 @@ describe('processEntry', () => {
     expect(mockBumpRevision).toHaveBeenCalledTimes(1)
   })
 
+  it('dedupes a topic that repeats as topic2 (case-insensitive) so it counts once', async () => {
+    mockScoreCrisis.mockResolvedValue(crisis(0.1))
+    // The deep model returned the same theme twice, different casing.
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Work', 'work'] }))
+
+    await processEntry(entry())
+    await flush()
+
+    // Only the first survives — topic2 is emptied, and the graph sees one theme,
+    // so the entry can't self-corroborate past the recurrence gate.
+    expect(mockApplyTags).toHaveBeenCalledWith('e1', {
+      emotion: 'Anxiety',
+      distortion: 'none',
+      mood_score: 0.4,
+      topic: 'Work',
+      topic2: '',
+    })
+    expect(mockUpdateGraph).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'e1' }),
+      ['Work']
+    )
+  })
+
   it('persists extracted beliefs and behaviors as typed entity rows', async () => {
     mockScoreCrisis.mockResolvedValue(crisis(0.1))
     mockExtractEntry.mockResolvedValue(

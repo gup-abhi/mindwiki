@@ -1,9 +1,9 @@
 import { contextForNode } from '@/services/graph/node-context'
 import {
-  listEntriesByEmotion,
-  listEntriesByDistortion,
-  listEntriesByTopic,
-  listEntriesForEntity,
+  listEntriesByEmotionAllSources,
+  listEntriesByDistortionAllSources,
+  listEntriesByAnyTopicAllSources,
+  listEntriesForEntityAllSources,
   type Entry,
 } from '@/services/storage/entries'
 import { listPages, type WikiPage } from '@/services/storage/wiki'
@@ -11,19 +11,19 @@ import { type GraphNode } from '@/services/storage/graph'
 import { ok } from '@/types/result'
 
 jest.mock('@/services/storage/entries', () => ({
-  listEntriesByEmotion: jest.fn(async () => ({ success: true, data: [] })),
-  listEntriesByDistortion: jest.fn(async () => ({ success: true, data: [] })),
-  listEntriesByTopic: jest.fn(async () => ({ success: true, data: [] })),
-  listEntriesForEntity: jest.fn(async () => ({ success: true, data: [] })),
+  listEntriesByEmotionAllSources: jest.fn(async () => ({ success: true, data: [] })),
+  listEntriesByDistortionAllSources: jest.fn(async () => ({ success: true, data: [] })),
+  listEntriesByAnyTopicAllSources: jest.fn(async () => ({ success: true, data: [] })),
+  listEntriesForEntityAllSources: jest.fn(async () => ({ success: true, data: [] })),
 }))
 jest.mock('@/services/storage/wiki', () => ({
   listPages: jest.fn(async () => ({ success: true, data: [] })),
 }))
 
-const mockEmotion = listEntriesByEmotion as jest.Mock
-const mockDistortion = listEntriesByDistortion as jest.Mock
-const mockTopic = listEntriesByTopic as jest.Mock
-const mockEntity = listEntriesForEntity as jest.Mock
+const mockEmotion = listEntriesByEmotionAllSources as jest.Mock
+const mockDistortion = listEntriesByDistortionAllSources as jest.Mock
+const mockTopic = listEntriesByAnyTopicAllSources as jest.Mock
+const mockEntity = listEntriesForEntityAllSources as jest.Mock
 const mockListPages = listPages as jest.Mock
 
 const node = (over: Partial<GraphNode> = {}): GraphNode => ({
@@ -113,6 +113,15 @@ describe('contextForNode', () => {
     mockEmotion.mockResolvedValue(ok([entry({ id: 'a' }), entry({ id: 'b' })]))
     const res = await contextForNode(node({ type: 'emotion' }))
     expect(res.success && res.data.entries.map((e) => e.id)).toEqual(['a', 'b'])
+  })
+
+  it('surfaces reflect/path entries behind a situation node (source-inclusive, topic OR topic2)', async () => {
+    // A node built purely from Reflect recurrence must still list its entries —
+    // the query is source-inclusive and matches either topic column.
+    mockTopic.mockResolvedValue(ok([entry({ id: 'r1', source: 'reflect', topic2: 'Work' })]))
+    const res = await contextForNode(node({ type: 'situation', label: 'Work' }))
+    expect(mockTopic).toHaveBeenCalledWith('Work')
+    expect(res.success && res.data.entries.map((e) => e.id)).toEqual(['r1'])
   })
 
   it('surfaces the entries behind a belief node via the entity lookup', async () => {

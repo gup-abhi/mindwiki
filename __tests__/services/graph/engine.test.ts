@@ -72,14 +72,18 @@ describe('updateGraphForEntry', () => {
       ok({ id: `id-${++n}`, type, label, frequency: 1 })
     )
     mockUpsertEdge.mockResolvedValue(ok({}))
+    // Stub so getDb() (called by the public updateGraphForEntry to supply db to
+    // the impl) doesn't throw — all real DB calls are mocked via jest.mock anyway.
+    setDb({ execute: jest.fn(), transaction: jest.fn(), close: jest.fn() } as unknown as SqliteDatabase)
   })
+  afterEach(() => setDb(null))
 
   it('upserts a node per tag and an edge per co-occurring pair', async () => {
     await updateGraphForEntry(entry(), ['Work'], undefined, HIGH) // emotion + distortion + theme = 3 nodes
 
-    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
-    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
-    expect(mockUpsertNode).toHaveBeenCalledWith('situation', 'Work')
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety', expect.anything())
+    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing', expect.anything())
+    expect(mockUpsertNode).toHaveBeenCalledWith('situation', 'Work', expect.anything())
     // 3 nodes -> 3 unique pairs
     expect(mockUpsertEdge).toHaveBeenCalledTimes(3)
   })
@@ -88,7 +92,7 @@ describe('updateGraphForEntry', () => {
     await updateGraphForEntry(entry({ distortion: 'none' }), undefined, undefined, HIGH) // only emotion
 
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
-    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety', expect.anything())
     expect(mockUpsertEdge).not.toHaveBeenCalled()
   })
 
@@ -102,8 +106,8 @@ describe('updateGraphForEntry', () => {
 
     // only the emotion node — no duplicate "situation" node for the same word
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
-    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'loneliness')
-    expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Loneliness')
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'loneliness', expect.anything())
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Loneliness', expect.anything())
   })
 
   it('attaches a theme to an existing same-label node instead of duplicating it', async () => {
@@ -112,8 +116,8 @@ describe('updateGraphForEntry', () => {
     await updateGraphForEntry(entry({ distortion: 'none' }), ['Work'], undefined, HIGH) // emotion + theme "Work"
 
     // the theme reuses the existing place node — no second "situation" node
-    expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Work')
-    expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Work')
+    expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Work', expect.anything())
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Work', expect.anything())
   })
 
   it('skips a theme that repeats one of this entry\'s own entities', async () => {
@@ -122,8 +126,8 @@ describe('updateGraphForEntry', () => {
     )
     await updateGraphForEntry(entry({ distortion: 'none' }), ['gym'], undefined, HIGH) // theme echoes the place
 
-    expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Gym')
-    expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'gym')
+    expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Gym', expect.anything())
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'gym', expect.anything())
     expect(mockFindNode).not.toHaveBeenCalled() // resolved in-entry, no DB lookup needed
   })
 
@@ -132,8 +136,8 @@ describe('updateGraphForEntry', () => {
     await updateGraphForEntry(entry(), undefined, new Set(['emotion:anxiety']), HIGH)
 
     expect(mockUpsertNode).toHaveBeenCalledTimes(1)
-    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
-    expect(mockUpsertNode).not.toHaveBeenCalledWith('emotion', 'anxiety')
+    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing', expect.anything())
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('emotion', 'anxiety', expect.anything())
     expect(mockUpsertEdge).not.toHaveBeenCalled() // single surviving node → no pair
   })
 
@@ -146,9 +150,9 @@ describe('updateGraphForEntry', () => {
     )
     await updateGraphForEntry(entry({ distortion: 'none' }), undefined, undefined, HIGH) // emotion + 2 entities = 3 nodes
 
-    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
-    expect(mockUpsertNode).toHaveBeenCalledWith('person', 'Sarah')
-    expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Office')
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety', expect.anything())
+    expect(mockUpsertNode).toHaveBeenCalledWith('person', 'Sarah', expect.anything())
+    expect(mockUpsertNode).toHaveBeenCalledWith('place', 'Office', expect.anything())
     expect(mockUpsertEdge).toHaveBeenCalledTimes(3) // 3 nodes -> 3 pairs
   })
 
@@ -166,9 +170,9 @@ describe('updateGraphForEntry', () => {
       await updateGraphForEntry(entry(), ['Work'], undefined, sup)
 
       expect(mockUpsertNode).toHaveBeenCalledTimes(1)
-      expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
-      expect(mockUpsertNode).not.toHaveBeenCalledWith('distortion', 'catastrophizing')
-      expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Work')
+      expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety', expect.anything())
+      expect(mockUpsertNode).not.toHaveBeenCalledWith('distortion', 'catastrophizing', expect.anything())
+      expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Work', expect.anything())
       expect(mockUpsertEdge).not.toHaveBeenCalled() // one node → no pair
     })
   })
@@ -198,7 +202,7 @@ describe('rebuildGraph', () => {
   const groupBy = (sql: string): { rows: Record<string, unknown>[]; rowsAffected: number } | null => {
     if (/GROUP BY emotion/.test(sql)) return { rows: [{ k: 'anxiety', n: 2 }, { k: 'calm', n: 2 }], rowsAffected: 0 }
     if (/GROUP BY distortion/.test(sql)) return { rows: [{ k: 'catastrophizing', n: 2 }], rowsAffected: 0 }
-    if (/GROUP BY topic/.test(sql)) return { rows: [], rowsAffected: 0 }
+    if (/COUNT\(DISTINCT eid\)/.test(sql)) return { rows: [], rowsAffected: 0 } // topic UNION support
     if (/FROM entry_entities GROUP BY/.test(sql)) return { rows: [], rowsAffected: 0 }
     return null
   }
@@ -233,10 +237,89 @@ describe('rebuildGraph', () => {
 
     expect(res.success).toBe(true)
     expect(deletes).toHaveLength(2) // edges + nodes cleared first
-    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety')
-    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
-    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'calm')
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'anxiety', expect.anything())
+    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing', expect.anything())
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'calm', expect.anything())
     expect(mockUpsertEdge).toHaveBeenCalledTimes(1) // e1: 2 nodes→1 edge; e2: 1 node→0
+  })
+
+  it('does NOT stamp the graph backlog when one entry\'s update fails', async () => {
+    // listEntitiesForEntry throwing makes that entry's updateGraphForEntry return
+    // err — the rebuild must then leave graph_indexed_at unset so catch-up retries,
+    // instead of marking every entry healed with the failed one's signals missing.
+    mockListEntities.mockRejectedValueOnce(new Error('bad row'))
+    const rows = [
+      entry({ id: 'e1', emotion: 'anxiety', distortion: 'catastrophizing' }),
+      entry({ id: 'e2', emotion: 'calm', distortion: 'none' }),
+    ]
+    let stamped = false
+    const fakeDb = {
+      async execute(sql: string) {
+        if (/^DELETE FROM/.test(sql)) return { rows: [], rowsAffected: 0 }
+        const g = groupBy(sql)
+        if (g) return g
+        if (/^SELECT \* FROM entries/.test(sql)) return { rows, rowsAffected: 0 }
+        if (/^UPDATE entries SET graph_indexed_at/.test(sql)) {
+          stamped = true
+          return { rows: [], rowsAffected: 0 }
+        }
+        throw new Error(`unhandled SQL: ${sql}`)
+      },
+      async transaction(fn: (tx: SqliteDatabase) => Promise<void>) {
+        await fn(fakeDb)
+      },
+      close() {},
+    } as unknown as SqliteDatabase
+    setDb(fakeDb)
+
+    const res = await rebuildGraph()
+
+    expect(res.success).toBe(true) // best-effort — the rebuild itself doesn't fail
+    expect(stamped).toBe(false) // backlog left for the next launch's catch-up
+  })
+
+  it('serializes a live update against a rebuild (no interleaving)', async () => {
+    // Record the order DELETE (rebuild) and the live entry's entity read happen.
+    // With the mutex, the whole rebuild completes before the live update starts —
+    // its DELETEs are never interleaved between the live update's node upserts.
+    const order: string[] = []
+    mockListEntities.mockImplementation(async (entryId: string) => {
+      order.push(entryId === 'live' ? 'live-entities-read' : 'rebuild-entities-read')
+      return ok([])
+    })
+    const rows = [entry({ id: 'e1', emotion: 'anxiety', distortion: 'none' })]
+    const fakeDb = {
+      async execute(sql: string) {
+        if (/^DELETE FROM/.test(sql)) {
+          order.push('rebuild-delete')
+          return { rows: [], rowsAffected: 0 }
+        }
+        const g = groupBy(sql)
+        if (g) return g
+        if (/^SELECT \* FROM entries/.test(sql)) return { rows, rowsAffected: 0 }
+        if (/^UPDATE entries SET graph_indexed_at/.test(sql)) return { rows: [], rowsAffected: 0 }
+        throw new Error(`unhandled SQL: ${sql}`)
+      },
+      async transaction(fn: (tx: SqliteDatabase) => Promise<void>) {
+        await fn(fakeDb)
+      },
+      close() {},
+    } as unknown as SqliteDatabase
+    setDb(fakeDb)
+
+    // Kick off a rebuild and a live update together; the lock must run them
+    // one-after-another, not interleaved.
+    await Promise.all([
+      rebuildGraph(),
+      updateGraphForEntry(entry({ id: 'live', emotion: 'calm', distortion: 'none' }), [], undefined, HIGH),
+    ])
+
+    // Both rebuild DELETEs land before the live update reads its entities —
+    // the rebuild finished entirely before the live update began.
+    const liveIdx = order.indexOf('live-entities-read')
+    const lastDelete = order.lastIndexOf('rebuild-delete')
+    expect(lastDelete).toBeGreaterThanOrEqual(0)
+    expect(liveIdx).toBeGreaterThan(lastDelete)
   })
 
   it('loads dropped nodes once and excludes them from the whole rebuild', async () => {
@@ -265,8 +348,8 @@ describe('rebuildGraph', () => {
     await rebuildGraph()
 
     expect(mockLoadDismissed).toHaveBeenCalledTimes(1) // once for the rebuild, not per entry
-    expect(mockUpsertNode).not.toHaveBeenCalledWith('emotion', 'anxiety')
-    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing')
-    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'calm')
+    expect(mockUpsertNode).not.toHaveBeenCalledWith('emotion', 'anxiety', expect.anything())
+    expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing', expect.anything())
+    expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'calm', expect.anything())
   })
 })

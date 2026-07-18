@@ -28,14 +28,39 @@ export interface ProcessResult {
 }
 
 /**
+ * Drop later entries whose trimmed label case-insensitively repeats an earlier
+ * one, preserving order and the first occurrence's original casing. Used to
+ * collapse duplicate extracted themes (topic == topic2) before they double-count
+ * in the graph recurrence gate.
+ */
+function dedupeCaseInsensitive(labels: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const label of labels) {
+    const key = label.trim().toLowerCase()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(label)
+  }
+  return out
+}
+
+/**
  * Persist a deep extraction onto an entry and fan it out to the knowledge base:
  * apply the tags, persist entities (the wiki recurrence count reads them), then
  * the recurrence-gated graph + wiki synthesis. Shared by the journal flow and
  * Reflect-chat capture so there is one indexing path. Best-effort, never throws.
  */
 async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
-  const primaryTopic = ex.topics[0] ?? ''
-  const secondaryTopic = ex.topics[1] ?? ''
+  // Dedupe the extracted themes case-insensitively before anything reads them:
+  // the deep model can emit the same theme as both topic and topic2. Persisting
+  // both would double-count the entry in the situation recurrence gate — the live
+  // path increments the one node twice, and precomputedSupport (rebuild) sums the
+  // topic + topic2 distributions, so a single entry passes the ≥2 gate. Keep the
+  // first occurrence's original casing.
+  const dedupedTopics = dedupeCaseInsensitive(ex.topics)
+  const primaryTopic = dedupedTopics[0] ?? ''
+  const secondaryTopic = dedupedTopics[1] ?? ''
   await applyTags(entry.id, {
     emotion: ex.emotion,
     distortion: ex.distortion,
@@ -66,7 +91,7 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // refocus. Mirrors what a sync pull does.
   useSyncStore.getState().bumpRevision()
 
-  const topics = ex.topics.filter((t) => t.length > 0).slice(0, 2)
+  const topics = dedupedTopics.filter((t) => t.length > 0).slice(0, 2)
   const taggedEntry: Entry = {
     ...entry,
     emotion: ex.emotion,

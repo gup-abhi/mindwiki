@@ -58,6 +58,13 @@ function rowToEdge(row: Record<string, unknown>): GraphEdge {
 /**
  * Additive node upsert: increments frequency if (type,label) exists, else
  * creates it at frequency 1. Returns the resulting node.
+ *
+ * Single-statement INSERT … ON CONFLICT so the read-modify-write is atomic —
+ * two interleaved calls for the same (type,label) can't both read freq=N and
+ * both write N+1 (lost increment), and the conflict target is the DB's own
+ * UNIQUE(type,label) index. Migration 028 made `label` COLLATE NOCASE so the
+ * conflict is case-insensitive too, matching every app-level NOCASE lookup:
+ * "Work" and "work" resolve to one node instead of racing two inserts.
  */
 export async function upsertNode(
   type: NodeType,
@@ -66,32 +73,20 @@ export async function upsertNode(
 ): Promise<Result<GraphNode>> {
   try {
     const now = Date.now()
-    const existing = await db.execute(
+    await db.execute(
+      `INSERT INTO graph_nodes (id, type, label, frequency, created_at, updated_at)
+       VALUES (?, ?, ?, 1, ?, ?)
+       ON CONFLICT(type, label) DO UPDATE SET frequency = frequency + 1, updated_at = excluded.updated_at`,
+      [randomUUID(), type, label, now, now]
+    )
+    // Read back the resulting row (its id may be the pre-existing one on update).
+    const res = await db.execute(
       'SELECT * FROM graph_nodes WHERE type = ? AND label = ? COLLATE NOCASE',
       [type, label]
     )
-    const row = existing.rows[0]
-    if (row) {
-      const node = rowToNode(row)
-      await db.execute(
-        'UPDATE graph_nodes SET frequency = ?, updated_at = ? WHERE id = ?',
-        [node.frequency + 1, now, node.id]
-      )
-      return ok({ ...node, frequency: node.frequency + 1, updated_at: now })
-    }
-    const node: GraphNode = {
-      id: randomUUID(),
-      type,
-      label,
-      frequency: 1,
-      created_at: now,
-      updated_at: now,
-    }
-    await db.execute(
-      'INSERT INTO graph_nodes (id, type, label, frequency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [node.id, node.type, node.label, 1, now, now]
-    )
-    return ok(node)
+    const row = res.rows[0]
+    if (!row) return err('GRAPH_NODE_UPSERT_FAILED', 'Node vanished after upsert')
+    return ok(rowToNode(row))
   } catch (e) {
     return err('GRAPH_NODE_UPSERT_FAILED', 'Failed to upsert graph node', e)
   }
@@ -110,33 +105,21 @@ export async function upsertEdge(
   try {
     const [source_id, target_id] = [nodeA, nodeB].sort()
     const now = Date.now()
-    const existing = await db.execute(
+    // Atomic single-statement upsert on the UNIQUE(source_id,target_id) index —
+    // no lost-increment race under interleaved calls (see upsertNode).
+    await db.execute(
+      `INSERT INTO graph_edges (id, source_id, target_id, weight, created_at, updated_at)
+       VALUES (?, ?, ?, 1, ?, ?)
+       ON CONFLICT(source_id, target_id) DO UPDATE SET weight = weight + 1, updated_at = excluded.updated_at`,
+      [randomUUID(), source_id, target_id, now, now]
+    )
+    const res = await db.execute(
       'SELECT * FROM graph_edges WHERE source_id = ? AND target_id = ?',
       [source_id, target_id]
     )
-    const row = existing.rows[0]
-    if (row) {
-      const edge = rowToEdge(row)
-      await db.execute('UPDATE graph_edges SET weight = ?, updated_at = ? WHERE id = ?', [
-        edge.weight + 1,
-        now,
-        edge.id,
-      ])
-      return ok({ ...edge, weight: edge.weight + 1, updated_at: now })
-    }
-    const edge: GraphEdge = {
-      id: randomUUID(),
-      source_id,
-      target_id,
-      weight: 1,
-      created_at: now,
-      updated_at: now,
-    }
-    await db.execute(
-      'INSERT INTO graph_edges (id, source_id, target_id, weight, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [edge.id, edge.source_id, edge.target_id, 1, now, now]
-    )
-    return ok(edge)
+    const row = res.rows[0]
+    if (!row) return err('GRAPH_EDGE_UPSERT_FAILED', 'Edge vanished after upsert')
+    return ok(rowToEdge(row))
   } catch (e) {
     return err('GRAPH_EDGE_UPSERT_FAILED', 'Failed to upsert graph edge', e)
   }
@@ -247,26 +230,30 @@ export async function dismissNode(
   try {
     const id = nodeDismissalKey(type, label)
     const now = Date.now()
-    await db.execute(
-      `INSERT INTO graph_node_dismissals (id, type, label, dismissed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET dismissed_at = excluded.dismissed_at, updated_at = excluded.updated_at`,
-      [id, type, label, now, now]
-    )
-    // Remove the live node(s) + their edges so the change shows immediately.
-    const existing = await db.execute(
-      'SELECT id FROM graph_nodes WHERE type = ? AND label = ? COLLATE NOCASE',
-      [type, label]
-    )
-    for (const row of existing.rows) {
-      const nodeId = String(row.id)
-      await db.execute('DELETE FROM graph_edges WHERE source_id = ? OR target_id = ?', [
-        nodeId,
-        nodeId,
-      ])
-      await db.execute('DELETE FROM graph_nodes WHERE id = ?', [nodeId])
-    }
-    await enqueueUpsert('graph_node_dismissals', id, db)
+    // One transaction so the dismissal flag, the live node/edge removal, and the
+    // sync enqueue land together — a crash mid-way can't leave a half-dropped node.
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        `INSERT INTO graph_node_dismissals (id, type, label, dismissed_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET dismissed_at = excluded.dismissed_at, updated_at = excluded.updated_at`,
+        [id, type, label, now, now]
+      )
+      // Remove the live node(s) + their edges so the change shows immediately.
+      const existing = await tx.execute(
+        'SELECT id FROM graph_nodes WHERE type = ? AND label = ? COLLATE NOCASE',
+        [type, label]
+      )
+      for (const row of existing.rows) {
+        const nodeId = String(row.id)
+        await tx.execute('DELETE FROM graph_edges WHERE source_id = ? OR target_id = ?', [
+          nodeId,
+          nodeId,
+        ])
+        await tx.execute('DELETE FROM graph_nodes WHERE id = ?', [nodeId])
+      }
+      await enqueueUpsert('graph_node_dismissals', id, tx)
+    })
     return ok(undefined)
   } catch (e) {
     return err('GRAPH_NODE_DISMISS_FAILED', 'Failed to drop graph node', e)

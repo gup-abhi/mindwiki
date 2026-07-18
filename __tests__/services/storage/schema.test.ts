@@ -46,8 +46,9 @@ describe('migration 001 (initial schema)', () => {
     const result = await runMigrations(db, MIGRATIONS)
 
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27])
+    if (result.success)
+      expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -91,6 +92,18 @@ describe('migration 003 (entry entities)', () => {
     const nodesAt = stmts.findIndex((s) => s.includes('CREATE TABLE graph_nodes'))
     const edgesAt = stmts.findIndex((s) => s.includes('CREATE TABLE graph_edges'))
     expect(nodesAt).toBeLessThan(edgesAt)
+  })
+})
+
+describe('migration 028 (graph_nodes label NOCASE)', () => {
+  it('is registered as version 28 and recreates the graph tables', () => {
+    expect(MIGRATIONS[27].version).toBe(28)
+    expect(MIGRATIONS[27].name).toBe('graph_nodes_label_nocase')
+    const stmts = MIGRATIONS[27].statements
+    // graph_nodes dropped + recreated so the UNIQUE index is case-insensitive.
+    expect(stmts.some((s) => s.includes('DROP TABLE graph_nodes'))).toBe(true)
+    const recreate = stmts.find((s) => s.includes('CREATE TABLE graph_nodes'))
+    expect(recreate).toContain('COLLATE NOCASE')
   })
 })
 

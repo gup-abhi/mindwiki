@@ -25,11 +25,16 @@ export interface LayoutOptions {
 export function computeLayout(
   nodeIds: string[],
   edges: LayoutEdge[],
-  { width, height, iterations = 100 }: LayoutOptions
+  { width, height, iterations }: LayoutOptions
 ): Map<string, Point> {
   const pos = new Map<string, Point>()
   const n = nodeIds.length
   if (n === 0) return pos
+
+  // Each iteration is O(n²) (all-pairs repulsion), so a large graph on the JS
+  // thread janks. Scale iterations down past a few hundred nodes — the layout is
+  // still legible with fewer passes at that size. An explicit `iterations` wins.
+  const iters = iterations ?? (n > 300 ? 40 : 100)
 
   const k = Math.sqrt((width * height) / n) // ideal edge length
   const cx = width / 2
@@ -43,7 +48,7 @@ export function computeLayout(
 
   let temp = width / 10
 
-  for (let iter = 0; iter < iterations; iter++) {
+  for (let iter = 0; iter < iters; iter++) {
     const disp = new Map<string, Point>(nodeIds.map((id) => [id, { x: 0, y: 0 }]))
 
     // Repulsion between every pair.
