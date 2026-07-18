@@ -25,6 +25,24 @@ const DB_NAME = 'mindwiki.db'
 
 let dbInstance: SqliteDatabase | null = null
 
+// Wipe guard (I5, docs/AUTH_DB_LIFECYCLE.md): set for the duration of a logout
+// wipe so no background work (sync, LLM pipeline) can grab the DB handle while
+// it's being deleted. getDb() fails closed while set; callers that Result-wrap
+// getDb() degrade to an error instead of touching a half-deleted native handle.
+let wiping = false
+
+export function beginWipe(): void {
+  wiping = true
+}
+
+export function endWipe(): void {
+  wiping = false
+}
+
+export function isWiping(): boolean {
+  return wiping
+}
+
 /**
  * Open the encrypted database (SQLCipher via op-sqlite) and apply connection
  * PRAGMAs. The encryption key comes from the Keychain (CryptoModule) — never
@@ -49,6 +67,11 @@ export async function initDb(encryptionKey: string): Promise<Result<SqliteDataba
 }
 
 export function getDb(): SqliteDatabase {
+  // Fail closed during a wipe (I5): the handle is about to be deleted, so refuse
+  // to hand it out rather than let a background caller run against it.
+  if (wiping) {
+    throw new Error('Database is being wiped')
+  }
   if (!dbInstance) {
     throw new Error('Database not initialized — call initDb() first')
   }

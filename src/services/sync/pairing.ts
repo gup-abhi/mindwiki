@@ -6,6 +6,7 @@ import { authenticatedFetch } from '@/services/auth/api-client'
 import { API_URL } from '@/services/auth/config'
 import { getDeviceId } from '@/services/auth/device-id'
 import { saveTokens } from '@/services/auth/token-store'
+import { repairInterruptedWipe } from '@/services/auth/wipe-marker'
 import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
@@ -73,6 +74,7 @@ export async function redeemPairing(raw: string): Promise<Result<{ accountId: st
   const parsed = parsePairingPayload(raw)
   if (!parsed.success) return parsed
   try {
+    await repairInterruptedWipe()
     const res = await fetch(`${API_URL}/auth/pair/redeem`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -93,6 +95,7 @@ export async function redeemPairing(raw: string): Promise<Result<{ accountId: st
       refresh_token: string
     }
     await CryptoModule.setKeyInKeychain(parsed.data.key)
+    await CryptoModule.setKeyOwner(data.account_id) // R3: this key belongs to this account
     await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
     // Paired device starts empty until the first pull — reassure the user.
     useSyncStore.getState().beginRestore()

@@ -5,6 +5,11 @@ import argon2, { type Argon2Options } from 'react-native-argon2'
 import { notImplemented } from './notImplemented'
 
 const MASTER_KEY_ID = 'mindwiki.master_key'
+// Which account the installed master key belongs to. Written at every key
+// install/first-escrow; checked before opening the DB (account isolation, R3 in
+// docs/AUTH_DB_LIFECYCLE.md). Detects an *inherited* key that decrypt-failure
+// cannot — a same-key foreign DB opens cleanly, so ID comparison is the guard.
+const KEY_OWNER_ID = 'mindwiki.key_owner'
 
 // Argon2id params for password → 256-bit wrapping key. 64 MiB / 3 iterations is
 // comfortably above OWASP's mobile minimum; saltEncoding 'hex' because our salt
@@ -40,6 +45,12 @@ export interface ICryptoModule {
   setKeyInKeychain(key: string): Promise<void>
   /** Remove the master key from the OS keystore (e.g. on logout). */
   deleteKeyFromKeychain(): Promise<void>
+  /** Record which account the installed master key belongs to (R3). */
+  setKeyOwner(accountId: string): Promise<void>
+  /** Read the account the installed master key belongs to, or null if unset. */
+  getKeyOwner(): Promise<string | null>
+  /** Remove the key-owner marker (part of a full wipe). */
+  deleteKeyOwner(): Promise<void>
   /** AES-256-GCM encrypt. */
   encrypt(plaintext: string, keyHex: string): Promise<string>
   /** AES-256-GCM decrypt. */
@@ -70,6 +81,15 @@ export const CryptoModule: ICryptoModule = {
   },
   async deleteKeyFromKeychain() {
     await SecureStore.deleteItemAsync(MASTER_KEY_ID)
+  },
+  async setKeyOwner(accountId: string) {
+    await SecureStore.setItemAsync(KEY_OWNER_ID, accountId)
+  },
+  async getKeyOwner() {
+    return SecureStore.getItemAsync(KEY_OWNER_ID)
+  },
+  async deleteKeyOwner() {
+    await SecureStore.deleteItemAsync(KEY_OWNER_ID)
   },
   async encrypt() {
     return notImplemented('CryptoModule.encrypt')

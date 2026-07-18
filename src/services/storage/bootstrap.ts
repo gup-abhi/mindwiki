@@ -1,5 +1,6 @@
 import { CryptoModule } from '@/native/CryptoModule'
 import { rebuildGraph } from '@/services/graph/engine'
+import { clearTokens, getTokens } from '@/services/auth/token-store'
 import { dedupeTopics } from '@/services/wiki/dedupe'
 import { catchUpUnindexed } from '@/services/pipeline'
 import { type AppError, type Result, ok, err } from '@/types/result'
@@ -31,6 +32,22 @@ const DEDUPE_TOPICS_FLAG = 'maintenance:dedupe_topics_v1'
  * use. Returns Result — the caller decides how to surface failure.
  */
 export async function initStorage(): Promise<Result<void>> {
+  // Explicit key-ownership check (R3, docs/AUTH_DB_LIFECYCLE.md): if the key in
+  // the keystore was installed for a different account than the one whose session
+  // we hold, this is an inherited-key state — the foreign DB would decrypt cleanly
+  // under the shared key, so decrypt-failure self-heal (below) can't catch it.
+  // Wipe key + DB + tokens and fail to the login screen. Only fires when BOTH the
+  // owner marker and the session accountId are present and disagree; a missing
+  // owner marker (pre-R3 installs) is tolerated and left to the self-heal backstop.
+  const [owner, tokens] = await Promise.all([CryptoModule.getKeyOwner(), getTokens()])
+  if (owner && tokens && owner !== tokens.accountId) {
+    deleteDatabase()
+    await CryptoModule.deleteKeyFromKeychain()
+    await CryptoModule.deleteKeyOwner()
+    await clearTokens()
+    return err('STORAGE_FOREIGN_KEY', 'Database key belongs to a different account')
+  }
+
   let key: string
   try {
     key = await CryptoModule.getKeyFromKeychain()

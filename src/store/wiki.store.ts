@@ -8,6 +8,8 @@ export interface WikiStatusState {
   pending: number
   begin: () => void
   end: () => void
+  // Reset to initial on session end (logout / account switch).
+  reset: () => void
 }
 
 export const useWikiStore = create<WikiStatusState>()(
@@ -20,6 +22,10 @@ export const useWikiStore = create<WikiStatusState>()(
     end: () =>
       set((s) => {
         s.pending = Math.max(0, s.pending - 1)
+      }),
+    reset: () =>
+      set((s) => {
+        s.pending = 0
       }),
   }))
 )
