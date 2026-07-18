@@ -2,7 +2,7 @@ import { getEntry } from '@/services/storage/entries'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
 import { lineageForEntry } from '@/services/wiki/engine'
-import { areModelsReady, downloadModel } from '@/services/llm/model-manager'
+import { areModelsReady, downloadModel, isModelDownloaded } from '@/services/llm/model-manager'
 import { triggerCatchUp } from '@/services/pipeline'
 import { useAuthStore } from '@/store/auth.store'
 
@@ -10,6 +10,15 @@ import { useAuthStore } from '@/store/auth.store'
 const FIRST_RUN_FLAG = 'onboarding:first_run_complete'
 const FIRST_RUN_STARTED = 'onboarding:first_run_started'
 const FIRST_RUN_ENTRY_IDS = 'onboarding:first_run_entry_ids'
+// Set once the welcome tour is dismissed, so a kill DURING the carousel re-shows
+// the tour on relaunch (this marker stays unset), while a kill AFTER it resumes
+// the guided path directly (FIRST_RUN_STARTED is set by then).
+export const FIRST_RUN_TOUR_DONE = 'onboarding:first_run_tour_done'
+// One-shot marker carrying the first synthesized wiki page's {id,title} so Home
+// can surface a deferred "your first insight page is ready" banner/notification
+// after the deep model finishes — the aha moment, deferred not lost.
+export const FIRST_RUN_PAGE_READY = 'onboarding:first_run_page_ready'
+const ANNOUNCE_POLL_TIMEOUT_MS = 10_000
 
 // The path most suitable for a first-run — broad appeal, 4 prompts (not
 // too long), no specific external event needed.
@@ -108,6 +117,116 @@ export async function markFirstRunComplete(entryIds: string[]): Promise<void> {
 }
 
 /**
+ * Mark the welcome tour as dismissed. Durable (per-account DB setting) so a kill
+ * AFTER dismissing the carousel doesn't re-show the tour on relaunch — only a
+ * kill DURING the carousel (before this is set) does. Best-effort, never throws.
+ */
+export async function markFirstRunTourDone(): Promise<void> {
+  await setSetting(FIRST_RUN_TOUR_DONE, '1').catch(() => undefined)
+}
+
+/** True once the welcome tour has been dismissed this account. Best-effort. */
+export async function isFirstRunTourDone(): Promise<boolean> {
+  const res = await getSetting(FIRST_RUN_TOUR_DONE)
+  return res.success && res.data === '1'
+}
+
+/** True iff the first-run funnel hasn't marked complete — the gate the decoupled
+ *  download kick (AppRoot) uses to start models on launch even if the carousel
+ *  was skipped mid-way. Best-effort: treats read failure as "incomplete". */
+export async function isOnboardingIncomplete(): Promise<boolean> {
+  const res = await getSetting(FIRST_RUN_FLAG)
+  return !(res.success && res.data === '1')
+}
+
+/**
+ * Store the first synthesized wiki page so Home can show a deferred banner after
+ * the deep model finishes. Best-effort, never throws.
+ */
+export async function markFirstRunPageReady(pageId: string, title: string): Promise<void> {
+  await setSetting(FIRST_RUN_PAGE_READY, JSON.stringify({ id: pageId, title })).catch(
+    () => undefined
+  )
+}
+
+/**
+ * Read (and clear) the deferred first-page-ready marker. One-shot: a second call
+ * returns null so the banner/notification never re-fires. Returns null on miss or
+ * parse error (treated as already-announced). Best-effort, never throws.
+ */
+export async function getFirstRunPageReady(): Promise<{ id: string; title: string } | null> {
+  try {
+    const res = await getSetting(FIRST_RUN_PAGE_READY)
+    if (!res.success || !res.data) return null
+    // Clear unconditionally first so a crash mid-read can't re-announce.
+    await setSetting(FIRST_RUN_PAGE_READY, '').catch(() => undefined)
+    const parsed: unknown = JSON.parse(res.data)
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as { id?: unknown }).id === 'string' &&
+      typeof (parsed as { title?: unknown }).title === 'string'
+    ) {
+      return parsed as { id: string; title: string }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Called from catch-up after the deep model heals first-run entries. If the
+ * first run is complete AND those entries have now synthesized into a wiki page,
+ * record the page-ready marker and return it so the caller fires a notification.
+ * Idempotent across passes: once the marker is set, subsequent calls return null.
+ * Best-effort, never throws.
+ */
+export async function announceFirstRunPageIfPending(): Promise<{ id: string; title: string } | null> {
+  try {
+    // Only for a completed first run; an in-progress run's path runner routes live.
+    const complete = await getSetting(FIRST_RUN_FLAG)
+    if (!(complete.success && complete.data === '1')) return null
+
+    // Already announced — don't re-fire.
+    const existing = await getSetting(FIRST_RUN_PAGE_READY)
+    if (existing.success && existing.data) return null
+
+    const idsRes = await getSetting(FIRST_RUN_ENTRY_IDS)
+    if (!idsRes.success || !idsRes.data) return null
+    let entryIds: string[] = []
+    try {
+      const parsed: unknown = JSON.parse(idsRes.data)
+      if (Array.isArray(parsed)) entryIds = parsed.filter((x): x is string => typeof x === 'string')
+    } catch {
+      return null
+    }
+    if (entryIds.length === 0) return null
+
+    const page = await firstWikiPage(entryIds, ANNOUNCE_POLL_TIMEOUT_MS)
+    if (!page) return null
+    await markFirstRunPageReady(page.id, page.title)
+    return page
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Generic one-time-hint helpers (progressive discovery, P8). `key` is namespaced
+ * under `hint:` so it never collides with first-run markers. Best-effort.
+ */
+const HINT_PREFIX = 'hint:'
+export async function getHintSeen(key: string): Promise<boolean> {
+  const res = await getSetting(`${HINT_PREFIX}${key}`)
+  return res.success && res.data === '1'
+}
+
+export async function markHintSeen(key: string): Promise<void> {
+  await setSetting(`${HINT_PREFIX}${key}`, '1').catch(() => undefined)
+}
+
+/**
  * Poll for the first wiki page created from a set of entries. Used by the
  * completion flow to route the user to their first insight page. Times out
  * after pollTimeoutMs (default 20s on Wi-Fi — most synthesis finishes in
@@ -122,6 +241,10 @@ export async function firstWikiPage(
   pollTimeoutMs: number = DEFAULT_POLL_TIMEOUT_MS
 ): Promise<{ id: string; title: string } | null> {
   if (entryIds.length === 0) return null
+  // No deep model ⇒ synthesis can't have produced a page yet. Skip the poll
+  // entirely so the finish flow can defer the aha moment instead of spinning
+  // uselessly for 20s against a guaranteed timeout.
+  if (!(await isModelDownloaded('deep'))) return null
 
   const deadline = Date.now() + pollTimeoutMs
 

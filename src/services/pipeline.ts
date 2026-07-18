@@ -20,6 +20,8 @@ import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { updateWikiForEntry } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
 import { useSyncStore } from '@/store/sync.store'
+import { announceFirstRunPageIfPending } from '@/services/onboarding/first-run'
+import { sendFirstPageReadyNotification, onEntrySaved } from '@/services/notifications/scheduler'
 
 export interface ProcessResult {
   crisis: CrisisAssessment
@@ -137,6 +139,13 @@ export async function catchUpUnindexed(): Promise<void> {
       await extractThenIndex(entry)
     }
   }
+
+  // Deferred aha moment (P1): if the first run completed but its entries were
+  // synthesized only just now (the deep model was absent during the funnel), the
+  // path runner deferred. Now those entries have pages — announce once via a Home
+  // banner marker + a local notification. Idempotent across passes via the marker.
+  const readyPage = await announceFirstRunPageIfPending()
+  if (readyPage) void sendFirstPageReadyNotification(readyPage)
 
   // Pass 2: entries tagged but whose wiki synthesis was interrupted (tagged_at is
   // set before the fire-and-forget wiki step). Re-run ONLY the wiki step — tags
@@ -459,6 +468,12 @@ export async function capturePathAnswers(answers: string[]): Promise<PathCapture
 
   // Enrich each entry (tags → graph + wiki) in the background — never blocks completion.
   void indexPathEntries(created)
+
+  // Arm the habit loop: a completed path is a deliberate act of reflection, so it
+  // deserves the same notification-permission ask, activity record, and reminder
+  // arming as a journal save (P6). onEntrySaved self-gates the prompt to once.
+  // Fire-and-forget — never blocks completion.
+  void onEntrySaved(Date.now())
 
   return { crisis, entryIds: created.map((e) => e.id) }
 }

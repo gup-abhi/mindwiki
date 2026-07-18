@@ -18,6 +18,12 @@ jest.mock('@/hooks/useSync', () => ({ useSync: jest.fn() }))
 // carousel CTA; stub it so the gate tests don't touch the model manager.
 jest.mock('@/services/onboarding/first-run', () => ({
   beginOnboardingModelDownload: jest.fn(),
+  isFirstRunTourDone: jest.fn().mockResolvedValue(false),
+  isOnboardingIncomplete: jest.fn().mockResolvedValue(false),
+  markFirstRunTourDone: jest.fn().mockResolvedValue(undefined),
+}))
+jest.mock('@/services/llm/model-manager', () => ({
+  areModelsReady: jest.fn().mockResolvedValue(true),
 }))
 // ThemeProvider hydrates the saved theme preference from settings once
 // authenticated; stub it so the gate test doesn't touch the encrypted DB.
@@ -27,7 +33,10 @@ jest.mock('@/services/storage/settings', () => ({
 }))
 jest.mock('expo-router', () => {
   const { Text } = require('react-native')
-  return { Stack: () => <Text>stack-rendered</Text> }
+  return {
+    Stack: () => <Text>stack-rendered</Text>,
+    useRouter: () => ({ push: jest.fn() }),
+  }
 })
 // useFirstRunRedirect fires router.replace; stub it in layout tests so the
 // route tree doesn't change during gate tests.

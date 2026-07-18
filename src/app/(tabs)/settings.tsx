@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Modal, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 
@@ -11,6 +12,7 @@ import { DevReGround } from '@/components/DevReGround'
 import { DevConnectionCleanup } from '@/components/DevConnectionCleanup'
 import { DevEmotionPlaceholderBackfill } from '@/components/DevEmotionPlaceholderBackfill'
 import { DevEmbedProbe } from '@/components/DevEmbedProbe'
+import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
 import { useBiometricLock } from '@/hooks/useBiometricLock'
@@ -51,11 +53,18 @@ export default function Settings() {
   } = useDevices()
   const { logout } = useAuth()
 
+  const [showTour, setShowTour] = useState(false)
+
   return (
     <Screen scroll>
       {phrase && (
         <Modal visible animationType="slide" onRequestClose={done}>
           <RecoveryPhraseView phrase={phrase} onConfirm={done} />
+        </Modal>
+      )}
+      {showTour && (
+        <Modal visible animationType="slide" onRequestClose={() => setShowTour(false)}>
+          <OnboardingCarousel onDone={() => setShowTour(false)} />
         </Modal>
       )}
 
@@ -75,6 +84,18 @@ export default function Settings() {
           />
         ))}
       </View>
+
+      <Card
+        variant="sunken"
+        onPress={() => setShowTour(true)}
+        testID="settings-replay-tour"
+        style={styles.tourCard}
+      >
+        <Text variant="bodyStrong">Replay the welcome tour</Text>
+        <Text variant="caption" color="textSecondary" style={styles.hint}>
+          See the introduction again — no download required.
+        </Text>
+      </Card>
 
       <Text variant="label" color="textMuted" style={styles.section}>
         Calm
@@ -273,5 +294,6 @@ const makeStyles = (t: Theme) =>
     syncMessage: { textAlign: 'center', marginTop: t.spacing.md },
     error: { marginTop: t.spacing.sm },
     hint: { marginTop: t.spacing.xs },
+    tourCard: { marginTop: t.spacing.lg },
     logout: { marginTop: t.spacing.xl },
   })

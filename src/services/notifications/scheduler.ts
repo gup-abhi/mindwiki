@@ -195,6 +195,36 @@ export async function scheduleWeeklyDigest(): Promise<Result<void>> {
   }
 }
 
+const FIRST_PAGE_READY_ID = 'mindwiki-first-page-ready'
+
+/**
+ * Fire one immediate local notification announcing the user's first synthesized
+ * insight page — the deferred aha moment, delivered once the deep model has
+ * finished weaving the first-run entries. `data.wikiId` drives the tap deep-link
+ * (see the response listener in _layout). Cancels any prior instance first so a
+ * re-run can't duplicate. Best-effort, never throws.
+ */
+export async function sendFirstPageReadyNotification(page: {
+  id: string
+  title: string
+}): Promise<Result<void>> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(FIRST_PAGE_READY_ID).catch(() => {})
+    await Notifications.scheduleNotificationAsync({
+      identifier: FIRST_PAGE_READY_ID,
+      content: {
+        title: 'Your first insight page is ready',
+        body: `${page.title} — see what emerged from what you wrote.`,
+        data: { wikiId: page.id, route: `/wiki/${page.id}` },
+      },
+      trigger: null, // fire immediately
+    })
+    return ok(undefined)
+  } catch (e) {
+    return err('NOTIF_FIRST_PAGE_FAILED', 'Failed to announce first ready page', e)
+  }
+}
+
 /**
  * Run after an entry is saved: ask for notification permission once (after the
  * first entry, never on launch), record the activity, and re-arm the evening

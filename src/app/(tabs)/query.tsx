@@ -11,11 +11,13 @@ import {
   View,
 } from 'react-native'
 
-import { Card, IconButton, Screen, Text } from '@/components/ui'
+import { Card, Chip, IconButton, Screen, Text } from '@/components/ui'
 import { ConversationComposer } from '@/components/wiki/ConversationComposer'
 import { MessageBubble } from '@/components/wiki/MessageBubble'
 import { useConversation } from '@/hooks/useConversation'
 import { useChatStore } from '@/store/chat.store'
+import { getHintSeen, markHintSeen } from '@/services/onboarding/first-run'
+import { isModelDownloaded } from '@/services/llm/model-manager'
 import { CRISIS_RESOURCES } from '@/services/crisis/resources'
 import { GUIDED_PATHS } from '@/lib/guided-paths'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
@@ -48,6 +50,25 @@ export default function QueryScreen() {
   const router = useRouter()
   const isEmpty = messages.length === 0
   const [tab, setTab] = useState<'start' | 'history' | 'paths'>('start')
+  // One-time Reflect-tab intro hint (P8). null while checking; false → show; true → hide.
+  const [reflectHint, setReflectHint] = useState<boolean | null>(null)
+
+  // Resolve the hint once the deep model is ready (don't advertise before models).
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      const done = await getHintSeen('reflect_intro').catch(() => false)
+      if (!active) return
+      if (done) {
+        if (active) setReflectHint(true)
+        return
+      }
+      // Only show once the deep model is present (don't advertise a broken door).
+      const ready = await isModelDownloaded('deep').catch(() => false)
+      if (active) setReflectHint(ready)
+    })()
+    return () => { active = false }
+  }, [])
 
   // Tapping the Reflect tab always returns to the start screen (suggestions +
   // past conversations) — but returning from a pushed page (e.g. a source chip
@@ -171,6 +192,24 @@ export default function QueryScreen() {
               <Text variant="body" color="textSecondary" style={styles.intro}>
                 A private space to talk things through — grounded only in your own insights.
               </Text>
+
+              {reflectHint === false && (
+                <Card variant="sunken" style={styles.hintCard} testID="reflect-intro-hint">
+                  <View style={styles.hintRow}>
+                    <Text variant="caption" color="textSecondary" style={styles.hintText}>
+                      Reflect is your private companion — try one of the feeling chips above to start.
+                    </Text>
+                    <Chip
+                      label="Got it"
+                      onPress={() => {
+                        setReflectHint(true)
+                        void markHintSeen('reflect_intro')
+                      }}
+                      testID="reflect-intro-dismiss"
+                    />
+                  </View>
+                </Card>
+              )}
 
               <View style={styles.segments}>
                 <Pressable
@@ -339,6 +378,9 @@ const makeStyles = (t: Theme) =>
     },
     scrollContent: { paddingBottom: t.spacing.lg },
     intro: { marginBottom: t.spacing.lg },
+    hintCard: { marginBottom: t.spacing.md },
+    hintRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
+    hintText: { flex: 1 },
     segments: {
       flexDirection: 'row',
       backgroundColor: t.colors.surfaceAlt,

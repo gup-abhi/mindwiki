@@ -43,6 +43,13 @@ jest.mock('@/services/storage/entities', () => ({ setEntitiesForEntry: jest.fn()
 jest.mock('@/services/wiki/engine', () => ({ updateWikiForEntry: jest.fn() }))
 jest.mock('@/services/graph/engine', () => ({ updateGraphForEntry: jest.fn(), rebuildGraph: jest.fn() }))
 jest.mock('@/services/storage/settings', () => ({ getSetting: jest.fn(), setSetting: jest.fn() }))
+jest.mock('@/services/notifications/scheduler', () => ({
+  onEntrySaved: jest.fn().mockResolvedValue({ success: true, data: undefined }),
+  sendFirstPageReadyNotification: jest.fn().mockResolvedValue({ success: true, data: undefined }),
+}))
+jest.mock('@/services/onboarding/first-run', () => ({
+  announceFirstRunPageIfPending: jest.fn().mockResolvedValue(null),
+}))
 
 const mockBegin = jest.fn()
 const mockEnd = jest.fn()

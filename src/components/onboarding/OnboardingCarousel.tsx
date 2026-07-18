@@ -22,7 +22,8 @@ interface Slide {
 }
 
 // The whole-app tour, in the app's own voice. Pillars in order: the wiki is the
-// product, gentle CBT writing, growing insights, patterns, privacy.
+// product, gentle CBT writing, growing insights, the Reflect companion, patterns,
+// privacy.
 const SLIDES: readonly Slide[] = [
   {
     icon: 'sparkles-outline',
@@ -40,9 +41,14 @@ const SLIDES: readonly Slide[] = [
     body: 'Your entries synthesise into pages about the people, feelings and patterns that shape your days.',
   },
   {
+    icon: 'chatbubble-ellipses-outline',
+    title: 'Talk it through',
+    body: "Reflect is a companion that knows your patterns — not the internet's. The more you write, the better it understands you.",
+  },
+  {
     icon: 'stats-chart-outline',
     title: 'See the patterns',
-    body: 'Mood trends, a weekly digest, and connections between what keeps coming up for you.',
+    body: 'Mood trends, a weekly digest, and a Connections view of how they relate.',
   },
   {
     icon: 'lock-closed-outline',
@@ -51,13 +57,15 @@ const SLIDES: readonly Slide[] = [
   },
 ]
 
-/** One-time full-screen welcome tour. `onDone` fires on Skip or the final CTA. */
+/** One-time full-screen welcome tour. `onDone` fires on Skip (after consent) or
+ *  the final CTA. */
 export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const { width } = useWindowDimensions()
   const listRef = useRef<FlatList<Slide>>(null)
   const [index, setIndex] = useState(0)
+  const [confirmSkip, setConfirmSkip] = useState(false)
   const isLast = index === SLIDES.length - 1
 
   const goNext = () => {
@@ -69,6 +77,8 @@ export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
 
   const onScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     setIndex(Math.round(e.nativeEvent.contentOffset.x / width))
+    // Reset inline confirm when the user swipes (they chose to keep looking).
+    setConfirmSkip(false)
   }
 
   return (
@@ -76,11 +86,31 @@ export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
       <StatusBar style={theme.statusBar} />
 
       <View style={styles.skipRow}>
-        <Pressable onPress={onDone} hitSlop={8} testID="onboarding-skip">
-          <Text variant="label" color="textMuted">
-            {isLast ? '' : 'Skip'}
-          </Text>
-        </Pressable>
+        {confirmSkip ? (
+          <View style={styles.confirmRow}>
+            <Text variant="caption" color="textMuted" style={styles.confirmCopy}>
+              This downloads the on-device AI (~2.8 GB). Best on Wi-Fi.
+            </Text>
+            <Pressable onPress={() => { setConfirmSkip(false) }} hitSlop={8} testID="onboarding-skip-cancel">
+              <Text variant="label" color="textMuted">
+                Cancel
+              </Text>
+            </Pressable>
+            <Pressable onPress={onDone} hitSlop={8} testID="onboarding-skip-confirm">
+              <Text variant="label" color="accent">
+                Continue
+              </Text>
+            </Pressable>
+          </View>
+        ) : isLast ? (
+          <View /> /* last slide hides the Skip area */
+        ) : (
+          <Pressable onPress={() => setConfirmSkip(true)} hitSlop={8} testID="onboarding-skip">
+            <Text variant="label" color="textMuted">
+              Skip
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       <FlatList
@@ -116,12 +146,11 @@ export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
       <View style={styles.footer}>
         {isLast && (
           <Text variant="caption" color="textMuted" style={styles.consent}>
-            Tapping below downloads the on-device AI (~2.8 GB) over Wi-Fi so
-            everything runs privately on your phone.
+            Tapping below downloads the on-device AI (~2.8 GB). Best on Wi-Fi.
           </Text>
         )}
         <Button
-          title={isLast ? 'Start journaling' : 'Next'}
+          title={isLast ? 'Begin' : 'Next'}
           onPress={goNext}
           fullWidth
           testID="onboarding-next"
@@ -135,6 +164,8 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: t.colors.bg },
     skipRow: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, minHeight: 28 },
+    confirmRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md, flex: 1, justifyContent: 'flex-end' },
+    confirmCopy: { flex: 1 },
     slide: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: t.spacing['2xl'] },
     iconCircle: {
       width: 112,

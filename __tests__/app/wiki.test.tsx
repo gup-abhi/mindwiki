@@ -45,6 +45,10 @@ const mockUseDismissedPages = jest.fn(() => ({
   refresh: jest.fn(),
 }))
 const mockUsePageTrend = jest.fn((): PageTrend | null => null)
+jest.mock('@/services/onboarding/first-run', () => ({
+  getHintSeen: jest.fn().mockResolvedValue(true),
+  markHintSeen: jest.fn().mockResolvedValue(undefined),
+}))
 jest.mock('@/hooks/useWiki', () => ({
   useWikiPages: () => mockUseWikiPages(),
   useWikiPage: () => mockUseWikiPage(),
