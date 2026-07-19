@@ -302,9 +302,13 @@ export function beginOnboardingModelDownload(): void {
     // captured before it arrived, then fetch the optional embed model.
     const deepRes = await downloadModel('deep')
     if (!deepRes.success) return
-    // Lazy import to break the pipeline ↔ first-run require cycle (RN warns that
-    // a cycle can yield uninitialized values). Only needed at call time.
-    const { triggerCatchUp } = await import('@/services/pipeline')
+    // Lazy require to break the pipeline ↔ first-run require cycle (Metro warns
+    // a static cycle can yield uninitialized values). Resolved at call time, not
+    // module load — by here both modules are fully initialized. We use require()
+    // rather than dynamic import() so Jest's module registry (and the pipeline
+    // mock in first-run.test.ts) still applies without --experimental-vm-modules.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { triggerCatchUp } = require('@/services/pipeline') as typeof import('@/services/pipeline')
     void triggerCatchUp()
     void downloadModel('embed')
   })()
