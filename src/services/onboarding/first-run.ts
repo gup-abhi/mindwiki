@@ -3,7 +3,6 @@ import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
 import { lineageForEntry } from '@/services/wiki/engine'
 import { areModelsReady, downloadModel, isModelDownloaded } from '@/services/llm/model-manager'
-import { triggerCatchUp } from '@/services/pipeline'
 import { useAuthStore } from '@/store/auth.store'
 
 // Settings keys (persisted across sessions, never synced).
@@ -303,6 +302,9 @@ export function beginOnboardingModelDownload(): void {
     // captured before it arrived, then fetch the optional embed model.
     const deepRes = await downloadModel('deep')
     if (!deepRes.success) return
+    // Lazy import to break the pipeline ↔ first-run require cycle (RN warns that
+    // a cycle can yield uninitialized values). Only needed at call time.
+    const { triggerCatchUp } = await import('@/services/pipeline')
     void triggerCatchUp()
     void downloadModel('embed')
   })()
