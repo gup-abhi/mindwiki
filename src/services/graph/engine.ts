@@ -1,4 +1,4 @@
-import { getDb } from '@/services/storage/db'
+import { getDb, type SqliteDatabase } from '@/services/storage/db'
 import {
   upsertNode,
   upsertEdge,
@@ -12,7 +12,6 @@ import {
   countEntriesByEmotion,
   countEntriesByDistortion,
   countEntriesByAnyTopic,
-  markAllGraphIndexed,
   type Entry,
 } from '@/services/storage/entries'
 import { listEntitiesForEntry, countEntriesForEntity, type EntityType } from '@/services/storage/entities'
@@ -28,7 +27,10 @@ const GRAPH_NODE_MIN_ENTRIES = 2
 export type SupportCounter = (type: NodeType, label: string) => Promise<number>
 
 // Live single-entry counter: one cheap COUNT per node. On a count error it fails
-// OPEN (Infinity) so a query glitch never silently drops legitimate nodes.
+// CLOSED (0), so the recurrence gate holds: a query glitch can't seed a permanent
+// (additive-only) node from a single, possibly-wrong tag. The entry then stays
+// graph-pending and launch catch-up re-derives it via a full rebuild — nothing is
+// lost, whereas a wrongly-seeded node would be permanent.
 async function liveSupportCount(type: NodeType, label: string): Promise<number> {
   const r =
     type === 'emotion'
@@ -38,7 +40,26 @@ async function liveSupportCount(type: NodeType, label: string): Promise<number> 
         : type === 'situation'
           ? await countEntriesByAnyTopic(label)
           : await countEntriesForEntity(type as EntityType, label)
-  return r.success ? r.data : Infinity
+  return r.success ? r.data : 0
+}
+
+// The graph is additive (upserts only add), so a live per-entry update racing a
+// full rebuild can double-count an entry that lands between the rebuild's clear
+// and its entry snapshot — and nothing heals it (rebuild IS the healer). Both
+// paths are already background, so a promise-chain mutex serializes them at zero
+// UX cost: each acquisition waits on the previous one's completion. rebuildGraph
+// takes the lock ONCE and calls the unlocked impl in its loop, so its own
+// per-entry updates don't re-enter (which would deadlock a non-reentrant lock).
+let graphLock: Promise<void> = Promise.resolve()
+function withGraphLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = graphLock.then(fn, fn)
+  // Keep the chain alive regardless of fn's outcome; swallow here so a rejection
+  // doesn't poison the next waiter (callers still get run's real result).
+  graphLock = run.then(
+    () => undefined,
+    () => undefined
+  )
+  return run
 }
 
 /**
@@ -51,17 +72,30 @@ async function liveSupportCount(type: NodeType, label: string): Promise<number> 
  * node: if its label already exists (this entry's tags/entities, or any prior
  * node of any type) it attaches to that node instead of creating a second
  * same-named "situation" node. Only a genuinely new concept becomes its own.
+ *
+ * Serialized against rebuildGraph (and other live updates) via the graph mutex so
+ * an additive per-entry write can't interleave with a clear+re-derive.
  */
-export async function updateGraphForEntry(
+export function updateGraphForEntry(
   entry: Entry,
   topics?: string[] | null,
   dismissed?: Set<string>,
   support: SupportCounter = liveSupportCount
 ): Promise<Result<void>> {
+  return withGraphLock(() => updateGraphForEntryImpl(entry, topics, dismissed, support, getDb()))
+}
+
+async function updateGraphForEntryImpl(
+  entry: Entry,
+  topics: string[] | null | undefined,
+  dismissed: Set<string> | undefined,
+  support: SupportCounter,
+  db: SqliteDatabase
+): Promise<Result<void>> {
   try {
     // Nodes the user dropped are excluded from the derivation. Loaded here for a
     // live single-entry call; rebuildGraph loads it once and passes it down.
-    const dropped = dismissed ?? (await loadDismissedNodeKeys())
+    const dropped = dismissed ?? (await loadDismissedNodeKeys(db))
     const concrete: { type: NodeType; label: string }[] = []
     const emotion = entry.emotion?.trim()
     const distortion = entry.distortion?.trim()
@@ -72,19 +106,28 @@ export async function updateGraphForEntry(
       concrete.push({ type: 'distortion', label: distortion })
     }
     // Extracted entities (person/place/activity) co-occur with the tags above.
-    const entities = await listEntitiesForEntry(entry.id)
+    const entities = await listEntitiesForEntry(entry.id, db)
     if (entities.success) {
       for (const e of entities.data) concrete.push({ type: e.type, label: e.label })
     }
 
     const ids: string[] = []
     const labels = new Set<string>()
+    // Accepted live-vs-rebuild divergence: on the entry that trips the gate (support
+    // 1→2), only THIS entry's contribution is written — the node starts at frequency
+    // 1 (a full rebuild would say 2) and the prior supporting entry's edges are
+    // absent. The live graph therefore undercounts until the next rebuild, which
+    // re-derives from all entries and corrects it upward (sync pull, page merge,
+    // launch heal all trigger one). We accept this: node size / edge weight are
+    // approximate corroboration signals, not exact counts, and the divergence only
+    // ever self-heals upward. Backfilling the prior entry here would reintroduce the
+    // double-count risk the additive model exists to avoid.
     for (const spec of concrete) {
       if (dropped.has(nodeDismissalKey(spec.type, spec.label))) continue
       // Recurrence gate: skip until this signal is corroborated by ≥2 entries, so
       // a single (possibly mistagged) entry never seeds a permanent node.
       if ((await support(spec.type, spec.label)) < GRAPH_NODE_MIN_ENTRIES) continue
-      const node = await upsertNode(spec.type, spec.label)
+      const node = await upsertNode(spec.type, spec.label, db)
       if (node.success) {
         ids.push(node.data.id)
         labels.add(spec.label.toLowerCase())
@@ -96,14 +139,14 @@ export async function updateGraphForEntry(
       if (!theme || labels.has(theme.toLowerCase())) continue
       // Reuse an existing same-label node (any type) so "Work" the theme and
       // "Work" the place stay one node; otherwise it's a new theme node.
-      const existing = await findNodeByLabel(theme)
+      const existing = await findNodeByLabel(theme, db)
       const matched = existing.success ? existing.data : null
       const themeType = matched ? matched.type : 'situation'
       // An existing node already cleared its gate; a brand-new situation node
       // must clear the topic recurrence gate before it's created.
       const allowed = matched != null || (await support('situation', theme)) >= GRAPH_NODE_MIN_ENTRIES
       if (allowed && !dropped.has(nodeDismissalKey(themeType, theme))) {
-        const node = await upsertNode(themeType, theme)
+        const node = await upsertNode(themeType, theme, db)
         if (node.success && !ids.includes(node.data.id)) ids.push(node.data.id)
       }
     }
@@ -111,7 +154,7 @@ export async function updateGraphForEntry(
     // Edge between every co-occurring pair.
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
-        await upsertEdge(ids[i], ids[j])
+        await upsertEdge(ids[i], ids[j], db)
       }
     }
 
@@ -130,23 +173,53 @@ export async function updateGraphForEntry(
  * Restores emotion + distortion + theme (persisted `topic`) nodes and the
  * person/place/activity nodes from entry_entities (updateGraphForEntry reads
  * them per entry).
+ *
+ * Holds the graph mutex for the whole clear+re-derive so no live per-entry update
+ * can interleave and double-count. Its own loop calls the UNLOCKED impl (already
+ * inside the lock) — calling the public updateGraphForEntry would deadlock.
  */
-export async function rebuildGraph(): Promise<Result<void>> {
+export function rebuildGraph(): Promise<Result<void>> {
+  return withGraphLock(rebuildGraphImpl)
+}
+
+async function rebuildGraphImpl(): Promise<Result<void>> {
   try {
     const db = getDb()
-    await db.execute('DELETE FROM graph_edges')
-    await db.execute('DELETE FROM graph_nodes')
-    const dismissed = await loadDismissedNodeKeys(db) // loaded once for the whole rebuild
-    const support = await precomputedSupport(db) // counts once, not per (entry × node)
+    // One transaction so a UI read mid-rebuild never sees a partially-empty graph
+    // (the mutex already serializes against concurrent writes, but without the tx
+    // a reader can observe the graph between the DELETE and the last re-derive).
+    // Support counts are fetched outside: they're in-memory maps from GROUP BY SQL
+    // and can't race; entries are snapshot before the tx to keep the snapshot size
+    // tiny and avoid holding the tx open across unrelated reads.
+    const dismissed = await loadDismissedNodeKeys(db)
+    const support = await precomputedSupport(db)
     const entries = await listEntriesForGraph(10000)
     if (!entries.success) return entries
-    for (const entry of entries.data) {
-      const themes = [entry.topic, entry.topic2].filter((t): t is string => !!t && t.length > 0)
-      await updateGraphForEntry(entry, themes, dismissed, support)
-    }
-    // The graph now reflects every entry — clear the graph-heal backlog (and
-    // re-stamp any entry whose graph_indexed_at a sync pull's REPLACE wiped).
-    await markAllGraphIndexed(db)
+    let anyFailed = false
+    // Nested tx caution: op-sqlite uses SQLite savepoints when a transaction is
+    // opened inside another transaction — the inner savepoints nest correctly.
+    // The only graph-adjacent call that opens its own transaction is dismissNode,
+    // which never fires during a rebuild (rebuild does not call dismissNode).
+    await db.transaction(async (tx) => {
+      await tx.execute('DELETE FROM graph_edges')
+      await tx.execute('DELETE FROM graph_nodes')
+      for (const entry of entries.data) {
+        const themes = [entry.topic, entry.topic2].filter((t): t is string => !!t && t.length > 0)
+        const res = await updateGraphForEntryImpl(entry, themes, dismissed, support, tx)
+        if (!res.success) anyFailed = true
+      }
+      // Stamp the graph-heal backlog only if every entry folded in cleanly. If one
+      // entry's update failed (e.g. a bad row threw), stamping ALL entries would
+      // mark it healed with its signals permanently missing — so leave the backlog
+      // and let the next launch's catch-up re-run this (exactly-once) rebuild. The
+      // stamp also re-heals any entry whose graph_indexed_at a sync pull wiped.
+      if (!anyFailed) {
+        await tx.execute(
+          'UPDATE entries SET graph_indexed_at = ? WHERE tagged_at IS NOT NULL AND graph_indexed_at IS NULL',
+          [Date.now()]
+        )
+      }
+    })
     return ok(undefined)
   } catch (e) {
     return err('GRAPH_REBUILD_FAILED', 'Failed to rebuild graph', e)
@@ -168,12 +241,18 @@ async function precomputedSupport(db = getDb()): Promise<SupportCounter> {
   }
   const emotion = await groupCount('SELECT emotion AS k, COUNT(*) AS n FROM entries GROUP BY emotion COLLATE NOCASE')
   const distortion = await groupCount('SELECT distortion AS k, COUNT(*) AS n FROM entries GROUP BY distortion COLLATE NOCASE')
-  // Situation node recurrence counts both topic and topic2. Build a unified map
-  // by summing the per-entry distribution of each label.
-  const topic2 = await groupCount('SELECT topic2 AS k, COUNT(*) AS n FROM entries GROUP BY topic2 COLLATE NOCASE')
-  const topic1 = await groupCount('SELECT topic AS k, COUNT(*) AS n FROM entries GROUP BY topic COLLATE NOCASE')
-  const topic = new Map<string, number>([...topic1])
-  for (const [k, n] of topic2) topic.set(k, (topic.get(k) ?? 0) + n)
+  // Situation node recurrence counts an entry whose topic OR topic2 is the label,
+  // once. Counting DISTINCT entries over a UNION of the two columns (rather than
+  // summing two GROUP BYs) matches the live path's countEntriesByAnyTopic OR-query:
+  // an entry with topic == topic2 must count once, not twice, or a single entry
+  // would clear the ≥2 gate on rebuild while the live path counts it once.
+  const topic = await groupCount(
+    `SELECT k, COUNT(DISTINCT eid) AS n FROM (
+       SELECT id AS eid, topic AS k FROM entries WHERE topic IS NOT NULL AND topic != ''
+       UNION ALL
+       SELECT id AS eid, topic2 AS k FROM entries WHERE topic2 IS NOT NULL AND topic2 != ''
+     ) GROUP BY k COLLATE NOCASE`
+  )
 
   const entityRes = await db.execute(
     'SELECT type, label, COUNT(DISTINCT entry_id) AS n FROM entry_entities GROUP BY type, label COLLATE NOCASE'

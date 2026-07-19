@@ -1,9 +1,9 @@
 import { type GraphNode } from '@/services/storage/graph'
 import {
-  listEntriesByEmotion,
-  listEntriesByDistortion,
-  listEntriesByTopic,
-  listEntriesForEntity,
+  listEntriesByEmotionAllSources,
+  listEntriesByDistortionAllSources,
+  listEntriesByAnyTopicAllSources,
+  listEntriesForEntityAllSources,
   type Entry,
 } from '@/services/storage/entries'
 import { listPages } from '@/services/storage/wiki'
@@ -26,21 +26,25 @@ export interface NodeContext {
 
 // The entries behind a node depend on its type: emotion/distortion/situation map
 // to entry tag columns; person/place/activity/belief/behavior map to extracted
-// entities (entry_entities rows).
+// entities (entry_entities rows). All source-inclusive: the graph derives from
+// journal + reflect + path, so node evidence must too — a node built purely from
+// Reflect recurrence would otherwise list nothing. Situation matches topic OR
+// topic2 (the node is gated/counted on either — countEntriesByAnyTopic), so a
+// node supported mainly via the secondary topic still surfaces its entries.
 function entriesForNode(node: GraphNode): Promise<Result<Entry[]>> {
   switch (node.type) {
     case 'emotion':
-      return listEntriesByEmotion(node.label)
+      return listEntriesByEmotionAllSources(node.label)
     case 'distortion':
-      return listEntriesByDistortion(node.label)
+      return listEntriesByDistortionAllSources(node.label)
     case 'situation':
-      return listEntriesByTopic(node.label)
+      return listEntriesByAnyTopicAllSources(node.label)
     case 'person':
     case 'place':
     case 'activity':
     case 'belief':
     case 'behavior':
-      return listEntriesForEntity(node.type, node.label)
+      return listEntriesForEntityAllSources(node.type, node.label)
     default:
       return Promise.resolve(ok([]))
   }

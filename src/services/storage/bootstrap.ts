@@ -70,11 +70,12 @@ export async function initStorage(): Promise<Result<void>> {
   const migrated = await migrate()
   if (!migrated.success) return migrated
 
-  // Migration 003 recreates the derived graph tables (to widen the node-type
-  // CHECK), which empties them. Rebuild from entries + entry_entities so a
-  // single-device user (who never pulls a sync delta) doesn't lose their graph.
-  // Best-effort — a rebuild failure must not block storage init.
-  if (migrated.data.includes(3)) await rebuildGraph()
+  // Migrations 003 and 028 recreate the derived graph tables (003 widened the
+  // node-type CHECK; 028 made `label` COLLATE NOCASE), which empties them. Rebuild
+  // from entries + entry_entities so a single-device user (who never pulls a sync
+  // delta) doesn't lose their graph. Best-effort — a rebuild failure must not
+  // block storage init; the next launch's catch-up heals it.
+  if (migrated.data.includes(3) || migrated.data.includes(28)) await rebuildGraph()
 
   // One-time cleanup of pre-singularization topic duplicates. Runs once (flag),
   // best-effort — a failure must not block storage init, and it'll retry next

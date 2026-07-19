@@ -73,15 +73,23 @@ function createFakeDb() {
         )
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
+      // Atomic upsert: INSERT ... ON CONFLICT(type,label) DO UPDATE freq+1.
+      // Match the conflict on (type, label) case-insensitively (COLLATE NOCASE).
       if (/^INSERT INTO graph_nodes/.test(sql)) {
-        const [id, type, label, frequency, created_at, updated_at] = params
-        nodes.set(String(id), { id, type, label, frequency, created_at, updated_at })
-        return { rows: [], rowsAffected: 1 }
-      }
-      if (/^UPDATE graph_nodes SET frequency/.test(sql)) {
-        const [frequency, updated_at, id] = params
-        const row = nodes.get(String(id))
-        if (row) Object.assign(row, { frequency, updated_at })
+        const [id, type, label, , created_at, updated_at] = params
+        const existing = [...nodes.values()].find(
+          (n) =>
+            n.type === type &&
+            String(n.label).toLowerCase() === String(label).toLowerCase()
+        )
+        if (existing) {
+          Object.assign(existing, {
+            frequency: Number(existing.frequency) + 1,
+            updated_at,
+          })
+        } else {
+          nodes.set(String(id), { id, type, label, frequency: 1, created_at, updated_at })
+        }
         return { rows: [], rowsAffected: 1 }
       }
       if (/^SELECT \* FROM graph_nodes WHERE label/.test(sql)) {
@@ -99,15 +107,17 @@ function createFakeDb() {
         )
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
+      // Atomic upsert: INSERT ... ON CONFLICT(source_id,target_id) DO UPDATE weight+1.
       if (/^INSERT INTO graph_edges/.test(sql)) {
-        const [id, source_id, target_id, weight, created_at, updated_at] = params
-        edges.set(String(id), { id, source_id, target_id, weight, created_at, updated_at })
-        return { rows: [], rowsAffected: 1 }
-      }
-      if (/^UPDATE graph_edges SET weight/.test(sql)) {
-        const [weight, updated_at, id] = params
-        const row = edges.get(String(id))
-        if (row) Object.assign(row, { weight, updated_at })
+        const [id, source_id, target_id, , created_at, updated_at] = params
+        const existing = [...edges.values()].find(
+          (e) => e.source_id === source_id && e.target_id === target_id
+        )
+        if (existing) {
+          Object.assign(existing, { weight: Number(existing.weight) + 1, updated_at })
+        } else {
+          edges.set(String(id), { id, source_id, target_id, weight: 1, created_at, updated_at })
+        }
         return { rows: [], rowsAffected: 1 }
       }
       if (/^SELECT \* FROM graph_edges/.test(sql)) {
@@ -155,6 +165,20 @@ describe('storage/graph', () => {
     expect(second.success && second.data.frequency).toBe(2)
     const nodes = await listNodes(db)
     expect(nodes.success && nodes.data).toHaveLength(1)
+  })
+
+  it('two concurrent upserts of "Work"/"work" yield one node at frequency 2', async () => {
+    const { db } = createFakeDb()
+    // The atomic ON CONFLICT(type,label) upsert (label COLLATE NOCASE) collapses
+    // the two casings onto one row — no duplicate node, no lost increment.
+    const [a, b] = await Promise.all([
+      upsertNode('situation', 'Work', db),
+      upsertNode('situation', 'work', db),
+    ])
+    expect(a.success && b.success).toBe(true)
+    const nodes = await listNodes(db)
+    expect(nodes.success && nodes.data).toHaveLength(1)
+    expect(nodes.success && nodes.data[0].frequency).toBe(2)
   })
 
   it('finds the most frequent same-label node regardless of type (case-insensitive)', async () => {

@@ -74,6 +74,13 @@ export function pageConnections(
 ): string[] {
   const hood = graphNeighborhood(title, nodes, edges, 1)
   if (!hood || hood.neighbors.length === 0) return []
+  return topNeighborLabels(hood)
+}
+
+// The top neighbour labels of an already-computed neighborhood, by frequency —
+// the shared core of pageConnections / connectionLine so neither recomputes the
+// (already-built) neighborhood.
+function topNeighborLabels(hood: GraphNeighborhood): string[] {
   return [...hood.neighbors]
     .sort((a, b) => b.frequency - a.frequency)
     .slice(0, MAX_NEIGHBORS)
@@ -95,7 +102,8 @@ export function connectionLine(
 ): string | null {
   const hood = graphNeighborhood(title, nodes, edges, 1)
   if (!hood || hood.neighbors.length === 0) return null
-  const label = hood.node.label
-  const top = pageConnections(title, nodes, edges)
-  return `${label} often comes up with ${top.join(', ')}.`
+  // Reuse the neighborhood we just computed rather than calling pageConnections
+  // (which would walk the graph a second time).
+  const top = topNeighborLabels(hood)
+  return `${hood.node.label} often comes up with ${top.join(', ')}.`
 }

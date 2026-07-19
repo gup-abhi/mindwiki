@@ -186,6 +186,12 @@ export async function listEntries(
  * not timeline noise. Without this a rebuild (sync pull, dedupe, node restore)
  * would silently drop every node that only path/reflect entries supported.
  * Newest first, capped.
+ *
+ * The 10k cap is newest-first, so once a user passes 10k entries a rebuild stops
+ * folding in the oldest ones while the live path already counted them — another
+ * live-vs-rebuild divergence (rebuild would UNDER-count vs live here). Far beyond
+ * any realistic single-user journal today; revisit (paginate the rebuild, or a
+ * pre-aggregated support table) if users approach the cap.
  */
 export async function listEntriesForGraph(
   limit = 10000,
@@ -427,11 +433,13 @@ async function _countEntriesByOrColumn(
 async function listEntriesByColumn(
   column: 'emotion' | 'distortion' | 'topic',
   value: string,
-  db: SqliteDatabase
+  db: SqliteDatabase,
+  journalOnly = true
 ): Promise<Result<Entry[]>> {
   try {
+    const sourceClause = journalOnly ? " AND source = 'journal'" : ''
     const res = await db.execute(
-      `SELECT * FROM entries WHERE ${column} = ? COLLATE NOCASE AND source = 'journal' ORDER BY created_at DESC`,
+      `SELECT * FROM entries WHERE ${column} = ? COLLATE NOCASE${sourceClause} ORDER BY created_at DESC`,
       [value]
     )
     return ok(res.rows.map(rowToEntry))
@@ -452,6 +460,21 @@ export function listEntriesByTopic(label: string, db: SqliteDatabase = getDb()):
   return listEntriesByColumn('topic', label, db)
 }
 
+// --- Source-inclusive variants for graph node evidence ------------------------
+// A graph node is derived from ALL sources (journal + reflect + path all run
+// through the same indexFromExtract). The journal-only lists above power the wiki
+// / trends surfaces; these power node-context, so tapping a node built purely
+// from Reflect/path recurrence still shows the entries behind it (the UI labels
+// them by source). Otherwise such a node lists nothing when tapped.
+
+export function listEntriesByEmotionAllSources(label: string, db: SqliteDatabase = getDb()): Promise<Result<Entry[]>> {
+  return listEntriesByColumn('emotion', label, db, false)
+}
+
+export function listEntriesByDistortionAllSources(label: string, db: SqliteDatabase = getDb()): Promise<Result<Entry[]>> {
+  return listEntriesByColumn('distortion', label, db, false)
+}
+
 /**
  * List journal entries whose topic OR topic2 equals `value` (case-insensitive),
  * newest first — same as listEntriesByTopic but also matches the secondary topic
@@ -460,13 +483,14 @@ export function listEntriesByTopic(label: string, db: SqliteDatabase = getDb()):
  */
 export async function listEntriesByTopicOrTopic2(
   value: string,
-  db: SqliteDatabase = getDb()
+  db: SqliteDatabase = getDb(),
+  journalOnly = true
 ): Promise<Result<Entry[]>> {
   try {
+    const sourceClause = journalOnly ? " AND source = 'journal'" : ''
     const res = await db.execute(
       `SELECT * FROM entries
-        WHERE (topic = ? COLLATE NOCASE OR topic2 = ? COLLATE NOCASE)
-          AND source = 'journal'
+        WHERE (topic = ? COLLATE NOCASE OR topic2 = ? COLLATE NOCASE)${sourceClause}
         ORDER BY created_at DESC`,
       [value, value]
     )
@@ -474,6 +498,14 @@ export async function listEntriesByTopicOrTopic2(
   } catch (e) {
     return err('ENTRY_LIST_BY_TOPIC_FAILED', 'Failed to list entries by topic', e)
   }
+}
+
+/** Source-inclusive topic-or-topic2 list — the entries behind a situation node. */
+export function listEntriesByAnyTopicAllSources(
+  value: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<Entry[]>> {
+  return listEntriesByTopicOrTopic2(value, db, false)
 }
 
 /**
@@ -484,13 +516,15 @@ export async function listEntriesByTopicOrTopic2(
 export async function listEntriesForEntity(
   type: EntityType,
   label: string,
-  db: SqliteDatabase = getDb()
+  db: SqliteDatabase = getDb(),
+  journalOnly = true
 ): Promise<Result<Entry[]>> {
   try {
+    const sourceClause = journalOnly ? " AND e.source = 'journal'" : ''
     const res = await db.execute(
       `SELECT e.* FROM entries e
          JOIN entry_entities ee ON ee.entry_id = e.id
-        WHERE ee.type = ? AND ee.label = ? COLLATE NOCASE AND e.source = 'journal'
+        WHERE ee.type = ? AND ee.label = ? COLLATE NOCASE${sourceClause}
         ORDER BY e.created_at DESC`,
       [type, label]
     )
@@ -498,6 +532,16 @@ export async function listEntriesForEntity(
   } catch (e) {
     return err('ENTRY_LIST_BY_ENTITY_FAILED', 'Failed to list entries by entity', e)
   }
+}
+
+/** Source-inclusive entity list — the entries behind a person/place/activity/
+ *  belief/behavior graph node (which derives from all sources). */
+export function listEntriesForEntityAllSources(
+  type: EntityType,
+  label: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<Entry[]>> {
+  return listEntriesForEntity(type, label, db, false)
 }
 
 export async function deleteEntry(
