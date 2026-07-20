@@ -29,7 +29,7 @@ export function Chip({ label, selected = false, onPress, testID }: ChipProps) {
   const styles = useThemedStyles(makeStyles)
   const handlePress = onPress
     ? () => {
-        haptics.select()
+        try { haptics.select() } catch { /* optional native feedback */ }
         onPress()
       }
     : undefined

@@ -83,6 +83,19 @@ describe('QueryScreen (reflective conversation)', () => {
     expect(mockOpenStarter).toHaveBeenCalledWith('What patterns show up around Work?')
   })
 
+  it('shows the Untangle a thought entry on the start screen', () => {
+    mockUse.mockReturnValue(base)
+    render(<QueryScreen />)
+    expect(screen.getByTestId('untangle-entry')).toBeTruthy()
+  })
+
+  it('tapping Untangle a thought pushes the /untangle route', () => {
+    mockUse.mockReturnValue(base)
+    render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('untangle-entry'))
+    expect(mockPush).toHaveBeenCalledWith('/untangle')
+  })
+
   it('seeds the composer from a feeling chip (does not send yet)', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)

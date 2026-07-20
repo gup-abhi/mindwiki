@@ -268,6 +268,21 @@ export default function QueryScreen() {
                     ))}
                   </View>
 
+                  <Pressable
+                    style={styles.untangleCard}
+                    onPress={() => router.push('/untangle')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Untangle a thought, five-step reflection exercise"
+                    testID="untangle-entry"
+                  >
+                    <Text variant="label" color="accent">
+                      🧩 Untangle a thought
+                    </Text>
+                    <Text variant="caption" color="textMuted">
+                      Untangle a difficult thought, one step at a time.
+                    </Text>
+                  </Pressable>
+
                   {suggestions.length > 0 && (
                     <View style={styles.exploreSection}>
                       <Text variant="label" color="accent" style={styles.sectionLabel}>
@@ -402,6 +417,13 @@ const makeStyles = (t: Theme) =>
       paddingHorizontal: t.spacing.lg,
       borderRadius: t.radii.pill,
       backgroundColor: t.colors.surfaceAlt,
+    },
+    untangleCard: {
+      marginTop: t.spacing.xl,
+      padding: t.spacing.md,
+      backgroundColor: t.colors.accent + '0F',
+      borderRadius: t.radii.md,
+      gap: t.spacing.xs,
     },
     exploreSection: { marginTop: t.spacing.xl },
     suggestion: { marginBottom: t.spacing.sm },
