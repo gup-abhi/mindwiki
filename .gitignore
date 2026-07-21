@@ -44,11 +44,8 @@ models/*
 *.pem
 .secrets
 
-# Ruflo — commit config, not runtime state
-.claude-flow/memory/
-.claude-flow/sessions/
-.claude-flow/logs/
-.claude-flow/state/
+# Pi coding agent state
+.pi/
 
 # IDE
 .vscode/settings.json

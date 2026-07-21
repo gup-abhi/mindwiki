@@ -1,5 +1,5 @@
 # MindWiki — CLAUDE.md
-> Master context for Claude Code and Ruflo. Read this completely before writing a single line.
+> Master context for Claude Code. Read this completely before writing a single line.
 
 ---
 
@@ -71,7 +71,7 @@ Wrangler 3             Graphify (codebase graph)
 
 ---
 
-## SPARC methodology (Ruflo)
+## SPARC methodology
 
 All development follows SPARC. For every task:
 
@@ -81,32 +81,6 @@ All development follows SPARC. For every task:
 4. **[TDD]** Write failing tests first
 5. **[IMPL]** Implement to make tests pass
 6. **[REFINE]** Performance, accessibility, error handling
-
-### Ruflo agent assignments
-
-| Agent | Owns |
-|-------|------|
-| `demo-agent` | Phase -1 demo app — all screens and validation checks |
-| `architect-agent` | Module design, interface definition, ADR tracking |
-| `storage-agent` | SQLite schema, migrations, encryption layer |
-| `llm-agent` | On-device model integration, prompt engineering, wiki synthesis |
-| `ui-agent` | React Native screens, components, animation |
-| `graph-agent` | Knowledge graph data structures and visualisation |
-| `sync-agent` | Cross-device sync, conflict resolution, key management |
-| `server-agent` | Cloudflare Workers — auth, storage, push |
-| `test-agent` | Test coverage, integration tests, E2E |
-| `security-agent` | Encryption audit, key management, GDPR compliance |
-
-### Ruflo memory namespaces
-
-```
-mindwiki/status       — phase and task completion tracking
-mindwiki/arch         — architectural decisions
-mindwiki/schema       — database schema versions
-mindwiki/llm          — prompt templates, model configs
-mindwiki/demo         — demo app test results (device, timing, pass/fail)
-mindwiki/patterns     — code patterns that worked well
-```
 
 ---
 
@@ -137,7 +111,6 @@ mindwiki/
 │   ├── hooks/
 │   │   └── pre-session.sh         ← auto-rebuilds Graphify graph
 │   └── commands/                  ← custom slash commands
-├── .claude-flow/                  ← Ruflo state (memory/, sessions/)
 │
 ├── docs/
 │   ├── ARCHITECTURE.md

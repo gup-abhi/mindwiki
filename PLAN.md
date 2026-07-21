@@ -147,7 +147,7 @@ Fill this in `demo/README.md` before starting Phase 0.
 - [ ] ESLint + Prettier
 - [ ] Jest + React Native Testing Library
 - [ ] Configure Expo Router (shell navigation only, no content yet)
-- [ ] `.gitignore` (models, *.db, .env, .claude-flow/memory/)
+- [ ] `.gitignore` (models, *.db, .env)
 - [ ] `.graphify.json` configured for TypeScript aliases
 - [ ] `.claude/hooks/pre-session.sh` for Graphify rebuild
 
@@ -421,24 +421,3 @@ on hardware 2026-06-07 (QR pairing A→B, data synced down). Deferred: live clou
 
 **Exit criteria**: TestFlight build live, App Store review submitted.
 
----
-
-## Parallel workstreams for Ruflo
-
-```
-Phase -1:  demo-agent runs solo (validates hardware before anything else)
-
-Phase 0-1: storage-agent (DB) ∥ ui-agent (onboarding polish)
-
-Phase 2-3: llm-agent (model integration) ∥ storage-agent (wiki storage)
-           security-agent (crisis detection)
-
-Phase 4-5: graph-agent (graph) ∥ ui-agent (habit UI) ∥ storage-agent (streak)
-
-Phase 6-7: llm-agent (digest) ∥ ui-agent (query UI)
-
-Phase 8:   sync-agent (client) ∥ server-agent (Cloudflare Workers)
-           security-agent (encryption audit)
-```
-
-Track completion: `memory_store mindwiki/status "phase-1:systemcheck:ios:pass"`
