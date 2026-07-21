@@ -44,8 +44,11 @@ models/*
 *.pem
 .secrets
 
-# Pi coding agent state
-.pi/
+# Pi coding agent — share extensions, ignore runtime state
+.pi/agent/
+.pi/sessions/
+.pi/*.log
+.pi/tmp/
 
 # IDE
 .vscode/settings.json
