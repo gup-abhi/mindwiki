@@ -2,9 +2,12 @@ import { initStorage } from '@/services/storage/bootstrap'
 import { CryptoModule } from '@/native/CryptoModule'
 import { initDb, deleteDatabase } from '@/services/storage/db'
 import { migrate } from '@/services/storage/migrations'
+import { rebuildGraph } from '@/services/graph/engine'
 import { getSetting } from '@/services/storage/settings'
 import { getTokens, clearTokens } from '@/services/auth/token-store'
 import { dedupeTopics } from '@/services/wiki/dedupe'
+import { isGraphRebuildRequired, clearGraphRebuildMarker } from '@/services/wiki/merge'
+import { maybeRefreshEmotionPages } from '@/services/wiki/engine'
 import { ok, err } from '@/types/result'
 
 jest.mock('@/native/CryptoModule', () => ({
@@ -32,6 +35,13 @@ jest.mock('@/services/auth/token-store', () => ({
   getTokens: jest.fn(),
   clearTokens: jest.fn(),
 }))
+jest.mock('@/services/wiki/merge', () => ({
+  isGraphRebuildRequired: jest.fn(),
+  clearGraphRebuildMarker: jest.fn(),
+}))
+jest.mock('@/services/wiki/engine', () => ({
+  maybeRefreshEmotionPages: jest.fn(() => Promise.resolve(0)),
+}))
 
 const mockGetKey = CryptoModule.getKeyFromKeychain as jest.Mock
 const mockKeyOwner = CryptoModule.getKeyOwner as jest.Mock
@@ -44,6 +54,15 @@ const mockGetSetting = getSetting as jest.Mock
 const mockDedupe = dedupeTopics as jest.Mock
 const mockGetTokens = getTokens as jest.Mock
 const mockClearTokens = clearTokens as jest.Mock
+const mockRebuildGraph = rebuildGraph as jest.Mock
+const mockIsGraphRebuildRequired = isGraphRebuildRequired as jest.Mock
+const mockClearGraphRebuildMarker = clearGraphRebuildMarker as jest.Mock
+const mockMaybeRefreshEmotionPages = maybeRefreshEmotionPages as jest.Mock
+
+/** Flush pending microtasks so fire-and-forget async work resolves. */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => process.nextTick(resolve))
+}
 
 describe('initStorage', () => {
   beforeEach(() => {
@@ -58,6 +77,9 @@ describe('initStorage', () => {
     mockDedupe.mockClear().mockResolvedValue(ok({ entriesUpdated: 0, pagesMerged: 0 }))
     mockGetTokens.mockReset().mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
     mockClearTokens.mockReset().mockResolvedValue(undefined)
+    mockRebuildGraph.mockReset().mockResolvedValue({ success: true, data: undefined })
+    mockIsGraphRebuildRequired.mockReset().mockResolvedValue(false)
+    mockClearGraphRebuildMarker.mockReset().mockResolvedValue(undefined)
   })
 
   it('fetches the key, opens the db, and runs migrations', async () => {
@@ -186,5 +208,65 @@ describe('initStorage', () => {
 
     expect(result.success).toBe(true)
     expect(mockDeleteDatabase).not.toHaveBeenCalled()
+  })
+
+  // ── startup graph rebuild retry (F-2) ──
+
+  it('retries graph rebuild at startup when the repair marker is set, then clears it', async () => {
+    mockIsGraphRebuildRequired.mockResolvedValue(true)
+    mockGetKey.mockResolvedValue('k')
+    mockInitDb.mockResolvedValue(ok({}))
+    mockMigrate.mockResolvedValue(ok([1]))
+
+    const result = await initStorage()
+    await flushMicrotasks()
+
+    expect(result.success).toBe(true)
+    expect(mockIsGraphRebuildRequired).toHaveBeenCalled()
+    expect(mockRebuildGraph).toHaveBeenCalled()
+    expect(mockClearGraphRebuildMarker).toHaveBeenCalled()
+  })
+
+  it('skips the graph rebuild retry when the marker is absent', async () => {
+    mockIsGraphRebuildRequired.mockResolvedValue(false)
+    mockGetKey.mockResolvedValue('k')
+    mockInitDb.mockResolvedValue(ok({}))
+    mockMigrate.mockResolvedValue(ok([1]))
+
+    const result = await initStorage()
+    await flushMicrotasks()
+
+    expect(result.success).toBe(true)
+    expect(mockIsGraphRebuildRequired).toHaveBeenCalled()
+    expect(mockRebuildGraph).not.toHaveBeenCalled()
+    expect(mockClearGraphRebuildMarker).not.toHaveBeenCalled()
+  })
+
+  it('does not clear the marker when the graph rebuild fails', async () => {
+    mockIsGraphRebuildRequired.mockResolvedValue(true)
+    mockRebuildGraph.mockResolvedValueOnce({ success: false, error: { code: 'REBUILD_FAILED', message: 'err' } })
+    mockGetKey.mockResolvedValue('k')
+    mockInitDb.mockResolvedValue(ok({}))
+    mockMigrate.mockResolvedValue(ok([1]))
+
+    const result = await initStorage()
+    await flushMicrotasks()
+
+    expect(result.success).toBe(true)
+    expect(mockIsGraphRebuildRequired).toHaveBeenCalled()
+    expect(mockRebuildGraph).toHaveBeenCalled()
+    expect(mockClearGraphRebuildMarker).not.toHaveBeenCalled()
+  })
+
+  it('runs a best-effort emotion page scan at startup (F-3B)', async () => {
+    mockGetKey.mockResolvedValue('k')
+    mockInitDb.mockResolvedValue(ok({}))
+    mockMigrate.mockResolvedValue(ok([1]))
+
+    const result = await initStorage()
+    await flushMicrotasks()
+
+    expect(result.success).toBe(true)
+    expect(mockMaybeRefreshEmotionPages).toHaveBeenCalled()
   })
 })
