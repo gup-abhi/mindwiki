@@ -1,7 +1,7 @@
 import { type SqliteDatabase, getDb } from '@/services/storage/db'
-import { enqueueUpsert } from '@/services/storage/sync-queue'
 import { rebuildGraph } from '@/services/graph/engine'
 import { type WikiPage } from '@/services/storage/wiki'
+import { setSetting } from '@/services/storage/settings'
 import { type Result, ok, err } from '@/types/result'
 
 import { cosine } from './search'
@@ -15,6 +15,12 @@ import { cosine } from './search'
  */
 export const MERGE_THRESHOLD = 0.82
 
+/** Settings key for the graph-rebuild repair marker. Set inside the merge
+ *  transaction and cleared after a successful post-commit rebuildGraph(). If
+ *  the app is killed between the commit and the rebuild, the marker stays set
+ *  and bootstrap's startup retry runs the rebuild. */
+const GRAPH_REBUILD_REQUIRED_KEY = 'maintenance:graph_rebuild_required'
+
 export interface MergePair {
   /** The page the merge keeps (richer, then more recently updated). */
   survivor: WikiPage
@@ -23,8 +29,20 @@ export interface MergePair {
   similarity: number
 }
 
-/** Order-independent key for a page pair — for persisting "keep separate". */
+/** Order-independent key for a page pair — for persisting "keep separate". Uses
+ *  the pair's titles so it's human-readable in stored settings. Existing devices
+ *  store title-based keys; reading them back works identically. Prefer
+ *  pairKeyById for new suppressions — stable across title changes. */
 export function pairKey(a: string, b: string): string {
+  return [a.toLowerCase(), b.toLowerCase()].sort().join('\u0000')
+}
+
+/**
+ * Order-independent key for a page pair using their IDs. Stable across title
+ * changes — if a page is renamed (e.g., "Work stress" → "Career pressure"),
+ * an ID-based suppression survives while a title-based one is lost.
+ */
+export function pairKeyById(a: string, b: string): string {
   return [a.toLowerCase(), b.toLowerCase()].sort().join('\u0000')
 }
 
@@ -53,9 +71,15 @@ export function suggestMerges(
     for (let j = i + 1; j < themes.length; j++) {
       const a = themes[i]
       const b = themes[j]
-      if (suppressed.has(pairKey(a.title, b.title))) continue
       const sim = cosine(vectors.get(a.id)!, vectors.get(b.id)!)
       if (sim < MERGE_THRESHOLD) continue
+      // Check suppression by BOTH title key (legacy) and ID key (stable). A
+      // user who dismissed "Work stress" / "Job pressure" before a rename to
+      // "Career pressure" still has it suppressed via the ID key.
+      if (
+        suppressed.has(pairKey(a.title, b.title)) ||
+        suppressed.has(pairKeyById(a.id, b.id))
+      ) continue
       // Richer page survives (more compounded content); tie → more recent.
       const aWins =
         a.entry_count > b.entry_count ||
@@ -67,70 +91,224 @@ export function suggestMerges(
 }
 
 /**
+ * Load a page (fully fresh from the DB inside the current transaction) by id.
+ * Returns null when not found. Used to validate current state before merging.
+ */
+async function loadPage(
+  id: string,
+  tx: SqliteDatabase
+): Promise<{ id: string; title: string; category: string | null; dismissed_at: number | null; merged_into: string | null } | null> {
+  const res = await tx.execute(
+    'SELECT id, title, category, dismissed_at, merged_into FROM wiki_pages WHERE id = ?',
+    [id]
+  )
+  const row = res.rows[0]
+  if (!row) return null
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    category: row.category ? String(row.category) : null,
+    dismissed_at: row.dismissed_at == null ? null : Number(row.dismissed_at),
+    merged_into: row.merged_into == null ? null : String(row.merged_into),
+  }
+}
+
+/**
  * Consolidate two theme pages the user confirmed are the same theme. Unlike the
  * string dedupe, the pair shares no canonical title, so this must re-point the
  * loser's entries explicitly — otherwise the graph keeps a loser node and future
- * synthesis stays fragmented:
- *   1. Re-point every entry on the loser topic to the survivor's title (+ sync).
- *   2. Flag the loser page merged_into the survivor (hides it; existing
- *      machinery — not "dropped", so it never shows in Dropped insights).
- *   3. Fold the loser's entry_count into the survivor so richness/labels stay
- *      honest until the survivor re-grounds on its next entry.
- *   4. Rebuild the graph (nodes derive from entries.topic) so the loser folds.
- * Best-effort; never throws. The survivor re-synthesizes naturally on its next
- * entry — the re-pointed entries then count toward it.
+ * synthesis stays fragmented.
+ *
+ * All source/page/sync-queue writes happen inside one SQLite transaction. The
+ * derived graph is rebuilt after the transaction commits; if the rebuild fails,
+ * a durable repair marker ensures the next launch retries it.
+ *
+ * The return includes `graphRebuilt: false` when the merge committed but the
+ * post-commit graph rebuild failed — the marker guarantees repair on next
+ * launch.
  */
 export async function mergePages(
   survivor: WikiPage,
   loser: WikiPage,
   db: SqliteDatabase = getDb()
-): Promise<Result<{ entriesRepointed: number }>> {
+): Promise<Result<{ entriesRepointed: number; graphRebuilt: boolean }>> {
   try {
-    const now = Date.now()
-
-    // 1. Re-point the loser's entries onto the survivor's topic.
-    let entriesRepointed = 0
-    const er = await db.execute('SELECT id, topic, topic2 FROM entries WHERE topic = ? OR topic2 = ?', [loser.title, loser.title])
-    for (const row of er.rows) {
-      const id = String(row.id)
-      const curTopic = row.topic ? String(row.topic) : ''
-      const curTopic2 = row.topic2 ? String(row.topic2) : ''
-      // If topic equals the loser, replace it; otherwise it's topic2, replace that.
-      if (curTopic.toLowerCase() === loser.title.toLowerCase()) {
-        if (survivor.title !== curTopic) {
-          await db.execute('UPDATE entries SET topic = ? WHERE id = ?', [survivor.title, id])
-          await enqueueUpsert('entries', id, db)
-          entriesRepointed++
-        }
-      } else if (curTopic2.toLowerCase() === loser.title.toLowerCase()) {
-        if (survivor.title !== curTopic2) {
-          await db.execute('UPDATE entries SET topic2 = ? WHERE id = ?', [survivor.title, id])
-          await enqueueUpsert('entries', id, db)
-          entriesRepointed++
-        }
-      }
+    if (survivor.id === loser.id) {
+      return err('PAGE_MERGE_SELF', 'Cannot merge a page into itself')
     }
 
-    // 2. Flag the loser as merged into the survivor.
-    await db.execute('UPDATE wiki_pages SET merged_into = ?, updated_at = ? WHERE id = ?', [
-      survivor.id,
-      now,
-      loser.id,
-    ])
-    await enqueueUpsert('wiki_pages', loser.id, db)
+    let entriesRepointed = 0
 
-    // 3. Fold the loser's entry_count into the survivor.
-    await db.execute('UPDATE wiki_pages SET entry_count = ?, updated_at = ? WHERE id = ?', [
-      survivor.entry_count + loser.entry_count,
-      now,
-      survivor.id,
-    ])
-    await enqueueUpsert('wiki_pages', survivor.id, db)
+    await db.transaction(async (tx) => {
+      // 1. Validate current DB state inside the transaction, not the caller's
+      //    possibly-stale WikiPage objects. This prevents double-counting when
+      //    two overlapping merge requests race.
+      const curSurvivor = await loadPage(survivor.id, tx)
+      const curLoser = await loadPage(loser.id, tx)
 
-    // 4. Graph nodes derive from entries.topic — rebuild so the loser folds.
-    await rebuildGraph()
-    return ok({ entriesRepointed })
+      if (!curSurvivor || !curLoser) {
+        throw new Error('PAGE_NOT_FOUND')
+      }
+      if (curSurvivor.dismissed_at != null) {
+        throw new Error('SURVIVOR_DISMISSED')
+      }
+      if (curLoser.dismissed_at != null) {
+        throw new Error('LOSER_DISMISSED')
+      }
+      if (curSurvivor.category !== 'theme' || curLoser.category !== 'theme') {
+        throw new Error('BOTH_PAGES_MUST_BE_THEME')
+      }
+      if (curLoser.merged_into != null) {
+        throw new Error('LOSER_ALREADY_MERGED')
+      }
+
+      const now = Date.now()
+      const sTitle = survivor.title
+      const lTitle = loser.title
+
+      // 2. Repoint the loser's entries onto the survivor's title.
+      //    Batch UPDATEs with LOWER() for case-insensitive matching (SQLite's
+      //    ILIKE / COLLATE NOCASE would work but LOWER() is portable across
+      //    op-sqlite's SQLite build).
+      //    First, count distinct matching entries.
+      const match = await tx.execute(
+        'SELECT DISTINCT id FROM entries WHERE LOWER(topic) = LOWER(?) OR LOWER(topic2) = LOWER(?)',
+        [lTitle, lTitle]
+      )
+      entriesRepointed = match.rows.length
+
+      // Replace loser title with survivor title in topic
+      await tx.execute(
+        'UPDATE entries SET topic = ? WHERE LOWER(topic) = LOWER(?)',
+        [sTitle, lTitle]
+      )
+
+      // Replace loser title with survivor title in topic2
+      await tx.execute(
+        'UPDATE entries SET topic2 = ? WHERE LOWER(topic2) = LOWER(?)',
+        [sTitle, lTitle]
+      )
+
+      // Collapse duplicate survivor values: if topic == topic2 after repointing
+      // (occurs when an entry had loser in both columns, or survivor was already
+      // in one column and loser in the other), clear topic2.
+      await tx.execute(
+        "UPDATE entries SET topic2 = NULL WHERE topic = topic2 AND topic IS NOT NULL AND topic2 IS NOT NULL AND LENGTH(topic) > 0"
+      )
+
+      // 3. Enqueue every changed entry for sync. Must succeed inside the
+      //    transaction — a local merge that is never queued is unacceptable.
+      for (const row of match.rows) {
+        const id = String(row.id)
+        const queueId = `entries:${id}`
+        await tx.execute(
+          `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
+           VALUES (?, 'entries', ?, 'upsert', ?, NULL)
+           ON CONFLICT(id) DO UPDATE SET operation = 'upsert', created_at = excluded.created_at, synced_at = NULL`,
+          [queueId, id, now]
+        )
+      }
+
+      // 4. Flag the loser page as merged into the survivor.
+      await tx.execute(
+        'UPDATE wiki_pages SET merged_into = ?, updated_at = ? WHERE id = ?',
+        [survivor.id, now, loser.id]
+      )
+      // Enqueue loser page
+      await tx.execute(
+        `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
+         VALUES (?, 'wiki_pages', ?, 'upsert', ?, NULL)
+         ON CONFLICT(id) DO UPDATE SET operation = 'upsert', created_at = excluded.created_at, synced_at = NULL`,
+        [`wiki_pages:${loser.id}`, loser.id, now]
+      )
+
+      // 5. Recompute the survivor's entry_count from distinct entries that now
+      //    reference it, rather than blindly summing stale caller counts.
+      const cntRes = await tx.execute(
+        'SELECT COUNT(DISTINCT id) AS cnt FROM entries WHERE LOWER(topic) = LOWER(?) OR LOWER(topic2) = LOWER(?)',
+        [sTitle, sTitle]
+      )
+      const newCount = Number(cntRes.rows[0]?.cnt ?? 0)
+      await tx.execute(
+        'UPDATE wiki_pages SET entry_count = ?, updated_at = ? WHERE id = ?',
+        [newCount, now, survivor.id]
+      )
+      // Enqueue survivor page
+      await tx.execute(
+        `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
+         VALUES (?, 'wiki_pages', ?, 'upsert', ?, NULL)
+         ON CONFLICT(id) DO UPDATE SET operation = 'upsert', created_at = excluded.created_at, synced_at = NULL`,
+        [`wiki_pages:${survivor.id}`, survivor.id, now]
+      )
+
+      // 6. Set the graph-rebuild repair marker inside the transaction. If the
+      //    app is killed after commit but before the post-commit rebuild, this
+      //    marker persists and bootstrap retries the graph rebuild on launch.
+      await tx.execute(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        [GRAPH_REBUILD_REQUIRED_KEY, '1']
+      )
+    })
+
+    // 7. Post-commit: rebuild the derived graph so the loser's nodes fold into
+    //    the survivor's. A failure here does NOT roll back the merge — the
+    //    durable repair marker guarantees retry on next launch.
+    //    Use the same DB connection for the marker clear so tests injecting a
+    //    fake DB don't fall back to the uninitialised global getDb().
+    const graphResult = await rebuildGraph()
+    let graphRebuilt = false
+    if (graphResult.success) {
+      await setSetting(GRAPH_REBUILD_REQUIRED_KEY, '0', db)
+      graphRebuilt = true
+    }
+
+    return ok({ entriesRepointed, graphRebuilt })
   } catch (e) {
-    return err('PAGE_MERGE_FAILED', 'Failed to merge pages', e)
+    const msg = e instanceof Error ? e.message : 'Unknown error'
+    // Map known validation errors to structured codes so callers can distinguish
+    // actual failures from expected rejections (stale/race merges).
+    const code = msg === 'PAGE_NOT_FOUND' ? 'PAGE_MERGE_NOT_FOUND'
+      : msg === 'SURVIVOR_DISMISSED' ? 'PAGE_MERGE_SURVIVOR_DISMISSED'
+      : msg === 'LOSER_DISMISSED' ? 'PAGE_MERGE_LOSER_DISMISSED'
+      : msg === 'BOTH_PAGES_MUST_BE_THEME' ? 'PAGE_MERGE_NOT_THEME'
+      : msg === 'LOSER_ALREADY_MERGED' ? 'PAGE_MERGE_ALREADY_MERGED'
+      : 'PAGE_MERGE_FAILED'
+    return err(code, 'Failed to merge pages', e)
+  }
+}
+
+/**
+ * Check whether a graph rebuild is required (repair marker set). Called at
+ * startup by bootstrap. Returns true when the marker is set to '1', meaning a
+ * previous merge committed but the post-commit graph rebuild did not complete.
+ */
+export async function isGraphRebuildRequired(
+  db: SqliteDatabase = getDb()
+): Promise<boolean> {
+  try {
+    const res = await db.execute(
+      'SELECT value FROM settings WHERE key = ?',
+      [GRAPH_REBUILD_REQUIRED_KEY]
+    )
+    return res.rows.length > 0 && String(res.rows[0].value) === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Clear the graph-rebuild repair marker after a successful rebuild. Called by
+ * bootstrap after startup rebuildGraph() succeeds.
+ */
+export async function clearGraphRebuildMarker(
+  db: SqliteDatabase = getDb()
+): Promise<void> {
+  try {
+    await db.execute(
+      'UPDATE settings SET value = ? WHERE key = ?',
+      ['0', GRAPH_REBUILD_REQUIRED_KEY]
+    )
+  } catch {
+    // best-effort — the next rebuild will see the marker and retry
   }
 }
