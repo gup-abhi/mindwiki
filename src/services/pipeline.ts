@@ -17,7 +17,7 @@ import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities
 import { snapBeliefsSemantic } from '@/services/wiki/belief-snap'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
-import { updateWikiForEntry } from '@/services/wiki/engine'
+import { updateWikiForEntry, maybeRefreshEmotionPages } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
 import { useSyncStore } from '@/store/sync.store'
 import { announceFirstRunPageIfPending } from '@/services/onboarding/first-run'
@@ -141,6 +141,11 @@ async function extractThenIndex(entry: Entry): Promise<void> {
   await indexFromExtract(entry, ex.data)
 }
 
+/** Best-effort emotion page scan when the deep model becomes available. */
+async function updateWikiForEmotionScan(): Promise<void> {
+  await maybeRefreshEmotionPages()
+}
+
 /**
  * Launch-time self-heal: re-index entries whose deep-model synthesis was cut
  * short (app backgrounded/killed before the background index finished), which on
@@ -222,6 +227,10 @@ async function wikiIndexOnly(entry: Entry): Promise<void> {
 export async function triggerCatchUp(): Promise<void> {
   try {
     await catchUpUnindexed()
+    // The deep model just became available for this session — a due emotion page
+    // whose first aggregate was deferred (no model yet) can now be synthesised.
+    // Best-effort, single-flight-guarded inside the engine; never throws.
+    await updateWikiForEmotionScan()
   } catch {
     // best-effort — a failure never propagates
   }
