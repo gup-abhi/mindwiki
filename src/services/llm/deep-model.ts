@@ -60,6 +60,13 @@ function extractJson(text: string): unknown {
 const SCAFFOLDING_LINE = [
   /^current page:/i,
   /^new reflection:/i,
+  // F-4 reflection-heading variants: "New reflection written today" /
+  // "New reflection written N days ago" / "New reflection (older entry, ...)" -
+  // heading variants the small model could echo back as a leak. Strip at LINE
+  // START so the user never sees them, but anchored enough that natural prose
+  // line starts aren't scrubbed.
+  /^new reflection written (today|\d|about \d)/i,
+  /^new reflection \(older entry/i,
   /^page to rewrite:/i,
   /^reframe lens:/i,
   /^thinking pattern:/i,
@@ -68,7 +75,7 @@ const SCAFFOLDING_LINE = [
   /^situation:/i,
   /^thought:/i,
   /^behaviou?r:/i,
-  // Re-grounding prompt labels
+  // Re-grounding prompt labels: "past entries:" header + "new entry:" heading.
   /^past entries:/i,
   /^new entry:/i,
   // Graph-connection scaffolding: connections now render as a structured block,
