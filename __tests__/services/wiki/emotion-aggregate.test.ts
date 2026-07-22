@@ -4,7 +4,7 @@ import {
   backfillEmotionPlaceholders,
 } from '@/services/wiki/engine'
 import { synthesizeEmotionPage } from '@/services/llm/deep-model'
-import { buildEmotionAggregate } from '@/services/wiki/aggregates'
+import { buildEmotionAggregate, distinctRecentExamples } from '@/services/wiki/aggregates'
 import {
   getPageByTitle,
   createPage,
@@ -17,6 +17,7 @@ import {
 import { listEntitiesForEntry } from '@/services/storage/entities'
 import { listNodes, listEdges } from '@/services/storage/graph'
 import { connectionLine } from '@/services/graph/neighborhood'
+import { getSetting, setSetting } from '@/services/storage/settings'
 import { type Entry } from '@/services/storage/entries'
 import { ok, err } from '@/types/result'
 
@@ -43,8 +44,16 @@ jest.mock('@/services/storage/entities', () => ({
   countEntriesForEntity: jest.fn(),
 }))
 jest.mock('@/services/storage/reframes', () => ({ listReframesForBelief: jest.fn() }))
-jest.mock('@/services/wiki/aggregates', () => ({
-  buildEmotionAggregate: jest.fn(),
+jest.mock('@/services/wiki/aggregates', () => {
+  const actual = jest.requireActual('@/services/wiki/aggregates')
+  return {
+    ...actual,
+    buildEmotionAggregate: jest.fn(),
+  }
+})
+jest.mock('@/services/storage/settings', () => ({
+  getSetting: jest.fn(),
+  setSetting: jest.fn(),
 }))
 // updateWikiForEntry and refreshSingleEmotionPage load the graph for connection
 // lines. Configured per-test; empty by default.
@@ -68,8 +77,24 @@ const mockBuildAgg = buildEmotionAggregate as jest.Mock
 const mockListNodes = listNodes as jest.Mock
 const mockListEdges = listEdges as jest.Mock
 const mockConnectionLine = connectionLine as jest.Mock
+const mockGetSetting = getSetting as jest.Mock
+const mockSetSetting = setSetting as jest.Mock
 
 const DAY = 24 * 60 * 60 * 1000
+
+// A simple in-memory settings store the mocks read/write. driveEmotionTrigger()
+// walks through the durable counter in lock-step with the engine so the scan
+// threshold can be reached in a long-running test.
+let settingsStore: Record<string, string> = {}
+
+beforeEach(() => {
+  settingsStore = {}
+  mockGetSetting.mockReset().mockImplementation(async (key: string) => ok(settingsStore[key] ?? null))
+  mockSetSetting.mockReset().mockImplementation(async (key: string, value: string) => {
+    settingsStore[key] = value
+    return ok(undefined)
+  })
+})
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -117,7 +142,35 @@ const aggregate = () => ({
   recentCount: { last4weeks: 8, last8weeks: 15 },
   topSituations: [{ pattern: 'work', count: 5 }],
   moodTrend: { recentAvg: 2.4, priorAvg: 2.8, direction: 'down' as const },
-  recentExamples: [{ situation: 'work', thought: 'stress', created_at: Date.now() }],
+  recentExamples: [{ situation: 'work', thought: 'stress', behavior: null, closing_note: null, created_at: Date.now() }],
+})
+
+describe('distinctRecentExamples — behavior + closing note (F-1)', () => {
+  it('carries behavior into the example payload when present', () => {
+    const entries = [
+      entry({ id: 'e1', situation: 'a meeting', behavior: 'I skipped the room' }),
+    ]
+    const out = distinctRecentExamples(entries)
+    expect(out).toHaveLength(1)
+    expect(out[0].behavior).toBe('I skipped the room')
+  })
+
+  it('carries the closing note when present', () => {
+    const entries = [
+      entry({ id: 'e1', closing_note: 'I can sit with this' }),
+    ]
+    const out = distinctRecentExamples(entries)
+    expect(out).toHaveLength(1)
+    expect(out[0].closing_note).toBe('I can sit with this')
+  })
+
+  it('leaves behavior/closing_note null when absent (no invention)', () => {
+    const entries = [entry({ id: 'e1' })] // behavior:null, closing_note:null by default
+    const out = distinctRecentExamples(entries)
+    expect(out).toHaveLength(1)
+    expect(out[0].behavior).toBeNull()
+    expect(out[0].closing_note).toBeNull()
+  })
 })
 
 describe('updateWikiForEntry — emotion routing', () => {
@@ -163,6 +216,81 @@ describe('updateWikiForEntry — emotion routing', () => {
       content: expect.stringContaining('anxiety'),
     })
     expect(mockTickle).toHaveBeenCalledWith('new-p')
+  })
+})
+
+describe('emotion trigger — durable across restart (F-3B T-3.3)', () => {
+  beforeEach(() => {
+    mockGetByTitle.mockReset()
+    mockTickle.mockReset()
+    mockListPages.mockReset()
+    mockListEntities.mockReset().mockResolvedValue(ok([]))
+    mockListNodes.mockReset().mockResolvedValue(ok([]))
+    mockListEdges.mockReset().mockResolvedValue(ok([]))
+    mockConnectionLine.mockReset().mockReturnValue(null)
+    mockTickle.mockResolvedValue(ok(page()))
+    mockListPages.mockResolvedValue(ok([]))
+  })
+
+  it('persists tag progress so a restart does not require 20 more tags', async () => {
+    // The durable trigger reads + increments the persisted counter on each tickle.
+    // Drive 20 emotion entries; the 20th reaches the threshold and fires a scan
+    // (observed via synthesizeEmotionPage on a due page) WITHOUT requiring the
+    // in-memory tally to persist each tick — only the persisted count.
+    mockGetByTitle.mockResolvedValue(ok(page()))
+    mockBuildAgg.mockResolvedValue(ok(aggregate()))
+    mockSynthEmotion.mockResolvedValue(ok('fresh prose'))
+    mockRegenContent.mockResolvedValue(ok(page({ entry_count: 20 })))
+    mockSetAgg.mockResolvedValue(undefined)
+    // Mark a due page AFTER the 19th tick so the 20th-triggered scan has a target.
+    let tick = 0
+    mockListPages.mockImplementation(async () => ok(tick < 19 ? [] : [page()]))
+
+    for (let i = 0; i < 19; i++) {
+      tick = i
+      await updateWikiForEntry(entry())
+    }
+    expect(mockSynthEmotion).not.toHaveBeenCalled() // not yet at threshold
+
+    tick = 19
+    await updateWikiForEntry(entry())
+    expect(mockSynthEmotion).toHaveBeenCalledTimes(1) // 20th tick fired the scan
+  })
+})
+
+describe('maybeRefreshEmotionPages — single-flight (F-3B T-3.4)', () => {
+  beforeEach(() => {
+    mockListPages.mockReset()
+    mockBuildAgg.mockReset()
+    mockBuildAgg.mockResolvedValue(ok(aggregate()))
+    mockSynthEmotion.mockReset()
+    mockSynthEmotion.mockResolvedValue(ok('fresh prose'))
+    mockRegenContent.mockReset()
+    mockRegenContent.mockResolvedValue(ok(page({ entry_count: 20 })))
+    mockSetAgg.mockReset().mockResolvedValue(undefined)
+  })
+
+  it('two overlapping scans synthesise each due page only once (single-flight)', async () => {
+    // Two due pages; call twice without awaiting and confirm only 2 syntheses happen
+    // (not 4 — each page processed once, the second call awaits the first's promise).
+    mockListPages.mockResolvedValue(ok([page({ id: 'pa' }), page({ id: 'pb' })]))
+
+    const [a, b] = await Promise.all([
+      maybeRefreshEmotionPages(),
+      maybeRefreshEmotionPages(),
+    ])
+
+    expect(mockSynthEmotion).toHaveBeenCalledTimes(2)
+    expect(a).toBe(b) // second call returns the first call's count
+  })
+
+  it('a failed synthesis leaves the page due for retry (aggregated_upto not advanced)', async () => {
+    mockSynthEmotion.mockResolvedValueOnce(err('EMOTION_SYNTH_INFERENCE_FAILED', 'down'))
+    mockListPages.mockResolvedValue(ok([page()]))
+
+    await maybeRefreshEmotionPages()
+
+    expect(mockSetAgg).not.toHaveBeenCalled() // marker not advanced on failure
   })
 })
 

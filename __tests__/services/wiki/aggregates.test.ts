@@ -1,4 +1,4 @@
-import { type Entry, listEntriesByEmotion } from '@/services/storage/entries'
+import { type Entry, listEntriesByEmotion, listEntriesByEmotionAllSources } from '@/services/storage/entries'
 import {
   bucketKey,
   countSituations,
@@ -11,8 +11,10 @@ import { ok, err } from '@/types/result'
 
 jest.mock('@/services/storage/entries', () => ({
   listEntriesByEmotion: jest.fn(),
+  listEntriesByEmotionAllSources: jest.fn(),
 }))
 const mockList = listEntriesByEmotion as unknown as jest.Mock
+const mockListAll = listEntriesByEmotionAllSources as unknown as jest.Mock
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 const daysAgo = (n: number) => Date.now() - n * 24 * 60 * 60 * 1000
@@ -148,17 +150,20 @@ describe('distinctRecentExamples', () => {
 })
 
 describe('buildEmotionAggregate', () => {
-  beforeEach(() => mockList.mockReset())
+  beforeEach(() => {
+    mockList.mockReset()
+    mockListAll.mockReset()
+  })
 
   it('returns an empty aggregate when the query fails', async () => {
-    mockList.mockResolvedValue(err('X', 'boom'))
+    mockListAll.mockResolvedValue(err('X', 'boom'))
     const res = await buildEmotionAggregate('Anxiety')
     expect(res.success).toBe(true)
     if (res.success) expect(res.data).toEqual(emptyAggregate('Anxiety'))
   })
 
   it('assembles counts, recent windows, and top situations', async () => {
-    mockList.mockResolvedValue(
+    mockListAll.mockResolvedValue(
       ok([
         entry({ situation: 'work', created_at: daysAgo(2), mood: 2 }),
         entry({ situation: 'work', created_at: daysAgo(10), mood: 2 }),
@@ -174,5 +179,25 @@ describe('buildEmotionAggregate', () => {
     expect(d.recentCount.last4weeks).toBe(2) // days 2, 10 are within 28d... 10<28 yes
     expect(d.recentCount.last8weeks).toBe(3) // days 2,10,40 within 56d
     expect(d.topSituations[0]).toEqual({ pattern: 'work', count: 2 })
+  })
+})
+
+describe('buildEmotionAggregate — source alignment (F-3B T-3.5)', () => {
+  beforeEach(() => {
+    mockListAll.mockReset()
+  })
+
+  it('queries the all-sources entry list (gate + aggregate use the same population)', async () => {
+    // The emotion page entry_count is tickled by all indexed sources (journal +
+    // reflect + path), so the aggregate must query the SAME population — otherwise
+    // a page whose count came largely from reflect/path entries would aggregate
+    // over an empty/partial journal-only set, and trends/topSituations would lie.
+    mockListAll.mockResolvedValue(ok([entry({ situation: 'reflect trigger' })]))
+
+    await buildEmotionAggregate('Anxiety')
+
+    expect(mockListAll).toHaveBeenCalledWith('Anxiety')
+    // The journal-only query must NOT be used for the aggregate.
+    expect(mockList).not.toHaveBeenCalled()
   })
 })
