@@ -147,10 +147,12 @@ export function wordDiff(a: string, b: string): DiffToken[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Retention for each version in the chain: the fraction of the prior version's
- * content words that survived (step), and of the first contentful version's
- * words still present (origin). Null when there's nothing to measure from.
- */
+ * Retention for each version in the chain: the fraction of the prior
+ * RETAINED version's content words that survived (step — null across a
+ * sampled gap, where versions were discarded, or when there is no prior), and
+ * of the first contentful version's words still present (origin — null when
+ * the start is an empty shell or when not yet reached). Step retention is
+ * word-overlap only, never semantic understanding. */
 export function retentionAtVersions(evo: EvolutionData): VersionRetention[] {
   const chain = [...evo.versions, evo.current]
   const out: VersionRetention[] = []
@@ -162,11 +164,17 @@ export function retentionAtVersions(evo: EvolutionData): VersionRetention[] {
   const originContent = firstContentful >= 0 ? chain[firstContentful].content : null
 
   for (let i = 0; i < chain.length; i++) {
-    const prev = i > 0 ? chain[i - 1].content : null
+    const prev = i > 0 ? chain[i - 1] : null
     const next = chain[i].content
+    // Step retention ONLY when the prior RETAINED version is one version back —
+    // a gap (e.g. v2 → v14) means discarded rewrites in between, and computing
+    // a single step there would masquerade several rewrites as one rewrite's
+    // word overlap. Across gaps and at i === 0, step retention is null.
+    const isAdjacent =
+      prev != null && chain[i].version - prev.version === 1
     out.push({
       version: chain[i].version,
-      stepRetention: prev != null ? retention(prev, next) : null,
+      stepRetention: isAdjacent ? retention(prev.content, next) : null,
       originRetention:
         originContent != null && i >= firstContentful
           ? retention(originContent, next)

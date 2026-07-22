@@ -8,6 +8,7 @@ import { VersionDiff } from '@/components/wiki/VersionDiff'
 import { VersionViewer } from '@/components/wiki/VersionViewer'
 import { type Theme, useThemedStyles } from '@/theme'
 import { pageEvolution, type EvolutionVersion } from '@/services/wiki/evolution'
+import { normalizeVersionChain } from '@/services/wiki/drift'
 import { getPage } from '@/services/storage/wiki'
 import { useWikiPage } from '@/hooks/useWiki'
 
@@ -36,6 +37,15 @@ export default function PageEvolutionScreen() {
     if (!evo) return []
     return [...evo.versions, evo.current]
   }, [evo])
+
+  // F-5 — sampled-history gaps in the retained version chain, surfaced as a
+  // 'sampled' indicator on the timeline (so a v2 ↔ v14 jump is never drawn as
+  // a single rename). Derived from page.version_history the same way `pageDrift`
+  // does, so the timeline and the dev drift report agree.
+  const timelineGaps = useMemo(() => {
+    if (!page) return []
+    return normalizeVersionChain(page.version_history).gaps
+  }, [page])
 
   // When a selected version's content + entry count
   const selectedVersion: EvolutionVersion | null = useMemo(() => {
@@ -191,6 +201,7 @@ export default function PageEvolutionScreen() {
       <View style={styles.timelineSection}>
         <VersionTimeline
           versions={timelineVersions}
+          gaps={timelineGaps}
           selectedVersion={selected}
           compareVersion={compare}
           onSelect={onSelect}

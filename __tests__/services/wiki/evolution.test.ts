@@ -194,3 +194,56 @@ describe('retentionAtVersions', () => {
     expect(r[0].originRetention).toBe(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// F-5 — sampled-history gaps: step retention is null across a gap
+// ---------------------------------------------------------------------------
+
+describe('retentionAtVersions — gap handling', () => {
+  it('reports null step retention across a sampled gap (v2 ↔ v14 retained)', () => {
+    const evo = pageEvolution(
+      page({
+        version: 15,
+        content: 'you brace for storm harbor',
+        version_history: [
+          { version: 2, content: 'you brace for worst before storm', updated_at: 20 },
+          // versions 3–13 discarded by the retained-history cap; v14 sampled back in
+          { version: 14, content: 'you often brace for storm harbor', updated_at: 140 },
+        ],
+      })
+    )
+    const r = retentionAtVersions(evo)
+    // chain: v2, v14, v15 (current). firstContentful index = 0 (v2).
+    expect(r.map((x) => x.version)).toEqual([2, 14, 15])
+
+    // v2: first version, no step.
+    expect(r[0].stepRetention).toBeNull()
+    // v14: prior retained is v2, but v14 - v2 = 12 (gap). Step MUST be null.
+    expect(r[1].stepRetention).toBeNull()
+    // v15: prior retained is v14, v15 - v14 = 1 (adjacent). Step is computed.
+    expect(r[2].stepRetention).not.toBeNull()
+
+    // Origin retention still works across the gap: v2 → v15 word overlap.
+    expect(r[2].originRetention).not.toBeNull()
+    expect(r[1].originRetention).not.toBeNull()
+  })
+
+  it('computes step retention normally for a consecutive chain (v1, v2, v3)', () => {
+    const evo = pageEvolution(
+      page({
+        version: 3,
+        content: 'you often brace for storm harbor',
+        version_history: [
+          { version: 1, content: 'you brace for storm', updated_at: 1 },
+          { version: 2, content: 'you brace for storm harbor', updated_at: 2 },
+        ],
+      })
+    )
+    const r = retentionAtVersions(evo)
+    expect(r).toHaveLength(3)
+    // v1: no prior; v1 → v2 adjacent
+    expect(r[0].stepRetention).toBeNull()
+    expect(r[1].stepRetention).not.toBeNull() // v1→v2 adjacent
+    expect(r[2].stepRetention).not.toBeNull() // v2→v3 adjacent
+  })
+})
