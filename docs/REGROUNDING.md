@@ -95,7 +95,7 @@ Past entries:
 
 ### Normal pass (unchanged)
 
-`buildUpdatePagePrompt()` as-is. The existing `MAX_EXISTING_CHARS = 2400` cap stays.
+`buildUpdatePagePrompt()` as-is. The prompt input is bounded to `PROMPT_INPUT_BUDGET` (1520 estimated tokens) by the shared F-3A budget logic — the old `MAX_EXISTING_CHARS = 2400` char cap is replaced by the token budget applied to the full rendered prompt.
 
 ### Re-grounding pass — `buildReGroundPrompt()`
 
@@ -184,7 +184,7 @@ const synth = pastEntries.length > 0
       situation: entry.situation,
       thought: entry.thought,
       reframe,
-      weeksSinceUpdate,
+      timing,
       pastEntries: pastEntries.map(e => ({
         situation: e.situation,
         thought: e.thought,

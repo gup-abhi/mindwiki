@@ -281,8 +281,10 @@ export interface EmotionPageInput {
   title: string        // e.g. "Anxiety"
   data: EmotionAggregate
   existingContent: string
-  /** Whole weeks since the last aggregate rewrite, for temporal framing. */
-  weeksSinceUpdate: number | null
+  /** F-4 — deterministic timing context (calendar-day gap from the page's last
+   *  aggregate to now). Null when no prior content. Only `gapDays` carries
+   *  wording; emotion aggregate has no single dated reflection. */
+  timing?: TimingContext | null
 }
 ```
 
