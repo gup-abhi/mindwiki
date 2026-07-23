@@ -1,3 +1,5 @@
+import { truncateMiddle } from './budget'
+
 export interface UntangleReframePromptInput {
   thought: string
   patterns: readonly string[]
@@ -13,7 +15,7 @@ const MAX_SOURCES = 2
 
 function compact(text: string, max: number): string {
   const trimmed = text.trim().replace(/\s+/g, ' ')
-  return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max - 1)}…`
+  return trimmed.length <= max ? trimmed : truncateMiddle(trimmed, max)
 }
 
 /**

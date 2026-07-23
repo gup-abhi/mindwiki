@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router'
 import { listPages } from '@/services/storage/wiki'
 import { listPageEmbeddings } from '@/services/storage/page-embeddings'
 import { getSetting, setSetting } from '@/services/storage/settings'
-import { suggestMerges, mergePages, pairKey, type MergePair } from '@/services/wiki/merge'
+import { suggestMerges, mergePages, pairKeyById, type MergePair } from '@/services/wiki/merge'
 import { useSyncStore } from '@/store/sync.store'
 
 /** Settings key holding the JSON array of pair-keys the user chose to keep separate. */
@@ -69,11 +69,14 @@ export function useMergeSuggestions() {
   }, [pair, busy, bumpRevision, recompute])
 
   // Keep the pair separate — persist it so it never re-suggests, then advance.
+  // Save an ID-based key (stable across title changes). Legacy title-based keys
+  // already in the stored set are still read by suggestMerges for backward
+  // compatibility with older devices.
   const dismiss = useCallback(async () => {
     if (!pair || busy) return
     setBusy(true)
     const suppressed = await loadSuppressed()
-    suppressed.add(pairKey(pair.survivor.title, pair.loser.title))
+    suppressed.add(pairKeyById(pair.survivor.id, pair.loser.id))
     await setSetting(SUPPRESS_KEY, JSON.stringify([...suppressed]))
     setBusy(false)
     await recompute()

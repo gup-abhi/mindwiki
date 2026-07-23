@@ -3,6 +3,8 @@ import { rebuildGraph } from '@/services/graph/engine'
 import { clearTokens, getTokens } from '@/services/auth/token-store'
 import { dedupeTopics } from '@/services/wiki/dedupe'
 import { catchUpUnindexed } from '@/services/pipeline'
+import { isGraphRebuildRequired, clearGraphRebuildMarker } from '@/services/wiki/merge'
+import { maybeRefreshEmotionPages } from '@/services/wiki/engine'
 import { type AppError, type Result, ok, err } from '@/types/result'
 
 import { initDb, deleteDatabase } from './db'
@@ -90,6 +92,25 @@ export async function initStorage(): Promise<Result<void>> {
   // background index finished). Fire-and-forget — never block launch; no-ops
   // cheaply when there's nothing to re-index or the deep model isn't present.
   void catchUpUnindexed()
+
+  // Retry graph rebuild if a previous mergePages committed but the post-commit
+  // graph rebuild didn't complete (app killed between the transaction commit and
+  // the rebuildGraph call). The durable repair marker guarantees retry; clear it
+  // only on success. Fire-and-forget — never block launch.
+  void (async () => {
+    const needs = await isGraphRebuildRequired()
+    if (needs) {
+      const r = await rebuildGraph()
+      if (r.success) await clearGraphRebuildMarker()
+    }
+  })()
+
+  // Best-effort emotion page scan at startup: a page may have become due while
+  // the app was closed (the global trigger threshold is durable but the scan only
+  // fires from a tickle, which only happens on a save). Also picks up pages whose
+  // first aggregate was deferred until the deep model existed. Cheap no-op when
+  // nothing's due. Fire-and-forget — never block launch.
+  void maybeRefreshEmotionPages()
 
   return ok(undefined)
 }

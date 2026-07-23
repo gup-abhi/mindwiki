@@ -15,6 +15,7 @@ import {
   setAggregatedUpto,
   listPages,
   regeneratePageContent,
+  regeneratePageContentWithAggregate,
   type WikiPage,
 } from '@/services/storage/wiki'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
@@ -26,6 +27,7 @@ import {
   listEntriesByTopicOrTopic2,
   listEntriesForEntity,
 } from '@/services/storage/entries'
+import { getSetting, setSetting } from '@/services/storage/settings'
 import { listNodes, listEdges } from '@/services/storage/graph'
 import { connectionLine } from '@/services/graph/neighborhood'
 import { ok, err } from '@/types/result'
@@ -43,6 +45,7 @@ jest.mock('@/services/storage/wiki', () => ({
   ticklePageCount: jest.fn(),
   setAggregatedUpto: jest.fn(),
   regeneratePageContent: jest.fn(),
+  regeneratePageContentWithAggregate: jest.fn(),
   listPages: jest.fn(),
 }))
 jest.mock('@/services/storage/entities', () => ({
@@ -62,6 +65,7 @@ const mockSynth = synthesizePage as jest.Mock
 const mockSynthReGround = synthesizePageReGround as jest.Mock
 const mockRegen = regeneratePage as jest.Mock
 const mockRegenContent = regeneratePageContent as jest.Mock
+const mockRegenAggregate = regeneratePageContentWithAggregate as jest.Mock
 const mockListPages = listPages as jest.Mock
 const mockGetByTitle = getPageByTitle as jest.Mock
 const mockGetPage = getPage as jest.Mock
@@ -85,6 +89,12 @@ jest.mock('@/services/storage/entries', () => ({
   listEntriesByTopicOrTopic2: jest.fn(),
   listEntriesForEntity: jest.fn(),
 }))
+jest.mock('@/services/storage/settings', () => ({
+  getSetting: jest.fn(),
+  setSetting: jest.fn(),
+}))
+const mockGetSetting = getSetting as jest.Mock
+const mockSetSetting = setSetting as jest.Mock
 const mockEntriesByEmotion = (listEntriesByEmotion as unknown as jest.Mock)
 const mockEntriesByDistortion = (listEntriesByDistortion as unknown as jest.Mock)
 const mockEntriesByTopic = (listEntriesByTopicOrTopic2 as unknown as jest.Mock)
@@ -172,6 +182,8 @@ describe('updateWikiForEntry', () => {
     mockConnectionLine.mockReturnValue(null)               // no connection by default
     mockListPages.mockReset()
     mockListPages.mockResolvedValue(ok([]))                // no pages by default
+    mockGetSetting.mockReset().mockResolvedValue(ok(null))   // trigger counter starts at 0
+    mockSetSetting.mockReset().mockResolvedValue(ok(undefined))
   })
 
   it('creates a new page when none exists, then synthesizes and updates it', async () => {
@@ -420,6 +432,38 @@ describe('updateWikiForEntry', () => {
       expect(mockSynth).toHaveBeenCalled()
       expect(mockSynthReGround).not.toHaveBeenCalled()
     })
+
+    it('passes entry.behavior to re-ground synthesis when present (F-1)', async () => {
+      mockGetByTitle.mockResolvedValue(ok(oldPage())) // satisfies re-ground age + %10
+      mockEntriesByDistortion.mockResolvedValue(ok([sampleEntry]))
+      mockSynthReGround.mockResolvedValue(ok('re-grounded content'))
+
+      await updateWikiForEntry(entry({ emotion: null, behavior: 'I walked off the floor' }))
+
+      expect(mockSynthReGround).toHaveBeenCalledWith(
+        expect.objectContaining({ behavior: 'I walked off the floor' })
+      )
+    })
+
+    it('excludes the current entry from the historical past-entries sample (F-1)', async () => {
+      // The current entry may also appear in the historical query. It must be
+      // dropped from pastEntries (the current entry already has its own block),
+      // so its evidence isn't doubled.
+      const current = entry({ id: 'the-current', emotion: null })
+      mockGetByTitle.mockResolvedValue(ok(oldPage()))
+      mockEntriesByDistortion.mockResolvedValue(ok([
+        { id: 'the-current', situation: 'current match', thought: 'dup', created_at: 123 },
+        sampleEntry as any,
+      ]))
+      mockSynthReGround.mockResolvedValue(ok('re-grounded content'))
+
+      await updateWikiForEntry(current)
+
+      const call = mockSynthReGround.mock.calls[0][0]
+      const pastTitles = call.pastEntries.map((p: any) => p.situation)
+      expect(pastTitles).not.toContain('current match')
+      expect(pastTitles).toContain('Had a tough standup')
+    })
   })
 
   it('does not load graph data or pass any connection line to synthesis', async () => {
@@ -445,6 +489,32 @@ describe('updateWikiForEntry', () => {
     expect(mockConnectionLine).not.toHaveBeenCalled()
     const call = mockSynth.mock.calls[0][0]
     expect(call.connectionLine).toBeUndefined()
+  })
+
+  // F-1: raw entry.behavior reaches both synthesis paths
+
+  it('passes entry.behavior to normal synthesis when present', async () => {
+    mockGetByTitle.mockResolvedValue(
+      ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'old', dismissed_at: null })
+    )
+
+    await updateWikiForEntry(entry({ emotion: null, behavior: 'I walked away from the argument' }))
+
+    expect(mockSynth).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: 'I walked away from the argument' })
+    )
+  })
+
+  it('passes behavior:null to synthesis when the entry omitted step 4', async () => {
+    mockGetByTitle.mockResolvedValue(
+      ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'old', dismissed_at: null })
+    )
+
+    await updateWikiForEntry(entry({ emotion: null, behavior: null }))
+
+    expect(mockSynth).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: null })
+    )
   })
 })
 

@@ -149,7 +149,9 @@ export function useConversation(initialQuestion?: string) {
           void ensureEmbedModel().then(async () => {
             const pages = await backfillStaleEmbeddings(pageList)
             const beliefs = await backfillBeliefEmbeddings()
-            console.log(`[reflect-backfill] pages: ${pages}/${pageList.length}, beliefs: ${beliefs}`)
+            console.log(
+              `[reflect-backfill] pages embedded: ${pages.embedded}/${pageList.length}, failed: ${pages.failed}, beliefs: ${beliefs}`
+            )
           })
         }
       )

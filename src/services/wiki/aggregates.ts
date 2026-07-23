@@ -1,4 +1,4 @@
-import { type Entry, listEntriesByEmotion } from '@/services/storage/entries'
+import { type Entry, listEntriesByEmotionAllSources } from '@/services/storage/entries'
 import { type Result, ok } from '@/types/result'
 
 // ---------------------------------------------------------------------------
@@ -22,7 +22,7 @@ export interface EmotionAggregate {
     direction: 'up' | 'down' | 'stable' | 'insufficient_data'
   }
   /** 2-3 recent entries (newest, distinct situations) as concrete examples. */
-  recentExamples: { situation: string; thought: string; created_at: number }[]
+  recentExamples: { situation: string; thought: string; behavior: string | null; closing_note: string | null; created_at: number }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +115,8 @@ export function distinctRecentExamples(
     out.push({
       situation: e.situation,
       thought: e.thought,
+      behavior: e.behavior,
+      closing_note: e.closing_note,
       created_at: e.created_at,
     })
     if (out.length >= limit) break
@@ -136,7 +138,10 @@ export function distinctRecentExamples(
 export async function buildEmotionAggregate(
   emotion: string
 ): Promise<Result<EmotionAggregate>> {
-  const res = await listEntriesByEmotion(emotion)
+  // The emotion page's entry_count is tickled by ALL indexed sources (journal +
+  // reflect + path all route through tickleEmotionPage). The aggregate must query
+  // the SAME population — journal-only would under-count and lie about trends.
+  const res = await listEntriesByEmotionAllSources(emotion)
   if (!res.success) {
     // Error code only — never log entry content
     return ok(emptyAggregate(emotion))

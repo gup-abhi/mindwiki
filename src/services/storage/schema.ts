@@ -606,3 +606,17 @@ export const migration028: Migration = {
     `CREATE INDEX idx_graph_edges_target ON graph_edges (target_id)`,
   ],
 }
+
+// Migration 029 — mutable entry sync watermark. `tagged_at` records when model
+// tagging completed; it is not a general modification timestamp. `updated_at`
+// is bumped whenever mutable entry metadata changes so post-create edits (such
+// as topic repointing during a merge) reach other devices.
+export const migration029: Migration = {
+  version: 29,
+  name: 'entry_updated_at',
+  statements: [
+    `ALTER TABLE entries ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+    `UPDATE entries SET updated_at = MAX(created_at, COALESCE(tagged_at, 0))`,
+    `CREATE INDEX idx_entries_updated_at ON entries (updated_at)`,
+  ],
+}

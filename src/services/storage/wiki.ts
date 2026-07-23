@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
-import { enqueueUpsert } from './sync-queue'
+import { enqueueUpsert, notifySyncPending } from './sync-queue'
 
 export interface WikiPageVersion {
   version: number
@@ -168,44 +168,91 @@ export async function ticklePageCount(
   db: SqliteDatabase = getDb()
 ): Promise<Result<WikiPage>> {
   try {
+    const now = Date.now()
+    // SQLite performs the increment under its write lock. A read-modify-write
+    // pair loses one count when background indexers overlap.
+    const changed = await db.execute(
+      'UPDATE wiki_pages SET entry_count = entry_count + 1, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+      [now, id]
+    )
+    if ((changed.rowsAffected ?? 0) === 0) return err('WIKI_NOT_FOUND', 'Wiki page not found')
     const current = await getPage(id, db)
     if (!current.success) return current
-    if (current.data == null) {
-      return err('WIKI_NOT_FOUND', 'Wiki page not found')
-    }
-    const now = Date.now()
-    const next: WikiPage = {
-      ...current.data,
-      entry_count: current.data.entry_count + 1,
-      updated_at: now,
-    }
-    await db.execute(
-      'UPDATE wiki_pages SET entry_count = ?, updated_at = ? WHERE id = ?',
-      [next.entry_count, now, id]
-    )
+    if (current.data == null) return err('WIKI_NOT_FOUND', 'Wiki page not found')
     await enqueueUpsert('wiki_pages', id, db)
-    return ok(next)
+    return ok(current.data)
   } catch (e) {
     return err('WIKI_TICKLE_FAILED', 'Failed to tickle wiki page entry count', e)
   }
 }
 
-/**
- * Set aggregated_upto on an emotion page to the given value. Called after an
- * aggregate synthesis to mark how many entries have been accounted for, so the
- * next re-synthesis only fires when AGGREGATE_BATCH_SIZE new entries have
- * accumulated. Best-effort; never throws.
- */
+/** Persist an aggregate rewrite and its completion marker as one syncable row.
+ * The marker is never durable without the final content and queue record. */
+export async function regeneratePageContentWithAggregate(
+  id: string,
+  content: string,
+  upto: number,
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPage>> {
+  try {
+    let next: WikiPage | null = null
+    await db.transaction(async (tx) => {
+      const current = await getPage(id, tx)
+      if (!current.success) throw new Error(current.error.code)
+      if (!current.data) throw new Error('WIKI_NOT_FOUND')
+      const prev = current.data
+      const history = capVersionHistory([
+        ...prev.version_history,
+        { version: prev.version, content: prev.content, updated_at: prev.updated_at },
+      ])
+      const now = Date.now()
+      const updatedAt = Math.max(prev.updated_at + 1, now)
+      next = {
+        ...prev,
+        content,
+        version: prev.version + 1,
+        version_history: history,
+        updated_at: updatedAt,
+        corrected_at: null,
+        aggregated_upto: upto,
+      }
+      await tx.execute(
+        `UPDATE wiki_pages
+           SET content = ?, version = ?, version_history = ?, updated_at = ?,
+               corrected_at = NULL, aggregated_upto = ?
+         WHERE id = ?`,
+        [content, next.version, JSON.stringify(history), updatedAt, upto, id]
+      )
+      const queued = await enqueueUpsert('wiki_pages', id, tx, false)
+      if (!queued.success) throw new Error(queued.error.code)
+    })
+    // Queue SQL committed with the page; only the wake-up is post-commit.
+    if (!next) return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    notifySyncPending()
+    return ok(next)
+  } catch (e) {
+    return err('WIKI_AGGREGATE_UPDATE_FAILED', 'Failed to persist emotion aggregate', e)
+  }
+}
+
+/** @deprecated Use regeneratePageContentWithAggregate for aggregate writes. */
 export async function setAggregatedUpto(
   id: string,
   upto: number,
   db: SqliteDatabase = getDb()
 ): Promise<void> {
   try {
-    await db.execute('UPDATE wiki_pages SET aggregated_upto = ? WHERE id = ?', [upto, id])
-    // Content is unchanged, so no sync enqueue needed.
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        'UPDATE wiki_pages SET aggregated_upto = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+        [upto, Date.now(), id]
+      )
+      const queued = await enqueueUpsert('wiki_pages', id, tx, false)
+      if (!queued.success) throw new Error(queued.error.code)
+    })
+    notifySyncPending()
   } catch {
-    // Best-effort — the counter will catch up on the next aggregate.
+    // Compatibility API preserves its historical void/best-effort contract.
   }
 }
 
@@ -261,10 +308,11 @@ export async function dismissPage(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    const res = await db.execute('UPDATE wiki_pages SET dismissed_at = ? WHERE id = ?', [
-      Date.now(),
-      id,
-    ])
+    const now = Date.now()
+    const res = await db.execute(
+      'UPDATE wiki_pages SET dismissed_at = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+      [now, now, id]
+    )
     if ((res.rowsAffected ?? 0) === 0) return err('WIKI_NOT_FOUND', 'Wiki page not found')
     await enqueueUpsert('wiki_pages', id, db)
     return ok(undefined)
@@ -279,7 +327,11 @@ export async function restorePage(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    const res = await db.execute('UPDATE wiki_pages SET dismissed_at = NULL WHERE id = ?', [id])
+    const now = Date.now()
+    const res = await db.execute(
+      'UPDATE wiki_pages SET dismissed_at = NULL, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+      [now, id]
+    )
     if ((res.rowsAffected ?? 0) === 0) return err('WIKI_NOT_FOUND', 'Wiki page not found')
     await enqueueUpsert('wiki_pages', id, db)
     return ok(undefined)
@@ -311,13 +363,14 @@ export async function updatePage(
     ]
     const history = capVersionHistory(rawHistory)
     const now = Date.now()
+    const updatedAt = Math.max(prev.updated_at + 1, now)
     const next: WikiPage = {
       ...prev,
       content,
       version: prev.version + 1,
       version_history: history,
       entry_count: prev.entry_count + 1,
-      updated_at: now,
+      updated_at: updatedAt,
       // A fresh synthesis heals a previously-dropped page: clear the flag so it
       // rejoins retrieval (the engine regenerates its content from scratch). It
       // also supersedes a user correction — the content now folds in a new entry,
@@ -331,7 +384,7 @@ export async function updatePage(
          SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?,
              dismissed_at = NULL, corrected_at = NULL
        WHERE id = ?`,
-      [next.content, next.version, JSON.stringify(history), next.entry_count, now, id]
+      [next.content, next.version, JSON.stringify(history), next.entry_count, updatedAt, id]
     )
     await enqueueUpsert('wiki_pages', id, db) // content changed → re-sync
     return ok(next)
@@ -367,13 +420,14 @@ export async function correctPage(
     ]
     const history = capVersionHistory(rawHistory)
     const now = Date.now()
+    const updatedAt = Math.max(prev.updated_at + 1, now)
     const next: WikiPage = {
       ...prev,
       content,
       version: prev.version + 1,
       version_history: history,
-      updated_at: now,
-      corrected_at: now,
+      updated_at: updatedAt,
+      corrected_at: updatedAt,
       dismissed_at: null,
     }
 
@@ -382,7 +436,7 @@ export async function correctPage(
          SET content = ?, version = ?, version_history = ?, updated_at = ?,
              corrected_at = ?, dismissed_at = NULL
        WHERE id = ?`,
-      [next.content, next.version, JSON.stringify(history), now, now, id]
+      [next.content, next.version, JSON.stringify(history), updatedAt, updatedAt, id]
     )
     await enqueueUpsert('wiki_pages', id, db) // content changed → re-sync
     return ok(next)
@@ -416,12 +470,13 @@ export async function regeneratePageContent(
     ]
     const history = capVersionHistory(rawHistory)
     const now = Date.now()
+    const updatedAt = Math.max(prev.updated_at + 1, now)
     const next: WikiPage = {
       ...prev,
       content,
       version: prev.version + 1,
       version_history: history,
-      updated_at: now,
+      updated_at: updatedAt,
       corrected_at: null,
     }
 
@@ -429,7 +484,7 @@ export async function regeneratePageContent(
       `UPDATE wiki_pages
          SET content = ?, version = ?, version_history = ?, updated_at = ?, corrected_at = NULL
        WHERE id = ?`,
-      [next.content, next.version, JSON.stringify(history), now, id]
+      [next.content, next.version, JSON.stringify(history), updatedAt, id]
     )
     await enqueueUpsert('wiki_pages', id, db) // content changed → re-sync
     return ok(next)

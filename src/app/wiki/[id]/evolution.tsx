@@ -8,6 +8,7 @@ import { VersionDiff } from '@/components/wiki/VersionDiff'
 import { VersionViewer } from '@/components/wiki/VersionViewer'
 import { type Theme, useThemedStyles } from '@/theme'
 import { pageEvolution, type EvolutionVersion } from '@/services/wiki/evolution'
+
 import { getPage } from '@/services/storage/wiki'
 import { useWikiPage } from '@/hooks/useWiki'
 
@@ -36,6 +37,10 @@ export default function PageEvolutionScreen() {
     if (!evo) return []
     return [...evo.versions, evo.current]
   }, [evo])
+
+  // The timeline consumes the same full archived + live chain normalization as
+  // drift metrics, including a retained-history gap immediately before live vN.
+  const timelineGaps = evo?.gaps ?? []
 
   // When a selected version's content + entry count
   const selectedVersion: EvolutionVersion | null = useMemo(() => {
@@ -191,12 +196,39 @@ export default function PageEvolutionScreen() {
       <View style={styles.timelineSection}>
         <VersionTimeline
           versions={timelineVersions}
+          gaps={timelineGaps}
           selectedVersion={selected}
           compareVersion={compare}
           onSelect={onSelect}
         />
       </View>
       <Divider />
+
+      {evo != null && (evo.issues.length > 0 || evo.gaps.length > 0) && (
+        <View style={styles.integrityNotice} testID="evolution-integrity-notice">
+          <Text variant="bodyStrong" color="textSecondary">
+            History note
+          </Text>
+          {evo.issues.map((issue, index) => (
+            <Text
+              key={`${issue.type}-${issue.version}-${index}`}
+              variant="caption"
+              color="textMuted"
+            >
+              {issue.detail}
+            </Text>
+          ))}
+          {evo.gaps.map((gap) => (
+            <Text
+              key={`gap-${gap.fromVersion}-${gap.toVersion}`}
+              variant="caption"
+              color="textMuted"
+            >
+              {gap.missing} prior version{gap.missing === 1 ? '' : 's'} were sampled out between v{gap.fromVersion} and v{gap.toVersion}.
+            </Text>
+          ))}
+        </View>
+      )}
 
       {/* Content area */}
       <View style={styles.contentSection}>
@@ -246,6 +278,13 @@ const makeStyles = (t: Theme) =>
     compareHint: { flex: 1, textAlign: 'right' },
     timelineSection: { marginVertical: t.spacing.lg },
     contentSection: { marginTop: t.spacing.md, marginBottom: t.spacing.xl },
+    integrityNotice: {
+      gap: t.spacing.xs,
+      marginTop: t.spacing.md,
+      padding: t.spacing.sm,
+      borderRadius: t.radii.sm,
+      backgroundColor: t.colors.surfaceAlt,
+    },
     sectionTitle: { marginBottom: t.spacing.sm },
     hint: { textAlign: 'center', marginTop: t.spacing.xl },
   })

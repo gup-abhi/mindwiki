@@ -1,4 +1,6 @@
 import { synthesizePage, synthesizePageReGround, synthesizeEmotionPage, regeneratePage } from '@/services/llm/deep-model'
+import { type TimingContext } from '@/types/wiki'
+import * as settingsStorage from '@/services/storage/settings'
 import {
   type Entry,
   listEntriesByEmotion,
@@ -14,7 +16,7 @@ import {
   createPage,
   updatePage,
   ticklePageCount,
-  setAggregatedUpto,
+  regeneratePageContentWithAggregate,
   regeneratePageContent,
   listPages,
   type WikiPage,
@@ -33,7 +35,57 @@ export interface Topic {
 // keeps one-off mentions out of the wiki while the graph still shows them all.
 const RECURRENCE_THRESHOLD = 2
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Re-export the shared timing context type from the type leaf so consumers can
+// continue to import it from the wiki engine surface (where computeTiming
+// lives) without depending on the prompt builder. See `@/types/wiki`.
+export type { TimingContext }
+
+/** Calendar-day difference between two epoch-ms timestamps, floor-bucketed:
+ *  Midnight-crossings land on separate days even when only 1 wall-second apart
+ *  (so a reflection written at 23:59 last night is "1 day old" at 00:01
+ *  today, never 0). Compares the local calendar date fields, while the pure
+ *  timestamp inputs keep the calculation deterministic in tests. */
+function calendarDayDiff(aEpochMs: number, bEpochMs: number): number {
+  const a = new Date(aEpochMs)
+  const b = new Date(bEpochMs)
+  const aDay = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())
+  const bDay = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate())
+  return Math.round((bDay - aDay) / DAY_MS)
+}
+
+/** Compute a {@link TimingContext} from the page's latest shaping, the
+ *  entry's creation time, and the current processing time. Pure — no
+ *  Date.now() — so the suite can be wall-clock-independent. */
+export function computeTiming(args: {
+  pageUpdatedAt: number | null
+  entryCreatedAt: number
+  now: number
+}): TimingContext {
+  const { pageUpdatedAt, entryCreatedAt, now } = args
+  const invalidEntry = !Number.isFinite(entryCreatedAt) || !Number.isFinite(now)
+  const invalidPage = pageUpdatedAt != null && !Number.isFinite(pageUpdatedAt)
+  const futurePage = pageUpdatedAt != null && pageUpdatedAt > now
+  const isFutureEntry = invalidEntry || invalidPage || futurePage || entryCreatedAt > now
+  if (isFutureEntry) {
+    return { gapDays: null, entryAgeDays: null, isHistoricalEntry: false, isFutureEntry: true }
+  }
+  const entryAgeDays = calendarDayDiff(entryCreatedAt, now) // now - createdAt (>=0)
+  if (pageUpdatedAt == null) {
+    return { gapDays: null, entryAgeDays, isHistoricalEntry: false, isFutureEntry: false }
+  }
+  if (entryCreatedAt >= pageUpdatedAt) {
+    // Entry NEWER than the page's last shaping — the classic "page has gone
+    // quiet" case where evolution framing is legitimate. gapDays measured from
+    // the page's last shaping to THIS entry (calendar-day diff).
+    const gapDays = calendarDayDiff(pageUpdatedAt, entryCreatedAt)
+    return { gapDays, entryAgeDays, isHistoricalEntry: false, isFutureEntry: false }
+  }
+  // Entry predates the page's last shaping — historical evidence the page
+  // already incorporates a later understanding of. Suppress evolution framing.
+  return { gapDays: null, entryAgeDays, isHistoricalEntry: true, isFutureEntry: false }
+}
 
 // Re-grounding interval: every 10 entries the page synthesises from source
 // entries rather than the incremental telephone chain. Smooths drift while
@@ -195,12 +247,18 @@ export async function updateWikiForEntry(
       const rf = await listReframesForBelief(topic.title)
       if (rf.success && rf.data.length > 0) reframe = rf.data[0].balanced_thought
     }
-    // How long the existing page has sat before this reflection touches it, so
-    // synthesis can express evolution rather than timeless prose. Only meaningful
-    // for a page with real content that was last shaped before this entry.
-    const weeksSinceUpdate =
+    // F-4 — deterministic timing context (calendar-day gaps) for time-accurate
+    // recency wording. Only meaningful when the page has real prior content
+    // that was last shaped before this entry; otherwise `gapDays` is null and
+    // the prompt emits no evolution framing (daily/first-time journaling stays
+    // silent). See `computeTiming` in this module — it owns the math.
+    const timing =
       baseContent && page
-        ? Math.max(0, Math.floor((entry.created_at - page.updated_at) / WEEK_MS))
+        ? computeTiming({
+            pageUpdatedAt: page.updated_at || null,
+            entryCreatedAt: entry.created_at,
+            now: Date.now(),
+          })
         : null
 
     // Re-grounding: every RE_GROUND_INTERVAL entries, synthesise from source
@@ -215,7 +273,11 @@ export async function updateWikiForEntry(
     let synth: Result<string>
     if (isReGround) {
       const pastEntries = await sampleEntriesForPage(effectiveTitle, category, 6)
-      if (pastEntries.length > 0 && weeksSinceUpdate != null) {
+      // The current entry may also appear in the historical sample query. Exclude
+      // it from the past-evidence block before adding the dedicated current-entry
+      // block, so its evidence isn't double-counted.
+      const historicalSamples = pastEntries.filter((e) => e.id !== entry.id)
+      if (historicalSamples.length > 0 && timing != null) {
         synth = await synthesizePageReGround({
           title: effectiveTitle,
           category,
@@ -223,12 +285,15 @@ export async function updateWikiForEntry(
           situation: entry.situation,
           thought: entry.thought,
           closingNote: entry.closing_note,
+          behavior: entry.behavior,
           distortion: entry.distortion,
           reframe,
-          weeksSinceUpdate,
-          pastEntries: pastEntries.map((e) => ({
+          timing,
+          pastEntries: historicalSamples.map((e) => ({
             situation: e.situation,
             thought: e.thought,
+            behavior: e.behavior,
+            closing_note: e.closing_note,
             created_at: e.created_at,
           })),
         })
@@ -241,9 +306,10 @@ export async function updateWikiForEntry(
           situation: entry.situation,
           thought: entry.thought,
           closingNote: entry.closing_note,
+          behavior: entry.behavior,
           distortion: entry.distortion,
           reframe,
-          weeksSinceUpdate,
+          timing,
         })
       }
     } else {
@@ -254,9 +320,10 @@ export async function updateWikiForEntry(
         situation: entry.situation,
         thought: entry.thought,
         closingNote: entry.closing_note,
+        behavior: entry.behavior,
         distortion: entry.distortion,
         reframe,
-        weeksSinceUpdate,
+        timing,
       })
     }
     if (!synth.success) {
@@ -328,9 +395,36 @@ export async function lineageForEntry(entry: Entry): Promise<Result<LineagePage[
 // Emotion aggregate routing
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Global tally of emotion taggings since last aggregate check. Resets on each
- *  scan; used to gate AGGREGATE_INTERVAL_TAGS without persisting state. */
-let emotionTagTally = 0
+/** Durable settings key for the emotion-tag trigger count. Persists across
+ *  restarts so an app kill mid-count-down doesn't discard progress toward the
+ *  next aggregate scan. */
+const EMOTION_TRIGGER_SETTING = 'maintenance:emotion_trigger_count'
+
+/** In-flight promise for the current emotion scan, so overlapping callers await
+ *  one scan instead of starting a second (single-flight). Reset to null once the
+ *  scan resolves. Module-scoped — one scan runs per process at a time. */
+let emotionScanInFlight: Promise<number> | null = null
+
+/**
+ * Persistently increment the global emotion-tag trigger count and atomically
+ * decide whether it reached the scan threshold. On reaching AGGREGATE_INTERVAL_TAGS
+ * the count resets to 0 in the same write so a concurrent tickle can't double-fire.
+ * Best-effort: a settings read/write failure leaves the count unchanged (next
+ *  tickle retries) — never throws, never blocks the tickle.
+ */
+async function incrementEmotionTrigger(): Promise<boolean> {
+  // Keep a small fallback for older test doubles/partially upgraded databases;
+  // production storage uses the atomic helper.
+  if (typeof settingsStorage.incrementSettingToThreshold === 'function') {
+    const result = await settingsStorage.incrementSettingToThreshold(EMOTION_TRIGGER_SETTING, AGGREGATE_INTERVAL_TAGS)
+    return result.success && result.data
+  }
+  const cur = await settingsStorage.getSetting(EMOTION_TRIGGER_SETTING)
+  const n = (cur.success && cur.data ? Number(cur.data) : 0) + 1
+  const reached = n >= AGGREGATE_INTERVAL_TAGS
+  await settingsStorage.setSetting(EMOTION_TRIGGER_SETTING, String(reached ? 0 : n))
+  return reached
+}
 
 /**
  * First-touch placeholder for a new emotion page. Emotion pages are synthesised
@@ -371,10 +465,8 @@ async function tickleEmotionPage(
   if (!tickled.success) return
 
   // Global tally: every AGGREGATE_INTERVAL_TAGS emotion taggings (any emotion)
-  // triggers a scan of all due emotion pages.
-  emotionTagTally++
-  if (emotionTagTally >= AGGREGATE_INTERVAL_TAGS) {
-    emotionTagTally = 0
+  // triggers a scan of all due emotion pages. Durable across restarts.
+  if (await incrementEmotionTrigger()) {
     await maybeRefreshEmotionPages()
   }
 }
@@ -393,8 +485,21 @@ async function tickleEmotionPage(
  *
  * Best-effort — one page failure does not affect the others. Returns the
  * number of pages refreshed (for test assertions).
+ *
+ * Single-flight: a scan already in progress is shared by overlapping callers
+ * (they await the SAME promise), so two near-simultaneous trigger events run
+ * one synthesis per due page, never two.
  */
-export async function maybeRefreshEmotionPages(): Promise<number> {
+export function maybeRefreshEmotionPages(): Promise<number> {
+  if (emotionScanInFlight) return emotionScanInFlight
+  emotionScanInFlight = runEmotionScan()
+  // Always clear the lock on settle so a later trigger can run a fresh scan.
+  emotionScanInFlight.finally(() => { emotionScanInFlight = null })
+  return emotionScanInFlight
+}
+
+/** The actual scan loop. Owned by the single-flight wrapper above. */
+async function runEmotionScan(): Promise<number> {
   const pagesRes = await listPages()
   if (!pagesRes.success) return 0
 
@@ -423,9 +528,17 @@ async function refreshSingleEmotionPage(page: WikiPage): Promise<boolean> {
   const data = aggRes.data
   if (data.totalCount === 0) return false
 
-  const weeksSinceUpdate =
+  // F-4 — emotion aggregate has no single source entry; treat the
+  // aggregate pass as "now" entryCreatedAt (=processing time) so the timing
+  // only conveys "how long the page sat dark before this re-aggregate".
+  // Suppress evolution-day-age wording (there is no dated reflection here).
+  const emotionTiming =
     page.content && page.updated_at
-      ? Math.max(0, Math.floor((Date.now() - page.updated_at) / WEEK_MS))
+      ? computeTiming({
+          pageUpdatedAt: page.updated_at,
+          entryCreatedAt: Date.now(),
+          now: Date.now(),
+        })
       : null
 
   const synth = await synthesizeEmotionPage({
@@ -433,19 +546,14 @@ async function refreshSingleEmotionPage(page: WikiPage): Promise<boolean> {
     category: 'emotion',
     existingContent: page.content,
     data,
-    weeksSinceUpdate,
+    timing: emotionTiming,
   })
   if (!synth.success) return false
 
-  const applied = await regeneratePageContent(page.id, synth.data)
-  if (!applied.success) return false
-
-  // Mark the aggregated_upto so we know where we left off. After a successful
-  // aggregate, reset the marker to the current entry_count (which is unchanged
-  // by regeneratePageContent). The next aggregate fires when AGGREGATE_BATCH_SIZE
-  // new entries have tickled the page.
-  await setAggregatedUpto(page.id, applied.data.entry_count)
-  return true
+  // Content, version history, aggregated_upto, updated_at, and the sync queue
+  // commit together. A synthesis/persistence failure leaves the page due.
+  const applied = await regeneratePageContentWithAggregate(page.id, synth.data, page.entry_count)
+  return applied.success
 }
 
 

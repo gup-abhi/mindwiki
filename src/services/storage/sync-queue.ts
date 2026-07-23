@@ -36,7 +36,8 @@ function rowToItem(row: Record<string, unknown>): QueueItem {
 export async function enqueueUpsert(
   tableName: string,
   recordId: string,
-  db: SqliteDatabase = getDb()
+  db: SqliteDatabase = getDb(),
+  notify = true
 ): Promise<Result<void>> {
   try {
     await db.execute(
@@ -47,10 +48,20 @@ export async function enqueueUpsert(
     )
     // Wake the debounced background sync (useSync) so this change uploads on its
     // own. Best-effort signal — never affects the enqueue result.
-    useSyncStore.getState().notifyLocalChange()
+    if (notify) notifySyncPending()
     return ok(undefined)
   } catch (e) {
     return err('SYNC_ENQUEUE_FAILED', 'Failed to enqueue record for sync', e)
+  }
+}
+
+/** Wake sync after a committed local write. Kept separate from transactional
+ * queue SQL so callers can notify only after their transaction commits. */
+export function notifySyncPending(): void {
+  try {
+    useSyncStore.getState().notifyLocalChange()
+  } catch {
+    // A UI/sync signal failure must not affect committed local data.
   }
 }
 

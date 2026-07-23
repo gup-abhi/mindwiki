@@ -230,9 +230,13 @@ Algorithm (standard LCS-based word diff):
 
 export interface VersionRetention {
   version: number
-  /** Fraction of the prior version's content words that survived (0–1). */
+  /** Fraction of the prior RETAINED version's content words that survived
+   *  (0–1). Null across a sampled-history gap (versions discarded), when
+   *  the prior version had no content words, or for the first version. Word
+   *  overlap only — not a measure of semantic understanding. */
   stepRetention: number | null
-  /** Fraction of the first contentful version's words still present (0–1). */
+  /** Fraction of the first contentful version's words still present (0–1).
+   *  Computed even across sampled-history gaps (v_first_contentful → v_current). */
   originRetention: number | null
 }
 
@@ -240,6 +244,14 @@ export function retentionAtVersions(evo: EvolutionData): VersionRetention[]
 ```
 
 Reuses `retention()` from `drift.ts` for each consecutive pair and for the origin chain. Shown as a subtle "retention meter" next to each version — a small bar that's fuller when most of the prior version's substance carried forward.
+
+#### F-5 — sampled-history honesty
+
+`drift.ts` and `evolution.ts` now normalise the retained verison chain before any retention math:
+
+- **Gaps** — when the engine's retained-history cap discards intermediate versions (e.g. `v1, v2, v14, v15`), the `v2 → v14` interval is a *sampled* gap, not a single rewrite. `stepRetention` is **null** across gaps; the `PageDrift.gaps` array records each `{ fromVersion, toVersion, missing }`. `originRetention` (v_first_contentful → v_current) is computed across gaps, since the two endpoints are truthfully retained.
+- **Validation issues** — duplicate version numbers (last write wins) and non-increasing timestamps are flagged in `PageDrift.issues` (`duplicate-version`, `non-increasing-timestamp`). The report never crashes on bad data; issues only carry version numbers and a sanitised human string (no page text or titles).
+- **Label honesty** — every metric in this report is **word overlap / lexical retention**, never a measure of semantic understanding. The dev report UI says so explicitly. The Version Timeline renders sampled gaps with a dashed connector + a `⋮ N prior versions sampled out` chip so a `v2 ↔ v14` jump is never drawn as a single rename.
 
 ---
 

@@ -1,3 +1,4 @@
+import { truncateMiddle } from '@/services/llm/prompts/budget'
 import { LLMBridge } from '@/native/LLMBridge'
 import { type WikiPage } from '@/services/storage/wiki'
 import {
@@ -9,13 +10,33 @@ import { type Result, ok, err } from '@/types/result'
 import { type QueryEmbeddings } from './search'
 
 // The embedding model's window is small (n_ctx 512 ≈ ~2k chars). Cap the page
-// text so a long page doesn't overflow it; the opening of a page carries its
-// gist, which is what we're matching on.
+// text so a long page doesn't overflow it. The opening carries the gist, but a
+// distinctive concept near the end of a long page (a recurring closing ritual,
+// a late-developed theme) is exactly what a merge candidate shares — so F-2B
+// embeds both HEAD and TAIL of the content, joined by an explicit ellipsis,
+// within the same total budget. `truncateMiddle` (from the prompt budget)
+// keeps code points whole (surrogate-safe) and gives us the head+tail shape for
+// free; we reuse it instead of duplicating the surrogate boundary logic.
 const MAX_EMBED_CHARS = 1500
 
-/** The text we embed for a page: its title plus the start of its content. */
-function embeddedText(page: WikiPage): string {
-  return `${page.title}\n${page.content.slice(0, MAX_EMBED_CHARS)}`
+/** Sampling-strategy version baked into the content hash input. When the
+ *  strategy changes (e.g. we re-balance head/tail, or include the category
+ *  label), bump this so previously-stored hashes mismatch and pages are
+ *  re-embedded naturally by the backfill pass. */
+export const EMBED_SAMPLING_VERSION = 'v2'
+
+/** The text we embed for a page: its title plus bounded head + tail samples of
+ *  the content. Exported for tests + future re-use; callers should treat it as
+ *  an opaque strategy string. */
+export function embeddedText(page: WikiPage): string {
+  return `${page.title}\n${truncateMiddle(page.content, MAX_EMBED_CHARS)}`
+}
+
+/** Versioned hash input: the sampling strategy version is part of the payload
+ *  so a strategy bump invalidates existing hashes and forces re-embedding
+ *  naturally. Not cryptographic — fast sync hash, not expo-crypto. */
+function hashableText(page: WikiPage): string {
+  return `${EMBED_SAMPLING_VERSION}:${embeddedText(page)}`
 }
 
 /**
@@ -56,28 +77,45 @@ export async function embedPage(page: WikiPage): Promise<Result<void>> {
   const text = embeddedText(page)
   const res = await embedText(text)
   if (!res.success) return res
-  return upsertPageEmbedding(page.id, res.data, contentHash(text))
+  return upsertPageEmbedding(page.id, res.data, contentHash(hashableText(page)))
 }
 
-/**
- * Embed any pages whose stored vector is missing or stale (content changed since
- * it was embedded). Background, best-effort: a single page's failure (e.g. the
- * embed model isn't downloaded yet) stops the pass without throwing. Returns how
- * many pages were (re)embedded.
- */
-export async function backfillStaleEmbeddings(pages: WikiPage[]): Promise<number> {
+/** Result of a backfill pass: how many pages were (re)embedded and how many
+ *  failed. Per-page failures are SWALLOWED — the pass continues past them so a
+ *  single transient failure (one page's content trips the embedder) doesn't
+ *  block embedding of the rest, and the saved page stays stale for retry. The
+ *  NEW sampling strategy means the per-page hash check must include the version
+ *  tag, so old vectors become stale naturally. */
+export interface BackfillResult {
+  embedded: number
+  failed: number
+}
+
+/** Backfill (re)embed any pages whose stored vector is missing or stale
+ *  (content changed since last embedding, or sampling strategy bumped). A
+ *  single page's failure is recorded and the pass continues — the next pass
+ *  retries that page (its hash still mismatches). Never throws; the caller
+ *  stays on lexical ranking on failure. */
+export async function backfillStaleEmbeddings(pages: WikiPage[]): Promise<BackfillResult> {
   const stored = await listPageEmbeddings()
   const existing = stored.success ? stored.data : new Map()
 
   let embedded = 0
+  let failed = 0
   for (const page of pages) {
-    const hash = contentHash(embeddedText(page))
+    const hash = contentHash(hashableText(page))
     if (existing.get(page.id)?.contentHash === hash) continue
     const res = await embedPage(page)
-    if (!res.success) break // model unavailable — stop the pass, try again later
-    embedded++
+    if (res.success) {
+      embedded++
+    } else {
+      // Per-page failure: count it (no titles or content in the result — the
+      // error object is dropped, not propagated, so the caller never logs
+      // user text) and CONTINUE so the rest of the pass still embeds.
+      failed++
+    }
   }
-  return embedded
+  return { embedded, failed }
 }
 
 /**

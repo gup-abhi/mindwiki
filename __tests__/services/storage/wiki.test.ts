@@ -63,14 +63,20 @@ function createFakeDb() {
           .sort((a, b) => Number(b.updated_at) - Number(a.updated_at))
         return { rows: out, rowsAffected: 0 }
       }
-      if (/^UPDATE wiki_pages SET dismissed_at = \? WHERE id/.test(sql)) {
-        const row = rows.get(String(params[1]))
-        if (row) row.dismissed_at = params[0]
+      if (/^UPDATE wiki_pages SET dismissed_at = \?, updated_at = MAX/.test(sql)) {
+        const row = rows.get(String(params[2]))
+        if (row) {
+          row.dismissed_at = params[0]
+          row.updated_at = Math.max(Number(row.updated_at ?? 0) + 1, Number(params[1]))
+        }
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
-      if (/^UPDATE wiki_pages SET dismissed_at = NULL WHERE id/.test(sql)) {
-        const row = rows.get(String(params[0]))
-        if (row) row.dismissed_at = null
+      if (/^UPDATE wiki_pages SET dismissed_at = NULL, updated_at = MAX/.test(sql)) {
+        const row = rows.get(String(params[1]))
+        if (row) {
+          row.dismissed_at = null
+          row.updated_at = Math.max(Number(row.updated_at ?? 0) + 1, Number(params[0]))
+        }
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^UPDATE wiki_pages\s+SET content = \?, version = \?, version_history = \?, updated_at = \?,\s+corrected_at = \?/.test(sql)) {
@@ -216,6 +222,23 @@ describe('storage/wiki CRUD', () => {
 
     const got = await getPage(a.data.id, db)
     expect(got.success && got.data?.dismissed_at).toEqual(expect.any(Number))
+  })
+
+  it('keeps page modification watermarks monotonic when the clock goes backward', async () => {
+    const { db } = createFakeDb()
+    const created = await createPage({ title: 'Work', category: 'theme', content: 'first' }, db)
+    expect(created.success).toBe(true)
+    if (!created.success) return
+
+    const originalNow = Date.now
+    Date.now = () => created.data.updated_at - 1000
+    try {
+      const updated = await updatePage(created.data.id, 'second', db)
+      expect(updated.success).toBe(true)
+      if (updated.success) expect(updated.data.updated_at).toBe(created.data.updated_at + 1)
+    } finally {
+      Date.now = originalNow
+    }
   })
 
   it('restorePage brings a dropped page back into listPages', async () => {

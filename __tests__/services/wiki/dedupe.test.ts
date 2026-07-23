@@ -42,14 +42,14 @@ function createFakeDb() {
       if (/^SELECT id, topic, topic2 FROM entries/.test(sql)) {
         return { rows: [...entries.values()], rowsAffected: 0 }
       }
-      if (/^UPDATE entries SET topic /.test(sql)) {
-        const [topic, id] = params as string[]
+      if (/^UPDATE entries SET topic = \?, updated_at/.test(sql)) {
+        const [topic, , id] = params as string[]
         const row = entries.get(String(id))
         if (row) row.topic = String(topic)
         return { rows: [], rowsAffected: 1 }
       }
-      if (/^UPDATE entries SET topic2/.test(sql)) {
-        const [topic, id] = params as string[]
+      if (/^UPDATE entries SET topic2 = \?, updated_at/.test(sql)) {
+        const [topic, , id] = params as string[]
         const row = entries.get(String(id))
         if (row) row.topic2 = String(topic)
         return { rows: [], rowsAffected: 1 }

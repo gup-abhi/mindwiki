@@ -1,5 +1,11 @@
 import { type WikiPage } from '@/services/storage/wiki'
-import { retention, contentWords } from '@/services/wiki/drift'
+import {
+  retention,
+  contentWords,
+  normalizeVersionChain,
+  type SampledGap,
+  type VersionIssue,
+} from '@/services/wiki/drift'
 
 /**
  * Evolution view for a single wiki page: unwraps version_history into a browsable
@@ -25,6 +31,9 @@ export interface EvolutionData {
   versions: EvolutionVersion[]
   /** The page's live content — the newest snapshot. */
   current: EvolutionVersion
+  /** Gaps and validation issues over the full archived + live chain. */
+  gaps: SampledGap[]
+  issues: VersionIssue[]
   totalEntryCount: number
   createdAt: number
   updatedAt: number
@@ -52,23 +61,27 @@ export interface VersionRetention {
  * current version last.
  */
 export function pageEvolution(page: WikiPage): EvolutionData {
-  const sorted = [...page.version_history].sort((a, b) => a.version - b.version)
-
-  const versions: EvolutionVersion[] = sorted.map((v) => ({
-    version: v.version,
-    content: v.content,
-    updated_at: v.updated_at,
-  }))
+  const normalized = normalizeVersionChain(page.version_history, {
+    version: page.version,
+    content: page.content,
+    updated_at: page.updated_at,
+  })
+  const current = normalized.versions.find((v) => v.version === page.version) ?? {
+    version: page.version,
+    content: page.content,
+    updated_at: page.updated_at,
+  }
+  const versions: EvolutionVersion[] = normalized.versions
+    .filter((v) => v.version !== current.version)
+    .map((v) => ({ ...v }))
 
   return {
     title: page.title,
     category: page.category,
     versions,
-    current: {
-      version: page.version,
-      content: page.content,
-      updated_at: page.updated_at,
-    },
+    current: { ...current },
+    gaps: normalized.gaps,
+    issues: normalized.issues,
     totalEntryCount: page.entry_count,
     createdAt: page.created_at,
     updatedAt: page.updated_at,
@@ -147,12 +160,15 @@ export function wordDiff(a: string, b: string): DiffToken[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Retention for each version in the chain: the fraction of the prior version's
- * content words that survived (step), and of the first contentful version's
- * words still present (origin). Null when there's nothing to measure from.
- */
+ * Retention for each version in the chain: the fraction of the prior
+ * RETAINED version's content words that survived (step — null across a
+ * sampled gap, where versions were discarded, or when there is no prior), and
+ * of the first contentful version's words still present (origin — null when
+ * the start is an empty shell or when not yet reached). Step retention is
+ * word-overlap only, never semantic understanding. */
 export function retentionAtVersions(evo: EvolutionData): VersionRetention[] {
-  const chain = [...evo.versions, evo.current]
+  const normalized = normalizeVersionChain([...evo.versions, evo.current])
+  const chain = normalized.versions
   const out: VersionRetention[] = []
 
   // Find the first version with actual content words (skip empty v1 shells)
@@ -162,11 +178,17 @@ export function retentionAtVersions(evo: EvolutionData): VersionRetention[] {
   const originContent = firstContentful >= 0 ? chain[firstContentful].content : null
 
   for (let i = 0; i < chain.length; i++) {
-    const prev = i > 0 ? chain[i - 1].content : null
+    const prev = i > 0 ? chain[i - 1] : null
     const next = chain[i].content
+    // Step retention ONLY when the prior RETAINED version is one version back —
+    // a gap (e.g. v2 → v14) means discarded rewrites in between, and computing
+    // a single step there would masquerade several rewrites as one rewrite's
+    // word overlap. Across gaps and at i === 0, step retention is null.
+    const isAdjacent =
+      prev != null && chain[i].version - prev.version === 1
     out.push({
       version: chain[i].version,
-      stepRetention: prev != null ? retention(prev, next) : null,
+      stepRetention: isAdjacent ? retention(prev.content, next) : null,
       originRetention:
         originContent != null && i >= firstContentful
           ? retention(originContent, next)
