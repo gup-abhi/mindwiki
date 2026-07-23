@@ -73,3 +73,7 @@ graphify-out/
 
 # Local audit reports
 reports/
+
+# CMake native build artifacts
+android/.cxx/
+android/app/.cxx/
