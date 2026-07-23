@@ -51,16 +51,7 @@ MindWiki is a privacy-first AI journaling app that builds a **compounding person
 
 **The single most important thing**: this is not a chatbot on top of a journal. The *wiki* is the product. Entries feed a growing knowledge base. The AI synthesises, not retrieves.
 
-**Current project status**: Phases -1 → 8 complete and device-verified (auth + E2E cross-device sync, recovery phrase, QR pairing, in-app model download — verified on two phones 2026-06-07). The wiki audit-remediation work is complete and pushed on `feat/wiki-audit-remediation` at commit `21604f9` (`fix(wiki): complete audit remediation`). Server runs on local Miniflare; a live Cloudflare deploy is still pending. Next: Phase 9 (business model — RevenueCat trial + paywall).
-
-**Wiki audit-remediation state (2026-06-07)**:
-- Merge correctness and durability are hardened: current-page reloads, affected-entry scoping, atomic page/entry/queue/repair-marker writes, monotonic `entries.updated_at` and wiki-page watermarks, and post-commit sync notifications.
-- Emotion aggregation is concurrency-safe and durable across devices: atomic counters, transactional aggregate content plus `aggregated_upto`, and synced completion state.
-- Prompt builders enforce the rendered `PROMPT_INPUT_BUDGET` with priority-aware trimming and grapheme-safe Unicode truncation.
-- Recency uses local calendar-day semantics and neutralizes invalid, negative, and future timestamps.
-- Drift/evolution share a validated archived-plus-live version chain and the UI reports validation issues and sampled-history gaps.
-- Regression coverage includes merge failure injection, cross-device watermark sync, aggregation concurrency, prompt budgets/Unicode, recency, and evolution/timeline validation.
-- Verification for commit `21604f9`: 146 Jest suites and 1,360 tests passed; `tsc --noEmit`, lint (0 errors), and `git diff --check` passed.
+**Current project status**: Phases -1 → 8 complete and device-verified (auth + E2E cross-device sync, recovery phrase, QR pairing, in-app model download — verified on two phones 2026-06-07). The wiki audit-remediation work (PR #6, F-1 → F-5) is merged into `main`. Server runs on local Miniflare; a live Cloudflare deploy is still pending. Next: Phase 9 (business model — RevenueCat trial + paywall). Wiki audit-remediation detail lives in Claude auto-memory (`pr6-wiki-audit-remediation.md`).
 
 ---
 
