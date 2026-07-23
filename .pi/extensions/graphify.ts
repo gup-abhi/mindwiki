@@ -151,30 +151,6 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// Intercept grep/find — auto-run graphify and make results available
-	// via a widget so the user sees them. The tool execution itself proceeds
-	// normally as a fallback.
-	pi.on("tool_call", async (event, ctx) => {
-		const grepTools = new Set(["grep", "hypa_grep", "find", "hypa_find"]);
-		if (!grepTools.has(event.toolName)) return;
-
-		// Derive a graph query from the grep pattern
-		const pattern = (event.input as Record<string, unknown>).pattern;
-		if (typeof pattern !== "string" || !pattern.trim()) return;
-
-		// Fire-and-forget graphify query — results shown as widget, doesn't block
-		const query = `find code matching "${pattern}"`;
-		const raw = runGraphifyQuery(ctx.cwd, query, 1000);
-		if (!raw) return;
-
-		const formatted = formatGraphResult(raw);
-		ctx.ui.setWidget("graphify", [
-			`╭─ Graphify (auto: "${pattern}")`,
-			...formatted.split("\n").map((l) => `│ ${l}`),
-			`╰─ Use graphify tool explicitly for more queries`,
-		]);
-	});
-
 	// Inject system prompt guideline reminding the LLM about graphify
 	pi.on("before_agent_start", (event, _ctx) => {
 		event.systemPrompt +=
