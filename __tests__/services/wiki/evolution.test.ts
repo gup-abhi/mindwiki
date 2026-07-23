@@ -72,6 +72,17 @@ describe('pageEvolution', () => {
     expect(evo.totalEntryCount).toBe(12)
   })
 
+  it('reports the sampled gap immediately before the live version', () => {
+    const evo = pageEvolution(
+      page({
+        version: 14,
+        content: 'current',
+        version_history: [{ version: 1, content: 'first', updated_at: 1 }],
+      })
+    )
+    expect(evo.gaps).toEqual([{ fromVersion: 1, toVersion: 14, missing: 12 }])
+  })
+
   it('handles a page with no version_history', () => {
     const evo = pageEvolution(page({ version: 1, version_history: [] }))
     expect(evo.versions).toHaveLength(0)

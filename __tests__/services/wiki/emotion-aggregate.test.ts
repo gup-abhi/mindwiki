@@ -11,6 +11,7 @@ import {
   ticklePageCount,
   setAggregatedUpto,
   regeneratePageContent,
+  regeneratePageContentWithAggregate,
   listPages,
   type WikiPage,
 } from '@/services/storage/wiki'
@@ -37,6 +38,7 @@ jest.mock('@/services/storage/wiki', () => ({
   ticklePageCount: jest.fn(),
   setAggregatedUpto: jest.fn(),
   regeneratePageContent: jest.fn(),
+  regeneratePageContentWithAggregate: jest.fn(),
   listPages: jest.fn(),
 }))
 jest.mock('@/services/storage/entities', () => ({
@@ -70,6 +72,7 @@ const mockCreate = createPage as jest.Mock
 const mockTickle = ticklePageCount as jest.Mock
 const mockSetAgg = setAggregatedUpto as jest.Mock
 const mockRegenContent = regeneratePageContent as jest.Mock
+const mockRegenAggregate = regeneratePageContentWithAggregate as jest.Mock
 const mockListPages = listPages as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
 const mockSynthEmotion = synthesizeEmotionPage as jest.Mock
@@ -241,6 +244,7 @@ describe('emotion trigger — durable across restart (F-3B T-3.3)', () => {
     mockBuildAgg.mockResolvedValue(ok(aggregate()))
     mockSynthEmotion.mockResolvedValue(ok('fresh prose'))
     mockRegenContent.mockResolvedValue(ok(page({ entry_count: 20 })))
+    mockRegenAggregate.mockReset().mockResolvedValue(ok(page({ entry_count: 20, aggregated_upto: 20 })))
     mockSetAgg.mockResolvedValue(undefined)
     // Mark a due page AFTER the 19th tick so the 20th-triggered scan has a target.
     let tick = 0
@@ -267,6 +271,7 @@ describe('maybeRefreshEmotionPages — single-flight (F-3B T-3.4)', () => {
     mockSynthEmotion.mockResolvedValue(ok('fresh prose'))
     mockRegenContent.mockReset()
     mockRegenContent.mockResolvedValue(ok(page({ entry_count: 20 })))
+    mockRegenAggregate.mockReset().mockResolvedValue(ok(page({ entry_count: 20, aggregated_upto: 20 })))
     mockSetAgg.mockReset().mockResolvedValue(undefined)
   })
 
@@ -320,8 +325,9 @@ describe('maybeRefreshEmotionPages', () => {
 
     expect(n).toBe(1)
     expect(mockSynthEmotion).toHaveBeenCalled()
-    expect(mockRegenContent).toHaveBeenCalledWith('p1', 'fresh aggregate prose')
-    expect(mockSetAgg).toHaveBeenCalledWith('p1', 20)
+    expect(mockRegenAggregate).toHaveBeenCalledWith('p1', 'fresh aggregate prose', 20)
+    expect(mockRegenContent).not.toHaveBeenCalled()
+    expect(mockSetAgg).not.toHaveBeenCalled()
   })
 
   it('does NOT load graph data or pass a connection line to emotion synthesis', async () => {

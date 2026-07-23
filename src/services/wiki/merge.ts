@@ -2,6 +2,7 @@ import { type SqliteDatabase, getDb } from '@/services/storage/db'
 import { rebuildGraph } from '@/services/graph/engine'
 import { type WikiPage } from '@/services/storage/wiki'
 import { setSetting } from '@/services/storage/settings'
+import { notifySyncPending } from '@/services/storage/sync-queue'
 import { type Result, ok, err } from '@/types/result'
 
 import { cosine } from './search'
@@ -163,43 +164,41 @@ export async function mergePages(
       }
 
       const now = Date.now()
-      const sTitle = survivor.title
-      const lTitle = loser.title
+      // Use the transaction-reloaded titles, never the stale suggestion objects.
+      const sTitle = curSurvivor.title
+      const lTitle = curLoser.title
 
-      // 2. Repoint the loser's entries onto the survivor's title.
-      //    Batch UPDATEs with LOWER() for case-insensitive matching (SQLite's
-      //    ILIKE / COLLATE NOCASE would work but LOWER() is portable across
-      //    op-sqlite's SQLite build).
-      //    First, count distinct matching entries.
+      // 2. Select the exact source rows before mutating them. Every subsequent
+      // entry write is scoped by this ID set, so unrelated duplicate columns are
+      // never touched.
       const match = await tx.execute(
         'SELECT DISTINCT id FROM entries WHERE LOWER(topic) = LOWER(?) OR LOWER(topic2) = LOWER(?)',
         [lTitle, lTitle]
       )
       entriesRepointed = match.rows.length
-
-      // Replace loser title with survivor title in topic
+      const ids = match.rows.map((row) => String(row.id))
+      const idPlaceholders = ids.map(() => '?').join(', ')
+      // Each UPDATE is constrained to the snapshot of affected IDs. The
+      // timestamp expression keeps the mutation and watermark in one write.
       await tx.execute(
-        'UPDATE entries SET topic = ? WHERE LOWER(topic) = LOWER(?)',
-        [sTitle, lTitle]
+        `UPDATE entries SET topic = ?, updated_at = MAX(updated_at + 1, ?)
+         WHERE LOWER(topic) = LOWER(?) AND id IN (${idPlaceholders})`,
+        [sTitle, now, lTitle, ...ids]
+      )
+      await tx.execute(
+        `UPDATE entries SET topic2 = ?, updated_at = MAX(updated_at + 1, ?)
+         WHERE LOWER(topic2) = LOWER(?) AND id IN (${idPlaceholders})`,
+        [sTitle, now, lTitle, ...ids]
+      )
+      await tx.execute(
+        `UPDATE entries SET topic2 = NULL, updated_at = MAX(updated_at + 1, ?)
+         WHERE LOWER(topic) = LOWER(topic2) AND topic IS NOT NULL AND topic2 IS NOT NULL
+           AND LENGTH(topic) > 0 AND id IN (${idPlaceholders})`,
+        [now, ...ids]
       )
 
-      // Replace loser title with survivor title in topic2
-      await tx.execute(
-        'UPDATE entries SET topic2 = ? WHERE LOWER(topic2) = LOWER(?)',
-        [sTitle, lTitle]
-      )
-
-      // Collapse duplicate survivor values: if topic == topic2 after repointing
-      // (occurs when an entry had loser in both columns, or survivor was already
-      // in one column and loser in the other), clear topic2.
-      await tx.execute(
-        "UPDATE entries SET topic2 = NULL WHERE topic = topic2 AND topic IS NOT NULL AND topic2 IS NOT NULL AND LENGTH(topic) > 0"
-      )
-
-      // 3. Enqueue every changed entry for sync. Must succeed inside the
-      //    transaction — a local merge that is never queued is unacceptable.
-      for (const row of match.rows) {
-        const id = String(row.id)
+      // Queue exactly the rows selected above.
+      for (const id of ids) {
         const queueId = `entries:${id}`
         await tx.execute(
           `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
@@ -211,7 +210,7 @@ export async function mergePages(
 
       // 4. Flag the loser page as merged into the survivor.
       await tx.execute(
-        'UPDATE wiki_pages SET merged_into = ?, updated_at = ? WHERE id = ?',
+        'UPDATE wiki_pages SET merged_into = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
         [survivor.id, now, loser.id]
       )
       // Enqueue loser page
@@ -230,7 +229,7 @@ export async function mergePages(
       )
       const newCount = Number(cntRes.rows[0]?.cnt ?? 0)
       await tx.execute(
-        'UPDATE wiki_pages SET entry_count = ?, updated_at = ? WHERE id = ?',
+        'UPDATE wiki_pages SET entry_count = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
         [newCount, now, survivor.id]
       )
       // Enqueue survivor page
@@ -255,6 +254,10 @@ export async function mergePages(
     //    durable repair marker guarantees retry on next launch.
     //    Use the same DB connection for the marker clear so tests injecting a
     //    fake DB don't fall back to the uninitialised global getDb().
+    // Wake the debounced sync only after the merge transaction committed. The
+    // direct queue writes above remain atomic with the source/page mutations.
+    notifySyncPending()
+
     const graphResult = await rebuildGraph()
     let graphRebuilt = false
     if (graphResult.success) {

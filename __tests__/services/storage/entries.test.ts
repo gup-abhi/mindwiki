@@ -29,7 +29,7 @@ function createFakeDb() {
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
       if (/^INSERT INTO entries/.test(sql)) {
-        const [id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source] = params
+        const [id, created_at, updated_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source] = params
         rows.set(String(id), {
           id,
           created_at,
@@ -48,6 +48,7 @@ function createFakeDb() {
           graph_indexed_at: null,
           raw_text: raw_text ?? null,
           source,
+          updated_at,
         })
         return { rows: [], rowsAffected: 1 }
       }
@@ -133,10 +134,13 @@ function createFakeDb() {
         }
         return { rows: [], rowsAffected: affected }
       }
-      if (/^UPDATE entries SET/.test(sql)) {
-        const [emotion, distortion, mood_score, topic, topic2, tagged_at, id] = params
+      if (/^UPDATE entries SET emotion/.test(sql)) {
+        const [emotion, distortion, mood_score, topic, topic2, tagged_at, updated_at, id] = params
         const row = rows.get(String(id))
-        if (row) Object.assign(row, { emotion, distortion, mood_score, topic, topic2, tagged_at })
+        if (row) Object.assign(row, {
+          emotion, distortion, mood_score, topic, topic2, tagged_at,
+          updated_at: Math.max(Number(row.updated_at ?? 0) + 1, Number(updated_at)),
+        })
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       if (/^DELETE FROM entries WHERE id/.test(sql)) {
@@ -167,6 +171,28 @@ function createFakeDb() {
 describe('storage/entries CRUD', () => {
   beforeEach(() => {
     mockUuidCounter = 0
+  })
+
+  it('keeps tag watermarks strictly newer than the existing row', async () => {
+    const { db, rows } = createFakeDb()
+    const created = await createEntry(
+      { mood: 3, situation: 'meeting', thought: 'I will fail' },
+      db
+    )
+    expect(created.success).toBe(true)
+    const row = rows.get('uuid-1')!
+    row.updated_at = 10_000
+    const now = Date.now
+    Date.now = () => 1
+    try {
+      const tagged = await applyTags('uuid-1', {
+        emotion: 'anxiety', distortion: 'none', mood_score: 3, topic: 'Work', topic2: '',
+      }, db)
+      expect(tagged.success).toBe(true)
+      expect(row.updated_at).toBe(10_001)
+    } finally {
+      Date.now = now
+    }
   })
 
   it('creates an entry with generated id, timestamp, and null tags', async () => {

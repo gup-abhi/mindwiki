@@ -15,6 +15,7 @@ import {
   setAggregatedUpto,
   listPages,
   regeneratePageContent,
+  regeneratePageContentWithAggregate,
   type WikiPage,
 } from '@/services/storage/wiki'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
@@ -44,6 +45,7 @@ jest.mock('@/services/storage/wiki', () => ({
   ticklePageCount: jest.fn(),
   setAggregatedUpto: jest.fn(),
   regeneratePageContent: jest.fn(),
+  regeneratePageContentWithAggregate: jest.fn(),
   listPages: jest.fn(),
 }))
 jest.mock('@/services/storage/entities', () => ({
@@ -63,6 +65,7 @@ const mockSynth = synthesizePage as jest.Mock
 const mockSynthReGround = synthesizePageReGround as jest.Mock
 const mockRegen = regeneratePage as jest.Mock
 const mockRegenContent = regeneratePageContent as jest.Mock
+const mockRegenAggregate = regeneratePageContentWithAggregate as jest.Mock
 const mockListPages = listPages as jest.Mock
 const mockGetByTitle = getPageByTitle as jest.Mock
 const mockGetPage = getPage as jest.Mock

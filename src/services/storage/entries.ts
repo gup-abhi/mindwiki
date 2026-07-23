@@ -14,6 +14,8 @@ export type EntrySource = 'journal' | 'reflect' | 'path'
 export interface Entry {
   id: string
   created_at: number
+  /** Mutable-record sync watermark. Present on all persisted rows after migration 029. */
+  updated_at?: number
   mood: number
   situation: string
   thought: string
@@ -78,6 +80,7 @@ function rowToEntry(row: Record<string, unknown>): Entry {
   return {
     id: String(row.id),
     created_at: Number(row.created_at),
+    updated_at: Number(row.updated_at ?? row.created_at),
     mood: Number(row.mood),
     situation: String(row.situation),
     thought: String(row.thought),
@@ -105,6 +108,7 @@ export async function createEntry(
   const entry: Entry = {
     id: randomUUID(),
     created_at: Date.now(),
+    updated_at: 0,
     mood: input.mood,
     situation: input.situation,
     thought: input.thought,
@@ -123,13 +127,15 @@ export async function createEntry(
     raw_text: input.raw_text ?? null,
     source: input.source ?? 'journal',
   }
+  entry.updated_at = entry.created_at
   try {
     await db.execute(
-      `INSERT INTO entries (id, created_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO entries (id, created_at, updated_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.id,
         entry.created_at,
+        entry.updated_at,
         entry.mood,
         entry.situation,
         entry.thought,
@@ -352,9 +358,10 @@ export async function applyTags(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
+    const now = Date.now()
     await db.execute(
-      'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, topic2 = ?, tagged_at = ? WHERE id = ?',
-      [tags.emotion, tags.distortion, tags.mood_score, tags.topic, tags.topic2, Date.now(), id]
+      'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, topic2 = ?, tagged_at = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+      [tags.emotion, tags.distortion, tags.mood_score, tags.topic, tags.topic2, now, now, id]
     )
     await enqueueUpsert('entries', id, db) // tagging changes the row → re-sync
     return ok(undefined)

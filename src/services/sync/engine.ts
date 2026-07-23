@@ -21,20 +21,19 @@ const LAST_SYNCED_KEY = 'sync:last_synced_at'
 type Row = Record<string, unknown>
 
 // Per-table sync config: which columns make up a record and how to read its
-// effective last-modified time (entries have no updated_at column — tagging is
-// the only post-create change, so max(created_at, tagged_at) is the watermark).
+// effective last-modified time.
 const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => number }> = {
   entries: {
     columns: [
       'id', 'created_at', 'mood', 'situation', 'thought', 'behavior',
-      'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'topic2', 'tagged_at', 'raw_text', 'source',
+      'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'topic2', 'tagged_at', 'updated_at', 'raw_text', 'source',
     ],
-    updatedAt: (r) => Math.max(Number(r.created_at) || 0, Number(r.tagged_at) || 0),
+    updatedAt: (r) => Number(r.updated_at) || 0,
   },
   wiki_pages: {
     columns: [
       'id', 'title', 'category', 'content', 'entry_count', 'version',
-      'version_history', 'created_at', 'updated_at', 'dismissed_at', 'corrected_at', 'merged_into',
+      'version_history', 'created_at', 'updated_at', 'dismissed_at', 'corrected_at', 'merged_into', 'aggregated_upto',
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
@@ -87,6 +86,12 @@ function isSyncTable(t: string): t is SyncTable {
 /** INSERT OR REPLACE a remote row directly — deliberately bypasses the storage
  *  write helpers so it does NOT re-enqueue (which would echo back on next push). */
 async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Promise<void> {
+  // Devices upgraded from pre-029 may send an entry row without the new
+  // watermark. Derive the legacy value on receipt so the NOT NULL column stays
+  // valid and the row remains syncable.
+  if (table === 'entries' && row.updated_at == null) {
+    row.updated_at = Math.max(Number(row.created_at) || 0, Number(row.tagged_at) || 0)
+  }
   const cols = TABLES[table].columns
   const placeholders = cols.map(() => '?').join(', ')
   await db.execute(

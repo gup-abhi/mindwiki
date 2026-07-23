@@ -303,6 +303,15 @@ describe('connection-line instruction removed from synthesis prompts', () => {
     expect(prompt).not.toMatch(/often comes up with/i)
   })
 
+  it('buildRewritePagePrompt stays within the input budget for a long page', () => {
+    const prompt = buildRewritePagePrompt({
+      title: 'Work',
+      category: 'theme',
+      content: 'HEAD '.repeat(3000) + 'TAIL',
+    })
+    expect(estimatePromptTokens(prompt)).toBeLessThanOrEqual(PROMPT_INPUT_BUDGET)
+  })
+
   it('buildRewritePagePrompt never injects the knowledge graph line', () => {
     const prompt = buildRewritePagePrompt({
       title: 'Work',
@@ -401,6 +410,29 @@ describe('truncateMiddle — head & tail preserved, middle dropped (F-3A)', () =
   it('returns the input untouched when already under the ceiling', () => {
     const s = 'short string under the ceiling'
     expect(truncateMiddle(s, 1000)).toBe(s)
+  })
+
+  it('keeps combining marks and ZWJ clusters intact', () => {
+    const s = 'e\u0301 '.repeat(30) + '👨‍👩‍👧‍👦'.repeat(30)
+    const out = truncateMiddle(s, 40)
+    expect([...out].join('')).toBe(out)
+    expect(out).toContain('e\u0301')
+    expect(out).toContain('👨‍👩‍👧‍👦')
+    expect(out).toContain('…')
+  })
+
+  it('uses the cluster-safe fallback when Intl.Segmenter is unavailable', () => {
+    const intl = Intl as typeof Intl & { Segmenter?: unknown }
+    const original = intl.Segmenter
+    Object.defineProperty(intl, 'Segmenter', { configurable: true, value: undefined })
+    try {
+      const out = truncateMiddle('e\u0301 '.repeat(30) + '👨‍👩‍👧‍👦'.repeat(30), 40)
+      expect(out).toContain('e\u0301')
+      expect(out).toContain('👨‍👩‍👧‍👦')
+      expect(out).toContain('…')
+    } finally {
+      Object.defineProperty(intl, 'Segmenter', { configurable: true, value: original })
+    }
   })
 
   it('never splits a Unicode surrogate pair or a combining-mark cluster', () => {
@@ -708,9 +740,9 @@ describe('F-4 computeTiming (engine) — deterministic, calendar-day', () => {
   const DAY = 24 * 60 * 60 * 1000
   // Anchor "now" at local midnight-equivalent; calendar-day arithmetic should
   // be robust to wall-time crossing midnight. We use a fixed ISO date for stability.
-  const NOW_LOCAL = Date.UTC(2024, 1, 15, 12, 0, 0) // Fri 2024-02-15 12:00 UTC
+  const NOW_LOCAL = new Date(2024, 1, 15, 12, 0, 0).getTime() // local Fri 2024-02-15 12:00
   it('a same-day entry yields entryAgeDays === 0 ("today")', () => {
-    const sameDay = Date.UTC(2024, 1, 15, 0, 30) // very early on the 15th
+    const sameDay = new Date(2024, 1, 15, 0, 30).getTime() // very early on the 15th
     const t = computeTiming({ pageUpdatedAt: NOW_LOCAL - 4 * DAY, entryCreatedAt: sameDay, now: NOW_LOCAL })
     expect(t.entryAgeDays).toBe(0)
     expect(t.isFutureEntry).toBe(false)
@@ -720,8 +752,8 @@ describe('F-4 computeTiming (engine) — deterministic, calendar-day', () => {
 
   it('an entry just before midnight is 1 day old, not 0 (calendar bucket)', () => {
     // 23:59 on Feb 14, now=00:01 on Feb 15 → calendar-day 1, not 0
-    const crossMidnight = Date.UTC(2024, 1, 14, 23, 59)
-    const justAfterMidnight = Date.UTC(2024, 1, 15, 0, 1)
+    const crossMidnight = new Date(2024, 1, 14, 23, 59).getTime()
+    const justAfterMidnight = new Date(2024, 1, 15, 0, 1).getTime()
     const t = computeTiming({ pageUpdatedAt: 0, entryCreatedAt: crossMidnight, now: justAfterMidnight })
     expect(t.entryAgeDays).toBe(1)
   })
@@ -736,6 +768,20 @@ describe('F-4 computeTiming (engine) — deterministic, calendar-day', () => {
     expect(t.entryAgeDays).toBeNull()
     expect(t.gapDays).toBeNull()
     expect(t.isHistoricalEntry).toBe(false)
+  })
+
+  it('a future page timestamp is neutral rather than treated as evolution history', () => {
+    const t = computeTiming({
+      pageUpdatedAt: NOW_LOCAL + DAY,
+      entryCreatedAt: NOW_LOCAL,
+      now: NOW_LOCAL,
+    })
+    expect(t).toEqual({
+      gapDays: null,
+      entryAgeDays: null,
+      isHistoricalEntry: false,
+      isFutureEntry: true,
+    })
   })
 
   it('an entry predating the page latest update is historical — gapDays is null, isHistoricalEntry true', () => {

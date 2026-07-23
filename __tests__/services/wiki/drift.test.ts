@@ -227,7 +227,7 @@ describe('normalizeVersionChain', () => {
       {
         type: 'non-increasing-timestamp',
         version: 2,
-        detail: 'version #2 timestamp predates version #1',
+        detail: 'version #2 timestamp is not later than version #1',
       },
     ])
   })
@@ -243,6 +243,19 @@ describe('normalizeVersionChain', () => {
     expect(detailBlob).not.toContain('USER TEXT')
     expect(detailBlob).not.toContain('MORE')
     expect(detailBlob).not.toContain('EVEN')
+  })
+
+  it('detects a duplicate current/live version', () => {
+    const r = normalizeVersionChain(
+      [{ version: 1, content: 'archived', updated_at: 10 }],
+      { version: 1, content: 'live', updated_at: 20 }
+    )
+    expect(r.versions).toEqual([{ version: 1, content: 'live', updated_at: 20 }])
+    expect(r.issues).toEqual([{
+      type: 'duplicate-version',
+      version: 1,
+      detail: 'duplicate version #1 across the retained history; keeping the latest write',
+    }])
   })
 
   it('returns an empty chain for empty input', () => {

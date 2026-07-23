@@ -34,14 +34,22 @@ export async function dedupeTopics(
       const current = row.topic ? String(row.topic) : null
       const next = current ? canonicalTopic(current) : null
       if (next && next !== current) {
-        await db.execute('UPDATE entries SET topic = ? WHERE id = ?', [next, id])
+        const now = Date.now()
+        await db.execute(
+          'UPDATE entries SET topic = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+          [next, now, id]
+        )
         await enqueueUpsert('entries', id, db)
         entriesUpdated++
       }
       const current2 = row.topic2 ? String(row.topic2) : null
       const next2 = current2 ? canonicalTopic(current2) : null
       if (next2 && next2 !== current2) {
-        await db.execute('UPDATE entries SET topic2 = ? WHERE id = ?', [next2, id])
+        const now = Date.now()
+        await db.execute(
+          'UPDATE entries SET topic2 = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+          [next2, now, id]
+        )
         await enqueueUpsert('entries', id, db)
         entriesUpdated++
       }
@@ -72,19 +80,19 @@ export async function dedupeTopics(
         })
         const survivor = pages[0]
         if (survivor.title !== canonical) {
-          await db.execute('UPDATE wiki_pages SET title = ?, updated_at = ? WHERE id = ?', [
-            canonical,
-            Date.now(),
-            survivor.id,
-          ])
+          const now = Date.now()
+          await db.execute(
+            'UPDATE wiki_pages SET title = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+            [canonical, now, survivor.id]
+          )
           await enqueueUpsert('wiki_pages', survivor.id, db)
         }
         for (const dup of pages.slice(1)) {
-          await db.execute('UPDATE wiki_pages SET merged_into = ?, updated_at = ? WHERE id = ?', [
-            survivor.id,
-            Date.now(),
-            dup.id,
-          ])
+          const now = Date.now()
+          await db.execute(
+            'UPDATE wiki_pages SET merged_into = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+            [survivor.id, now, dup.id]
+          )
           await enqueueUpsert('wiki_pages', dup.id, db)
           pagesMerged++
         }

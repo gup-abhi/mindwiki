@@ -1,6 +1,6 @@
 import { synthesizePage, synthesizePageReGround, synthesizeEmotionPage, regeneratePage } from '@/services/llm/deep-model'
 import { type TimingContext } from '@/types/wiki'
-import { getSetting, setSetting } from '@/services/storage/settings'
+import * as settingsStorage from '@/services/storage/settings'
 import {
   type Entry,
   listEntriesByEmotion,
@@ -16,7 +16,7 @@ import {
   createPage,
   updatePage,
   ticklePageCount,
-  setAggregatedUpto,
+  regeneratePageContentWithAggregate,
   regeneratePageContent,
   listPages,
   type WikiPage,
@@ -45,12 +45,14 @@ export type { TimingContext }
 /** Calendar-day difference between two epoch-ms timestamps, floor-bucketed:
  *  Midnight-crossings land on separate days even when only 1 wall-second apart
  *  (so a reflection written at 23:59 last night is "1 day old" at 00:01
- *  today, never 0). Uses UTC-midnight bucketing so this is timezone-stable and
- *  deterministic — the same clocks used by the prompt-builder tests. */
+ *  today, never 0). Compares the local calendar date fields, while the pure
+ *  timestamp inputs keep the calculation deterministic in tests. */
 function calendarDayDiff(aEpochMs: number, bEpochMs: number): number {
-  const aDay = Math.floor(aEpochMs / DAY_MS)
-  const bDay = Math.floor(bEpochMs / DAY_MS)
-  return bDay - aDay // b minus a (e.g. age = calendarDayDiff(createdAt, now))
+  const a = new Date(aEpochMs)
+  const b = new Date(bEpochMs)
+  const aDay = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())
+  const bDay = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate())
+  return Math.round((bDay - aDay) / DAY_MS)
 }
 
 /** Compute a {@link TimingContext} from the page's latest shaping, the
@@ -62,7 +64,10 @@ export function computeTiming(args: {
   now: number
 }): TimingContext {
   const { pageUpdatedAt, entryCreatedAt, now } = args
-  const isFutureEntry = entryCreatedAt > now
+  const invalidEntry = !Number.isFinite(entryCreatedAt) || !Number.isFinite(now)
+  const invalidPage = pageUpdatedAt != null && !Number.isFinite(pageUpdatedAt)
+  const futurePage = pageUpdatedAt != null && pageUpdatedAt > now
+  const isFutureEntry = invalidEntry || invalidPage || futurePage || entryCreatedAt > now
   if (isFutureEntry) {
     return { gapDays: null, entryAgeDays: null, isHistoricalEntry: false, isFutureEntry: true }
   }
@@ -408,10 +413,16 @@ let emotionScanInFlight: Promise<number> | null = null
  *  tickle retries) — never throws, never blocks the tickle.
  */
 async function incrementEmotionTrigger(): Promise<boolean> {
-  const cur = await getSetting(EMOTION_TRIGGER_SETTING)
+  // Keep a small fallback for older test doubles/partially upgraded databases;
+  // production storage uses the atomic helper.
+  if (typeof settingsStorage.incrementSettingToThreshold === 'function') {
+    const result = await settingsStorage.incrementSettingToThreshold(EMOTION_TRIGGER_SETTING, AGGREGATE_INTERVAL_TAGS)
+    return result.success && result.data
+  }
+  const cur = await settingsStorage.getSetting(EMOTION_TRIGGER_SETTING)
   const n = (cur.success && cur.data ? Number(cur.data) : 0) + 1
   const reached = n >= AGGREGATE_INTERVAL_TAGS
-  await setSetting(EMOTION_TRIGGER_SETTING, String(reached ? 0 : n))
+  await settingsStorage.setSetting(EMOTION_TRIGGER_SETTING, String(reached ? 0 : n))
   return reached
 }
 
@@ -539,15 +550,10 @@ async function refreshSingleEmotionPage(page: WikiPage): Promise<boolean> {
   })
   if (!synth.success) return false
 
-  const applied = await regeneratePageContent(page.id, synth.data)
-  if (!applied.success) return false
-
-  // Mark the aggregated_upto so we know where we left off. After a successful
-  // aggregate, reset the marker to the current entry_count (which is unchanged
-  // by regeneratePageContent). The next aggregate fires when AGGREGATE_BATCH_SIZE
-  // new entries have tickled the page.
-  await setAggregatedUpto(page.id, applied.data.entry_count)
-  return true
+  // Content, version history, aggregated_upto, updated_at, and the sync queue
+  // commit together. A synthesis/persistence failure leaves the page due.
+  const applied = await regeneratePageContentWithAggregate(page.id, synth.data, page.entry_count)
+  return applied.success
 }
 
 

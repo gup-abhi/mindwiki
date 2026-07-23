@@ -5,7 +5,6 @@ import {
   estimatePromptTokens,
   truncateMiddle,
   PROMPT_INPUT_BUDGET,
-  PROMPT_CHAR_CEILING,
 } from './budget'
 
 export interface UpdatePageInput {
@@ -70,9 +69,6 @@ function ageWordingDays(days: number): string {
  *  upper bound on the historical sample; the token budget then trims further if
  *  the full prompt still overruns. */
 const MAX_REGROUND_ENTRIES = 6
-
-/** Rough per-entry overhead in the prompt block for date + separator chars. */
-const ENTRY_META_OVERHEAD = 18 // "YYYY-MM-DD — \n\n"
 
 // The house style every wiki page is written in. Shared by first-time synthesis,
 // per-entry updates, and the regenerate pass so they can't drift apart.
@@ -227,12 +223,6 @@ function budgetPrior(promptSansPrior: string, priorBlock: string): string {
   return truncateMiddle(priorBlock, cap)
 }
 
-/** Apply the defensive final char ceiling: caps a pathological/estimator-
- *  regression runaway that the token budget's per-char ratio might miss. */
-function applyCharCeiling(prompt: string): string {
-  return prompt.length > PROMPT_CHAR_CEILING ? prompt.slice(0, PROMPT_CHAR_CEILING) : prompt
-}
-
 /** Assemble a fully-rendered update-style prompt from its immutable instruction
  *  block + the (already-trimmed) prior block + the current reflection. The
  *  prior block is passed in already bounded, so this is pure concatenation. */
@@ -263,7 +253,7 @@ export function buildUpdatePagePrompt({
   reframe,
   timing,
 }: UpdatePageInput): string {
-  const reflection = renderReflection({ situation, thought, behavior, closingNote })
+  let reflection = renderReflection({ situation, thought, behavior, closingNote })
   const hasPrior = existingContent.trim().length > 0
   const evolution = evolutionFramingFor(hasPrior, timing)
   const futureDirective = futureTimingDirective(timing)
@@ -282,14 +272,26 @@ export function buildUpdatePagePrompt({
   // priority content under F-3A — it's trimmed before any instruction or the
   const reflectionHeading = reflectionHeadingFor(timing)
   // current reflection would ever be touched).
-  const sansPrior = assembleUpdatePrompt({
+  let sansPrior = assembleUpdatePrompt({
     instructionLines, priorBlock: '', reflectionHeading, reflection,
   })
+  // Current evidence outranks the prior. Trim it by grapheme-safe middle cuts
+  // before allowing the prior to consume the remaining rendered-prompt budget.
+  while (estimatePromptTokens(sansPrior) > PROMPT_INPUT_BUDGET && reflection.length > 64) {
+    reflection = truncateMiddle(reflection, Math.floor(reflection.length * 0.8))
+    sansPrior = assembleUpdatePrompt({ instructionLines, priorBlock: '', reflectionHeading, reflection })
+  }
   const priorBlock = hasPrior
     ? `Current page:\n${budgetPrior(sansPrior, existingContent.trim())}`
     : 'The page is currently empty — write the first version.'
-  const prompt = assembleUpdatePrompt({ instructionLines, priorBlock, reflectionHeading, reflection })
-  return applyCharCeiling(prompt)
+  let prompt = assembleUpdatePrompt({ instructionLines, priorBlock, reflectionHeading, reflection })
+  while (estimatePromptTokens(prompt) > PROMPT_INPUT_BUDGET && reflection.length > 64) {
+    reflection = truncateMiddle(reflection, Math.floor(reflection.length * 0.8))
+    const shell = assembleUpdatePrompt({ instructionLines, priorBlock: '', reflectionHeading, reflection })
+    const trimmedPrior = hasPrior ? `Current page:\n${budgetPrior(shell, existingContent.trim())}` : priorBlock
+    prompt = assembleUpdatePrompt({ instructionLines, priorBlock: trimmedPrior, reflectionHeading, reflection })
+  }
+  return prompt
 }export interface RewritePageInput {
   title: string
   category: string | null
@@ -307,7 +309,7 @@ export function buildRewritePagePrompt({
   category,
   content,
 }: RewritePageInput): string {
-  return [
+  const instructions = [
     `Rewrite this personal wiki page titled "${title}"${category ? ` (${category})` : ''}.`,
     'Keep the SAME facts and meaning, but rewrite the wording completely — do NOT copy sentences',
     'unchanged. The current page is badly formatted; fix it:',
@@ -319,9 +321,9 @@ export function buildRewritePagePrompt({
     '  when someone assumes the worst" → "You tend to assume the worst will happen".',
     ...PAGE_STYLE,
     'Output ONLY the rewritten page, no preamble, no headings, no labels.',
-    '',
-    `Page to rewrite:\n${content.trim()}`,
-  ].join('\n')
+  ]
+  const shell = [...instructions, '', 'Page to rewrite:\n'].join('\n')
+  return `${shell}${budgetPrior(shell, content.trim())}`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -351,8 +353,8 @@ export function buildEmotionPagePrompt({
   data,
   timing,
 }: EmotionPageInput): string {
-  const situationLines = data.topSituations.length > 0
-    ? data.topSituations.map((s) => `  • ${s.pattern} — mentioned ${s.count} time${s.count !== 1 ? 's' : ''}`).join('\n')
+  let situationLines = data.topSituations.length > 0
+    ? data.topSituations.map((s) => `  • ${truncateMiddle(s.pattern, 240)} — mentioned ${s.count} time${s.count !== 1 ? 's' : ''}`).join('\n')
     : '  (not enough data yet)'
 
   const trendLine = (() => {
@@ -376,7 +378,7 @@ export function buildEmotionPagePrompt({
     const parts = [e.situation.trim(), e.thought.trim()]
     if (e.behavior && e.behavior.trim()) parts.push(`How they responded: ${e.behavior.trim()}`)
     if (e.closing_note && e.closing_note.trim()) parts.push(`Their reframe: "${e.closing_note.trim()}"`)
-    const body = parts.filter(Boolean).join('. ')
+    const body = truncateMiddle(parts.filter(Boolean).join('. '), 320)
     return `  ${date} — ${body}`
   }
 
@@ -389,10 +391,11 @@ export function buildEmotionPagePrompt({
       : ''
 
   const hasPrior = existingContent.trim().length > 0
-  const recentExamplesBlock = data.recentExamples.length > 0
-    ? `\nRecent examples:\n${data.recentExamples.map(formatExample).join('\n')}`
+  let recentExamples = [...data.recentExamples]
+  let recentExamplesBlock = recentExamples.length > 0
+    ? `\nRecent examples:\n${recentExamples.map(formatExample).join('\n')}`
     : ''
-  const dataBlock = [
+  let dataBlock = [
     'Aggregate data:',
     ...(freqLine ? [freqLine] : []),
     ...(trendLine ? [trendLine] : []),
@@ -444,20 +447,54 @@ export function buildEmotionPagePrompt({
   // Still over budget even with an empty prior → shrink the recent-examples
   // block (drop the middle entries, keep head+tail for timeline spread).
   if (estimatePromptTokens(prompt) > PROMPT_INPUT_BUDGET && data.recentExamples.length > 0) {
-    const ex = [...data.recentExamples]
     // Keep oldest (head) and newest (tail); drop the middle until it fits.
-    while (ex.length > 2 && estimatePromptTokens(assemble(priorBlock, `\nRecent examples:\n${ex.map(formatExample).join('\n')}`)) > PROMPT_INPUT_BUDGET) {
-      ex.splice(Math.floor(ex.length / 2), 1)
+    while (recentExamples.length > 2 && estimatePromptTokens(assemble(priorBlock, `\nRecent examples:\n${recentExamples.map(formatExample).join('\n')}`)) > PROMPT_INPUT_BUDGET) {
+      recentExamples.splice(Math.floor(recentExamples.length / 2), 1)
     }
-    const reducedRecent = `\nRecent examples:\n${ex.map(formatExample).join('\n')}`
+    recentExamplesBlock = recentExamples.length > 0
+      ? `\nRecent examples:\n${recentExamples.map(formatExample).join('\n')}`
+      : ''
     // Recompute the prior against the now-shorter prompt shell.
-    const sansPrior2 = assemble('', reducedRecent)
+    const sansPrior2 = assemble('', recentExamplesBlock)
     priorBlock = hasPrior
       ? `Current page (as prior):\n${budgetPrior(sansPrior2, existingContent.trim())}`
       : 'The page is currently empty — write the first version.'
-    prompt = assemble(priorBlock, reducedRecent)
+    prompt = assemble(priorBlock, recentExamplesBlock)
   }
-  return applyCharCeiling(prompt)
+  // Aggregate trigger strings are current evidence too. If they still overflow
+  // after example sampling, drop their middle while preserving the first/last
+  // trigger and the surrounding instructions/prior.
+  while (estimatePromptTokens(prompt) > PROMPT_INPUT_BUDGET && situationLines.length > 1) {
+    const nextLength = Math.max(1, Math.floor(situationLines.length * 0.8))
+    situationLines = truncateMiddle(situationLines, nextLength)
+    dataBlock = [
+      'Aggregate data:',
+      ...(freqLine ? [freqLine] : []),
+      ...(trendLine ? [trendLine] : []),
+      'Most common triggers:',
+      situationLines,
+    ].join('\n')
+    const shell = assemble('', recentExamplesBlock)
+    priorBlock = hasPrior
+      ? `Current page (as prior):\n${budgetPrior(shell, existingContent.trim())}`
+      : 'The page is currently empty — write the first version.'
+    prompt = assemble(priorBlock, recentExamplesBlock)
+  }
+  // Trigger strings can be bounded while two unusually dense examples still
+  // keep the rendered prompt over budget. Drop example middle entries only as
+  // a final evidence reduction; instructions and the aggregate data remain.
+  while (estimatePromptTokens(prompt) > PROMPT_INPUT_BUDGET && recentExamples.length > 0) {
+    recentExamples.splice(Math.floor(recentExamples.length / 2), 1)
+    recentExamplesBlock = recentExamples.length > 0
+      ? `\nRecent examples:\n${recentExamples.map(formatExample).join('\n')}`
+      : ''
+    const shell = assemble('', recentExamplesBlock)
+    priorBlock = hasPrior
+      ? `Current page (as prior):\n${budgetPrior(shell, existingContent.trim())}`
+      : 'The page is currently empty — write the first version.'
+    prompt = assemble(priorBlock, recentExamplesBlock)
+  }
+  return prompt
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -500,7 +537,7 @@ function formatPastBatch(entries: PastEntry[]): string {
     // Trim individual entries so no single entry dominates the batch. The token
     // budget shrinks the whole batch if needed (drop the middle, keep head+tail).
     const maxBody = 200
-    const trimmedBody = body.length > maxBody ? `${body.slice(0, maxBody)}…` : body
+    const trimmedBody = truncateMiddle(body, maxBody)
     lines.push(`${date} — ${trimmedBody}`)
   }
   return lines.join('\n')
@@ -587,5 +624,5 @@ export function buildReGroundPrompt({
       : 'The page is currently empty — write the first version.'
     prompt = assemble(priorBlock, formatPastBatch(pastBatch))
   }
-  return applyCharCeiling(prompt)
+  return prompt
 }

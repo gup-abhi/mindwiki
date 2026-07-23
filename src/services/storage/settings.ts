@@ -32,3 +32,29 @@ export async function setSetting(
     return err('SETTINGS_SET_FAILED', 'Failed to write setting', e)
   }
 }
+
+/** Atomically increment a numeric setting and reset it when threshold is met.
+ * The read, decision, and write share one SQLite transaction, so concurrent
+ * background indexers cannot lose increments or both observe the crossing. */
+export async function incrementSettingToThreshold(
+  key: string,
+  threshold: number,
+  db: SqliteDatabase = getDb()
+): Promise<Result<boolean>> {
+  try {
+    let reached = false
+    await db.transaction(async (tx) => {
+      const res = await tx.execute('SELECT value FROM settings WHERE key = ?', [key])
+      const current = res.rows[0] ? Number(res.rows[0].value) : 0
+      const next = Number.isFinite(current) ? current + 1 : 1
+      reached = next >= threshold
+      await tx.execute(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        [key, String(reached ? 0 : next)]
+      )
+    })
+    return ok(reached)
+  } catch (e) {
+    return err('SETTINGS_INCREMENT_FAILED', 'Failed to increment setting', e)
+  }
+}

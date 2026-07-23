@@ -18,15 +18,6 @@ export const OUTPUT_RESERVE = 400
 export const SAFETY_MARGIN = 128
 export const PROMPT_INPUT_BUDGET = CONTEXT_WINDOW - OUTPUT_RESERVE - SAFETY_MARGIN // 1520
 
-/**
- * Defensive final character ceiling on a rendered + trimmed prompt. Even if
- * the estimator is generous, we never emit more characters than this — it caps
- * pathological inputs and guards against an estimator regression letting a
- * runaway prompt through. ~6 chars/token × budget; sized well above the budget
- * so a perfectly-estimated in-budget prompt is never falsely rejected.
- */
-export const PROMPT_CHAR_CEILING = PROMPT_INPUT_BUDGET * 6
-
 // ─────────────────────────────────────────────────────────────────────────────
 // estimatePromptTokens
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,9 +58,8 @@ export function estimatePromptTokens(text: string): number {
   let inWord = false
 
   for (const g of graphemes) {
-    const cp = [...g].map((c) => c.codePointAt(0) ?? 0)
     const isEmoji = g.codePointAt(0) != null &&
-      (Extended_Pictographic.has(g.codePointAt(0)!) || g.includes('\uFE0F') || g.includes('\u200D'))
+      (isEmojiCodePoint(g.codePointAt(0)!) || g.includes('\uFE0F') || g.includes('\u200D'))
     if (isEmoji) {
       emoji++
       continue
@@ -159,7 +149,43 @@ function splitGraphemes(text: string): string[] {
       // fall through
     }
   }
-  return Array.from(text)
+
+  // Hermes versions without Intl.Segmenter still get a cluster-aware fallback:
+  // attach combining marks, variation selectors, skin tones, and ZWJ-linked
+  // code points to the preceding base rather than splitting user-visible text.
+  const out: string[] = []
+  for (const codePoint of Array.from(text)) {
+    const cp = codePoint.codePointAt(0) ?? 0
+    const previous = out[out.length - 1]
+    if (previous && (cp === 0x200d || isCombiningMark(cp) || isVariationSelector(cp) || isEmojiModifier(cp) || previous.endsWith('\u200D'))) {
+      out[out.length - 1] = previous + codePoint
+    } else {
+      out.push(codePoint)
+    }
+  }
+  return out
+}
+
+function isCombiningMark(cp: number): boolean {
+  return (cp >= 0x300 && cp <= 0x36f) || (cp >= 0x1ab0 && cp <= 0x1aff) ||
+    (cp >= 0x1dc0 && cp <= 0x1dff) || (cp >= 0x20d0 && cp <= 0x20ff) ||
+    (cp >= 0xfe20 && cp <= 0xfe2f)
+}
+
+function isVariationSelector(cp: number): boolean {
+  return (cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef)
+}
+
+function isEmojiModifier(cp: number): boolean {
+  return cp >= 0x1f3fb && cp <= 0x1f3ff
+}
+
+function isEmojiCodePoint(cp: number): boolean {
+  return Extended_Pictographic.has(cp) ||
+    (cp >= 0x1f000 && cp <= 0x1faff) ||
+    (cp >= 0x1fc00 && cp <= 0x1ffff) ||
+    (cp >= 0x2300 && cp <= 0x23ff) ||
+    (cp >= 0x2600 && cp <= 0x27bf)
 }
 
 /**
@@ -214,43 +240,11 @@ const Extended_Pictographic = new Set<number>([
  * prior — the model re-consolidates from the head and tail.
  */
 export function truncateMiddle(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text
+  const graphemes = splitGraphemes(text)
+  if (graphemes.length <= maxChars) return text
   if (maxChars <= 1) return '…'
-  // Reserve 1 char for the ellipsis; split the remainder between head and tail.
-  const body = maxChars - 1 /* '…' */
+  const body = maxChars - 1
   const headLen = Math.ceil(body / 2)
   const tailLen = body - headLen
-  // Compute cut points that never split a surrogate pair / grapheme. We slice
-  // by String indices but advance to the next safe boundary (a code-point
-  // start) so the last char of the head and the first char of the tail are
-  // complete code points.
-  let headEnd = headLen
-  while (headEnd > 0 && isLowSurrogateAt(text, headEnd)) headEnd--
-  let tailStart = text.length - tailLen
-  while (tailStart < text.length && isLowSurrogateAt(text, tailStart)) tailStart++
-  while (tailStart > 0 && isHighSurrogateStandalone(text, tailStart - 1)) tailStart--
-  // Guard: if tail overrun collapsed the head, prioritise head (gist matters more).
-  if (tailStart < headEnd) tailStart = headEnd
-  return text.slice(0, headEnd) + '…' + text.slice(tailStart)
-}
-
-/** True if the code unit at `i` is a low surrogate (i.e. the second half of a
- *  code point that started at i-1) — means slicing HERE would split a code point. */
-function isLowSurrogateAt(s: string, i: number): boolean {
-  if (i <= 0 || i >= s.length) return false
-  const c = s.charCodeAt(i)
-  return c >= 0xdc00 && c <= 0xdfff
-}
-
-/** True if the code unit at `i` is a HIGH surrogate whose low partner is NOT at
- *  i+1 (i.e. a lone high surrogate) — slicing around this is already safe, but
- *  we treat it as a break point to keep the head well-formed. */
-function isHighSurrogateStandalone(s: string, i: number): boolean {
-  if (i < 0 || i >= s.length) return false
-  const c = s.charCodeAt(i)
-  if (c < 0xd800 || c > 0xdbff) return false // not high
-  // High surrogate followed by a non-low → lone, treat as a boundary
-  if (i + 1 >= s.length) return true
-  const next = s.charCodeAt(i + 1)
-  return !(next >= 0xdc00 && next <= 0xdfff)
+  return graphemes.slice(0, headLen).join('') + '…' + graphemes.slice(-tailLen).join('')
 }

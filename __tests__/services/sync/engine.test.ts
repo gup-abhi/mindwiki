@@ -19,15 +19,19 @@ const mockGetTokens = getTokens as jest.Mock
 // Must mirror TABLES.entries.columns in engine.ts (the order applyRemote binds).
 const ENTRY_COLS = [
   'id', 'created_at', 'mood', 'situation', 'thought', 'behavior',
-  'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'topic2', 'tagged_at', 'raw_text', 'source',
+  'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'topic2', 'tagged_at', 'updated_at', 'raw_text', 'source',
 ]
 
-const entryRow = (id: string, over: Record<string, unknown> = {}) => ({
-  id, created_at: 1000, mood: 3, situation: 's', thought: 't', behavior: null,
-  closing_note: null, emotion: null, named_emotion: null, energy: null, distortion: null,
-  mood_score: null, topic: null, topic2: null, tagged_at: null, raw_text: null,
-  ...over,
-})
+const entryRow = (id: string, over: Record<string, unknown> = {}) => {
+  const row = {
+    id, created_at: 1000, mood: 3, situation: 's', thought: 't', behavior: null,
+    closing_note: null, emotion: null, named_emotion: null, energy: null, distortion: null,
+    mood_score: null, topic: null, topic2: null, tagged_at: null, updated_at: 1000, raw_text: null,
+    ...over,
+  }
+  row.updated_at = (over.updated_at ?? over.tagged_at ?? over.created_at ?? row.created_at) as number
+  return row
+}
 
 function fakeDb() {
   const syncQueue = new Map<string, Record<string, unknown>>()
@@ -189,6 +193,28 @@ describe('sync/engine pullDelta', () => {
     expect(entries.get('ok2')?.situation).toBe('third')
     expect(entries.has('poison')).toBe(false)
     expect(settings.get('sync:last_pull')).toBe('6000')
+  })
+
+  it('applies a post-merge entry update after the original cursor', async () => {
+    const { db, entries, settings } = fakeDb()
+    entries.set('e1', entryRow('e1', { topic: 'Job pressure', updated_at: 1000 }))
+    settings.set('sync:last_pull', '1000')
+    mockFetch.mockResolvedValue(
+      okResp([
+        {
+          table: 'entries',
+          record_id: 'e1',
+          ciphertext: JSON.stringify(entryRow('e1', { topic: 'Work stress', updated_at: 2000 })),
+          updated_at: 2000,
+        },
+      ])
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success && res.data).toBe(1)
+    expect(entries.get('e1')?.topic).toBe('Work stress')
+    expect(settings.get('sync:last_pull')).toBe('2000')
   })
 
   it('skips a remote record older than the local copy (last-write-wins)', async () => {

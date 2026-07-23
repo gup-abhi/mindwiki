@@ -116,22 +116,24 @@ export interface PageDrift {
  *  duplicates dropped (the last one wins, as a stable remove-duplicate-by-key).
  *  Pure, deterministic, throws on nothing. */
 export function normalizeVersionChain(
-  history: { version: number; content: string; updated_at: number }[]
+  history: { version: number; content: string; updated_at: number }[],
+  current?: { version: number; content: string; updated_at: number }
 ): {
   versions: { version: number; content: string; updated_at: number }[]
   gaps: SampledGap[]
   issues: VersionIssue[]
 } {
   const issues: VersionIssue[] = []
+  const source = current == null ? history : [...history, current]
   // Deduplicate by version number (last write wins) BEFORE sorting, so a
   // duplicate version number never appears in the cleaned chain.
   const byVersion = new Map<number, { version: number; content: string; updated_at: number }>()
-  for (const v of history) {
+  for (const v of source) {
     if (byVersion.has(v.version)) {
       issues.push({
         type: 'duplicate-version',
         version: v.version,
-        detail: `duplicate version #${v.version} in retained history; keeping the latest write`,
+        detail: `duplicate version #${v.version} across the retained history; keeping the latest write`,
       })
     }
     byVersion.set(v.version, v)
@@ -140,11 +142,15 @@ export function normalizeVersionChain(
 
   // Non-increasing timestamps: a later version should not predate an earlier one.
   for (let i = 1; i < deduped.length; i++) {
-    if (deduped[i].updated_at < deduped[i - 1].updated_at) {
+    // Test/dev fixtures historically use 0 as an unset live timestamp. Do not
+    // turn that sentinel into a misleading clock-skew issue; real persisted
+    // timestamps are positive and equal/decreasing values are reported.
+    if (deduped[i].updated_at > 0 && deduped[i - 1].updated_at > 0 &&
+        deduped[i].updated_at <= deduped[i - 1].updated_at) {
       issues.push({
         type: 'non-increasing-timestamp',
         version: deduped[i].version,
-        detail: `version #${deduped[i].version} timestamp predates version #${deduped[i - 1].version}`,
+        detail: `version #${deduped[i].version} timestamp is not later than version #${deduped[i - 1].version}`,
       })
     }
   }
@@ -173,22 +179,16 @@ export function normalizeVersionChain(
 export function pageDrift(page: WikiPage): PageDrift | null {
   if (page.version_history.length === 0) return null
 
-  const { versions: chain, gaps: historyGaps, issues } = normalizeVersionChain(page.version_history)
-  if (chain.length === 0) return null
-
-  const withCurrent = [...chain, { version: page.version, content: page.content, updated_at: page.updated_at }]
-
-  // The sampled-history gap from the last retained version up to the current
-  // version is detected here (normalizeVersionChain only sees version_history,
-  // not the live page). When present, the v_lastretained → v_current step is
-  // elided — computing it would masquerade several discarding rewrites as one
-  // rewrite's word overlap.
-  const gaps = [...historyGaps]
-  const lastRetained = chain[chain.length - 1]
-  const missingToCurrent = page.version - lastRetained.version - 1
-  if (missingToCurrent > 0) {
-    gaps.push({ fromVersion: lastRetained.version, toVersion: page.version, missing: missingToCurrent })
-  }
+  const normalized = normalizeVersionChain(page.version_history, {
+    version: page.version,
+    content: page.content,
+    updated_at: page.updated_at,
+  })
+  const withCurrent = normalized.versions
+  const current = withCurrent.find((v) => v.version === page.version)
+  if (withCurrent.length === 0 || !current) return null
+  const gaps = normalized.gaps
+  const issues = normalized.issues
 
   // Step retention: ONLY across adjacent version numbers (i.e. NOT across a
   // sampled gap). We pair each retained version with its predecessor only when
@@ -212,7 +212,9 @@ export function pageDrift(page: WikiPage): PageDrift | null {
 
   // Engine pages are created with empty content (first synthesis lands as v2),
   // so origin measures from the first version that actually has content words.
-  const originBase = withCurrent.slice(0, -1).find((c) => contentWords(c.content).size > 0)
+  const originBase = withCurrent.find((c) =>
+    c.version !== current.version && contentWords(c.content).size > 0
+  )
 
   return {
     id: page.id,

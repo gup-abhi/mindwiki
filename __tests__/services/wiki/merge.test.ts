@@ -1,6 +1,7 @@
 import { type SqliteDatabase, type SqlParam } from '@/services/storage/db'
 import { type WikiPage } from '@/services/storage/wiki'
 import { rebuildGraph } from '@/services/graph/engine'
+import { useSyncStore } from '@/store/sync.store'
 import {
   suggestMerges,
   mergePages,
@@ -34,6 +35,7 @@ interface EntryRow {
   id: string
   topic: string
   topic2: string
+  updated_at?: number
 }
 
 interface WikiPageRow {
@@ -70,12 +72,18 @@ interface CommittedState {
 /** Create a deep clone of a CommittedState for save/restore. */
 function cloneState(s: CommittedState): CommittedState {
   return {
-    entries: new Map(s.entries),
+    entries: new Map(
+      [...s.entries].map(([k, v]) => [k, { ...v }])
+    ),
     wikiPages: new Map(
       [...s.wikiPages].map(([k, v]) => [k, { ...v }])
     ),
-    syncQueue: new Map(s.syncQueue),
-    settings: new Map(s.settings),
+    syncQueue: new Map(
+      [...s.syncQueue].map(([k, v]) => [k, { ...v }])
+    ),
+    settings: new Map(
+      [...s.settings].map(([k, v]) => [k, { ...v }])
+    ),
   }
 }
 
@@ -86,7 +94,7 @@ interface FakeDb {
   currentState(): CommittedState
 }
 
-function createFakeDb(): FakeDb {
+function createFakeDb(failWhen?: RegExp): FakeDb {
   const state: CommittedState = {
     entries: new Map(),
     wikiPages: new Map(),
@@ -109,6 +117,7 @@ function createFakeDb(): FakeDb {
 
   const db: SqliteDatabase = {
     async execute(sql: string, params: SqlParam[] = []) {
+      if (failWhen?.test(sql)) throw new Error('injected failure')
       const s = readState()
 
       // -- SELECT entries --
@@ -158,7 +167,24 @@ function createFakeDb(): FakeDb {
         }
       }
 
-      // -- UPDATE entries SET topic = -- (batch, not per-row)
+      // -- UPDATE entries SET topic = -- (scoped affected-id batch)
+      if (/^UPDATE entries SET topic = \?, updated_at = MAX\(updated_at \+ 1, \?\)\s+WHERE LOWER\(topic\) = LOWER\(\?\) AND id IN/i.test(sql)) {
+        const sTitle = String(params[0])
+        const updatedAt = Number(params[1])
+        const lTitle = String(params[2])
+        const ids = params.slice(3).map(String)
+        let affected = 0
+        for (const e of s.entries.values()) {
+          if (ids.includes(e.id) && e.topic.toLowerCase() === lTitle.toLowerCase()) {
+            e.topic = sTitle
+            e.updated_at = updatedAt
+            affected++
+          }
+        }
+        return { rows: [], rowsAffected: affected }
+      }
+
+      // Legacy shape retained for compatibility with older tests.
       if (/^UPDATE entries SET topic = \? WHERE LOWER\(topic\) = LOWER\(\?\)/i.test(sql)) {
         const sTitle = String(params[0])
         const lTitle = String(params[1])
@@ -172,7 +198,24 @@ function createFakeDb(): FakeDb {
         return { rows: [], rowsAffected: affected }
       }
 
-      // -- UPDATE entries SET topic2 = -- (batch, not per-row)
+      // -- UPDATE entries SET topic2 = -- (scoped affected-id batch)
+      if (/^UPDATE entries SET topic2 = \?, updated_at = MAX\(updated_at \+ 1, \?\)\s+WHERE LOWER\(topic2\) = LOWER\(\?\) AND id IN/i.test(sql)) {
+        const sTitle = String(params[0])
+        const updatedAt = Number(params[1])
+        const lTitle = String(params[2])
+        const ids = params.slice(3).map(String)
+        let affected = 0
+        for (const e of s.entries.values()) {
+          if (ids.includes(e.id) && e.topic2.toLowerCase() === lTitle.toLowerCase()) {
+            e.topic2 = sTitle
+            e.updated_at = updatedAt
+            affected++
+          }
+        }
+        return { rows: [], rowsAffected: affected }
+      }
+
+      // Legacy shape retained for compatibility with older tests.
       if (/^UPDATE entries SET topic2 = \? WHERE LOWER\(topic2\) = LOWER\(\?\)/i.test(sql)) {
         const sTitle = String(params[0])
         const lTitle = String(params[1])
@@ -180,6 +223,21 @@ function createFakeDb(): FakeDb {
         for (const e of s.entries.values()) {
           if (e.topic2.toLowerCase() === lTitle.toLowerCase()) {
             e.topic2 = sTitle
+            affected++
+          }
+        }
+        return { rows: [], rowsAffected: affected }
+      }
+
+      // -- Scoped duplicate collapse
+      if (/^UPDATE entries SET topic2 = NULL, updated_at = MAX\(updated_at \+ 1, \?\)\s+WHERE LOWER\(topic\) = LOWER\(topic2\)/i.test(sql)) {
+        const updatedAt = Number(params[0])
+        const ids = params.slice(1).map(String)
+        let affected = 0
+        for (const e of s.entries.values()) {
+          if (ids.includes(e.id) && e.topic && e.topic2 && e.topic.toLowerCase() === e.topic2.toLowerCase() && e.topic.length > 0) {
+            e.topic2 = ''
+            e.updated_at = updatedAt
             affected++
           }
         }
@@ -196,6 +254,14 @@ function createFakeDb(): FakeDb {
           }
         }
         return { rows: [], rowsAffected: affected }
+      }
+
+      // -- UPDATE entries SET updated_at for scoped rows --
+      if (/^UPDATE entries SET updated_at = \? WHERE id IN/i.test(sql)) {
+        const updatedAt = Number(params[0])
+        const ids = params.slice(1).map(String)
+        for (const e of s.entries.values()) if (ids.includes(e.id)) e.updated_at = updatedAt
+        return { rows: [], rowsAffected: ids.length }
       }
 
       // -- UPDATE wiki_pages SET merged_into --
@@ -290,7 +356,7 @@ function addEntry(
   topic: string,
   topic2: string = ''
 ): void {
-  fake.state.entries.set(id, { id, topic, topic2 })
+  fake.state.entries.set(id, { id, topic, topic2, updated_at: 0 })
 }
 
 function addPage(
@@ -497,6 +563,7 @@ describe('mergePages', () => {
   beforeEach(() => {
     mockRebuild.mockReset()
     mockRebuild.mockResolvedValue({ success: true, data: undefined })
+    useSyncStore.setState({ pendingSignal: 0 })
   })
 
   // ── T-2.2: basic repointing ──
@@ -524,6 +591,8 @@ describe('mergePages', () => {
     expect(fake.state.syncQueue.size).toBe(4)
     expect(fake.state.syncQueue.has('entries:e1')).toBe(true)
     expect(fake.state.syncQueue.has('entries:e2')).toBe(true)
+    expect(useSyncStore.getState().pendingSignal).toBe(1)
+    expect(fake.state.entries.get('e1')!.updated_at).toBeGreaterThan(0)
     expect(fake.state.syncQueue.has('wiki_pages:s')).toBe(true)
     expect(fake.state.syncQueue.has('wiki_pages:l')).toBe(true)
 
@@ -694,6 +763,32 @@ describe('mergePages', () => {
 
   // ── T-2.1: atomicity — transaction rollback ──
 
+  it.each([
+    ['entry topic update', /UPDATE entries SET topic =/],
+    ['entry topic2 update', /UPDATE entries SET topic2 = \?, updated_at/],
+    ['duplicate cleanup', /UPDATE entries SET topic2 = NULL/],
+    ['loser page update', /UPDATE wiki_pages SET merged_into/],
+    ['survivor page update', /UPDATE wiki_pages SET entry_count/],
+    ['queue write', /INSERT INTO sync_queue/],
+    ['repair marker', /INSERT INTO settings/],
+  ])('rolls back when %s fails', async (_label, failWhen) => {
+    const fake = createFakeDb(failWhen)
+    addPage(fake, { id: 's', title: 'Work stress' })
+    addPage(fake, { id: 'l', title: 'Job pressure' })
+    addEntry(fake, 'e1', 'Job pressure', '')
+
+    const res = await mergePages(survivorPage(), loserPage(), fake.db)
+
+    expect(res.success).toBe(false)
+    expect(fake.state.entries.get('e1')!.topic).toBe('Job pressure')
+    expect(fake.state.wikiPages.get('l')!.merged_into).toBeNull()
+    expect(fake.state.wikiPages.get('s')!.entry_count).toBe(0)
+    expect(fake.state.syncQueue.size).toBe(0)
+    expect(fake.state.settings.get('maintenance:graph_rebuild_required')).toBeUndefined()
+    expect(useSyncStore.getState().pendingSignal).toBe(0)
+    expect(mockRebuild).not.toHaveBeenCalled()
+  })
+
   it('rolls back all writes when an enqueue fails inside the transaction', async () => {
     const fake = createFakeDb()
     addPage(fake, { id: 's', title: 'Work stress' })
@@ -764,6 +859,7 @@ describe('mergePages', () => {
     expect(fake.state.wikiPages.get('l')!.merged_into).toBe('some-other-page')
     // No queue rows
     expect(fake.state.syncQueue.size).toBe(0)
+    expect(useSyncStore.getState().pendingSignal).toBe(0)
   })
 
   // ── Post-commit graph rebuild ──
