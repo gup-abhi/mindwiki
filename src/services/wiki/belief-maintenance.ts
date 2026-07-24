@@ -1,8 +1,10 @@
 import { type Result, ok, err } from '@/types/result'
 import type { SqliteDatabase } from '@/services/storage/db'
 import { getDb } from '@/services/storage/db'
-import { getMaintenanceState } from '@/services/storage/maintenance-state'
+import { getMaintenanceState, updateMaintenanceState } from '@/services/storage/maintenance-state'
 import { listEntityEmbeddings, type EntityEmbedding } from '@/services/storage/entity-embeddings'
+import { getSetting } from '@/services/storage/settings'
+import { rebuildGraph as defaultRebuildGraph } from '@/services/graph/engine'
 import { cosine } from './search'
 import { stripBeliefFrame, isPolarityCollision } from './belief-match'
 import type { WikiPage, WikiPageVersion } from '@/services/storage/wiki'
@@ -12,6 +14,28 @@ import type { WikiPage, WikiPageVersion } from '@/services/storage/wiki'
 // Changing this forces one rerun: maintenance checks the persisted value
 // against this constant and re-processes when they differ.
 export const MAINTENANCE_ALGORITHM_VERSION = 1
+
+// ── Self-trigger loop prevention contract ──────────────────────────────
+// These paths BUMP source_generation in maintenance-state.ts. They are
+// OUTSIDE maintenance: raw belief/reframe ingests + sync remote applies.
+// Maintenance's own rewrites (setCanonicalLabel, retargetReframeBelief) are
+// INTENTIONALLY ABSENT from this list — maintenance commits never produce a
+// pending pass, which is what prevents an infinite self-trigger loop.
+// Increment the generation directly (via incrementSourceGeneration) on every
+// row produced by these paths so an idempotent historical-repair pass can
+// eventually catch up.
+export const MAINTENANCE_SOURCE_KEYS = [
+  'setEntitiesForEntry',
+  'createReframe',
+  'applyRemote',
+] as const
+
+// ── Durable graph-rebuild repair marker ─────────────────────────────────
+// Settings key that records a pending graph rebuild (1 = pending) after a
+// maintenance source-cluster commit. App dies between source repair and
+// graph rebuild leaves this set; startup calls retryBeliefMaintenanceGraphRebuild
+// which clears it once rebuildGraph succeeds.
+export const MAINTENANCE_GRAPH_PENDING_KEY = 'mw_belief_repair_graph_pending'
 
 // ── Dry-run report — never persisted; rendered to dev UI only ────────────
 // Every text field is a raw label string. The report is handed to a dev-only
@@ -392,5 +416,278 @@ export async function runBeliefMaintenanceDryRun(
     })
   } catch (e) {
     return err('BELIEF_DRYRUN_FAILED', 'Failed to run belief maintenance dry-run', e)
+  }
+}
+
+// ── F-02C historical belief maintenance ──────────────────────────────────
+
+export interface MaintenanceRunOptions {
+  /** Overrides the graph-rebuild entrypoint (TEST ONLY). Default reuses the
+   *  shared graph mutex + rebuildGraph impl. Injecting a fake here lets tests
+   *  simulate a rebuild failure without monkey-patching the engine. */
+  rebuildGraph?: (db: SqliteDatabase) => Promise<Result<void>>
+}
+
+/** Per-pass counters returned to callers via the result type. */
+
+/**
+ * Run the idempotent historical belief-maintenance pass:
+ *
+ *   1. read state; no-op if (algorithm_version == current AND
+ *      processed_generation == source_generation) — same-version/same-gen idle
+ *   2. capture source_generation (BEFORE analysis) so concurrent raw writes
+ *      during the pass arrive with a higher generation and force another pass
+ *   3. read landscape + build clusters using the same geometry as the dry-run
+ *   4. for each APPROVED cluster: ONE transaction writes canonical_label on
+ *      matching belief entity rows + retargets reframes + enqueues each changed
+ *      row + sets the graph-rebuild marker — atomic rollback on any throw
+ *   5. cluster with multiple corrected pages → DEFERRED, mutate no rows,
+ *      accumulate count-only `deferred_clusters`
+ *   6. after ALL clusters: if the marker was set, rebuild graph ONCE; clear
+ *      marker on success; on failure LEAVE marker (startup retries)
+ *   7. set processed_generation = captured source_generation AND algorithm_version
+ *      = MAINTENANCE_ALGORITHM_VERSION AND status='idle' ONLY when both:
+ *      every approved cluster settled AND graph rebuild succeeded. Otherwise:
+ *      status='needs-graph-rebuild' / 'error' and processed_generation stays
+ *      unchanged so the pass remains pending for retry.
+ *
+ * The pass never throws; every failure degrades to a Result error or a status
+ * row. Page consolidation is disabled in this slice (slice 8, gated on F-01).
+ */
+export async function runBeliefMaintenance(
+  db: SqliteDatabase = getDb(),
+  options: MaintenanceRunOptions = {}
+): Promise<Result<{ repairedClusters: number; deferredClusters: number; status: string }>> {
+  const rebuild = options.rebuildGraph ?? ((_: SqliteDatabase) => defaultRebuildGraph())
+
+  try {
+    // 1) State read
+    const stateRes = await getMaintenanceState('belief', db)
+    if (!stateRes.success) return stateRes
+    const state = stateRes.data
+
+    // Rerun gate: algorithm_version mismatch OR source_generation >
+    // processed_generation. A same-version/same-processed pass is a no-op.
+    const versionChanged = state.algorithm_version !== MAINTENANCE_ALGORITHM_VERSION
+    const pendingDelta = state.source_generation > state.processed_generation
+    if (!versionChanged && !pendingDelta && state.status !== 'needs-graph-rebuild') {
+      return ok({ repairedClusters: state.repaired_clusters, deferredClusters: state.deferred_clusters, status: state.status })
+    }
+
+    // If we only need to retry the graph rebuild (status was left 'needs-graph-rebuild'),
+    // skip the source repair entirely and go straight to graph rebuild.
+    const onlyGraphRetry = state.status === 'needs-graph-rebuild'
+    // 2) Capture source_generation BEFORE analysis.
+    const capturedGeneration = state.source_generation
+
+    let deferred = 0
+    let repaired = 0
+    let sourceChanged = false
+    let firstError: { code: string; message: string } | undefined
+
+    if (!onlyGraphRetry) {
+      // 3) Read landscape + build clusters
+      const landRes = await readBeliefLandscape(db)
+      if (!landRes.success) return landRes
+      const { labels, embeddings, pages } = landRes.data
+      const clusters = buildAliasClusters(labels, embeddings, pages)
+
+      for (const cluster of clusters) {
+        if (cluster.deferred || cluster.canonical == null) {
+          // 5) Deferred cluster — mutate no rows, count-only.
+          deferred++
+          continue
+        }
+        // Skip single-label clusters with no aliases — a no-op for source rows.
+        if (cluster.effectiveAliases.length === 0) continue
+
+        const canonical = cluster.canonical
+        // 4) ONE transaction per approved cluster:
+        try {
+          await db.transaction(async (tx: SqliteDatabase) => {
+            // For each alias to retire: write canonical_label + bumped updated_at
+            // on every belief entity row whose label matches this alias.
+            for (const alias of cluster.effectiveAliases) {
+              // Find every matching belief entity row (by label, case-insensitive).
+              // We can issue a single UPDATE WHERE LOWER(label) IN (...) to batch.
+              // Using setCanonicalLabel per row keeps the storage helper contract
+              // (one enqueue per row, best-effort). Both paths must enqueue in-tx.
+              const rows = await tx.execute(
+                "SELECT id FROM entry_entities WHERE type = 'belief' AND LOWER(label) = ?",
+                [alias.toLowerCase()]
+              )
+              for (const r of rows.rows) {
+                const rowId = String(r.id)
+                await tx.execute(
+                  'UPDATE entry_entities SET canonical_label = ?, updated_at = MAX(updated_at, ?) WHERE id = ?',
+                  [canonical, Date.now(), rowId]
+                )
+                // Enqueue inside the same tx so a rollback unrolls the enqueue too.
+                await tx.execute(
+                  `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
+                   VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+                  [`sq:entry_entities:${rowId}`, 'entry_entities', rowId, Date.now()]
+                )
+              }
+            }
+            // Retarget any reframe rows under a retired alias to the canonical.
+            for (const alias of cluster.effectiveAliases) {
+              const now = Date.now()
+              const upd = await tx.execute(
+                'UPDATE belief_reframes SET belief = ?, updated_at = ? WHERE belief = ? COLLATE NOCASE',
+                [canonical, now, alias]
+              )
+              const n = Number(upd.rowsAffected ?? 0)
+              if (n > 0) {
+                // Enqueue the retargeted reframes (read-after-write by belief=canonical
+                // — same as the storage helper).
+                const re = await tx.execute(
+                  'SELECT id FROM belief_reframes WHERE belief = ? COLLATE NOCASE',
+                  [canonical]
+                )
+                for (const r of re.rows) {
+                  const rid = String(r.id)
+                  await tx.execute(
+                    `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
+                     VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+                    [`sq:belief_reframes:${rid}`, 'belief_reframes', rid, Date.now()]
+                  )
+                }
+              }
+            }
+            // Set the graph-rebuild marker IN the same transaction — survives
+            // crash and (together with the source writes) is unrolled if tx fails.
+            await tx.execute(
+              `INSERT INTO settings (key, value) VALUES (?, ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+              [MAINTENANCE_GRAPH_PENDING_KEY, '1']
+            )
+          })
+          repaired++
+          sourceChanged = true
+        } catch (e: any) {
+          // Tx rolled back: NO canonical_label leak for this cluster.
+          if (!firstError) firstError = { code: 'BELIEF_MAINTENANCE_TX_FAILED', message: String(e?.message ?? e) }
+          // Continue with other clusters (one failed tx doesn't abort others).
+        }
+      }
+    }
+
+    // 6) After ALL source-cluster transactions: rebuild graph ONCE if any source
+    // wrote committed.
+    let graphOk = true
+    if (sourceChanged) {
+      let r: Result<void>
+      try {
+        r = await rebuild(db)
+      } catch (e: any) {
+        // Inject hooks may throw (test simulates a broken rebuild); treat as
+        // a failed Result rather than propagating out — the durable marker
+        // stays set so startup retry can redo the rebuild.
+        r = err('BELIEF_MAINTENANCE_GRAPH_FAILED', String(e?.message ?? e), e)
+      }
+      if (!r.success) {
+        graphOk = false
+      } else {
+        // Clear the durable marker on success. Use DELETE so getSetting returns
+        // null sentinel ('1' → marker unset). A '0' string is also a valid clear
+        // but null matches the read boundary the maintenance runner uses.
+        await db.execute('DELETE FROM settings WHERE key = ?', [MAINTENANCE_GRAPH_PENDING_KEY])
+      }
+    } else if (state.status === 'needs-graph-rebuild' && !onlyGraphRetry) {
+      // Legacy pending marker with no new work — clear it.
+      await db.execute('DELETE FROM settings WHERE key = ?', [MAINTENANCE_GRAPH_PENDING_KEY])
+    }
+
+    // 7) State settle: only advance processed_generation when every approved
+    // cluster settled AND graph rebuild succeeded. A failure leaves the pass
+    // pending so launch retry / next pass resumes.
+    const allSettled = !firstError && graphOk
+    const newStatus = !graphOk
+      ? 'needs-graph-rebuild'
+      : firstError
+        ? 'error'
+        : 'idle'
+    const newProcessed = allSettled ? capturedGeneration : state.processed_generation
+
+    await updateMaintenanceState(
+      {
+        algorithm_version: MAINTENANCE_ALGORITHM_VERSION,
+        processed_generation: newProcessed,
+        status: newStatus,
+        last_run_at: Date.now(),
+        repaired_clusters: repaired,
+        deferred_clusters: deferred,
+        run_count: state.run_count + 1,
+      },
+      'belief',
+      db
+    )
+
+    if (firstError || !graphOk) {
+      return err(
+        firstError?.code ?? 'BELIEF_MAINTENANCE_GRAPH_FAILED',
+        firstError?.message ?? 'graph rebuild failed — marker left pending'
+      )
+    }
+    return ok({ repairedClusters: repaired, deferredClusters: deferred, status: newStatus })
+  } catch (e) {
+    return err('BELIEF_MAINTENANCE_FAILED', 'Failed to run belief maintenance', e)
+  }
+}
+
+/**
+ * Retry a previously-interrupted graph rebuild. Startup hook: if the
+ * maintenance state is `needs-graph-rebuild` (or the marker setting is set),
+ * call this after device boot. On success it clears the marker and settles
+ * processed_generation to the captured source_generation that was already
+ * advanced at the time the marker was set — since source repair already
+ * committed, only the graph remains to redo.
+ *
+ * Idempotent: clears the marker only on a successful rebuild.
+ */
+export async function retryBeliefMaintenanceGraphRebuild(
+  db: SqliteDatabase = getDb(),
+  options: MaintenanceRunOptions = {}
+): Promise<Result<void>> {
+  const rebuild = options.rebuildGraph ?? ((_: SqliteDatabase) => defaultRebuildGraph())
+  try {
+    const markerRes = await getSetting(MAINTENANCE_GRAPH_PENDING_KEY, db)
+    const marker = markerRes.success ? markerRes.data : null
+    if (marker !== '1') return ok(undefined)
+
+    let r: Result<void>
+    try {
+      r = await rebuild(db)
+    } catch (e: any) {
+      // Injected hook may throw (test simulates a broken rebuild). Treat as a
+      // failed Result — the durable marker stays set so a later retry can redo.
+      r = err('BELIEF_MAINTENANCE_GRAPH_FAILED', String(e?.message ?? e), e)
+    }
+    if (!r.success) return r
+    await db.execute('DELETE FROM settings WHERE key = ?', [MAINTENANCE_GRAPH_PENDING_KEY])
+
+    // If source repair already completed and we just now finished the graph,
+    // advance processed_generation to the captured source_generation that
+    // was current at label-settle time. Re-read state and settle.
+    const stateRes = await getMaintenanceState('belief', db)
+    if (stateRes.success) {
+      const state = stateRes.data
+      if (state.status === 'needs-graph-rebuild') {
+        await updateMaintenanceState(
+          {
+            status: 'idle',
+            processed_generation: state.source_generation,
+            last_run_at: Date.now(),
+            run_count: state.run_count + 1,
+          },
+          'belief',
+          db
+        )
+      }
+    }
+    return ok(undefined)
+  } catch (e) {
+    return err('BELIEF_MAINTENANCE_RETRY_FAILED', 'Failed to retry graph rebuild', e)
   }
 }

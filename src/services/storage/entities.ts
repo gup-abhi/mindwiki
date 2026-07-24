@@ -2,6 +2,7 @@ import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
 import { enqueueUpsert } from './sync-queue'
+import { incrementSourceGeneration } from './maintenance-state'
 
 // Signals pulled from an entry by the deep model. A subset of the graph NodeType
 // union (see services/storage/graph.ts): concrete entities (person/place/
@@ -121,6 +122,15 @@ export async function setEntitiesForEntry(
       }
     })
     for (const r of rows) await enqueueUpsert('entry_entities', r.id, db)
+    // F-02C — raw belief ingestion bumps the maintenance source generation so
+    // an idempotent historical-repair pass eventually catches this entry. Do
+    // NOT bump from setCanonicalLabel / reframe-retarget (maintenance's own
+    // writes never self-increment — that's what prevents a self-trigger loop).
+    // Best-effort: a bump failure does not fail the entity save.
+    if (rows.some((r) => r.type === 'belief')) {
+      const bump = await incrementSourceGeneration('belief', db)
+      if (!bump.success) console.warn('setEntitiesForEntry: source-gen bump failed (entry still saved)', bump.error)
+    }
     return ok(undefined)
   } catch (e) {
     return err('ENTITY_SET_FAILED', 'Failed to set entry entities', e)

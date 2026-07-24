@@ -4,6 +4,7 @@ import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
 import { enqueueUpsert } from './sync-queue'
+import { incrementSourceGeneration } from './maintenance-state'
 
 // A user-authored CBT thought-record challenging a recurring belief. Keyed by the
 // belief `label` (its stable identity — shared by the belief graph node + wiki
@@ -71,6 +72,11 @@ export async function createReframe(
       ]
     )
     await enqueueUpsert('belief_reframes', reframe.id, db)
+    // F-02C — bump belief maintenance source generation for a NEW user-authored
+    // reframe so the historical repair pass eventually retargets it to the
+    // canonical belief identity. (Best-effort: bump failure never fails write.)
+    const bump = await incrementSourceGeneration('belief', db)
+    if (!bump.success) console.warn('createReframe: source-gen bump failed (reframe still saved)', bump.error)
     return ok(reframe)
   } catch (e) {
     return err('REFRAME_CREATE_FAILED', 'Failed to save reframe', e)
@@ -90,5 +96,41 @@ export async function listReframesForBelief(
     return ok(res.rows.map(rowToReframe))
   } catch (e) {
     return err('REFRAME_LIST_FAILED', 'Failed to list reframes', e)
+  }
+}
+
+/** F-02C — retarget every reframe keyed under `fromRaw` (case-insensitive) to
+ *  `toCanonical`, bump LWW watermark, and enqueue each changed row. Used ONLY
+ *  by the historical belief-maintenance pass when a raw alias retires under a
+ *  chosen canonical identity. NEVER bumps the maintenance source generation
+ *  (maintenance's own writes do not self-increment — that's what prevents a
+ *  self-trigger loop). Best-effort enqueue — a queue failure never fails the
+ *  write. Returns the number of reframes retargeted. */
+export async function retargetReframeBelief(
+  fromRaw: string,
+  toCanonical: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<number>> {
+  const canon = toCanonical.trim()
+  if (!canon) return err('REFRAME_RETARGET_INVALID', 'canonical label must be non-empty')
+  try {
+    const now = Date.now()
+    const upd = await db.execute(
+      'UPDATE belief_reframes SET belief = ?, updated_at = ? WHERE belief = ? COLLATE NOCASE',
+      [canon, now, fromRaw.trim()]
+    )
+    const n = Number(upd.rowsAffected ?? 0)
+    if (n > 0) {
+      // Enqueue every retargeted row — read by old-belief match since we just
+      // rewrote the belief column.
+      const res = await db.execute(
+        'SELECT id FROM belief_reframes WHERE belief = ? COLLATE NOCASE',
+        [canon]
+      )
+      for (const r of res.rows) await enqueueUpsert('belief_reframes', String(r.id), db)
+    }
+    return ok(n)
+  } catch (e) {
+    return err('REFRAME_RETARGET_FAILED', 'Failed to retarget reframes', e)
   }
 }

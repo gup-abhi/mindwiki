@@ -5,6 +5,7 @@ import { rebuildGraph } from '@/services/graph/engine'
 import { type SqliteDatabase, getDb, isWiping } from '@/services/storage/db'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { pendingUploads, markSynced, backfillSyncQueue } from '@/services/storage/sync-queue'
+import { incrementSourceGeneration } from '@/services/storage/maintenance-state'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
 
@@ -214,6 +215,14 @@ export async function pullDelta(
     for (const d of recordsToApply(decoded, (id) => local.get(id) ?? null)) {
       try {
         await applyRemote(table, d.row, db)
+        // F-02C — a remote entity/reframe apply is an external raw write into the
+        // maintenance source pool; bump generation so a later pass catches up.
+        // Best-effort: failure never aborts the pull. Bump is outside db.transaction
+        // (applyRemote runs outside any explicit tx) so it survives POST-COMMIT.
+        if (table === 'entry_entities' || table === 'belief_reframes') {
+          const bump = await incrementSourceGeneration('belief', db)
+          if (!bump.success) console.warn('sync: source-gen bump failed', bump.error)
+        }
         // A synced entry's wiki is handled by the origin device (wiki pages sync
         // on their own), and INSERT OR REPLACE just wiped the local-only
         // wiki_indexed_at to NULL. Stamp it = tagged_at so the wiki catch-up
