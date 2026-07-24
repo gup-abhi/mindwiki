@@ -527,11 +527,15 @@ export async function listEntriesForEntity(
   journalOnly = true
 ): Promise<Result<Entry[]>> {
   try {
+    // F-02B: list by EFFECTIVE label (COALESCE(canonical_label, label)) so a
+    // canonicalized alias resolves to the same wiki lineage/entry list as its
+    // canonical identity instead of fragmenting across the raw and canonical
+    // labels.
     const sourceClause = journalOnly ? " AND e.source = 'journal'" : ''
     const res = await db.execute(
       `SELECT e.* FROM entries e
          JOIN entry_entities ee ON ee.entry_id = e.id
-        WHERE ee.type = ? AND ee.label = ? COLLATE NOCASE${sourceClause}
+        WHERE ee.type = ? AND COALESCE(ee.canonical_label, ee.label) = ? COLLATE NOCASE${sourceClause}
         ORDER BY e.created_at DESC`,
       [type, label]
     )

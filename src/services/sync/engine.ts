@@ -37,11 +37,13 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
-  // Entities are write-once per entry (re-tagging replaces the set), so
-  // created_at is a sufficient last-write-wins watermark.
+  // Entities are now mutable (F-02B: canonical_label may be set by belief
+  // maintenance and updated_at bumped), so updated_at is the LWW watermark.
+  // A row sent by a pre-030 device omits updated_at/canonical_label; applyRemote
+  // derives both on receipt (updated_at = created_at, canonical_label = null).
   entry_entities: {
-    columns: ['id', 'entry_id', 'type', 'label', 'created_at'],
-    updatedAt: (r) => Number(r.created_at) || 0,
+    columns: ['id', 'entry_id', 'type', 'label', 'canonical_label', 'created_at', 'updated_at'],
+    updatedAt: (r) => Number(r.updated_at) || Number(r.created_at) || 0,
   },
   conversations: {
     columns: ['id', 'title', 'created_at', 'updated_at', 'summary', 'summary_count'],
@@ -91,6 +93,13 @@ async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Prom
   // valid and the row remains syncable.
   if (table === 'entries' && row.updated_at == null) {
     row.updated_at = Math.max(Number(row.created_at) || 0, Number(row.tagged_at) || 0)
+  }
+  // F-02B — a pre-030 device sends an entity row without canonical_label /
+  // updated_at. Backfill both so the NOT NULL updated_at stays valid and the
+  // row is treated as its own raw identity (canonical_label = null).
+  if (table === 'entry_entities') {
+    if (row.updated_at == null) row.updated_at = Number(row.created_at) || 0
+    if (row.canonical_label === undefined) row.canonical_label = null
   }
   const cols = TABLES[table].columns
   const placeholders = cols.map(() => '?').join(', ')

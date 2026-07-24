@@ -620,3 +620,31 @@ export const migration029: Migration = {
     `CREATE INDEX idx_entries_updated_at ON entries (updated_at)`,
   ],
 }
+
+// Migration 030 — F-02B effective belief labels. `entry_entities` was
+// write-once-per-entry (re-tagging replaced the whole set), so the only
+// mutable signal was the raw label. Canonicalization needs a mutable column
+// that records "this raw label is an alias of <canonical>" without rewriting or
+// deleting the source row (deletes don't propagate via the additive sync
+// model). Add two columns:
+//   - canonical_label TEXT NULL:            null = raw label is its own
+//                                            canonical identity; otherwise the
+//                                            trimmed canonical label.
+//   - updated_at INTEGER NOT NULL:          LWW watermark so a canonicalization
+//                                            bump reaches other devices;
+//                                            backfilled from created_at so
+//                                            existing rows remain syncable.
+// All recurrence/lineage/routing paths were keyed on `label`; they now key on
+//    COALESCE(canonical_label, label) COLLATE NOCASE
+// so a canonicalized alias counts toward one node/recurrence/wiki identity
+// without losing or deleting the original raw row. See reports/wiki-structural-
+// audit-sparc-plan.md (F-02B).
+export const migration030: Migration = {
+  version: 30,
+  name: 'entry_entities_effective_label',
+  statements: [
+    `ALTER TABLE entry_entities ADD COLUMN canonical_label TEXT NULL`,
+    `ALTER TABLE entry_entities ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+    `UPDATE entry_entities SET updated_at = created_at WHERE updated_at = 0`,
+  ],
+}

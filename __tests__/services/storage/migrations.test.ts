@@ -97,4 +97,17 @@ describe('registry', () => {
     expect(sql).toContain('ADD COLUMN graph_indexed_at')
     expect(sql).toContain('SET graph_indexed_at = tagged_at WHERE tagged_at IS NOT NULL')
   })
+
+  it('registers migration 030 adding entry_entities.canonical_label + updated_at (F-02B)', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 30)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('entry_entities_effective_label')
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('ALTER TABLE entry_entities ADD COLUMN canonical_label TEXT NULL')
+    expect(sql).toContain('ALTER TABLE entry_entities ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0')
+    // Backfill: pre-F-02B rows get updated_at = created_at so they stay syncable
+    // (LWW watermark) before any canonicalization bump lands. Source rows (id /
+    // label / created_at) are not rewritten — never copy the row, never delete.
+    expect(sql).toContain('UPDATE entry_entities SET updated_at = created_at WHERE updated_at = 0')
+  })
 })

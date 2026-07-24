@@ -14,7 +14,7 @@ import {
   countEntriesByAnyTopic,
   type Entry,
 } from '@/services/storage/entries'
-import { listEntitiesForEntry, countEntriesForEntity, type EntityType } from '@/services/storage/entities'
+import { listEntitiesForEntry, countEntriesForEntity, effectiveLabel, type EntityType } from '@/services/storage/entities'
 import { type Result, ok, err } from '@/types/result'
 
 // A node only materializes once it's corroborated by at least this many entries.
@@ -106,13 +106,29 @@ async function updateGraphForEntryImpl(
       concrete.push({ type: 'distortion', label: distortion })
     }
     // Extracted entities (person/place/activity) co-occur with the tags above.
+    // F-02B: key on the EFFECTIVE label so an alias snapped to a canonical
+    // identity contributes to that canonical node instead of fragmenting into
+    // a node for the raw alias. Two raw aliases on one entry that share a
+    // canonical identity count ONCE for graph frequency/edges (deduped below).
     const entities = await listEntitiesForEntry(entry.id, db)
     if (entities.success) {
-      for (const e of entities.data) concrete.push({ type: e.type, label: e.label })
+      for (const e of entities.data) concrete.push({ type: e.type, label: effectiveLabel(e) })
     }
 
     const ids: string[] = []
     const labels = new Set<string>()
+    // F-02B: dedupe concrete specs by (type, lowercased effective label) so two
+    // aliases on one entry that share a canonical identity upsert ONE node and
+    // don't upsert a self-pair edge between them. Runs AFTER the rows are mapped
+    // to effective labels, so raw labels sharing a canonical merge here.
+    const dedupedConcrete: { type: NodeType; label: string }[] = []
+    const seenConcrete = new Set<string>()
+    for (const spec of concrete) {
+      const dedupKey = `${spec.type}:${spec.label.toLowerCase()}`
+      if (seenConcrete.has(dedupKey)) continue
+      seenConcrete.add(dedupKey)
+      dedupedConcrete.push(spec)
+    }
     // Accepted live-vs-rebuild divergence: on the entry that trips the gate (support
     // 1→2), only THIS entry's contribution is written — the node starts at frequency
     // 1 (a full rebuild would say 2) and the prior supporting entry's edges are
@@ -122,7 +138,7 @@ async function updateGraphForEntryImpl(
     // approximate corroboration signals, not exact counts, and the divergence only
     // ever self-heals upward. Backfilling the prior entry here would reintroduce the
     // double-count risk the additive model exists to avoid.
-    for (const spec of concrete) {
+    for (const spec of dedupedConcrete) {
       if (dropped.has(nodeDismissalKey(spec.type, spec.label))) continue
       // Recurrence gate: skip until this signal is corroborated by ≥2 entries, so
       // a single (possibly mistagged) entry never seeds a permanent node.
@@ -255,11 +271,12 @@ async function precomputedSupport(db = getDb()): Promise<SupportCounter> {
   )
 
   const entityRes = await db.execute(
-    'SELECT type, label, COUNT(DISTINCT entry_id) AS n FROM entry_entities GROUP BY type, label COLLATE NOCASE'
+    `SELECT type, COALESCE(canonical_label, label) AS eff, COUNT(DISTINCT entry_id) AS n
+       FROM entry_entities GROUP BY type, eff COLLATE NOCASE`
   )
   const entity = new Map<string, number>()
   for (const row of entityRes.rows) {
-    entity.set(`${String(row.type)}:${String(row.label ?? '').toLowerCase()}`, Number(row.n ?? 0))
+    entity.set(`${String(row.type)}:${String(row.eff ?? '').toLowerCase()}`, Number(row.n ?? 0))
   }
 
   return (type, label) => {

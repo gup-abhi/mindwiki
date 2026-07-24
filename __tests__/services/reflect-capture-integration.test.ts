@@ -148,6 +148,10 @@ jest.mock('@/services/storage/entities', () => ({
   setEntitiesForEntry: jest.fn(async () => ({ success: true, data: undefined })),
   listEntitiesForEntry: jest.fn(async () => ({ success: true, data: [] })),
   countEntriesForEntity: jest.fn(async () => ({ success: true, data: 0 })),
+  effectiveLabel: (e: { label: string; canonical_label?: string | null }) => {
+    const canon = (e.canonical_label ?? '').trim()
+    return canon.length > 0 ? canon : e.label
+  },
 }))
 
 jest.mock('@/services/graph/engine', () => ({
