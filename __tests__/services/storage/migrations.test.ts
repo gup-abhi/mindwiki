@@ -110,4 +110,16 @@ describe('registry', () => {
     // label / created_at) are not rewritten — never copy the row, never delete.
     expect(sql).toContain('UPDATE entry_entities SET updated_at = created_at WHERE updated_at = 0')
   })
+
+  it('registers migration 031 — belief_maintenance_state table with journal-row key plus seeded belief row (F-02C dry-run gate)', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 31)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('belief_maintenance_state')
+    const sql = m!.statements.join('\n')
+    // The maintenance pass is restart-safe and rerun-gated: full state lives
+    // in this table (algorithm_version + source_generation vs processed_generation).
+    // Count-only — no label text or label-derived hashes persist here.
+    expect(sql).toContain('CREATE TABLE belief_maintenance_state')
+    expect(sql).toContain('INSERT INTO belief_maintenance_state (key) VALUES (\'belief\')')
+  })
 })

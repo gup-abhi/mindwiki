@@ -648,3 +648,41 @@ export const migration030: Migration = {
     `UPDATE entry_entities SET updated_at = created_at WHERE updated_at = 0`,
   ],
 }
+
+// Migration 031 — belief maintenance state. F-02C introduces an idempotent
+// historical belief-repair pass (alias clustering + canonicalization) that runs
+// only when the embedding model is available and only when there's belief
+// source the runner has not yet processed. The pass has to be restart-safe: a
+// pass interrupted between source repair and graph rebuild resumes on next
+// launch, and a pass that produced no new clusters is a no-op (same-version /
+// same-processed-generation is idle). That requires persisting:
+//   - algorithm_version     — bump when the cluster geometry / threshold /
+//                             polarity rules change; bumps force one rerun;
+//   - source_generation     — incremented by every raw belief/reframe ingestion
+//                             and remote apply (NOT by maintenance's own
+//                             rewrites); maintenance increments only on
+//                             writes it observes, never on its own writes;
+//   - processed_generation  — set to the captured source_generation after the
+//                             pass settles every approved and deferred cluster;
+//   - status / counts       — count-only; never label text or label hashes.
+// The table is keyed by a single string key ('belief' for the only maintenance
+// pass today) so a future maintenance variant can add its own row without a
+// schema migration.
+export const migration031: Migration = {
+  version: 31,
+  name: 'belief_maintenance_state',
+  statements: [
+    `CREATE TABLE belief_maintenance_state (
+      key                   TEXT PRIMARY KEY,
+      algorithm_version    INTEGER NOT NULL DEFAULT 0,
+      source_generation    INTEGER NOT NULL DEFAULT 0,
+      processed_generation INTEGER NOT NULL DEFAULT 0,
+      status               TEXT NOT NULL DEFAULT 'idle',
+      last_run_at          INTEGER,
+      repaired_clusters    INTEGER NOT NULL DEFAULT 0,
+      deferred_clusters    INTEGER NOT NULL DEFAULT 0,
+      run_count            INTEGER NOT NULL DEFAULT 0
+    )`,
+    `INSERT INTO belief_maintenance_state (key) VALUES ('belief')`,
+  ],
+}

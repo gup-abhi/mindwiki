@@ -47,8 +47,8 @@ describe('migration 001 (initial schema)', () => {
 
     expect(result.success).toBe(true)
     if (result.success)
-      expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30])
+      expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -122,6 +122,32 @@ describe('migration 030 (entry_entities effective belief labels)', () => {
     // Backfill: existing rows get updated_at = created_at so they remain syncable
     // (LWW watermark) before any local canonicalization bump.
     expect(stmts.some((s) => /UPDATE entry_entities SET updated_at = created_at WHERE updated_at = 0/.test(s))).toBe(true)
+  })
+})
+
+describe('migration 031 (belief maintenance state)', () => {
+  it('is registered as version 31', () => {
+    expect(MIGRATIONS[30].version).toBe(31)
+    expect(MIGRATIONS[30].name).toBe('belief_maintenance_state')
+  })
+
+  it('creates the belief_maintenance_state table with the count-only columns + seeds the belief row', () => {
+    const stmts = MIGRATIONS[30].statements
+    expect(stmts.some((s) => /CREATE TABLE belief_maintenance_state/.test(s))).toBe(true)
+    // Count-only metadata: algorithm version + source generations + counts.
+    // No label text or label-derived hashes live here — a future geometry tune
+    // bumps algorithm_version to force one rerun, but no belief content persists.
+    const ddl = stmts.join('\n')
+    expect(/algorithm_version\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    expect(/source_generation\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    expect(/processed_generation\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    expect(/status\s+TEXT\s+NOT\s+NULL\s+DEFAULT/i.test(ddl)).toBe(true)
+    expect(/repaired_clusters\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    expect(/deferred_clusters\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    // Seed the only maintenance key ('belief') so getMaintenanceState always
+    // returns a row after migration 031. A future maintenance variant can add
+    // its own row via a later migration without touching this one.
+    expect(stmts.some((s) => /INSERT INTO belief_maintenance_state \(key\) VALUES \('belief'\)/.test(s))).toBe(true)
   })
 })
 
