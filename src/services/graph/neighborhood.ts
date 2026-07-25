@@ -77,14 +77,37 @@ export function pageConnections(
   return topNeighborLabels(hood)
 }
 
-// The top neighbour labels of an already-computed neighborhood, by frequency —
-// the shared core of pageConnections / connectionLine so neither recomputes the
-// (already-built) neighborhood.
+// The top neighbour labels of an already-computed neighborhood, ranked by:
+//   1. direct edge weight descending — strongest connection first
+//   2. node frequency descending — tiebreaker
+//   3. normalized label ascending — deterministic final tie
+// Capped at MAX_NEIGHBORS pure-ordered family. Each neighbor's direct edge
+// is the one incident to hood.node whose other endpoint is the neighbor.
 function topNeighborLabels(hood: GraphNeighborhood): string[] {
+  const rootId = hood.node.id
+  const weightById = new Map<string, number>()
+  for (const e of hood.edges) {
+    let otherId: string | null = null
+    if (e.source_id === rootId) otherId = e.target_id
+    else if (e.target_id === rootId) otherId = e.source_id
+    if (otherId === null) continue
+    // Keep the strongest weight when multiple edges connect to one neighbor.
+    const cur = weightById.get(otherId) ?? 0
+    if (e.weight > cur) weightById.set(otherId, e.weight)
+  }
   return [...hood.neighbors]
-    .sort((a, b) => b.frequency - a.frequency)
+    .map((n) => ({ n, w: weightById.get(n.id) ?? 0 }))
+    .sort(
+      (a, b) =>
+        // 1. weight descending
+        b.w - a.w ||
+        // 2. frequency descending
+        b.n.frequency - a.n.frequency ||
+        // 3. normalized label ascending (case-insensitive, stable)
+        a.n.label.trim().toLowerCase().localeCompare(b.n.label.trim().toLowerCase())
+    )
     .slice(0, MAX_NEIGHBORS)
-    .map((n) => n.label)
+    .map(({ n }) => n.label)
 }
 
 /**

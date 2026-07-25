@@ -121,3 +121,64 @@ describe('pageConnections', () => {
     expect(pageConnections('anxiety', nodes, edges)).toEqual(['Work'])
   })
 })
+
+// ── F-04a: weight-before-frequency sort ───────────────────────────────────
+
+describe('F-04a.1 — lower-frequency node with stronger edge outranks higher-frequency', () => {
+  const r = (id: string, label: string, freq = 1) => ({
+    id, type: 'emotion' as const, label, frequency: freq, created_at: 0, updated_at: 0,
+  })
+  const e = (id: string, a: string, b: string, weight = 1): GraphEdge => ({
+    id, source_id: a, target_id: b, weight, created_at: 0, updated_at: 0,
+  })
+
+  it('ranks lower-frequency node above higher-frequency when its edge is stronger', () => {
+    const root = r('w', 'Work', 100)
+    const stress = r('s', 'Stress', 50)
+    const sleep = r('sl', 'Sleep', 10)
+    const nodes = [root, stress, sleep]
+    const edges = [
+      e('e1', 'w', 's', 3),
+      e('e2', 'w', 'sl', 10),
+    ]
+    // Sleep (edge weight 10) ranks before Stress (edge weight 3)
+    expect(pageConnections('Work', nodes, edges)).toEqual(['Sleep', 'Stress'])
+  })
+})
+
+describe('F-04a.2 — tiebreaker: frequency then label', () => {
+  const r = (id: string, label: string, freq = 1) => ({
+    id, type: 'emotion' as const, label, frequency: freq, created_at: 0, updated_at: 0,
+  })
+  const e = (id: string, a: string, b: string, weight = 1): GraphEdge => ({
+    id, source_id: a, target_id: b, weight, created_at: 0, updated_at: 0,
+  })
+
+  it('uses frequency when weights equal', () => {
+    const root = r('a', 'Anxiety', 100)
+    const panic = r('p', 'Panic', 30)
+    const worry = r('w', 'Worry', 20)
+    const rumination = r('r', 'Rumination', 10)
+    const nodes = [root, panic, worry, rumination]
+    const edges = [
+      e('e1', 'a', 'p', 5),
+      e('e2', 'a', 'w', 5),
+      e('e3', 'a', 'r', 5),
+    ]
+    expect(pageConnections('Anxiety', nodes, edges)).toEqual(['Panic', 'Worry', 'Rumination'])
+  })
+
+  it('uses label asc when weights and frequencies equal', () => {
+    const root = r('a', 'Anxiety', 100)
+    const apple = r('aa', 'Apple', 5)
+    const banana = r('bb', 'Banana', 5)
+    const cherry = r('cc', 'Cherry', 5)
+    const nodes = [root, apple, banana, cherry]
+    const edges = [
+      e('e1', 'a', 'aa', 3),
+      e('e2', 'a', 'bb', 3),
+      e('e3', 'a', 'cc', 3),
+    ]
+    expect(pageConnections('Anxiety', nodes, edges)).toEqual(['Apple', 'Banana', 'Cherry'])
+  })
+})
