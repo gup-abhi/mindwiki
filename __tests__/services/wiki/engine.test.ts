@@ -381,6 +381,7 @@ describe('updateWikiForEntry', () => {
       corrected_at: null,
       merged_into: null,
       aggregated_upto: 0,
+    regrounded_upto: 0,
       ...over,
     })
     const sampleEntry = {
@@ -561,7 +562,7 @@ describe('cleanupConnectionProse', () => {
 
   it('skips pages with no stale connection prose', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
     const result = await cleanupConnectionProse()
     expect(mockRegenContent).not.toHaveBeenCalled()
@@ -571,9 +572,9 @@ describe('cleanupConnectionProse', () => {
 
   it('cleans connection-prose pages and the knowledge-graph-shows leak', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nThe knowledge graph shows: Work often comes up with Anxiety.\nBack to the page.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
-      { id: 'p2', title: 'Anxiety', category: 'emotion', content: 'You worry.\nAnxiety often comes up with Work, Sleep.', entry_count: 5, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
-      { id: 'p3', title: 'Clean', category: 'theme', content: 'A normal page.', entry_count: 1, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nThe knowledge graph shows: Work often comes up with Anxiety.\nBack to the page.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
+      { id: 'p2', title: 'Anxiety', category: 'emotion', content: 'You worry.\nAnxiety often comes up with Work, Sleep.', entry_count: 5, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
+      { id: 'p3', title: 'Clean', category: 'theme', content: 'A normal page.', entry_count: 1, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
 
     const result = await cleanupConnectionProse()
@@ -588,8 +589,8 @@ describe('cleanupConnectionProse', () => {
 
   it('reports per-page progress as each page is cleaned', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
-      { id: 'p2', title: 'Sleep', category: 'theme', content: 'You rest.\nSleep often comes up with Anxiety.', entry_count: 4, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
+      { id: 'p2', title: 'Sleep', category: 'theme', content: 'You rest.\nSleep often comes up with Anxiety.', entry_count: 4, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
 
     const events: Array<{ title: string; index: number; total: number; status: string }> = []
@@ -605,7 +606,7 @@ describe('cleanupConnectionProse', () => {
 
   it('reports a failed status when persist fails', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
     mockRegenContent.mockResolvedValue(err('WIKI_REGEN_FAILED', 'down'))
 
@@ -621,7 +622,7 @@ describe('cleanupConnectionProse', () => {
 
   it('works with no callback', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
     const result = await cleanupConnectionProse()
     expect(result.success).toBe(true)
@@ -682,6 +683,7 @@ describe('lineageForEntry', () => {
     corrected_at: null,
     merged_into: null,
     aggregated_upto: 0,
+    regrounded_upto: 0,
     ...over,
   })
 

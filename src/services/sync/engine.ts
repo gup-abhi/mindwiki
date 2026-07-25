@@ -33,7 +33,7 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
   wiki_pages: {
     columns: [
       'id', 'title', 'category', 'content', 'entry_count', 'version',
-      'version_history', 'created_at', 'updated_at', 'dismissed_at', 'corrected_at', 'merged_into', 'aggregated_upto',
+      'version_history', 'created_at', 'updated_at', 'dismissed_at', 'corrected_at', 'merged_into', 'aggregated_upto', 'regrounded_upto',
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
@@ -91,6 +91,11 @@ async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Prom
   // valid and the row remains syncable.
   if (table === 'entries' && row.updated_at == null) {
     row.updated_at = Math.max(Number(row.created_at) || 0, Number(row.tagged_at) || 0)
+  }
+  // F-01: legacy wiki_pages payloads (pre-migration-030) lack regrounded_upto.
+  // Default it to 0 so the NOT NULL column stays valid on receipt.
+  if (table === 'wiki_pages' && row.regrounded_upto == null) {
+    row.regrounded_upto = 0
   }
   const cols = TABLES[table].columns
   const placeholders = cols.map(() => '?').join(', ')

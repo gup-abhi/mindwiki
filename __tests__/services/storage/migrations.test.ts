@@ -97,4 +97,16 @@ describe('registry', () => {
     expect(sql).toContain('ADD COLUMN graph_indexed_at')
     expect(sql).toContain('SET graph_indexed_at = tagged_at WHERE tagged_at IS NOT NULL')
   })
+
+  it('registers migration 030 — regrounded_upto + wiki_page_contributions', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 30)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('wiki_reground_upto')
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('ADD COLUMN regrounded_upto')
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS wiki_page_contributions')
+    expect(sql).toContain('entry_id')
+    expect(sql).toContain('page_id')
+    expect(sql).toContain('UNIQUE (entry_id, page_id)')
+  })
 })

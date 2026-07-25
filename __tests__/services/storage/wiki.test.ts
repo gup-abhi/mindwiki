@@ -12,6 +12,8 @@ import {
   regeneratePageContent,
   restorePage,
   updatePage,
+  updatePageCAS,
+  updatePageRegroundedUpto,
   type WikiPageVersion,
 } from '@/services/storage/wiki'
 
@@ -40,6 +42,9 @@ function createFakeDb() {
           updated_at,
           dismissed_at: null,
           corrected_at: null,
+          merged_into: null,
+          aggregated_upto: 0,
+          regrounded_upto: 0,
         })
         return { rows: [], rowsAffected: 1 }
       }
@@ -93,6 +98,27 @@ function createFakeDb() {
         const row = rows.get(String(id))
         if (row) Object.assign(row, { content, version, version_history, updated_at, corrected_at: null })
         return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^UPDATE wiki_pages SET regrounded_upto = \?/.test(sql)) {
+        const [newCount, _now, id, baseVersion] = params
+        const row = rows.get(String(id))
+        if (row && Number(row.version) === Number(baseVersion)) {
+          row.regrounded_upto = newCount
+          row.updated_at = Math.max(Number(row.updated_at ?? 0) + 1, Number(_now))
+          row.version = Number(row.version) + 1
+          return { rows: [], rowsAffected: 1 }
+        }
+        return { rows: [], rowsAffected: 0 }
+      }
+      // F-01 Slice 7a: compare-and-set page update. WHERE id AND version so stale results return 0 rows.
+      if (/^UPDATE wiki_pages\s+SET content = \?, version = \?, version_history = \?, entry_count = \?, updated_at = \?,\s+dismissed_at = NULL, corrected_at = NULL\s+WHERE id = \? AND version = \?/i.test(sql)) {
+        const [content, version, version_history, entry_count, updated_at, id, baseVersion] = params
+        const row = rows.get(String(id))
+        if (row && Number(row.version) === Number(baseVersion)) {
+          Object.assign(row, { content, version, version_history, entry_count, updated_at, dismissed_at: null, corrected_at: null })
+          return { rows: [], rowsAffected: 1 }
+        }
+        return { rows: [], rowsAffected: 0 }
       }
       if (/^UPDATE wiki_pages/.test(sql)) {
         const [content, version, version_history, entry_count, updated_at, id] = params
@@ -409,5 +435,84 @@ describe('storage/wiki CRUD', () => {
     expect(page.success && page.data?.version_history[0].version).toBe(1)
     // Last entry is v25
     expect(page.success && page.data?.version_history.slice(-1)[0].version).toBe(25)
+  })
+
+  describe('updatePageCAS — compare-and-set page persistence', () => {
+    it('applies when base version matches current page version', async () => {
+      const { db } = createFakeDb()
+      const created = await createPage({ title: 'T', content: 'v1' }, db)
+      expect(created.success).toBe(true)
+      if (!created.success) return
+      const id = created.data.id
+      const page = created.data
+
+      const result = await updatePageCAS(id, 'updated content', page.version, { entry_count: 5 }, db)
+      expect(result.success).toBe(true)
+      if (!result.success) return
+      expect(result.data.affected).toBe(1)
+      expect(result.data.page?.content).toBe('updated content')
+      expect(result.data.page?.version).toBe(page.version + 1)
+      expect(result.data.page?.entry_count).toBe(5)
+    })
+
+    it('stale — returns affected=0 when base version differs', async () => {
+      const { db } = createFakeDb()
+      const created = await createPage({ title: 'T', content: 'v1' }, db)
+      const id = created.success ? created.data.id : ''
+
+      // Wrong base version (stale synthesis result)
+      const result = await updatePageCAS(id, 'stale content', 999, {}, db)
+      expect(result.success).toBe(true)
+      if (!result.success) return
+      expect(result.data.affected).toBe(0)
+      expect(result.data.page).toBeNull()
+    })
+
+    it('returns WIKI_NOT_FOUND for missing id', async () => {
+      const { db } = createFakeDb()
+      const result = await updatePageCAS('ghost', 'x', 1, {}, db)
+      expect(result.success).toBe(false)
+      if (!result.success) expect(result.error.code).toBe('WIKI_NOT_FOUND')
+    })
+  })
+
+  describe('updatePageRegroundedUpto — corrected-belief count-only acknowledgment', () => {
+    it('updates regrounded_upto and bumps version when base version matches', async () => {
+      const { db } = createFakeDb()
+      const created = await createPage({ title: 'B', content: 'belief' }, db)
+      expect(created.success).toBe(true)
+      if (!created.success) return
+      const id = created.data.id
+      const page = created.data
+
+      const result = await updatePageRegroundedUpto(id, 10, page.version, db)
+      expect(result.success).toBe(true)
+      if (!result.success) return
+      expect(result.data.affected).toBe(1)
+      // Page retrieved now has regrounded_upto = 10
+      const after = await getPage(id, db)
+      expect(after.success && after.data?.regrounded_upto).toBe(10)
+    })
+
+    it('stale — returns affected=0 on version mismatch, does not touch regrounded_upto', async () => {
+      const { db } = createFakeDb()
+      const created = await createPage({ title: 'B', content: 'belief' }, db)
+      const id = created.success ? created.data.id : ''
+
+      const result = await updatePageRegroundedUpto(id, 10, 999, db)
+      expect(result.success).toBe(true)
+      if (!result.success) return
+      expect(result.data.affected).toBe(0)
+      const after = await getPage(id, db)
+      expect(after.success && after.data?.regrounded_upto).toBe(0)
+    })
+  })
+
+  it('rowToPage reads regrounded_upto column — default 0 when absent', async () => {
+    const { db } = createFakeDb()
+    const created = await createPage({ title: 'R', content: 're-ground test' }, db)
+    expect(created.success).toBe(true)
+    if (!created.success) return
+    expect(created.data.regrounded_upto).toBe(0)
   })
 })

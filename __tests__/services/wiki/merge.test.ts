@@ -391,6 +391,7 @@ const page = (over: Partial<WikiPage>): WikiPage => ({
   corrected_at: null,
   merged_into: null,
   aggregated_upto: 0,
+  regrounded_upto: 0,
   ...over,
 })
 
@@ -539,6 +540,7 @@ const survivorPage = (over: Partial<WikiPage> = {}): WikiPage => ({
   corrected_at: null,
   merged_into: null,
   aggregated_upto: 0,
+  regrounded_upto: 0,
   ...over,
 })
 
@@ -556,6 +558,7 @@ const loserPage = (over: Partial<WikiPage> = {}): WikiPage => ({
   corrected_at: null,
   merged_into: null,
   aggregated_upto: 0,
+  regrounded_upto: 0,
   ...over,
 })
 

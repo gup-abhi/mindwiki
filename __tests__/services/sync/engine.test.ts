@@ -37,6 +37,10 @@ function fakeDb() {
   const syncQueue = new Map<string, Record<string, unknown>>()
   const entries = new Map<string, Record<string, unknown>>()
   const settings = new Map<string, string>()
+  // Minimal wiki_pages backing for pull tests — only the columns applyRemote
+  // writes matter, but we persist everything received so test assertions can
+  // read back the applied row.
+  const wikiPages = new Map<string, Record<string, unknown>>()
 
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
@@ -54,6 +58,10 @@ function fakeDb() {
         const found = params.map((id) => entries.get(String(id))).filter(Boolean) as Record<string, unknown>[]
         return { rows: found, rowsAffected: 0 }
       }
+      if (/^SELECT \* FROM wiki_pages WHERE id IN/.test(sql)) {
+        const found = params.map((id) => wikiPages.get(String(id))).filter(Boolean) as Record<string, unknown>[]
+        return { rows: found, rowsAffected: 0 }
+      }
       if (/^SELECT \* FROM entries WHERE id = \?/.test(sql)) {
         const row = entries.get(String(params[0]))
         return { rows: row ? [row] : [], rowsAffected: 0 }
@@ -65,6 +73,13 @@ function fakeDb() {
         // failure), so the pull's per-record resilience can be exercised.
         if (row.id === 'poison') throw new Error('SQLITE constraint failed')
         entries.set(String(row.id), row)
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^INSERT OR REPLACE INTO wiki_pages/.test(sql)) {
+        const cols = WIKI_COLS
+        const row: Record<string, unknown> = { id: String(params[0]) }
+        cols.forEach((c, i) => (row[c] = params[i]))
+        wikiPages.set(String(row.id), row)
         return { rows: [], rowsAffected: 1 }
       }
       if (/^UPDATE entries SET wiki_indexed_at = tagged_at WHERE id/.test(sql)) {
@@ -87,11 +102,47 @@ function fakeDb() {
     },
     close() {},
   }
-  return { db, syncQueue, entries, settings }
+  return { db, syncQueue, entries, settings, wikiPages }
 }
 
 const okResp = (json: unknown) =>
   ({ success: true, data: { ok: true, status: 200, json: async () => json } }) as const
+
+// Wiki pages column order sent over the wire — must mirror
+// TABLES.wiki_pages.columns in engine.ts.
+const WIKI_COLS = [
+  'id', 'title', 'category', 'content', 'entry_count', 'version',
+  'version_history', 'created_at', 'updated_at', 'dismissed_at', 'corrected_at',
+  'merged_into', 'aggregated_upto', 'regrounded_upto',
+]
+
+// Ciphertext of a wiki_pages row in wire order. omit `regrounded_upto` to
+// simulate a remote leg from a pre-migration-030 device.
+const wikiRow = (
+  id: string,
+  over: Partial<Record<(typeof WIKI_COLS)[number], unknown>> = {}
+): string => {
+  const base: Record<string, unknown> = {
+    id,
+    title: 'Anxiety',
+    category: 'emotion',
+    content: 'page text',
+    entry_count: 0,
+    version: 1,
+    version_history: '[]',
+    created_at: 0,
+    updated_at: 1000,
+    dismissed_at: null,
+    corrected_at: null,
+    merged_into: null,
+    aggregated_upto: 0,
+  }
+  // Remove any explicit regrounded_upto set to undefined so the JSON omits it,
+  // simulating a pre-030 payload.
+  const merged = { ...base, ...over }
+  if (merged.regrounded_upto === undefined) delete merged.regrounded_upto
+  return JSON.stringify(merged)
+}
 
 describe('sync/engine pushPending', () => {
   beforeEach(() => mockFetch.mockReset())
@@ -241,5 +292,36 @@ describe('sync/engine sync()', () => {
     const res = await sync()
     expect(res.success).toBe(false)
     if (!res.success) expect(res.error.code).toBe('NOT_AUTHENTICATED')
+  })
+
+  it('backfills regrounded_upto=0 for a legacy wiki_pages payload (pre-migration-030)', async () => {
+    const { db, wikiPages } = fakeDb()
+    mockFetch.mockResolvedValue(
+      okResp([
+        // Remote device predates migration 030 — its payload omits regrounded_upto.
+        { table: 'wiki_pages', record_id: 'w1', ciphertext: wikiRow('w1'), updated_at: 5000 },
+      ])
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success && res.data).toBe(1)
+    expect(wikiPages.get('w1')?.title).toBe('Anxiety')
+    // applyRemote backfills the missing column so the NOT NULL DEFAULT clause holds.
+    expect(wikiPages.get('w1')?.regrounded_upto).toBe(0)
+  })
+
+  it('preserves a non-zero regrounded_upto on a modern wiki_pages payload', async () => {
+    const { db, wikiPages } = fakeDb()
+    mockFetch.mockResolvedValue(
+      okResp([
+        { table: 'wiki_pages', record_id: 'w1', ciphertext: wikiRow('w1', { regrounded_upto: 7 }), updated_at: 5000 },
+      ])
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success && res.data).toBe(1)
+    expect(wikiPages.get('w1')?.regrounded_upto).toBe(7)
   })
 })

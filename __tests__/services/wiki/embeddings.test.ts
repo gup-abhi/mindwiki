@@ -39,6 +39,7 @@ function page(title: string, content: string, over: Partial<WikiPage> = {}): Wik
     corrected_at: null,
     merged_into: null,
     aggregated_upto: 0,
+    regrounded_upto: 0,
     ...over,
   }
 }

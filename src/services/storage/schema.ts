@@ -607,7 +607,25 @@ export const migration028: Migration = {
   ],
 }
 
-// Migration 029 — mutable entry sync watermark. `tagged_at` records when model
+// Migration 030 — regrounded_upto column + wiki_page_contributions table.
+// F-01 durable re-ground: track how many distinct matching source entries have
+// been successfully synthesised (via re-ground), so corpus-representative
+// maintenance can decide when each non-emotion page is due. The device-local
+// contributions table makes interrupted/retried synthesis idempotent.
+export const migration030: Migration = {
+  version: 30,
+  name: 'wiki_reground_upto',
+  statements: [
+    `ALTER TABLE wiki_pages ADD COLUMN regrounded_upto INTEGER NOT NULL DEFAULT 0`,
+    `CREATE TABLE IF NOT EXISTS wiki_page_contributions (
+      entry_id   TEXT NOT NULL,
+      page_id    TEXT NOT NULL REFERENCES wiki_pages(id),
+      created_at INTEGER NOT NULL,
+      UNIQUE (entry_id, page_id)
+    )`,
+  ],
+}
+
 // tagging completed; it is not a general modification timestamp. `updated_at`
 // is bumped whenever mutable entry metadata changes so post-create edits (such
 // as topic repointing during a merge) reach other devices.

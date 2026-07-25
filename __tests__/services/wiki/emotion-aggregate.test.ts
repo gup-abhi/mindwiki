@@ -131,6 +131,7 @@ const page = (over: Partial<WikiPage> = {}): WikiPage => ({
   version: 3,
   version_history: [],
   aggregated_upto: 0,
+  regrounded_upto: 0,
   created_at: Date.now() - 30 * DAY, // old enough by default
   updated_at: Date.now(),
   dismissed_at: null,

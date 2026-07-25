@@ -47,6 +47,7 @@ jest.mock('@/services/storage/wiki', () => {
         version: 1,
         version_history: [],
         aggregated_upto: 0,
+    regrounded_upto: 0,
         created_at: now,
         updated_at: now,
         dismissed_at: null,
