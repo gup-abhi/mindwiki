@@ -437,8 +437,8 @@ export async function consolidateClusterPages(
             [survivor.id, now, p.id]
           )
           await tx.execute(
-            `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
-             VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+            `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
+             VALUES (?, ?, ?, 'upsert', ?)`,
             [`sq:wiki_pages:${p.id}`, 'wiki_pages', p.id, now]
           )
         }
@@ -449,8 +449,8 @@ export async function consolidateClusterPages(
           [totalEntryCount, totalEntryCount, now, survivor.id]
         )
         await tx.execute(
-          `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
-           VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+          `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
+           VALUES (?, ?, ?, 'upsert', ?)`,
           [`sq:wiki_pages:${survivor.id}`, 'wiki_pages', survivor.id, now]
         )
       })
@@ -486,16 +486,16 @@ export async function consolidateClusterPages(
             [survivor.id, now, p.id]
           )
           await tx.execute(
-            `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
-             VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+            `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
+             VALUES (?, ?, ?, 'upsert', ?)`,
             [`sq:wiki_pages:${p.id}`, 'wiki_pages', p.id, now]
           )
         }
         // Enqueue survivor after rename/merge so remote devices converge on
         // canonical title and merged lineage together.
         await tx.execute(
-          `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
-           VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+          `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
+           VALUES (?, ?, ?, 'upsert', ?)`,
           [`sq:wiki_pages:${survivor.id}`, 'wiki_pages', survivor.id, now]
         )
       })
@@ -673,8 +673,8 @@ export async function runBeliefMaintenance(
                 )
                 // Enqueue inside the same tx so a rollback unrolls the enqueue too.
                 await tx.execute(
-                  `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
-                   VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+                  `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
+                   VALUES (?, ?, ?, 'upsert', ?)`,
                   [`sq:entry_entities:${rowId}`, 'entry_entities', rowId, Date.now()]
                 )
               }
@@ -697,8 +697,8 @@ export async function runBeliefMaintenance(
                 for (const r of re.rows) {
                   const rid = String(r.id)
                   await tx.execute(
-                    `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
-                     VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+                    `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
+                     VALUES (?, ?, ?, 'upsert', ?)`,
                     [`sq:belief_reframes:${rid}`, 'belief_reframes', rid, Date.now()]
                   )
                 }
