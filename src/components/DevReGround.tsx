@@ -3,24 +3,15 @@ import { StyleSheet, View } from 'react-native'
 
 import { Button, Card, Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
-import { getDb } from '@/services/storage/db'
-import { listPages, regeneratePageContent } from '@/services/storage/wiki'
-import { synthesizePageReGround } from '@/services/llm/deep-model'
-import {
-  listEntriesByEmotion,
-  listEntriesByDistortion,
-  listEntriesByTopicOrTopic2,
-  listEntriesForEntity,
-} from '@/services/storage/entries'
-import { useSyncStore } from '@/store/sync.store'
+import { listPages } from '@/services/storage/wiki'
+import { listAllSourceEntriesForPage } from '@/services/wiki/reground-evidence'
+import { scanReGroundDuePages } from '@/services/wiki/engine'
 
 /**
- * Dev-only: re-ground every wiki page that has 10+ entries but has never been
- * re-grounded. Rated buttons: "Dry run" (counts candidates), "Run" (re-grounds
- * all). Only rendered under __DEV__.
+ * Dev-only controls for the production re-ground scan. Dry run applies the
+ * same due criteria as the scan; Run invokes the production path. Only rendered
+ * under __DEV__.
  */
-
-const DAY = 86_400_000
 
 export function DevReGround() {
   const styles = useThemedStyles(makeStyles)
@@ -37,15 +28,22 @@ export function DevReGround() {
     try {
       const pages = await listPages()
       if (!pages.success) { append('Failed to list pages'); return }
-      const eligible = pages.data.filter((p) => p.entry_count >= 10)
-      if (eligible.length === 0) {
-        append('No pages with 10+ entries found.')
-      } else {
-        append(`${eligible.length} page(s) eligible:`)
-        for (const p of eligible) {
-          append(`  "${p.title}" (${p.entry_count} entries)`)
-        }
-      }
+      const due = await Promise.all(
+        pages.data.map(async (p) => {
+          if (
+            p.category == null ||
+            p.category === 'emotion' ||
+            p.dismissed_at != null ||
+            p.entry_count <= 0 ||
+            p.content.length === 0 ||
+            Date.now() - p.created_at <= 24 * 60 * 60 * 1000
+          ) return false
+          const sources = await listAllSourceEntriesForPage(p.title, p.category)
+          return sources.success && sources.data.length - p.regrounded_upto >= 10
+        })
+      )
+      const eligible = due.filter(Boolean).length
+      append(eligible === 0 ? 'No due pages found.' : `${eligible} page(s) due for production re-ground scan.`)
     } finally {
       setBusy(false)
     }
@@ -54,65 +52,13 @@ export function DevReGround() {
   async function run() {
     setBusy(true)
     setLog([])
-    const db = getDb()
     try {
-      const pages = await listPages(db)
-      if (!pages.success) { append('Failed to list pages'); return }
-      const eligible = pages.data.filter((p) => p.entry_count >= 10 && !p.dismissed_at)
-      if (eligible.length === 0) { append('No eligible pages.'); return }
-
-      append(`Re-grounding ${eligible.length} page(s)…`)
-
-      // Reusable entry sampler — mirrors engine.ts's sampleEntriesForPage
-      async function sample(title: string, category: string | null, max: number) {
-        const entityTypes = ['person','place','activity','belief','behavior']
-        const isEntity = entityTypes.includes(category ?? '')
-        const res = isEntity
-          ? await listEntriesForEntity(category as any, title)
-          : category === 'theme'
-            ? await listEntriesByTopicOrTopic2(title)
-            : category === 'distortion'
-              ? await listEntriesByDistortion(title)
-              : await listEntriesByEmotion(title)
-        return res.success ? res.data.slice(0, max) : []
+      const result = await scanReGroundDuePages()
+      if (!result.success) {
+        append('Re-ground scan failed')
+        return
       }
-
-      let ok = 0, fail = 0
-      for (const page of eligible) {
-        const past = await sample(page.title, page.category, 6)
-        if (past.length === 0) {
-          append(`  ✕ "${page.title}" — no source entries (skipping)`)
-          fail++
-          continue
-        }
-        const synth = await synthesizePageReGround({
-          title: page.title,
-          category: page.category,
-          existingContent: page.content,
-          situation: past[0].situation,
-          thought: past[0].thought,
-          pastEntries: past.map((e) => ({
-            situation: e.situation,
-            thought: e.thought,
-            created_at: e.created_at,
-          })),
-        })
-        if (!synth.success) {
-          append(`  ✕ "${page.title}" — synth failed (${synth.error.code})`)
-          fail++
-          continue
-        }
-        const applied = await regeneratePageContent(page.id, synth.data, db)
-        if (!applied.success) {
-          append(`  ✕ "${page.title}" — regenerate failed (${applied.error.code})`)
-          fail++
-          continue
-        }
-        append(`  ✓ "${page.title}" re-grounded (v${applied.data.version})`)
-        ok++
-      }
-      useSyncStore.getState().bumpRevision()
-      append(`Done — ${ok} succeeded, ${fail} failed`)
+      append(`Done — ${result.data} page(s) re-grounded through production scan`)
     } finally {
       setBusy(false)
     }
@@ -121,8 +67,8 @@ export function DevReGround() {
   return (
     <Card variant="sunken">
       <Text variant="caption" color="textSecondary">
-        Re-ground wiki pages with 10+ entries but no prior re-grounding.
-        This samples source entries and re-synthesises each page from scratch.
+        Run production re-ground scan for pages with 10+ fresh matching sources
+        and minimum age. The scan uses CAS, receipts, and durable watermarks.
         Runs on the deep model — expect ~15-20s per page on device.
       </Text>
       <View style={styles.btns}>

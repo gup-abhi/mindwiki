@@ -18,11 +18,15 @@ export function graphNeighborhood(
   target: string,
   nodes: GraphNode[],
   edges: GraphEdge[],
-  depth = 1
+  depth = 1,
+  nodeType?: GraphNode['type']
 ): GraphNeighborhood | null {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const t = target.toLowerCase()
-  const root = byId.get(target) ?? nodes.find((n) => n.label.toLowerCase() === t)
+  const candidates = nodes.filter((n) => n.label.toLowerCase() === t)
+  const root = byId.get(target) ??
+    (nodeType ? candidates.find((n) => n.type === nodeType) : undefined) ??
+    candidates[0]
   if (!root) return null
 
   const visited = new Set<string>([root.id])
@@ -70,21 +74,55 @@ const MAX_NEIGHBORS = 3
 export function pageConnections(
   title: string,
   nodes: GraphNode[],
-  edges: GraphEdge[]
+  edges: GraphEdge[],
+  category?: string | null
 ): string[] {
-  const hood = graphNeighborhood(title, nodes, edges, 1)
+  const nodeType = graphNodeTypeForWikiCategory(category)
+  const hood = graphNeighborhood(title, nodes, edges, 1, nodeType)
   if (!hood || hood.neighbors.length === 0) return []
   return topNeighborLabels(hood)
 }
 
-// The top neighbour labels of an already-computed neighborhood, by frequency —
-// the shared core of pageConnections / connectionLine so neither recomputes the
-// (already-built) neighborhood.
+function graphNodeTypeForWikiCategory(category?: string | null): GraphNode['type'] | undefined {
+  if (category === 'theme') return 'situation'
+  if (category === 'emotion' || category === 'distortion' || category === 'belief' || category === 'behavior') {
+    return category
+  }
+  if (category === 'person' || category === 'place' || category === 'activity') return category
+  return undefined
+}
+
+// The top neighbour labels of an already-computed neighborhood, ranked by:
+//   1. direct edge weight descending — strongest connection first
+//   2. node frequency descending — tiebreaker
+//   3. normalized label ascending — deterministic final tie
+// Capped at MAX_NEIGHBORS pure-ordered family. Each neighbor's direct edge
+// is the one incident to hood.node whose other endpoint is the neighbor.
 function topNeighborLabels(hood: GraphNeighborhood): string[] {
+  const rootId = hood.node.id
+  const weightById = new Map<string, number>()
+  for (const e of hood.edges) {
+    let otherId: string | null = null
+    if (e.source_id === rootId) otherId = e.target_id
+    else if (e.target_id === rootId) otherId = e.source_id
+    if (otherId === null) continue
+    // Keep the strongest weight when multiple edges connect to one neighbor.
+    const cur = weightById.get(otherId) ?? 0
+    if (e.weight > cur) weightById.set(otherId, e.weight)
+  }
   return [...hood.neighbors]
-    .sort((a, b) => b.frequency - a.frequency)
+    .map((n) => ({ n, w: weightById.get(n.id) ?? 0 }))
+    .sort(
+      (a, b) =>
+        // 1. weight descending
+        b.w - a.w ||
+        // 2. frequency descending
+        b.n.frequency - a.n.frequency ||
+        // 3. normalized label ascending (case-insensitive, stable)
+        a.n.label.trim().toLowerCase().localeCompare(b.n.label.trim().toLowerCase())
+    )
     .slice(0, MAX_NEIGHBORS)
-    .map((n) => n.label)
+    .map(({ n }) => n.label)
 }
 
 /**
@@ -98,9 +136,10 @@ function topNeighborLabels(hood: GraphNeighborhood): string[] {
 export function connectionLine(
   title: string,
   nodes: GraphNode[],
-  edges: GraphEdge[]
+  edges: GraphEdge[],
+  category?: string | null
 ): string | null {
-  const hood = graphNeighborhood(title, nodes, edges, 1)
+  const hood = graphNeighborhood(title, nodes, edges, 1, graphNodeTypeForWikiCategory(category))
   if (!hood || hood.neighbors.length === 0) return null
   // Reuse the neighborhood we just computed rather than calling pageConnections
   // (which would walk the graph a second time).

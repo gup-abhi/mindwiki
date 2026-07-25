@@ -134,7 +134,6 @@ export async function extractEntry(
 
   const topics = parsed.data.topics
     .filter((t: string) => t && t.trim().toLowerCase() !== 'none')
-    .slice(0, 2)
     .map((t: string) => singularizeLabel(canonicalizeLabel(t)))
 
   return ok({

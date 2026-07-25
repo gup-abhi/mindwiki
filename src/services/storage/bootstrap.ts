@@ -4,7 +4,12 @@ import { clearTokens, getTokens } from '@/services/auth/token-store'
 import { dedupeTopics } from '@/services/wiki/dedupe'
 import { catchUpUnindexed } from '@/services/pipeline'
 import { isGraphRebuildRequired, clearGraphRebuildMarker } from '@/services/wiki/merge'
-import { maybeRefreshEmotionPages } from '@/services/wiki/engine'
+import { maybeRefreshEmotionPages, scanReGroundDuePages } from '@/services/wiki/engine'
+import {
+  retryBeliefMaintenanceGraphRebuild,
+  runBeliefMaintenance,
+} from '@/services/wiki/belief-maintenance'
+import { isModelDownloaded } from '@/services/llm/model-manager'
 import { type AppError, type Result, ok, err } from '@/types/result'
 
 import { initDb, deleteDatabase } from './db'
@@ -27,6 +32,35 @@ function isDecryptFailure(error: AppError): boolean {
 // Guarded by a settings flag so it runs once per device, after singularization
 // shipped. Bumping the suffix would re-run it.
 const DEDUPE_TOPICS_FLAG = 'maintenance:dedupe_topics_v1'
+
+let maintenanceFlight: Promise<void> | null = null
+
+/** Run inference-dependent repairs once per process. Never blocks DB startup. */
+export function runStartupMaintenanceForDev(): Promise<void> {
+  if (maintenanceFlight) return maintenanceFlight
+  maintenanceFlight = (async () => {
+    try {
+      const mergeNeeds = await isGraphRebuildRequired()
+      if (mergeNeeds) {
+        const graphRetry = await rebuildGraph()
+        if (graphRetry.success) await clearGraphRebuildMarker()
+      }
+      const retry = await retryBeliefMaintenanceGraphRebuild()
+      if (!retry.success) return
+      if (await isModelDownloaded('embed')) {
+        await runBeliefMaintenance()
+      }
+      if (await isModelDownloaded('deep')) {
+        await scanReGroundDuePages()
+      }
+    } catch {
+      // Best-effort. Durable markers/watermarks remain pending for next launch.
+    }
+  })().finally(() => {
+    maintenanceFlight = null
+  })
+  return maintenanceFlight
+}
 
 /**
  * App-startup storage init: fetch the master key from the keystore, open the
@@ -93,24 +127,13 @@ export async function initStorage(): Promise<Result<void>> {
   // cheaply when there's nothing to re-index or the deep model isn't present.
   void catchUpUnindexed()
 
-  // Retry graph rebuild if a previous mergePages committed but the post-commit
-  // graph rebuild didn't complete (app killed between the transaction commit and
-  // the rebuildGraph call). The durable repair marker guarantees retry; clear it
-  // only on success. Fire-and-forget — never block launch.
-  void (async () => {
-    const needs = await isGraphRebuildRequired()
-    if (needs) {
-      const r = await rebuildGraph()
-      if (r.success) await clearGraphRebuildMarker()
-    }
-  })()
-
   // Best-effort emotion page scan at startup: a page may have become due while
   // the app was closed (the global trigger threshold is durable but the scan only
   // fires from a tickle, which only happens on a save). Also picks up pages whose
   // first aggregate was deferred until the deep model existed. Cheap no-op when
   // nothing's due. Fire-and-forget — never block launch.
   void maybeRefreshEmotionPages()
+  void runStartupMaintenanceForDev()
 
   return ok(undefined)
 }

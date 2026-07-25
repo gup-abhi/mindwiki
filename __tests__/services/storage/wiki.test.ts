@@ -12,6 +12,8 @@ import {
   regeneratePageContent,
   restorePage,
   updatePage,
+  updatePageCAS,
+  updatePageRegroundedUpto,
   type WikiPageVersion,
 } from '@/services/storage/wiki'
 
@@ -40,6 +42,9 @@ function createFakeDb() {
           updated_at,
           dismissed_at: null,
           corrected_at: null,
+          merged_into: null,
+          aggregated_upto: 0,
+          regrounded_upto: 0,
         })
         return { rows: [], rowsAffected: 1 }
       }
@@ -47,8 +52,10 @@ function createFakeDb() {
         const row = rows.get(String(params[0]))
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
-      if (/^SELECT \* FROM wiki_pages WHERE title/.test(sql)) {
-        const row = [...rows.values()].find((r) => r.title === params[0])
+      if (/^SELECT \* FROM wiki_pages\s+WHERE title/.test(sql)) {
+        const row = [...rows.values()].find(
+          (r) => String(r.title).toLowerCase() === String(params[0]).toLowerCase() && r.merged_into == null
+        )
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
       if (/^SELECT \* FROM wiki_pages WHERE dismissed_at IS NOT NULL/.test(sql)) {
@@ -93,6 +100,27 @@ function createFakeDb() {
         const row = rows.get(String(id))
         if (row) Object.assign(row, { content, version, version_history, updated_at, corrected_at: null })
         return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^UPDATE wiki_pages SET regrounded_upto = \?/.test(sql)) {
+        const [newCount, _now, id, baseVersion] = params
+        const row = rows.get(String(id))
+        if (row && Number(row.version) === Number(baseVersion)) {
+          row.regrounded_upto = newCount
+          row.updated_at = Math.max(Number(row.updated_at ?? 0) + 1, Number(_now))
+          row.version = Number(row.version) + 1
+          return { rows: [], rowsAffected: 1 }
+        }
+        return { rows: [], rowsAffected: 0 }
+      }
+      // F-01 Slice 7a: compare-and-set page update. WHERE id AND version so stale results return 0 rows.
+      if (/^UPDATE wiki_pages\s+SET content = \?, version = \?, version_history = \?, entry_count = \?, updated_at = \?,\s+dismissed_at = NULL, corrected_at = NULL\s+WHERE id = \? AND version = \?/i.test(sql)) {
+        const [content, version, version_history, entry_count, updated_at, id, baseVersion] = params
+        const row = rows.get(String(id))
+        if (row && Number(row.version) === Number(baseVersion)) {
+          Object.assign(row, { content, version, version_history, entry_count, updated_at, dismissed_at: null, corrected_at: null })
+          return { rows: [], rowsAffected: 1 }
+        }
+        return { rows: [], rowsAffected: 0 }
       }
       if (/^UPDATE wiki_pages/.test(sql)) {
         const [content, version, version_history, entry_count, updated_at, id] = params
@@ -409,5 +437,164 @@ describe('storage/wiki CRUD', () => {
     expect(page.success && page.data?.version_history[0].version).toBe(1)
     // Last entry is v25
     expect(page.success && page.data?.version_history.slice(-1)[0].version).toBe(25)
+  })
+
+
+  describe('updatePageCAS — compare-and-set page persistence', () => {
+    it('applies when base version matches current page version', async () => {
+      const { db } = createFakeDb()
+      const created = await createPage({ title: 'T', content: 'v1' }, db)
+      expect(created.success).toBe(true)
+      if (!created.success) return
+      const id = created.data.id
+      const page = created.data
+
+      const result = await updatePageCAS(id, 'updated content', page.version, { entry_count: 5 }, db)
+      expect(result.success).toBe(true)
+      if (!result.success) return
+      expect(result.data.affected).toBe(1)
+      expect(result.data.page?.content).toBe('updated content')
+      expect(result.data.page?.version).toBe(page.version + 1)
+      expect(result.data.page?.entry_count).toBe(5)
+    })
+
+    it('stale — returns affected=0 when base version differs', async () => {
+      const { db } = createFakeDb()
+      const created = await createPage({ title: 'T', content: 'v1' }, db)
+      const id = created.success ? created.data.id : ''
+
+      // Wrong base version (stale synthesis result)
+      const result = await updatePageCAS(id, 'stale content', 999, {}, db)
+      expect(result.success).toBe(true)
+      if (!result.success) return
+      expect(result.data.affected).toBe(0)
+      expect(result.data.page).toBeNull()
+    })
+
+    it('returns WIKI_NOT_FOUND for missing id', async () => {
+      const { db } = createFakeDb()
+      const result = await updatePageCAS('ghost', 'x', 1, {}, db)
+      expect(result.success).toBe(false)
+      if (!result.success) expect(result.error.code).toBe('WIKI_NOT_FOUND')
+    })
+  })
+
+  describe('updatePageRegroundedUpto — corrected-belief count-only acknowledgment', () => {
+    it('updates regrounded_upto and bumps version when base version matches', async () => {
+      const { db } = createFakeDb()
+      const created = await createPage({ title: 'B', content: 'belief' }, db)
+      expect(created.success).toBe(true)
+      if (!created.success) return
+      const id = created.data.id
+      const page = created.data
+
+      const result = await updatePageRegroundedUpto(id, 10, page.version, db)
+      expect(result.success).toBe(true)
+      if (!result.success) return
+      expect(result.data.affected).toBe(1)
+      // Page retrieved now has regrounded_upto = 10
+      const after = await getPage(id, db)
+      expect(after.success && after.data?.regrounded_upto).toBe(10)
+    })
+
+    it('stale — returns affected=0 on version mismatch, does not touch regrounded_upto', async () => {
+      const { db } = createFakeDb()
+      const created = await createPage({ title: 'B', content: 'belief' }, db)
+      const id = created.success ? created.data.id : ''
+
+      const result = await updatePageRegroundedUpto(id, 10, 999, db)
+      expect(result.success).toBe(true)
+      if (!result.success) return
+      expect(result.data.affected).toBe(0)
+      const after = await getPage(id, db)
+      expect(after.success && after.data?.regrounded_upto).toBe(0)
+    })
+  })
+
+  it('rowToPage reads regrounded_upto column — default 0 when absent', async () => {
+    const { db } = createFakeDb()
+    const created = await createPage({ title: 'R', content: 're-ground test' }, db)
+    expect(created.success).toBe(true)
+    if (!created.success) return
+    expect(created.data.regrounded_upto).toBe(0)
+  })
+
+  // F-06 — hard version-history bound. Forty years of monthly versions must
+  // collapse to at most 20 rows: first + newest ten + at most nine temporal
+  // anchors across the middle, oldest and newest middle candidates included.
+  it('capVersionHistory enforces a hard 20-row cap across forty years of monthly versions', () => {
+    // 40 distinct months in the middle (2020-01 .. 2023-04), plus first v1 and
+    // last ten recent versions. Total input = 1 + 40 + 10 = 51 rows.
+    const first: WikiPageVersion = {
+      version: 1,
+      content: 'v1',
+      updated_at: new Date('2019-01-01').getTime(),
+    }
+    const middle: WikiPageVersion[] = []
+    for (let i = 0; i < 40; i++) {
+      const y = 2020 + Math.floor(i / 12)
+      const m = (i % 12) + 1
+      const stamp = new Date(`${y}-${String(m).padStart(2, '0')}-15`).getTime()
+      middle.push({ version: i + 2, content: `v${i + 2}`, updated_at: stamp })
+    }
+    const recentStart = 42
+    const recent: WikiPageVersion[] = Array.from({ length: 10 }, (_, i) => ({
+      version: recentStart + i,
+      content: `v${recentStart + i}`,
+      updated_at: new Date('2024-06-01').getTime() + i * 86_400_000,
+    }))
+    const versions = [first, ...middle, ...recent].sort((a, b) => a.version - b.version)
+
+    const capped = capVersionHistory(versions)
+
+    // T-06.1 — hard cap
+    expect(capped.length).toBeLessThanOrEqual(20)
+
+    // T-06.2 — first + newest ten preserved; middle ≤ 9 and spans old→recent
+    expect(capped[0].version).toBe(1)
+    expect(capped.slice(-10).map((v) => v.version)).toEqual(
+      Array.from({ length: 10 }, (_, i) => recentStart + i)
+    )
+    const mid = capped.slice(1, -10)
+    expect(mid.length).toBeLessThanOrEqual(9)
+    // Middle anchors span the middle range: oldest surviving middle is the
+    // earliest candidate (v2) and newest surviving middle is the last monthly
+    // candidate (v41). Even spacing with endpoints keeps both.
+    expect(mid[0].version).toBe(2)
+    expect(mid[mid.length - 1].version).toBe(41)
+    // No duplicate versions in the returned chain.
+    const versions_seen = new Set(capped.map((v) => v.version))
+    expect(versions_seen.size).toBe(capped.length)
+  })
+
+  it('capVersionHistory is stable when exactly 20 versions are given and trims nothing', () => {
+    const versions: WikiPageVersion[] = Array.from({ length: 20 }, (_, i) => ({
+      version: i + 1,
+      content: `v${i + 1}`,
+      updated_at: Date.now() + i * 86_400_000,
+    }))
+    const capped = capVersionHistory(versions)
+    expect(capped).toEqual(versions)
+    expect(capped.length).toBe(20)
+  })
+
+  it('capVersionHistory is idempotent and survives invalid timestamps deterministically', () => {
+    // 25 versions with mixed invalid timestamps — no throw, version order wins.
+    const versions: WikiPageVersion[] = Array.from({ length: 25 }, (_, i) => ({
+      version: i + 1,
+      content: `v${i + 1}`,
+      // Every 5th stamp is NaN; the rest span 2020-04 .. 2021-08 monthly.
+      updated_at: i % 5 === 0 ? NaN : new Date(2020, i % 12, 5).getTime(),
+    }))
+    let capped: WikiPageVersion[]
+    expect(() => {
+      capped = capVersionHistory(versions)
+    }).not.toThrow()
+    expect(capped!.length).toBeLessThanOrEqual(20)
+    // First + newest ten survive even with garbage timestamps.
+    expect(capped![0].version).toBe(1)
+    expect(capped!.slice(-10).map((v) => v.version)).toEqual([16, 17, 18, 19, 20, 21, 22, 23, 24, 25])
+    // Idempotent — re-capping a capped result is a no-op.
+    expect(capVersionHistory(capped!)).toEqual(capped!)
   })
 })

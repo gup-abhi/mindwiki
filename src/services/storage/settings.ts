@@ -58,3 +58,28 @@ export async function incrementSettingToThreshold(
     return err('SETTINGS_INCREMENT_FAILED', 'Failed to increment setting', e)
   }
 }
+
+/** Atomically increment a numeric setting by 1. The read, decision, and write
+ * share one SQLite transaction, so concurrent callers cannot lose increments
+ * (no two writers can both observe the same pre-increment value). Used by
+ * count-only local diagnostics that want a monotonic total. */
+export async function bumpSetting(
+  key: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<number>> {
+  try {
+    let next = 1
+    await db.transaction(async (tx) => {
+      const res = await tx.execute('SELECT value FROM settings WHERE key = ?', [key])
+      const current = res.rows[0] ? Number(res.rows[0].value) : 0
+      next = (Number.isFinite(current) ? current : 0) + 1
+      await tx.execute(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        [key, String(next)]
+      )
+    })
+    return ok(next)
+  } catch (e) {
+    return err('SETTINGS_BUMP_FAILED', 'Failed to bump setting', e)
+  }
+}

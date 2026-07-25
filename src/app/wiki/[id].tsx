@@ -107,7 +107,7 @@ export default function WikiPageScreen() {
       )}
       <Markdown content={page.content} />
 
-      {page.dismissed_at == null && <WikiConnections title={page.title} />}
+      {page.dismissed_at == null && <WikiConnections title={page.title} category={page.category} />}
 
       {trend?.message && page.dismissed_at == null && (
         <View style={styles.trendSection}>

@@ -607,7 +607,25 @@ export const migration028: Migration = {
   ],
 }
 
-// Migration 029 — mutable entry sync watermark. `tagged_at` records when model
+// Migration 030 — regrounded_upto column + wiki_page_contributions table.
+// F-01 durable re-ground: track how many distinct matching source entries have
+// been successfully synthesised (via re-ground), so corpus-representative
+// maintenance can decide when each non-emotion page is due. The device-local
+// contributions table makes interrupted/retried synthesis idempotent.
+export const migration030: Migration = {
+  version: 30,
+  name: 'wiki_reground_upto',
+  statements: [
+    `ALTER TABLE wiki_pages ADD COLUMN regrounded_upto INTEGER NOT NULL DEFAULT 0`,
+    `CREATE TABLE IF NOT EXISTS wiki_page_contributions (
+      entry_id   TEXT NOT NULL,
+      page_id    TEXT NOT NULL REFERENCES wiki_pages(id),
+      created_at INTEGER NOT NULL,
+      UNIQUE (entry_id, page_id)
+    )`,
+  ],
+}
+
 // tagging completed; it is not a general modification timestamp. `updated_at`
 // is bumped whenever mutable entry metadata changes so post-create edits (such
 // as topic repointing during a merge) reach other devices.
@@ -618,5 +636,120 @@ export const migration029: Migration = {
     `ALTER TABLE entries ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
     `UPDATE entries SET updated_at = MAX(created_at, COALESCE(tagged_at, 0))`,
     `CREATE INDEX idx_entries_updated_at ON entries (updated_at)`,
+  ],
+}
+
+// Migration 031 — F-02B effective belief labels. `entry_entities` was
+// write-once-per-entry (re-tagging replaced the whole set), so the only
+// mutable signal was the raw label. Canonicalization needs a mutable column
+// that records "this raw label is an alias of <canonical>" without rewriting or
+// deleting the source row (deletes don't propagate via the additive sync
+// model). Add two columns:
+//   - canonical_label TEXT NULL:            null = raw label is its own
+//                                            canonical identity; otherwise the
+//                                            trimmed canonical label.
+//   - updated_at INTEGER NOT NULL:          LWW watermark so a canonicalization
+//                                            bump reaches other devices;
+//                                            backfilled from created_at so
+//                                            existing rows remain syncable.
+// All recurrence/lineage/routing paths were keyed on `label`; they now key on
+//    COALESCE(canonical_label, label) COLLATE NOCASE
+// so a canonicalized alias counts toward one node/recurrence/wiki identity
+// without losing or deleting the original raw row. See reports/wiki-structural-
+// audit-sparc-plan.md (F-02B).
+export const migration031: Migration = {
+  version: 31,
+  name: 'entry_entities_effective_label',
+  statements: [
+    `ALTER TABLE entry_entities ADD COLUMN canonical_label TEXT NULL`,
+    `ALTER TABLE entry_entities ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+    `UPDATE entry_entities SET updated_at = created_at WHERE updated_at = 0`,
+  ],
+}
+
+// Migration 032 — belief maintenance state. F-02C introduces an idempotent
+// historical belief-repair pass (alias clustering + canonicalization) that runs
+// only when the embedding model is available and only when there's belief
+// source the runner has not yet processed. The pass has to be restart-safe: a
+// pass interrupted between source repair and graph rebuild resumes on next
+// launch, and a pass that produced no new clusters is a no-op (same-version /
+// same-processed-generation is idle). That requires persisting:
+//   - algorithm_version     — bump when the cluster geometry / threshold /
+//                             polarity rules change; bumps force one rerun;
+//   - source_generation     — incremented by every raw belief/reframe ingestion
+//                             and remote apply (NOT by maintenance's own
+//                             rewrites); maintenance increments only on
+//                             writes it observes, never on its own writes;
+//   - processed_generation  — set to the captured source_generation after the
+//                             pass settles every approved and deferred cluster;
+//   - status / counts       — count-only; never label text or label hashes.
+// The table is keyed by a single string key ('belief' for the only maintenance
+// pass today) so a future maintenance variant can add its own row without a
+// schema migration.
+export const migration032: Migration = {
+  version: 32,
+  name: 'belief_maintenance_state',
+  statements: [
+    `CREATE TABLE belief_maintenance_state (
+      key                   TEXT PRIMARY KEY,
+      algorithm_version    INTEGER NOT NULL DEFAULT 0,
+      source_generation    INTEGER NOT NULL DEFAULT 0,
+      processed_generation INTEGER NOT NULL DEFAULT 0,
+      status               TEXT NOT NULL DEFAULT 'idle',
+      last_run_at          INTEGER,
+      repaired_clusters    INTEGER NOT NULL DEFAULT 0,
+      deferred_clusters    INTEGER NOT NULL DEFAULT 0,
+      run_count            INTEGER NOT NULL DEFAULT 0
+    )`,
+    `INSERT INTO belief_maintenance_state (key) VALUES ('belief')`,
+  ],
+}
+
+// F-02C Slice 8 — page-consolidation pass needs its own count so a
+// settlement can distinguish source-repair clusters from page-consolidation
+// clusters. Add the consolidated_clusters column to the seeded belief row.
+export const migration033: Migration = {
+  version: 33,
+  name: 'belief_maintenance_consolidated_clusters',
+  statements: [
+    `ALTER TABLE belief_maintenance_state ADD COLUMN consolidated_clusters INTEGER NOT NULL DEFAULT 0`,
+  ],
+}
+
+// Migration 034 — one active wiki lineage per case-insensitive title. Older
+// versions had no identity invariant, so concurrent indexers could create
+// duplicate live pages. Keep the corrected/richest deterministic survivor and
+// mark other rows merged before adding the partial unique index.
+export const migration034: Migration = {
+  version: 34,
+  name: 'wiki_live_title_uniqueness',
+  statements: [
+    `UPDATE wiki_pages
+       SET merged_into = (
+         SELECT survivor.id
+           FROM wiki_pages survivor
+          WHERE survivor.merged_into IS NULL
+            AND survivor.title = wiki_pages.title COLLATE NOCASE
+          ORDER BY (survivor.corrected_at IS NOT NULL) DESC,
+                   survivor.entry_count DESC,
+                   survivor.updated_at DESC,
+                   survivor.id ASC
+          LIMIT 1
+       )
+     WHERE wiki_pages.merged_into IS NULL
+       AND wiki_pages.id <> (
+         SELECT survivor.id
+           FROM wiki_pages survivor
+          WHERE survivor.merged_into IS NULL
+            AND survivor.title = wiki_pages.title COLLATE NOCASE
+          ORDER BY (survivor.corrected_at IS NOT NULL) DESC,
+                   survivor.entry_count DESC,
+                   survivor.updated_at DESC,
+                   survivor.id ASC
+          LIMIT 1
+       )`,
+    `CREATE UNIQUE INDEX idx_wiki_pages_live_title
+       ON wiki_pages (title COLLATE NOCASE)
+       WHERE merged_into IS NULL`,
   ],
 }

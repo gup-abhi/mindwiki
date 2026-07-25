@@ -4,6 +4,7 @@ import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
 import { enqueueUpsert, notifySyncPending } from './sync-queue'
+import { insertContribution, insertMissingReceipts } from './wiki-contributions'
 
 export interface WikiPageVersion {
   version: number
@@ -18,27 +19,73 @@ const MAX_VERSION_HISTORY = 20
 const KEEP_LAST_N = 10
 
 export function capVersionHistory(history: WikiPageVersion[]): WikiPageVersion[] {
-  if (history.length <= MAX_VERSION_HISTORY) return history
+  // Dedupe by version (last write wins) and sort ascending so the retention
+  // math is order-independent of how the caller assembled the history.
+  const byVersion = new Map<number, WikiPageVersion>()
+  for (const v of history) byVersion.set(v.version, v)
+  const ordered = [...byVersion.values()].sort((a, b) => a.version - b.version)
+  if (ordered.length <= MAX_VERSION_HISTORY) return ordered
 
-  // Always preserve the first version (v1 — the original synthesis)
-  const first = [history[0]]
+  // Always preserve the first version (v1 — the original synthesis) and the
+  // KEEP_LAST_N most recent versions (fine-grained recent evolution).
+  const first = [ordered[0]]
+  const recent = ordered.slice(-KEEP_LAST_N)
 
-  // Always preserve the N most recent versions (fine-grained recent evolution)
-  const lastN = history.slice(-KEEP_LAST_N)
+  // Remaining middle candidates, ordered oldest → recent.
+  const mid = ordered.slice(1, ordered.length - KEEP_LAST_N)
 
-  // For everything in between, keep at most one per calendar month
-  const mid = history.slice(1, -KEEP_LAST_N)
+  // Collapse the middle to one deterministic candidate per UTC calendar month
+  // (the first candidate in that month, in version order — already the case
+  // since `mid` is version-asc). Invalid timestamps fall back to a single
+  // shared bucket so they never throw and still order by version.
   const monthly: WikiPageVersion[] = []
-  let currentMonth = ''
-  for (const v of mid) {
-    const month = new Date(v.updated_at).toISOString().slice(0, 7) // YYYY-MM
-    if (month !== currentMonth) {
-      monthly.push(v)
-      currentMonth = month
+  const seenMonth = new Set<string>()
+  const monthKey = (ts: number): string => {
+    const d = new Date(ts)
+    if (Number.isNaN(d.getTime())) return 'invalid'
+    try {
+      return d.toISOString().slice(0, 7) // YYYY-MM
+    } catch {
+      return 'invalid'
     }
   }
+  for (const v of mid) {
+    const m = monthKey(v.updated_at)
+    if (seenMonth.has(m)) continue
+    seenMonth.add(m)
+    monthly.push(v)
+  }
 
-  return [...first, ...monthly, ...lastN]
+  // Hard budget: 20 total − first − recent. When recent is exactly the cap
+  // (KEEP_LAST_N=10), the middle gets exactly nine temporal anchors so the
+  // whole retained chain can never exceed 20 even before the final safety trim.
+  const slots = Math.max(0, MAX_VERSION_HISTORY - 1 - recent.length)
+  let sampled: WikiPageVersion[]
+  if (monthly.length <= slots) {
+    sampled = monthly
+  } else {
+    // Evenly spaced temporal anchors across the monthly candidates, including
+    // the oldest and newest middle entries so evolution gaps span the full
+    // middle window. Picks exactly `slots` candidates when slots ≥ 2.
+    const n = monthly.length
+    const picked: WikiPageVersion[] = [monthly[0]]
+    for (let s = 1; s < slots - 1 && slots > 1; s++) {
+      // Map s ∈ [0..slots) to a monthly index that always lands on the last
+      // candidate at s = slots-1; avoids float-rounding off-by-one.
+      const idx = Math.round((s * (n - 1)) / (slots - 1))
+      if (idx > 0 && idx < n) picked.push(monthly[idx])
+    }
+    picked.push(monthly[n - 1])
+    sampled = picked
+  }
+
+  // Merge, dedupe by version, sort ascending. The first+recent anchors are
+  // disjoint by construction, and the middle sample was drawn from rows
+  // outside the recent slice, so no version overlaps. The final slice is a
+  // defensive hard cap — the budget math already guarantees ≤ 20.
+  const merged = new Map<number, WikiPageVersion>()
+  for (const v of [...first, ...sampled, ...recent]) merged.set(v.version, v)
+  return [...merged.values()].sort((a, b) => a.version - b.version).slice(0, MAX_VERSION_HISTORY)
 }
 
 export interface WikiPage {
@@ -64,6 +111,10 @@ export interface WikiPage {
    * aggregated_upto == null are treated as 0 (first aggregate due). Emotion
    * pages only; all others ignore this field. */
   aggregated_upto: number
+  /** Highest distinct matching source count whose re-ground result successfully
+   * committed. Defaults to 0 for pre-migration pages. Non-emotion pages only;
+   * emotion pages rely on aggregated_upto. */
+  regrounded_upto: number
 }
 
 export interface NewWikiPage {
@@ -89,6 +140,7 @@ function rowToPage(row: Record<string, unknown>): WikiPage {
     version: Number(row.version ?? 1),
     version_history: history,
     aggregated_upto: row.aggregated_upto == null ? 0 : Number(row.aggregated_upto),
+    regrounded_upto: row.regrounded_upto == null ? 0 : Number(row.regrounded_upto),
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
     dismissed_at: row.dismissed_at == null ? null : Number(row.dismissed_at),
@@ -111,6 +163,7 @@ export async function createPage(
     version: 1,
     version_history: [],
     aggregated_upto: 0,
+    regrounded_upto: 0,
     created_at: now,
     updated_at: now,
     dismissed_at: null,
@@ -127,6 +180,13 @@ export async function createPage(
     await enqueueUpsert('wiki_pages', page.id, db) // best-effort; never blocks
     return ok(page)
   } catch (e) {
+    // A concurrent indexer may have created the same live title after the
+    // caller's lookup. Re-read the DB winner; the unique index is authoritative.
+    const message = e instanceof Error ? e.message : String(e)
+    if (/unique|constraint/i.test(message)) {
+      const existing = await getPageByTitle(page.title, db)
+      if (existing.success && existing.data) return ok(existing.data)
+    }
     return err('WIKI_CREATE_FAILED', 'Failed to create wiki page', e)
   }
 }
@@ -149,7 +209,13 @@ export async function getPageByTitle(
   db: SqliteDatabase = getDb()
 ): Promise<Result<WikiPage | null>> {
   try {
-    const res = await db.execute('SELECT * FROM wiki_pages WHERE title = ?', [title])
+    const res = await db.execute(
+      `SELECT * FROM wiki_pages
+         WHERE title = ? COLLATE NOCASE
+         ORDER BY (merged_into IS NULL) DESC, (dismissed_at IS NULL) DESC, updated_at DESC
+         LIMIT 1`,
+      [title]
+    )
     const row = res.rows[0]
     return ok(row ? rowToPage(row) : null)
   } catch (e) {
@@ -390,6 +456,218 @@ export async function updatePage(
     return ok(next)
   } catch (e) {
     return err('WIKI_UPDATE_FAILED', 'Failed to update wiki page', e)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F-01 Slice 7a — Compare-and-set page persistence
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Compare-and-set: only applies when `baseVersion` matches the current page
+ * version (no concurrent write raced ahead). Returns `{ page, affected }`:
+ * - `affected === 1` and `page` populated on success.
+ * - `affected === 0` and `page === null` when stale — caller should retry once
+ *   (re-read page, re-synthesize, re-apply).
+ *
+ * Semantics match `updatePage` but the WHERE clause includes `AND version = ?`
+ * so a stale synthesis result cannot silently overwrite a newer revision.
+ */
+export interface WikiPageCASFields {
+  entry_count?: number
+  regrounded_upto?: number
+}
+
+export interface WikiPageCASResult {
+  page: WikiPage | null
+  affected: number
+  /** True when requested contribution receipt already existed. */
+  skipped?: boolean
+}
+
+/** Internal sentinel: transaction must roll back receipt writes on stale CAS. */
+function isWikiCASStale(error: unknown): boolean {
+  return error instanceof Error && error.message === 'WIKI_CAS_STALE'
+}
+
+async function updatePageCASInternal(
+  id: string,
+  content: string,
+  baseVersion: number,
+  fields: WikiPageCASFields,
+  contributionEntryId: string | undefined,
+  contributionEntryIds: string[] | undefined,
+  db: SqliteDatabase
+): Promise<Result<WikiPageCASResult>> {
+  let stale = false
+  let skipped = false
+  let next: WikiPage | null = null
+  try {
+    await db.transaction(async (tx) => {
+      if (contributionEntryId) {
+        const receipt = await insertContribution(contributionEntryId, id, tx)
+        if (!receipt.success) throw new Error(receipt.error.code)
+        if (!receipt.data.inserted) {
+          skipped = true
+          return
+        }
+      }
+      if (contributionEntryIds && contributionEntryIds.length > 0) {
+        const receipts = await insertMissingReceipts(contributionEntryIds, id, tx)
+        if (!receipts.success) throw new Error(receipts.error.code)
+      }
+
+      const current = await getPage(id, tx)
+      if (!current.success) throw new Error(current.error.code)
+      if (current.data == null) throw new Error('WIKI_NOT_FOUND')
+
+      const prev = current.data
+      const rawHistory: WikiPageVersion[] = [
+        ...prev.version_history,
+        { version: prev.version, content: prev.content, updated_at: prev.updated_at },
+      ]
+      const history = capVersionHistory(rawHistory)
+      const now = Date.now()
+      const updatedAt = Math.max(prev.updated_at + 1, now)
+      const nextEntryCount = fields.entry_count ?? prev.entry_count + 1
+      next = {
+        ...prev,
+        content,
+        version: prev.version + 1,
+        version_history: history,
+        entry_count: nextEntryCount,
+        regrounded_upto: fields.regrounded_upto ?? prev.regrounded_upto,
+        updated_at: updatedAt,
+        dismissed_at: null,
+        corrected_at: null,
+      }
+
+      const res = await tx.execute(
+        `UPDATE wiki_pages
+           SET content = ?, version = ?, version_history = ?, entry_count = ?,
+               regrounded_upto = ?, updated_at = ?, dismissed_at = NULL, corrected_at = NULL
+         WHERE id = ? AND version = ?`,
+        [
+          next.content,
+          next.version,
+          JSON.stringify(history),
+          next.entry_count,
+          next.regrounded_upto,
+          updatedAt,
+          id,
+          baseVersion,
+        ]
+      )
+      if (Number(res.rowsAffected ?? 0) === 0) {
+        stale = true
+        throw new Error('WIKI_CAS_STALE')
+      }
+      const queued = await enqueueUpsert('wiki_pages', id, tx, false)
+      if (!queued.success) throw new Error(queued.error.code)
+    })
+    if (skipped) return ok({ page: null, affected: 0, skipped: true })
+    if (!next) return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    notifySyncPending()
+    return ok({ page: next, affected: 1 })
+  } catch (e) {
+    if (stale || isWikiCASStale(e)) return ok({ page: null, affected: 0 })
+    return err('WIKI_UPDATE_FAILED', 'Failed to CAS-update wiki page', e)
+  }
+}
+
+export async function updatePageCAS(
+  id: string,
+  content: string,
+  baseVersion: number,
+  fields: WikiPageCASFields,
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPageCASResult>> {
+  try {
+    const current = await getPage(id, db)
+    if (!current.success) return current
+    if (current.data == null) return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    const prev = current.data
+    const history = capVersionHistory([
+      ...prev.version_history,
+      { version: prev.version, content: prev.content, updated_at: prev.updated_at },
+    ])
+    const now = Date.now()
+    const updatedAt = Math.max(prev.updated_at + 1, now)
+    const nextEntryCount = fields.entry_count ?? prev.entry_count + 1
+    const next = {
+      ...prev,
+      content,
+      version: prev.version + 1,
+      version_history: history,
+      entry_count: nextEntryCount,
+      regrounded_upto: fields.regrounded_upto ?? prev.regrounded_upto,
+      updated_at: updatedAt,
+      dismissed_at: null,
+      corrected_at: null,
+    }
+    const res = await db.execute(
+      `UPDATE wiki_pages
+         SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?,
+             dismissed_at = NULL, corrected_at = NULL
+       WHERE id = ? AND version = ?`,
+      [next.content, next.version, JSON.stringify(history), next.entry_count, updatedAt, id, baseVersion]
+    )
+    if (Number(res.rowsAffected ?? 0) === 0) return ok({ page: null, affected: 0 })
+    await enqueueUpsert('wiki_pages', id, db)
+    return ok({ page: next, affected: 1 })
+  } catch (e) {
+    return err('WIKI_UPDATE_FAILED', 'Failed to CAS-update wiki page', e)
+  }
+}
+
+/** CAS page write with durable contribution receipts in one transaction. */
+export async function updatePageCASWithContribution(
+  id: string,
+  content: string,
+  baseVersion: number,
+  fields: WikiPageCASFields,
+  entryId: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPageCASResult>> {
+  return updatePageCASInternal(id, content, baseVersion, fields, entryId, undefined, db)
+}
+
+/** CAS re-ground write with all source receipts in one transaction. */
+export async function updatePageCASWithContributions(
+  id: string,
+  content: string,
+  baseVersion: number,
+  fields: WikiPageCASFields,
+  entryIds: string[],
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPageCASResult>> {
+  return updatePageCASInternal(id, content, baseVersion, fields, undefined, entryIds, db)
+}
+
+/**
+ * Corrected-belief acknowledgment: increment `regrounded_upto` (and version)
+ * without changing content, entry_count, or version_history. Used by the
+ * re-ground maintenance path to record that the consistency sweep has accounted
+ * for this page's coverage without a full re-synthesis.
+ *
+ * Uses CAS (WHERE id = ? AND version = ?) so stale writes are detected.
+ * Returns `affected`: 1 on success, 0 when stale.
+ */
+export async function updatePageRegroundedUpto(
+  id: string,
+  newCount: number,
+  baseVersion: number,
+  db: SqliteDatabase = getDb()
+): Promise<Result<{ affected: number }>> {
+  try {
+    const res = await db.execute(
+      `UPDATE wiki_pages SET regrounded_upto = ?, updated_at = MAX(updated_at + 1, ?), version = version + 1
+       WHERE id = ? AND version = ?`,
+      [newCount, Date.now(), id, baseVersion]
+    )
+    return ok({ affected: Number(res.rowsAffected ?? 0) > 0 ? 1 : 0 })
+  } catch (e) {
+    return err('WIKI_UPDATE_FAILED', 'Failed to update regrounded_upto', e)
   }
 }
 

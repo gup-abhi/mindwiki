@@ -9,7 +9,7 @@ jest.mock('@/services/wiki/embeddings', () => ({
 jest.mock('@/services/storage/entity-embeddings', () => ({
   listEntityEmbeddings: jest.fn(),
   upsertEntityEmbedding: jest.fn().mockResolvedValue({ success: true, data: undefined }),
-  backfillEntityEmbeddings: jest.fn().mockResolvedValue(0),
+  backfillEntityEmbeddings: jest.fn().mockResolvedValue({ embedded: 0, failed: 0 }),
 }))
 
 // mock cosine directly — lean on search.ts's own tests for the math
@@ -119,6 +119,74 @@ describe('snapBeliefSemantic', () => {
   })
 })
 
+  // F-02A.1 — serialized snapping: two concurrent near-synonym first
+  // sightings converge on one effective canonical anchor. Without the shared
+  // in-process queue both read an empty store, fire-and-forget embed+upsert
+  // their own label, and return distinct labels (avoidable fragmentation).
+  // With serialization the second call observes the first's stored vector,
+  // matches, and snaps — exactly one upsert.
+  it('serializes concurrent near-synonym first sightings into one anchor', async () => {
+    const store = new Map<string, { vector: number[] }>()
+    mockListEntityEmbeddings.mockImplementation(async () => ({
+      success: true,
+      data: new Map(
+        [...store.entries()].map(([label, v]) => [
+          label,
+          { label, type: 'belief', vector: v.vector, contentHash: '' },
+        ])
+      ),
+    }))
+    const mockUpsert = jest.mocked(
+      require('@/services/storage/entity-embeddings').upsertEntityEmbedding
+    ) as jest.Mock
+    mockUpsert.mockImplementation(async (label: string, _type: string, vector: number[]) => {
+      store.set(label, { vector })
+      return { success: true, data: undefined }
+    })
+
+    // Both inputs map to the SAME WORTHLESS_VEC — a single-cluster race.
+    const [a, b] = await Promise.all([
+      snapBeliefSemantic('I feel worthless'),
+      snapBeliefSemantic('I am inadequate'),
+    ])
+
+    // One canonical anchor: both calls return the same (first-written) label.
+    expect(a).toBe(b)
+    // Exactly one upsert created a new vector — the second matched, no new row.
+    expect(mockUpsert).toHaveBeenCalledTimes(1)
+  })
+
+  // F-02A.3 — the serialization queue does not weaken the polarity guard:
+  // a positive reframe and a negative belief (both strip to "good enough",
+  // cosine 1.0) stay distinct even when they arrive concurrently.
+  it('keeps polarity-opposed beliefs distinct under concurrent snapping', async () => {
+    const store = new Map<string, { vector: number[] }>()
+    mockListEntityEmbeddings.mockImplementation(async () => ({
+      success: true,
+      data: new Map(
+        [...store.entries()].map(([label, v]) => [
+          label,
+          { label, type: 'belief', vector: v.vector, contentHash: '' },
+        ])
+      ),
+    }))
+    const mockUpsert = jest.mocked(
+      require('@/services/storage/entity-embeddings').upsertEntityEmbedding
+    ) as jest.Mock
+    mockUpsert.mockImplementation(async (label: string, _type: string, vector: number[]) => {
+      store.set(label, { vector })
+      return { success: true, data: undefined }
+    })
+
+    const [neg, pos] = await Promise.all([
+      snapBeliefSemantic('I am not good enough'),
+      snapBeliefSemantic('I am good enough'),
+    ])
+
+    // Both kept as separate beliefs (no merge across opposite polarity).
+    expect(new Set([neg, pos]).size).toBe(2)
+  })
+
 describe('snapBeliefsSemantic', () => {
   it('collapses multiple near-synonyms to one label', async () => {
     mockListEntityEmbeddings.mockResolvedValue({
@@ -162,9 +230,10 @@ describe('snapBeliefsSemantic', () => {
 })
 
 describe('backfillBeliefEmbeddings', () => {
-  it('delegates to backfillEntityEmbeddings with belief type', async () => {
+  it('delegates to backfillEntityEmbeddings with belief type and forwards {embedded, failed}', async () => {
+    ;(backfillEntityEmbeddings as jest.Mock).mockResolvedValueOnce({ embedded: 5, failed: 2 })
     const result = await backfillBeliefEmbeddings()
-    expect(result).toBe(0)
+    expect(result).toEqual({ embedded: 5, failed: 2 })
     // Delegates with the frame-stripped embedder (embedBeliefLabel, private) —
     // NOT raw embedText — so backfilled vectors match the stripped snap geometry.
     expect(backfillEntityEmbeddings).toHaveBeenCalledWith('belief', expect.any(Function))
