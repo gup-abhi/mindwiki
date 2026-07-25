@@ -145,6 +145,27 @@ describe('useWikiConnections — revision refresh', () => {
   })
 })
 
+describe('useWikiConnections — request identity', () => {
+  it('clears prior page data while a new title request is pending', async () => {
+    let resolveSecondNodes: ((value: unknown) => void) | undefined
+    mockListNodes.mockResolvedValueOnce(ok([{ id: 'a', label: 'Anxiety', frequency: 5 } as any]))
+    mockListNodes.mockReturnValueOnce(new Promise((resolve) => { resolveSecondNodes = resolve }))
+    mockListEdges.mockResolvedValue(ok([]))
+    mockListPages.mockResolvedValue(ok([]))
+
+    const { result, rerender } = renderHook(({ title }) => useWikiConnections(title), {
+      initialProps: { title: 'Anxiety' },
+    })
+    await waitFor(() => expect(result.current.status).toBe('loaded'))
+    rerender({ title: 'Sleep' })
+    expect(result.current.status).toBe('loading')
+    expect(result.current.labels).toEqual([])
+
+    resolveSecondNodes?.(ok([{ id: 's', label: 'Sleep', frequency: 1 } as any]))
+    await waitFor(() => expect(result.current.status).toBe('loaded'))
+  })
+})
+
 describe('useWikiConnections — cancellation', () => {
   it('does not setState after unmount', async () => {
     let resolveNodes: any

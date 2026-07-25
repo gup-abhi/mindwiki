@@ -4,6 +4,7 @@ import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
 import { enqueueUpsert, notifySyncPending } from './sync-queue'
+import { insertContribution, insertMissingReceipts } from './wiki-contributions'
 
 export interface WikiPageVersion {
   version: number
@@ -179,6 +180,13 @@ export async function createPage(
     await enqueueUpsert('wiki_pages', page.id, db) // best-effort; never blocks
     return ok(page)
   } catch (e) {
+    // A concurrent indexer may have created the same live title after the
+    // caller's lookup. Re-read the DB winner; the unique index is authoritative.
+    const message = e instanceof Error ? e.message : String(e)
+    if (/unique|constraint/i.test(message)) {
+      const existing = await getPageByTitle(page.title, db)
+      if (existing.success && existing.data) return ok(existing.data)
+    }
     return err('WIKI_CREATE_FAILED', 'Failed to create wiki page', e)
   }
 }
@@ -201,7 +209,13 @@ export async function getPageByTitle(
   db: SqliteDatabase = getDb()
 ): Promise<Result<WikiPage | null>> {
   try {
-    const res = await db.execute('SELECT * FROM wiki_pages WHERE title = ?', [title])
+    const res = await db.execute(
+      `SELECT * FROM wiki_pages
+         WHERE title = ? COLLATE NOCASE
+         ORDER BY (merged_into IS NULL) DESC, (dismissed_at IS NULL) DESC, updated_at DESC
+         LIMIT 1`,
+      [title]
+    )
     const row = res.rows[0]
     return ok(row ? rowToPage(row) : null)
   } catch (e) {
@@ -459,38 +473,138 @@ export async function updatePage(
  * Semantics match `updatePage` but the WHERE clause includes `AND version = ?`
  * so a stale synthesis result cannot silently overwrite a newer revision.
  */
+export interface WikiPageCASFields {
+  entry_count?: number
+  regrounded_upto?: number
+}
+
+export interface WikiPageCASResult {
+  page: WikiPage | null
+  affected: number
+  /** True when requested contribution receipt already existed. */
+  skipped?: boolean
+}
+
+/** Internal sentinel: transaction must roll back receipt writes on stale CAS. */
+function isWikiCASStale(error: unknown): boolean {
+  return error instanceof Error && error.message === 'WIKI_CAS_STALE'
+}
+
+async function updatePageCASInternal(
+  id: string,
+  content: string,
+  baseVersion: number,
+  fields: WikiPageCASFields,
+  contributionEntryId: string | undefined,
+  contributionEntryIds: string[] | undefined,
+  db: SqliteDatabase
+): Promise<Result<WikiPageCASResult>> {
+  let stale = false
+  let skipped = false
+  let next: WikiPage | null = null
+  try {
+    await db.transaction(async (tx) => {
+      if (contributionEntryId) {
+        const receipt = await insertContribution(contributionEntryId, id, tx)
+        if (!receipt.success) throw new Error(receipt.error.code)
+        if (!receipt.data.inserted) {
+          skipped = true
+          return
+        }
+      }
+      if (contributionEntryIds && contributionEntryIds.length > 0) {
+        const receipts = await insertMissingReceipts(contributionEntryIds, id, tx)
+        if (!receipts.success) throw new Error(receipts.error.code)
+      }
+
+      const current = await getPage(id, tx)
+      if (!current.success) throw new Error(current.error.code)
+      if (current.data == null) throw new Error('WIKI_NOT_FOUND')
+
+      const prev = current.data
+      const rawHistory: WikiPageVersion[] = [
+        ...prev.version_history,
+        { version: prev.version, content: prev.content, updated_at: prev.updated_at },
+      ]
+      const history = capVersionHistory(rawHistory)
+      const now = Date.now()
+      const updatedAt = Math.max(prev.updated_at + 1, now)
+      const nextEntryCount = fields.entry_count ?? prev.entry_count + 1
+      next = {
+        ...prev,
+        content,
+        version: prev.version + 1,
+        version_history: history,
+        entry_count: nextEntryCount,
+        regrounded_upto: fields.regrounded_upto ?? prev.regrounded_upto,
+        updated_at: updatedAt,
+        dismissed_at: null,
+        corrected_at: null,
+      }
+
+      const res = await tx.execute(
+        `UPDATE wiki_pages
+           SET content = ?, version = ?, version_history = ?, entry_count = ?,
+               regrounded_upto = ?, updated_at = ?, dismissed_at = NULL, corrected_at = NULL
+         WHERE id = ? AND version = ?`,
+        [
+          next.content,
+          next.version,
+          JSON.stringify(history),
+          next.entry_count,
+          next.regrounded_upto,
+          updatedAt,
+          id,
+          baseVersion,
+        ]
+      )
+      if (Number(res.rowsAffected ?? 0) === 0) {
+        stale = true
+        throw new Error('WIKI_CAS_STALE')
+      }
+      const queued = await enqueueUpsert('wiki_pages', id, tx, false)
+      if (!queued.success) throw new Error(queued.error.code)
+    })
+    if (skipped) return ok({ page: null, affected: 0, skipped: true })
+    if (!next) return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    notifySyncPending()
+    return ok({ page: next, affected: 1 })
+  } catch (e) {
+    if (stale || isWikiCASStale(e)) return ok({ page: null, affected: 0 })
+    return err('WIKI_UPDATE_FAILED', 'Failed to CAS-update wiki page', e)
+  }
+}
+
 export async function updatePageCAS(
   id: string,
   content: string,
   baseVersion: number,
-  fields: { entry_count?: number },
+  fields: WikiPageCASFields,
   db: SqliteDatabase = getDb()
-): Promise<Result<{ page: WikiPage | null; affected: number }>> {
+): Promise<Result<WikiPageCASResult>> {
   try {
     const current = await getPage(id, db)
-    if (!current.success) return err(current.error.code, current.error.message, current.error.cause)
+    if (!current.success) return current
     if (current.data == null) return err('WIKI_NOT_FOUND', 'Wiki page not found')
-
     const prev = current.data
-    const rawHistory: WikiPageVersion[] = [
+    const history = capVersionHistory([
       ...prev.version_history,
       { version: prev.version, content: prev.content, updated_at: prev.updated_at },
-    ]
-    const history = capVersionHistory(rawHistory)
+    ])
     const now = Date.now()
     const updatedAt = Math.max(prev.updated_at + 1, now)
     const nextEntryCount = fields.entry_count ?? prev.entry_count + 1
-    const next: WikiPage = {
+    const next = {
       ...prev,
       content,
       version: prev.version + 1,
       version_history: history,
       entry_count: nextEntryCount,
+      regrounded_upto: fields.regrounded_upto ?? prev.regrounded_upto,
       updated_at: updatedAt,
       dismissed_at: null,
       corrected_at: null,
     }
-
     const res = await db.execute(
       `UPDATE wiki_pages
          SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?,
@@ -498,15 +612,36 @@ export async function updatePageCAS(
        WHERE id = ? AND version = ?`,
       [next.content, next.version, JSON.stringify(history), next.entry_count, updatedAt, id, baseVersion]
     )
-    if (Number(res.rowsAffected ?? 0) === 0) {
-      // Stale — caller should detect this and retry once.
-      return ok({ page: null, affected: 0 })
-    }
+    if (Number(res.rowsAffected ?? 0) === 0) return ok({ page: null, affected: 0 })
     await enqueueUpsert('wiki_pages', id, db)
     return ok({ page: next, affected: 1 })
   } catch (e) {
     return err('WIKI_UPDATE_FAILED', 'Failed to CAS-update wiki page', e)
   }
+}
+
+/** CAS page write with durable contribution receipts in one transaction. */
+export async function updatePageCASWithContribution(
+  id: string,
+  content: string,
+  baseVersion: number,
+  fields: WikiPageCASFields,
+  entryId: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPageCASResult>> {
+  return updatePageCASInternal(id, content, baseVersion, fields, entryId, undefined, db)
+}
+
+/** CAS re-ground write with all source receipts in one transaction. */
+export async function updatePageCASWithContributions(
+  id: string,
+  content: string,
+  baseVersion: number,
+  fields: WikiPageCASFields,
+  entryIds: string[],
+  db: SqliteDatabase = getDb()
+): Promise<Result<WikiPageCASResult>> {
+  return updatePageCASInternal(id, content, baseVersion, fields, undefined, entryIds, db)
 }
 
 /**

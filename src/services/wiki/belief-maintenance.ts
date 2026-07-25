@@ -37,6 +37,10 @@ export const MAINTENANCE_SOURCE_KEYS = [
 // which clears it once rebuildGraph succeeds.
 export const MAINTENANCE_GRAPH_PENDING_KEY = 'mw_belief_repair_graph_pending'
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 // ── Dry-run report — never persisted; rendered to dev UI only ────────────
 // Every text field is a raw label string. The report is handed to a dev-only
 // screen; nothing is logged, nothing persists to the DB. Production UI code
@@ -453,17 +457,29 @@ export async function consolidateClusterPages(
 
       return ok({ survivorId: survivor.id })
     } else {
-      // 0 corrected pages — pick richest AI page as survivor.
+      // 0 corrected pages — the canonical-title page always wins. If it does
+      // not exist, retain the richest AI page but rename it to canonical so
+      // future effective-label routing cannot create a second lineage.
       aiPages.sort((a, b) => {
         if (b.entry_count !== a.entry_count) return b.entry_count - a.entry_count
         return (a.updated_at ?? 0) - (b.updated_at ?? 0)
       })
-      const survivor = aiPages[0]
-      const losers = aiPages.slice(1)
-      if (losers.length === 0) return ok({ survivorId: survivor.id })
+      const survivor = matches.find((p) => p.title.toLowerCase() === cluster.canonical!.toLowerCase()) ?? aiPages[0]
+      if (!survivor) return ok({ survivorId: '' })
+      const losers = aiPages.filter((p) => p.id !== survivor.id)
+      const needsRename = survivor.title.toLowerCase() !== cluster.canonical.toLowerCase()
+      if (losers.length === 0 && !needsRename) return ok({ survivorId: survivor.id })
 
+      const canonicalTitle = cluster.canonical
+      if (!canonicalTitle) return ok({ survivorId: survivor.id })
       const now = Date.now()
       await db.transaction(async (tx) => {
+        if (needsRename) {
+          await tx.execute(
+            'UPDATE wiki_pages SET title = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+            [canonicalTitle, now, survivor.id]
+          )
+        }
         for (const p of losers) {
           await tx.execute(
             'UPDATE wiki_pages SET merged_into = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
@@ -475,8 +491,8 @@ export async function consolidateClusterPages(
             [`sq:wiki_pages:${p.id}`, 'wiki_pages', p.id, now]
           )
         }
-        // Enqueue survivor too (entry_count unchanged but merged_into refs
-        // mean graph rebuild needs to re-index).
+        // Enqueue survivor after rename/merge so remote devices converge on
+        // canonical title and merged lineage together.
         await tx.execute(
           `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
            VALUES (?, ?, ?, 'upsert', NULL, ?)`,
@@ -585,17 +601,29 @@ export async function runBeliefMaintenance(
     if (!stateRes.success) return stateRes
     const state = stateRes.data
 
+    const markerRes = await getSetting(MAINTENANCE_GRAPH_PENDING_KEY, db)
+    const markerPending = markerRes.success && markerRes.data === '1'
+    if (markerPending || state.status === 'needs-graph-rebuild') {
+      const retry = await retryBeliefMaintenanceGraphRebuild(db, options)
+      if (!retry.success) return retry
+      const settled = await getMaintenanceState('belief', db)
+      if (!settled.success) return settled
+      return ok({
+        repairedClusters: settled.data.repaired_clusters,
+        deferredClusters: settled.data.deferred_clusters,
+        consolidatedClusters: settled.data.consolidated_clusters,
+        status: settled.data.status,
+      })
+    }
+
     // Rerun gate: algorithm_version mismatch OR source_generation >
     // processed_generation. A same-version/same-processed pass is a no-op.
     const versionChanged = state.algorithm_version !== MAINTENANCE_ALGORITHM_VERSION
     const pendingDelta = state.source_generation > state.processed_generation
-    if (!versionChanged && !pendingDelta && state.status !== 'needs-graph-rebuild') {
+    if (!versionChanged && !pendingDelta) {
       return ok({ repairedClusters: state.repaired_clusters, deferredClusters: state.deferred_clusters, consolidatedClusters: state.consolidated_clusters, status: state.status })
     }
 
-    // If we only need to retry the graph rebuild (status was left 'needs-graph-rebuild'),
-    // skip the source repair entirely and go straight to graph rebuild.
-    const onlyGraphRetry = state.status === 'needs-graph-rebuild'
     // 2) Capture source_generation BEFORE analysis.
     const capturedGeneration = state.source_generation
 
@@ -605,7 +633,7 @@ export async function runBeliefMaintenance(
     let sourceChanged = false
     let firstError: { code: string; message: string } | undefined
 
-    if (!onlyGraphRetry) {
+    {
       // 3) Read landscape + build clusters
       const landRes = await readBeliefLandscape(db)
       if (!landRes.success) return landRes
@@ -623,6 +651,7 @@ export async function runBeliefMaintenance(
 
         const canonical = cluster.canonical
         // 4) ONE transaction per approved cluster:
+        let clusterCommitted = false
         try {
           await db.transaction(async (tx: SqliteDatabase) => {
             // For each alias to retire: write canonical_label + bumped updated_at
@@ -684,23 +713,25 @@ export async function runBeliefMaintenance(
             )
           })
           repaired++
+          clusterCommitted = true
           sourceChanged = true
-        } catch (e: any) {
+        } catch (e: unknown) {
           // Tx rolled back: NO canonical_label leak for this cluster.
-          if (!firstError) firstError = { code: 'BELIEF_MAINTENANCE_TX_FAILED', message: String(e?.message ?? e) }
+          if (!firstError) firstError = { code: 'BELIEF_MAINTENANCE_TX_FAILED', message: errorMessage(e) }
           // Continue with other clusters (one failed tx doesn't abort others).
         }
 
-        // Page consolidation — best-effort, after source repair commits.
-        // Failure does NOT fail the cluster or prevent source settlement;
-        // un-consolidated pages will merge on next pass.
-        try {
-          const consRes = await consolidateClusterPages(cluster, pages, db)
-          if (consRes.success && consRes.data.survivorId) {
-            consolidated++
+        // Page consolidation — best-effort, only after this cluster's source
+        // repair committed. A rolled-back cluster must keep its separate pages.
+        if (clusterCommitted) {
+          try {
+            const consRes = await consolidateClusterPages(cluster, pages, db)
+            if (consRes.success && consRes.data.survivorId) {
+              consolidated++
+            }
+          } catch {
+            // Best-effort — next pass retries consolidation.
           }
-        } catch {
-          // Best-effort — next pass retries consolidation.
         }
       }
     }
@@ -712,11 +743,11 @@ export async function runBeliefMaintenance(
       let r: Result<void>
       try {
         r = await rebuild(db)
-      } catch (e: any) {
+      } catch (e: unknown) {
         // Inject hooks may throw (test simulates a broken rebuild); treat as
         // a failed Result rather than propagating out — the durable marker
         // stays set so startup retry can redo the rebuild.
-        r = err('BELIEF_MAINTENANCE_GRAPH_FAILED', String(e?.message ?? e), e)
+        r = err('BELIEF_MAINTENANCE_GRAPH_FAILED', errorMessage(e), e)
       }
       if (!r.success) {
         graphOk = false
@@ -726,9 +757,6 @@ export async function runBeliefMaintenance(
         // but null matches the read boundary the maintenance runner uses.
         await db.execute('DELETE FROM settings WHERE key = ?', [MAINTENANCE_GRAPH_PENDING_KEY])
       }
-    } else if (state.status === 'needs-graph-rebuild' && !onlyGraphRetry) {
-      // Legacy pending marker with no new work — clear it.
-      await db.execute('DELETE FROM settings WHERE key = ?', [MAINTENANCE_GRAPH_PENDING_KEY])
     }
 
     // 7) State settle: only advance processed_generation when every approved
@@ -792,10 +820,10 @@ export async function retryBeliefMaintenanceGraphRebuild(
     let r: Result<void>
     try {
       r = await rebuild(db)
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Injected hook may throw (test simulates a broken rebuild). Treat as a
       // failed Result — the durable marker stays set so a later retry can redo.
-      r = err('BELIEF_MAINTENANCE_GRAPH_FAILED', String(e?.message ?? e), e)
+      r = err('BELIEF_MAINTENANCE_GRAPH_FAILED', errorMessage(e), e)
     }
     if (!r.success) return r
     await db.execute('DELETE FROM settings WHERE key = ?', [MAINTENANCE_GRAPH_PENDING_KEY])

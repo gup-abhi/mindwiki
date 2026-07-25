@@ -135,6 +135,16 @@ describe('registry', () => {
     expect(sql).toContain("INSERT INTO belief_maintenance_state (key) VALUES ('belief')")
   })
 
+  it('registers migration 034 — live wiki title uniqueness', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 34)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('wiki_live_title_uniqueness')
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('CREATE UNIQUE INDEX idx_wiki_pages_live_title')
+    expect(sql).toContain('COLLATE NOCASE')
+    expect(sql).toContain('merged_into IS NULL')
+  })
+
   it('registers migration 033 — consolidated_clusters column in belief_maintenance_state (F-02C Slice 8)', () => {
     const m = MIGRATIONS.find((mig) => mig.version === 33)
     expect(m).toBeDefined()

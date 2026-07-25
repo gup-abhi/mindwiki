@@ -33,6 +33,7 @@ import {
   listEntriesForEntityAllSources,
 } from '@/services/storage/entries'
 import type { SqliteDatabase } from '@/services/storage/db'
+import type { EntityType } from '@/services/storage/entities'
 
 /** Wiki page categories that route to entity-tag storage. */
 const ENTITY_CATEGORIES = ['person', 'place', 'activity', 'belief', 'behavior'] as const
@@ -62,14 +63,18 @@ export async function listAllSourceEntriesForPage(
       const r = await listEntriesByTopicOrTopic2(title, db, false)
       return r.success ? r : okEmpty()
     }
-    if ((ENTITY_CATEGORIES as readonly string[]).includes(category)) {
-      const r = await listEntriesForEntityAllSources(category as any, title, db)
+    if (isEntityCategory(category)) {
+      const r = await listEntriesForEntityAllSources(category, title, db)
       return r.success ? r : okEmpty()
     }
     return okEmpty()
   } catch {
     return okEmpty()
   }
+}
+
+function isEntityCategory(category: string): category is EntityType {
+  return (ENTITY_CATEGORIES as readonly string[]).includes(category)
 }
 
 function okEmpty(): Result<Entry[]> {

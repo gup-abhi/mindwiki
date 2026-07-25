@@ -715,3 +715,41 @@ export const migration033: Migration = {
     `ALTER TABLE belief_maintenance_state ADD COLUMN consolidated_clusters INTEGER NOT NULL DEFAULT 0`,
   ],
 }
+
+// Migration 034 — one active wiki lineage per case-insensitive title. Older
+// versions had no identity invariant, so concurrent indexers could create
+// duplicate live pages. Keep the corrected/richest deterministic survivor and
+// mark other rows merged before adding the partial unique index.
+export const migration034: Migration = {
+  version: 34,
+  name: 'wiki_live_title_uniqueness',
+  statements: [
+    `UPDATE wiki_pages
+       SET merged_into = (
+         SELECT survivor.id
+           FROM wiki_pages survivor
+          WHERE survivor.merged_into IS NULL
+            AND survivor.title = wiki_pages.title COLLATE NOCASE
+          ORDER BY (survivor.corrected_at IS NOT NULL) DESC,
+                   survivor.entry_count DESC,
+                   survivor.updated_at DESC,
+                   survivor.id ASC
+          LIMIT 1
+       )
+     WHERE wiki_pages.merged_into IS NULL
+       AND wiki_pages.id <> (
+         SELECT survivor.id
+           FROM wiki_pages survivor
+          WHERE survivor.merged_into IS NULL
+            AND survivor.title = wiki_pages.title COLLATE NOCASE
+          ORDER BY (survivor.corrected_at IS NOT NULL) DESC,
+                   survivor.entry_count DESC,
+                   survivor.updated_at DESC,
+                   survivor.id ASC
+          LIMIT 1
+       )`,
+    `CREATE UNIQUE INDEX idx_wiki_pages_live_title
+       ON wiki_pages (title COLLATE NOCASE)
+       WHERE merged_into IS NULL`,
+  ],
+}

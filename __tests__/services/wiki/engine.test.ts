@@ -302,6 +302,30 @@ describe('updateWikiForEntry', () => {
     expect(mockSynth).toHaveBeenCalledWith(expect.objectContaining({ existingContent: 'good prior take' }))
   })
 
+  it('re-synthesizes after stale CAS and never applies stale content unconditionally', async () => {
+    mockGetByTitle.mockResolvedValue(ok({
+      id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'old', version: 7,
+      dismissed_at: null, corrected_at: null,
+    }))
+    mockUpdateCAS
+      .mockResolvedValueOnce(ok({ page: null, affected: 0 }))
+      .mockResolvedValueOnce(ok({ page: { id: 'p9' }, affected: 1 }))
+    mockGetPage.mockResolvedValue(ok({
+      id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'new correction', version: 8,
+      dismissed_at: null, corrected_at: 123,
+    }))
+    mockSynth
+      .mockResolvedValueOnce(ok('stale synthesis'))
+      .mockResolvedValueOnce(ok('fresh synthesis'))
+
+    await updateWikiForEntry(entry({ emotion: null }))
+
+    expect(mockSynth).toHaveBeenCalledTimes(2)
+    expect(mockUpdateCAS).toHaveBeenNthCalledWith(1, 'p9', 'stale synthesis', 7, {}, undefined)
+    expect(mockUpdateCAS).toHaveBeenNthCalledWith(2, 'p9', 'fresh synthesis', 8, {}, undefined)
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
   it('skips a page when synthesis fails (best-effort)', async () => {
     mockGetByTitle.mockResolvedValue(ok({ id: 'p', title: 'Catastrophizing', category: 'distortion', content: '' }))
     mockSynth.mockResolvedValue(err('SYNTH_INFERENCE_FAILED', 'down'))

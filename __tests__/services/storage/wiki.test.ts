@@ -52,8 +52,10 @@ function createFakeDb() {
         const row = rows.get(String(params[0]))
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
-      if (/^SELECT \* FROM wiki_pages WHERE title/.test(sql)) {
-        const row = [...rows.values()].find((r) => r.title === params[0])
+      if (/^SELECT \* FROM wiki_pages\s+WHERE title/.test(sql)) {
+        const row = [...rows.values()].find(
+          (r) => String(r.title).toLowerCase() === String(params[0]).toLowerCase() && r.merged_into == null
+        )
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
       if (/^SELECT \* FROM wiki_pages WHERE dismissed_at IS NOT NULL/.test(sql)) {

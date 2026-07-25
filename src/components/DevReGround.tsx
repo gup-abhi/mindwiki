@@ -12,6 +12,7 @@ import {
   listEntriesByTopicOrTopic2,
   listEntriesForEntity,
 } from '@/services/storage/entries'
+import type { EntityType } from '@/services/storage/entities'
 import { useSyncStore } from '@/store/sync.store'
 
 /**
@@ -67,8 +68,9 @@ export function DevReGround() {
       async function sample(title: string, category: string | null, max: number) {
         const entityTypes = ['person','place','activity','belief','behavior']
         const isEntity = entityTypes.includes(category ?? '')
-        const res = isEntity
-          ? await listEntriesForEntity(category as any, title)
+        const entityType = isEntity ? category as EntityType : null
+        const res = entityType
+          ? await listEntriesForEntity(entityType, title)
           : category === 'theme'
             ? await listEntriesByTopicOrTopic2(title)
             : category === 'distortion'

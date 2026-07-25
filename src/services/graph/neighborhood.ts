@@ -18,11 +18,15 @@ export function graphNeighborhood(
   target: string,
   nodes: GraphNode[],
   edges: GraphEdge[],
-  depth = 1
+  depth = 1,
+  nodeType?: GraphNode['type']
 ): GraphNeighborhood | null {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const t = target.toLowerCase()
-  const root = byId.get(target) ?? nodes.find((n) => n.label.toLowerCase() === t)
+  const candidates = nodes.filter((n) => n.label.toLowerCase() === t)
+  const root = byId.get(target) ??
+    (nodeType ? candidates.find((n) => n.type === nodeType) : undefined) ??
+    candidates[0]
   if (!root) return null
 
   const visited = new Set<string>([root.id])
@@ -70,11 +74,22 @@ const MAX_NEIGHBORS = 3
 export function pageConnections(
   title: string,
   nodes: GraphNode[],
-  edges: GraphEdge[]
+  edges: GraphEdge[],
+  category?: string | null
 ): string[] {
-  const hood = graphNeighborhood(title, nodes, edges, 1)
+  const nodeType = graphNodeTypeForWikiCategory(category)
+  const hood = graphNeighborhood(title, nodes, edges, 1, nodeType)
   if (!hood || hood.neighbors.length === 0) return []
   return topNeighborLabels(hood)
+}
+
+function graphNodeTypeForWikiCategory(category?: string | null): GraphNode['type'] | undefined {
+  if (category === 'theme') return 'situation'
+  if (category === 'emotion' || category === 'distortion' || category === 'belief' || category === 'behavior') {
+    return category
+  }
+  if (category === 'person' || category === 'place' || category === 'activity') return category
+  return undefined
 }
 
 // The top neighbour labels of an already-computed neighborhood, ranked by:
@@ -121,9 +136,10 @@ function topNeighborLabels(hood: GraphNeighborhood): string[] {
 export function connectionLine(
   title: string,
   nodes: GraphNode[],
-  edges: GraphEdge[]
+  edges: GraphEdge[],
+  category?: string | null
 ): string | null {
-  const hood = graphNeighborhood(title, nodes, edges, 1)
+  const hood = graphNeighborhood(title, nodes, edges, 1, graphNodeTypeForWikiCategory(category))
   if (!hood || hood.neighbors.length === 0) return null
   // Reuse the neighborhood we just computed rather than calling pageConnections
   // (which would walk the graph a second time).

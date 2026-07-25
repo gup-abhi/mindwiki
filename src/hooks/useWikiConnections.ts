@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 
 import { pageConnections } from '@/services/graph/neighborhood'
-import { listNodes, listEdges } from '@/services/storage/graph'
+import { type GraphEdge, type GraphNode, listNodes, listEdges } from '@/services/storage/graph'
 import { listPages, type WikiPage } from '@/services/storage/wiki'
+import { type Result } from '@/types/result'
 import { useSyncStore } from '@/store/sync.store'
 
 export type WikiConnectionsStatus = 'loading' | 'loaded' | 'error'
@@ -25,7 +26,7 @@ export interface WikiConnectionsData {
  *
  * Pure: does NOT import or render any UI.
  */
-export function useWikiConnections(title: string): WikiConnectionsData {
+export function useWikiConnections(title: string, category?: string | null): WikiConnectionsData {
   const revision = useSyncStore((s) => s.revision)
   const [data, setData] = useState<WikiConnectionsData>({
     status: 'loading',
@@ -36,6 +37,7 @@ export function useWikiConnections(title: string): WikiConnectionsData {
 
   useEffect(() => {
     let active = true
+    setData({ status: 'loading', labels: [], pages: [], error: null })
 
     void (async () => {
       const results = await Promise.allSettled([
@@ -72,14 +74,16 @@ export function useWikiConnections(title: string): WikiConnectionsData {
         return
       }
 
-      const nodes = (nodeRes as PromiseFulfilledResult<any>).value.data ?? []
-      const edges = (edgeRes as PromiseFulfilledResult<any>).value.data ?? []
-      const allPages = (pageRes as PromiseFulfilledResult<any>).value.data ?? []
-      const live = allPages.filter(
-        (p: WikiPage) => p.dismissed_at == null && p.merged_into == null
-      )
+      const nodeValue = nodeRes as PromiseFulfilledResult<Result<GraphNode[]>>
+      const edgeValue = edgeRes as PromiseFulfilledResult<Result<GraphEdge[]>>
+      const pageValue = pageRes as PromiseFulfilledResult<Result<WikiPage[]>>
+      if (!nodeValue.value.success || !edgeValue.value.success || !pageValue.value.success) return
+      const nodes = nodeValue.value.data
+      const edges = edgeValue.value.data
+      const allPages = pageValue.value.data
+      const live = allPages.filter((p: WikiPage) => p.dismissed_at == null && p.merged_into == null)
 
-      const labels = pageConnections(title, nodes, edges)
+      const labels = pageConnections(title, nodes, edges, category)
 
       setData({
         status: 'loaded',
@@ -92,7 +96,7 @@ export function useWikiConnections(title: string): WikiConnectionsData {
     return () => {
       active = false
     }
-  }, [title, revision])
+  }, [title, category, revision])
 
   return data
 }

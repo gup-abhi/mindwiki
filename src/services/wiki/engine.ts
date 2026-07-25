@@ -11,6 +11,8 @@ import {
   createPage,
   updatePage,
   updatePageCAS,
+  updatePageCASWithContribution,
+  updatePageCASWithContributions,
   ticklePageCount,
   regeneratePageContentWithAggregate,
   regeneratePageContent,
@@ -19,7 +21,7 @@ import {
 } from '@/services/storage/wiki'
 import { buildEmotionAggregate } from '@/services/wiki/aggregates'
 import { stripConnectionProse } from '@/services/wiki/cleanup'
-import { insertContribution, insertMissingReceipts } from '@/services/storage/wiki-contributions'
+import { hasContribution, insertMissingReceipts } from '@/services/storage/wiki-contributions'
 import { type Result, ok, err } from '@/types/result'
 
 export interface Topic {
@@ -104,6 +106,25 @@ const RE_GROUND_AGE_MS = 24 * 60 * 60 * 1000
  * released when the chain drains.
  */
 const pageSynthesisQueues = new Map<string, Promise<void>>()
+
+async function hasCommittedContribution(entryId: string, pageId: string): Promise<boolean> {
+  if (typeof hasContribution !== 'function') return false
+  const receipt = await hasContribution(entryId, pageId)
+  return receipt != null && receipt.success && receipt.data
+}
+
+async function applyEntryPage(
+  pageId: string,
+  content: string,
+  baseVersion: number,
+  entryId: string
+): Promise<Result<{ page: WikiPage | null; affected: number; skipped?: boolean }>> {
+  if (typeof updatePageCASWithContribution === 'function') {
+    return updatePageCASWithContribution(pageId, content, baseVersion, {}, entryId)
+  }
+  const applied = await updatePageCAS(pageId, content, baseVersion, {}, undefined)
+  return applied
+}
 
 function serializedPageSynthesis<T>(pageId: string, work: () => Promise<T>): Promise<T> {
   const prev = pageSynthesisQueues.get(pageId) ?? Promise.resolve()
@@ -246,6 +267,12 @@ export async function updateWikiForEntry(
       continue
     }
 
+    // A durable receipt means this entry/page contribution already committed.
+    // Skip before model work so catch-up cannot re-synthesize or increment twice.
+    if (page) {
+      if (await hasCommittedContribution(entry.id, page.id)) continue
+    }
+
     // Synthesize first. A failed synthesis must never leave a blank, 0-entry
     // page behind (it would surface as an empty wiki page), so a brand-new page
     // is only created once we actually have content for it.
@@ -289,14 +316,18 @@ export async function updateWikiForEntry(
       Date.now() - page.created_at > RE_GROUND_AGE_MS
 
     // Capture base version BEFORE synthesis so CAS can detect race.
-    // For existing pages only — new pages use non-CAS update (no race possible).
+    // Existing pages use CAS; new pages are protected by the DB title invariant.
     const baseVersion = page?.version ?? 0
 
     let synth: Result<string>
+    let reGroundSourceIds: string[] | undefined
     if (isReGround) {
       // F-01 Slice 6 — all-source stratified evidence
       const allRes = await listAllSourceEntriesForPage(effectiveTitle, category, undefined)
       const corpus = allRes.success ? allRes.data : []
+      // Watermark only when source selection actually returned evidence. A
+      // failed/empty source read must remain due for a later retry.
+      reGroundSourceIds = allRes.success && corpus.length > 0 ? corpus.map((e) => e.id) : undefined
       const historicalSamples = selectReGroundEvidence(corpus, {
         max: 6,
         excludeIds: new Set([entry.id]),
@@ -362,45 +393,76 @@ export async function updateWikiForEntry(
         continue
       }
       pageId = created.data.id
-      // New page — no race possible. Apply directly (no CAS) and record receipt.
-      const applied = await updatePage(pageId, synth.data)
-      if (applied.success) {
+      // A uniqueness-conflict create returns the existing winner. Do not apply
+      // synthesis built from an absent page onto that winner; next catch-up pass
+      // will take the normal CAS/re-synthesis path.
+      if (created.data.version != null && created.data.version !== 1) continue
+      // New page starts at version 1. Use CAS so page content, receipt, and
+      // sync queue commit together; a competing creator cannot overwrite it.
+      const applied = typeof updatePageCASWithContribution === 'function'
+        ? await applyEntryPage(pageId, synth.data, created.data.version, entry.id)
+        : await updatePage(pageId, synth.data)
+      if (applied.success && (!('affected' in applied.data) || applied.data.affected === 1)) {
         updated.push(topic.title)
-      } else if (__DEV__) {
+      } else if (__DEV__ && !applied.success) {
         console.log(`[wiki] update failed: ${applied.error.code}`)
       }
-      await insertContribution(entry.id, pageId, undefined)
       continue
     }
 
     // Existing page — serialise synth + CAS apply per page id so two concurrent
     // calls on the same page (tag-triggered pass + scan loop) see a consistent version.
     await serializedPageSynthesis(pageId, async () => {
-      const casResult = await updatePageCAS(pageId!, synth.data, baseVersion, {}, undefined)
+      const casResult = reGroundSourceIds && typeof updatePageCASWithContributions === 'function'
+        ? await updatePageCASWithContributions(
+            pageId,
+            synth.data,
+            baseVersion,
+            { regrounded_upto: sourceCount },
+            reGroundSourceIds
+          )
+        : await applyEntryPage(pageId, synth.data, baseVersion, entry.id)
       if (!casResult.success) {
         if (__DEV__) console.log(`[wiki] CAS failed: ${casResult.error.code}`)
         return
       }
-      if (casResult.data.affected === 0) {
-        // Stale — someone else wrote while we were synthesising. Retry once:
-        // re-read the page, mark this entry as contributing, then re-apply
-        // without CAS (serialised queue prevents second stale).
-        const freshPage = await getPage(pageId!, undefined)
-        if (!freshPage.success || freshPage.data == null) {
-          if (__DEV__) console.log('[wiki] CAS retry — page vanished')
-          return
-        }
-        const retryUpdate = await updatePage(pageId!, synth.data, undefined)
-        if (retryUpdate.success) {
-          updated.push(topic.title)
-        }
-      } else {
+      if (casResult.data.affected === 1) {
         updated.push(topic.title)
+        return
       }
+      if (casResult.data.skipped) return
 
-      // Record the contribution receipt so catch-up / scan loop know this
-      // entry already shaped this page.
-      await insertContribution(entry.id, pageId!, undefined)
+      // Stale — never apply stale content. Re-read and re-synthesize from the
+      // current page, then retry CAS once. A second stale result is left for
+      // later catch-up; it cannot overwrite a newer correction.
+      const freshPage = await getPage(pageId, undefined)
+      if (!freshPage.success || freshPage.data == null) return
+      const fresh = freshPage.data
+      const retrySynth = await synthesizePage({
+        title: fresh.title,
+        category: fresh.category ?? topic.category,
+        existingContent: fresh.dismissed_at == null ? fresh.content : '',
+        situation: entry.situation,
+        thought: entry.thought,
+        closingNote: entry.closing_note,
+        behavior: entry.behavior,
+        distortion: entry.distortion,
+        reframe,
+        timing: fresh.content
+          ? computeTiming({ pageUpdatedAt: fresh.updated_at || null, entryCreatedAt: entry.created_at, now: Date.now() })
+          : null,
+      })
+      if (!retrySynth.success) return
+      const retry = reGroundSourceIds && typeof updatePageCASWithContributions === 'function'
+        ? await updatePageCASWithContributions(
+            pageId,
+            retrySynth.data,
+            fresh.version,
+            { regrounded_upto: await sourceCountForPage(fresh.title, fresh.category) },
+            reGroundSourceIds
+          )
+        : await applyEntryPage(pageId, retrySynth.data, fresh.version, entry.id)
+      if (retry.success && retry.data.affected === 1) updated.push(topic.title)
     })
   }
 
@@ -476,8 +538,6 @@ export async function scanReGroundDuePages(): Promise<Result<number>> {
           entryCreatedAt: 0,
           now: Date.now(),
         })
-        if (timing == null) return
-
         const synth = await synthesizePageReGround({
           title: p.title,
           category: p.category,
@@ -501,16 +561,20 @@ export async function scanReGroundDuePages(): Promise<Result<number>> {
 
         // CAS — entry_count stays unchanged (the scan doesn't represent a new
         // entry). Use the current entry_count as the CAS payload.
-        const casResult = await updatePageCAS(p.id, synth.data, p.version, { entry_count: p.entry_count }, undefined)
-        if (!casResult.success) return
-        if (casResult.data.affected === 0) {
-          // Stale retry once
-          const stalePage = await getPage(p.id, undefined)
-          if (!stalePage.success || stalePage.data == null) return
-          const retry = await updatePage(p.id, synth.data, undefined)
-          if (!retry.success) return
+        const entryIds = corpus.map((e) => e.id)
+        const casResult = typeof updatePageCASWithContributions === 'function'
+          ? await updatePageCASWithContributions(
+              p.id,
+              synth.data,
+              p.version,
+              { entry_count: p.entry_count, regrounded_upto: freshSourceCount },
+              entryIds
+            )
+          : await updatePageCAS(p.id, synth.data, p.version, { entry_count: p.entry_count })
+        if (!casResult.success || casResult.data.affected === 0) return
+        if (typeof updatePageCASWithContributions !== 'function') {
+          await insertMissingReceipts(entryIds, p.id, undefined)
         }
-        await insertMissingReceipts(corpus.map((e) => e.id), p.id, undefined)
         reGrounded++
       })
     }

@@ -120,6 +120,20 @@ describe('pageConnections', () => {
   it('matches by case-insensitive label', () => {
     expect(pageConnections('anxiety', nodes, edges)).toEqual(['Work'])
   })
+
+  it('uses wiki category to disambiguate same-label graph nodes', () => {
+    const situation = { ...node('situation-work', 'Work', 1), type: 'situation' as const }
+    const place = { ...node('place-work', 'Work', 20), type: 'place' as const }
+    const situationNeighbor = node('situation-neighbor', 'Planning', 1)
+    const placeNeighbor = node('place-neighbor', 'Office', 1)
+    const categoryNodes = [situation, place, situationNeighbor, placeNeighbor]
+    const categoryEdges = [
+      edge('situation-edge', situation.id, situationNeighbor.id),
+      edge('place-edge', place.id, placeNeighbor.id),
+    ]
+
+    expect(pageConnections('Work', categoryNodes, categoryEdges, 'theme')).toEqual(['Planning'])
+  })
 })
 
 // ── F-04a: weight-before-frequency sort ───────────────────────────────────

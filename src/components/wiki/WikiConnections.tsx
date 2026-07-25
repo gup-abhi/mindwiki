@@ -22,10 +22,10 @@ import { useWikiConnections } from '@/hooks/useWikiConnections'
  *   - loaded, empty labels → null (the node has no neighbours — normal)
  *   - loaded, labels present → block with tappable chips
  */
-export function WikiConnections({ title }: { title: string }) {
+export function WikiConnections({ title, category }: { title: string; category?: string | null }) {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { status, labels, pages, error } = useWikiConnections(title)
+  const { status, labels, pages, error } = useWikiConnections(title, category)
 
   if (status === 'loading') return null
 
