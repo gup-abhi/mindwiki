@@ -141,6 +141,7 @@ export async function extractEntry(
     distortion,
     distortion_confidence: parsed.data.distortion_confidence,
     mood_score: parsed.data.mood_score,
+    is_self_relevant: parsed.data.is_self_relevant,
     topics,
     people: normalizeEntities(parsed.data.people),
     places: normalizeEntities(parsed.data.places),
@@ -396,6 +397,7 @@ function scrubReply(text: string, banEndingQuestion: boolean): string {
   let parts = sentencesOf(text).filter((s) => !ANNOUNCE_RE.test(s) && !isDeflection(s))
   if (banEndingQuestion) {
     while (parts.length > 1 && ENDS_WITH_QUESTION_RE.test(parts[parts.length - 1])) parts.pop()
+    if (parts.length === 1 && ENDS_WITH_QUESTION_RE.test(parts[0])) return ''
   }
   const out = parts.join('').trim()
   return out.length > 0 ? out : text.trim()
@@ -551,6 +553,9 @@ export async function converseFromWiki(
       text = cleaned.length > 0 ? cleaned : scrubReply(trimToSentence(second), banEndingQuestion)
     } catch {
       text = scrubReply(trimToSentence(raw), banEndingQuestion)
+    }
+    if (banEndingQuestion && (text.length === 0 || ENDS_WITH_QUESTION_RE.test(text))) {
+      text = 'That sounds like something you are carrying closely right now.'
     }
   }
 

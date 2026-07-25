@@ -235,6 +235,7 @@ const extract = (topic: string) => ({
     distortion: 'none',
     distortion_confidence: 0,
     mood_score: 0.4,
+    is_self_relevant: true,
     topics: [topic],
     people: [],
     places: [],

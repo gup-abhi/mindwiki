@@ -1,4 +1,6 @@
 import { assessCrisis, type CrisisAssessment } from '@/services/crisis/detector'
+import { sha256 } from '@noble/hashes/sha256'
+import { bytesToHex } from '@noble/hashes/utils'
 import { scoreCrisis } from '@/services/llm/fast-model'
 import { extractEntry } from '@/services/llm/deep-model'
 import { type EntryExtract } from '@/services/llm/schemas/entry-extract.schema'
@@ -344,6 +346,20 @@ interface PendingReflectTheme {
   last: number
   /** Parked first-mention text; null once ingested (or for legacy counters). */
   first: string | null
+  /** Gate-passing current mention, retained until its entry is confirmed. */
+  current?: string | null
+}
+
+const reflectCaptureKey = (theme: string, text: string) =>
+  `reflect:capture:${bytesToHex(sha256(new TextEncoder().encode(`${theme}\n${text}`)))}`
+
+async function ingestReflectOnce(theme: string, text: string, ex: EntryExtract): Promise<boolean> {
+  const marker = await getSetting(reflectCaptureKey(theme, text))
+  if (marker.success && marker.data === 'done') return true
+  const ingested = await ingestReflectStatement(text, ex)
+  if (!ingested) return false
+  await setSetting(reflectCaptureKey(theme, text), 'done')
+  return true
 }
 
 function parsePendingTheme(raw: string | null): PendingReflectTheme | null {
@@ -354,11 +370,12 @@ function parsePendingTheme(raw: string | null): PendingReflectTheme | null {
     // there's nothing to recover; keep the count and treat it as fresh.
     if (typeof v === 'number') return { count: v, last: Date.now(), first: null }
     if (v && typeof v === 'object' && typeof (v as PendingReflectTheme).count === 'number') {
-      const p = v as { count: number; last?: unknown; first?: unknown }
+      const p = v as { count: number; last?: unknown; first?: unknown; current?: unknown }
       return {
         count: p.count,
         last: typeof p.last === 'number' ? p.last : 0,
         first: typeof p.first === 'string' ? p.first : null,
+        current: typeof p.current === 'string' ? p.current : null,
       }
     }
   } catch {
@@ -411,10 +428,32 @@ async function ingestReflectStatement(text: string, ex: EntryExtract): Promise<b
 const pendingCaptures: { message: string; context: string | null }[] = []
 let flushingCaptures = false
 let capturesPaused = false
+const REFLECT_CAPTURE_QUEUE_KEY = 'reflect:capture_queue'
 
-/** Park a Reflect message for capture after the conversation goes idle. */
+async function readDurableCaptureQueue(): Promise<{ message: string; context: string | null }[]> {
+  const stored = await getSetting(REFLECT_CAPTURE_QUEUE_KEY)
+  if (!stored.success || !stored.data) return []
+  try {
+    const parsed: unknown = JSON.parse(stored.data)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (item): item is { message: string; context: string | null } =>
+        !!item && typeof item === 'object' && typeof (item as { message?: unknown }).message === 'string'
+    )
+  } catch {
+    return []
+  }
+}
+
+/** Park a Reflect message durably for capture after conversation goes idle. */
 export function queueReflectCapture(message: string, context?: string | null): void {
-  pendingCaptures.push({ message, context: context ?? null })
+  const item = { message, context: context ?? null }
+  pendingCaptures.push(item)
+  void readDurableCaptureQueue().then((queue) => {
+    if (!queue.some((entry) => entry.message === item.message && entry.context === item.context)) {
+      void setSetting(REFLECT_CAPTURE_QUEUE_KEY, JSON.stringify([...queue, item]))
+    }
+  })
 }
 
 /**
@@ -443,12 +482,25 @@ export async function flushReflectCaptures(): Promise<void> {
   if (flushingCaptures) return
   flushingCaptures = true
   try {
+    const durable = await readDurableCaptureQueue()
+    for (const item of durable) {
+      if (!pendingCaptures.some((entry) => entry.message === item.message && entry.context === item.context)) {
+        pendingCaptures.push(item)
+      }
+    }
     while (pendingCaptures.length > 0 && !capturesPaused) {
-      const next = pendingCaptures.shift()!
+      const next = pendingCaptures[0]
       try {
         await captureReflectMessage(next.message, next.context)
+        pendingCaptures.shift()
+        const remaining = await readDurableCaptureQueue()
+        const index = remaining.findIndex((entry) => entry.message === next.message && entry.context === next.context)
+        if (index >= 0) remaining.splice(index, 1)
+        await setSetting(REFLECT_CAPTURE_QUEUE_KEY, JSON.stringify(remaining))
       } catch {
-        // best-effort: a bad message never blocks the rest of the queue
+        // Keep failed item durable; continue with later items now and retry this
+        // one on the next blur/startup.
+        pendingCaptures.shift()
       }
     }
   } finally {
@@ -470,6 +522,7 @@ export async function captureReflectMessage(
     { restate: true, context: conversationContext }
   )
   if (!ex.success) return
+  if (!ex.data.is_self_relevant) return
 
   const theme = ex.data.topics[0]?.trim()
   if (!theme || theme.toLowerCase() === 'none') return // no trackable statement
@@ -490,20 +543,22 @@ export async function captureReflectMessage(
     return
   }
 
-  // Gate passed: ingest the parked first mention (re-extracted for its own
-  // tags/mood — one extra deep-model run, once per theme ever), then this one.
-  // Its conversation is long gone, so it restates without context.
-  // A failed parked ingest keeps the text parked so the next mention retries.
+  // Gate passed: retain both messages durably before inference/indexing. This
+  // makes app-kill recovery at-least-once; per-message markers make retries
+  // exactly-once for entry creation.
   let parked = pending?.first ?? null
+  let current: string | null = pending?.current ?? message
+  await setSetting(key, JSON.stringify({ count, last: now, first: parked, current }))
+
   if (parked) {
     const parkedEx = await extractEntry({ situation: parked, thought: '' }, { restate: true })
-    if (parkedEx.success && (await ingestReflectStatement(parked, parkedEx.data))) {
-      parked = null
-    }
+    if (parkedEx.success && (await ingestReflectOnce(theme, parked, parkedEx.data))) parked = null
   }
-  await setSetting(key, JSON.stringify({ count, last: now, first: parked }))
 
-  await ingestReflectStatement(message, ex.data)
+  const currentEx = current === message ? ex : await extractEntry({ situation: current, thought: '' }, { restate: true })
+  if (currentEx.success && (await ingestReflectOnce(theme, current, currentEx.data))) current = null
+
+  await setSetting(key, JSON.stringify({ count, last: now, first: parked, current }))
 }
 
 export interface PathCaptureResult {

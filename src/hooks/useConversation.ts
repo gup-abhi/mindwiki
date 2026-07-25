@@ -37,6 +37,7 @@ const REPLY_FAILED = 'Something went wrong — please try again.'
 // Shown when a resumed thread ends on a user message whose reply never landed
 // (the app was closed mid-generation). Reuses the failed-reply retry affordance.
 const REPLY_INTERRUPTED = 'This reply didn’t finish. Tap to try again.'
+const SUMMARY_CONTEXT_LIMIT = 2400
 
 // Module-level generation tracking, surviving screen unmount/remount. Leaving the
 // Reflect screen mid-reply does NOT cancel the in-flight generation (the reply
@@ -80,6 +81,9 @@ const CRISIS_REPLY =
  * Background, best-effort.
  */
 async function refreshSummary(conversationId: string): Promise<void> {
+  const requestSummary = useChatStore.getState().summary
+  const requestCount = useChatStore.getState().summaryCount
+  const requestRevision = useChatStore.getState().summaryRevision
   const msgs = await listMessages(conversationId)
   if (!msgs.success) return
   const thread: ChatMessage[] = msgs.data.map((m) => ({ role: m.role, content: m.content }))
@@ -91,7 +95,14 @@ async function refreshSummary(conversationId: string): Promise<void> {
   if (upd.success && upd.data) {
     const { summary, summaryCount } = upd.data
     const store = useChatStore.getState()
+    if (
+      store.conversationId !== conversationId ||
+      store.summary !== requestSummary ||
+      store.summaryCount !== requestCount ||
+      store.summaryRevision !== requestRevision
+    ) return
     store.setSummary(summary, summaryCount)
+    store.setSummaryCrisisTier(0)
 
     // Soft distress check over the rolling summary, using the fast model. The
     // summary spans many turns, so it can surface cumulative distress that no
@@ -100,10 +111,14 @@ async function refreshSummary(conversationId: string): Promise<void> {
     // resources via a quiet card in the Reflect screen.
     void scoreSummaryCrisis(summary).then((crisis) => {
       if (!crisis.success) return
+      const current = useChatStore.getState()
+      if (
+        current.conversationId !== conversationId ||
+        current.summary !== summary ||
+        current.summaryCount !== summaryCount
+      ) return
       const { tier } = assessCrisis(summary, crisis.data.crisis_confidence)
-      if (tier > 0) {
-        useChatStore.getState().setSummaryCrisisTier(tier)
-      }
+      current.setSummaryCrisisTier(tier)
     })
   }
 }
@@ -327,6 +342,7 @@ export function useConversation(initialQuestion?: string) {
           const combined = top
             .map((c) => `— From a previous conversation —\n${c.summary.trim()}`)
             .join('\n\n')
+            .slice(0, SUMMARY_CONTEXT_LIMIT)
           // summaryCount means "messages of THIS new thread already folded into the
           // recap" — a seed from PRIOR conversations has folded none of the new
           // thread, so it must start at 0. Using the prior conversations' counts

@@ -94,6 +94,7 @@ const extract = (over: Record<string, unknown> = {}) =>
     distortion: 'none',
     distortion_confidence: 0,
     mood_score: 0.4,
+    is_self_relevant: true,
     topics: ['Work'],
     people: [],
     places: [],
@@ -292,6 +293,13 @@ describe('captureReflectMessage', () => {
     mockSetSetting.mockResolvedValue({ success: true, data: undefined })
   })
 
+  it('rejects pure informational Reflect questions even with a topic', async () => {
+    mockExtractEntry.mockResolvedValue(extract({ topics: ['Sadness triggers'], is_self_relevant: false }))
+    await captureReflectMessage('What are sadness triggers?')
+    expect(mockGetSetting).not.toHaveBeenCalled()
+    expect(mockCreateEntry).not.toHaveBeenCalled()
+  })
+
   it('extracts a question but never ingests it (recurrence gate — one-off query)', async () => {
     mockExtractEntry.mockResolvedValue(extract({ topics: ['Sadness triggers'] }))
 
@@ -362,8 +370,8 @@ describe('captureReflectMessage', () => {
       source: 'reflect',
     })
     // Stash cleared so the first mention is never ingested twice.
-    const [, raw] = mockSetSetting.mock.calls[0]
-    expect(JSON.parse(raw)).toMatchObject({ count: 2, first: null })
+    const [, raw] = mockSetSetting.mock.calls.at(-1)
+    expect(JSON.parse(raw)).toMatchObject({ count: 2, first: null, current: null })
   })
 
   it('stores the distilled restatement as situation, keeping the raw message for provenance', async () => {

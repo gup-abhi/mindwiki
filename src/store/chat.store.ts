@@ -25,6 +25,7 @@ export interface ChatState {
   /** Rolling recap of earlier turns + how many messages it covers. */
   summary: string
   summaryCount: number
+  summaryRevision: number
   /** Distress tier from the rolling summary, scored on refresh (0 = no signal).
    *  Never interrupts the conversation — the screen quietly surfaces resources. */
   summaryCrisisTier: number
@@ -50,6 +51,7 @@ export const useChatStore = create<ChatState>()(
     sending: false,
     summary: '',
     summaryCount: 0,
+    summaryRevision: 0,
     summaryCrisisTier: 0,
     reset: () =>
       set((s) => {
@@ -59,6 +61,7 @@ export const useChatStore = create<ChatState>()(
         s.sending = false
         s.summary = ''
         s.summaryCount = 0
+        s.summaryRevision = 0
         s.summaryCrisisTier = 0
       }),
     load: (conversationId, messages, summary, summaryCount) =>
@@ -69,6 +72,7 @@ export const useChatStore = create<ChatState>()(
         s.sending = false
         s.summary = summary
         s.summaryCount = summaryCount
+        s.summaryRevision += 1
         s.summaryCrisisTier = 0
       }),
     setConversationId: (id) =>
@@ -96,6 +100,7 @@ export const useChatStore = create<ChatState>()(
       set((s) => {
         s.summary = summary
         s.summaryCount = summaryCount
+        s.summaryRevision += 1
       }),
     setSummaryCrisisTier: (tier) =>
       set((s) => {
