@@ -97,4 +97,51 @@ describe('registry', () => {
     expect(sql).toContain('ADD COLUMN graph_indexed_at')
     expect(sql).toContain('SET graph_indexed_at = tagged_at WHERE tagged_at IS NOT NULL')
   })
+
+  it('registers migration 030 — regrounded_upto + wiki_page_contributions', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 30)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('wiki_reground_upto')
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('ADD COLUMN regrounded_upto')
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS wiki_page_contributions')
+    expect(sql).toContain('entry_id')
+    expect(sql).toContain('page_id')
+    expect(sql).toContain('UNIQUE (entry_id, page_id)')
+  })
+
+  it('registers migration 031 adding entry_entities.canonical_label + updated_at (F-02B)', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 31)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('entry_entities_effective_label')
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('ALTER TABLE entry_entities ADD COLUMN canonical_label TEXT NULL')
+    expect(sql).toContain('ALTER TABLE entry_entities ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0')
+    // Backfill: pre-F-02B rows get updated_at = created_at so they stay syncable
+    // (LWW watermark) before any canonicalization bump lands. Source rows (id /
+    // label / created_at) are not rewritten — never copy the row, never delete.
+    expect(sql).toContain('UPDATE entry_entities SET updated_at = created_at WHERE updated_at = 0')
+  })
+
+  it('registers migration 032 — belief_maintenance_state table with journal-row key plus seeded belief row (F-02C dry-run gate)', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 32)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('belief_maintenance_state')
+    const sql = m!.statements.join('\n')
+    // The maintenance pass is restart-safe and rerun-gated: full state lives
+    // in this table (algorithm_version + source_generation vs processed_generation).
+    // Count-only — no label text or label-derived hashes persist here.
+    expect(sql).toContain('CREATE TABLE belief_maintenance_state')
+    expect(sql).toContain("INSERT INTO belief_maintenance_state (key) VALUES ('belief')")
+  })
+
+  it('registers migration 033 — consolidated_clusters column in belief_maintenance_state (F-02C Slice 8)', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 33)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('belief_maintenance_consolidated_clusters')
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('ALTER TABLE belief_maintenance_state')
+    expect(sql).toContain('ADD COLUMN consolidated_clusters')
+    expect(sql).toContain('INTEGER NOT NULL DEFAULT 0')
+  })
 })

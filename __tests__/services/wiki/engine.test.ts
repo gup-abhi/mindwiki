@@ -11,6 +11,7 @@ import {
   getPageByTitle,
   createPage,
   updatePage,
+  updatePageCAS,
   ticklePageCount,
   setAggregatedUpto,
   listPages,
@@ -42,15 +43,25 @@ jest.mock('@/services/storage/wiki', () => ({
   getPageByTitle: jest.fn(),
   createPage: jest.fn(),
   updatePage: jest.fn(),
+  updatePageCAS: jest.fn(),
   ticklePageCount: jest.fn(),
   setAggregatedUpto: jest.fn(),
   regeneratePageContent: jest.fn(),
   regeneratePageContentWithAggregate: jest.fn(),
   listPages: jest.fn(),
 }))
+jest.mock('@/services/storage/wiki-contributions', () => ({
+  insertContribution: jest.fn(),
+  insertMissingReceipts: jest.fn(),
+  hasContribution: jest.fn(),
+}))
 jest.mock('@/services/storage/entities', () => ({
   listEntitiesForEntry: jest.fn(),
   countEntriesForEntity: jest.fn(),
+  effectiveLabel: (e: { label: string; canonical_label?: string | null }) => {
+    const canon = (e.canonical_label ?? '').trim()
+    return canon.length > 0 ? canon : e.label
+  },
 }))
 jest.mock('@/services/storage/reframes', () => ({ listReframesForBelief: jest.fn() }))
 jest.mock('@/services/storage/graph', () => ({
@@ -76,9 +87,13 @@ const mockSetAggUpto = setAggregatedUpto as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
 const mockCountEntity = countEntriesForEntity as jest.Mock
 const mockListReframes = listReframesForBelief as jest.Mock
+import { insertContribution, insertMissingReceipts } from '@/services/storage/wiki-contributions'
+const mockUpdateCAS = updatePageCAS as jest.Mock
 const mockListNodes = listNodes as jest.Mock
 const mockListEdges = listEdges as jest.Mock
 const mockConnectionLine = connectionLine as jest.Mock
+const mockInsertContribution = insertContribution as jest.Mock
+const mockInsertMissingReceipts = insertMissingReceipts as jest.Mock
 
 // Entry-query mocks used by re-grounding (sampleEntriesForPage). These override
 // the real functions imported by engine.ts. Type-only imports (type Entry) are
@@ -88,6 +103,9 @@ jest.mock('@/services/storage/entries', () => ({
   listEntriesByDistortion: jest.fn(),
   listEntriesByTopicOrTopic2: jest.fn(),
   listEntriesForEntity: jest.fn(),
+  listEntriesByEmotionAllSources: jest.fn(),
+  listEntriesByDistortionAllSources: jest.fn(),
+  listEntriesForEntityAllSources: jest.fn(),
 }))
 jest.mock('@/services/storage/settings', () => ({
   getSetting: jest.fn(),
@@ -99,6 +117,28 @@ const mockEntriesByEmotion = (listEntriesByEmotion as unknown as jest.Mock)
 const mockEntriesByDistortion = (listEntriesByDistortion as unknown as jest.Mock)
 const mockEntriesByTopic = (listEntriesByTopicOrTopic2 as unknown as jest.Mock)
 const mockEntriesForEntity = (listEntriesForEntity as unknown as jest.Mock)
+import {
+  listEntriesByEmotionAllSources,
+  listEntriesByDistortionAllSources,
+  listEntriesByTopicOrTopic2 as listEntriesByAnyTopic,
+  listEntriesForEntityAllSources,
+} from '@/services/storage/entries'
+const mockEntriesByEmotionAll = (listEntriesByEmotionAllSources as unknown as jest.Mock)
+const mockEntriesByDistortionAll = (listEntriesByDistortionAllSources as unknown as jest.Mock)
+const mockEntriesByAnyTopic = (listEntriesByAnyTopic as unknown as jest.Mock)
+const mockEntriesForEntityAll = (listEntriesForEntityAllSources as unknown as jest.Mock)
+
+// F-01 Slice 6: re-ground evidence now flows through `listAllSourceEntriesForPage`
+// which calls the *AllSources storage variants. The legacy journal-only mocks
+// are kept for the recurrence/entity-count code paths; re-ground tests
+// additionally seed the all-source mocks so they see the same fixture.
+const seedReGroundEvidence = (entries: Partial<Entry>[]) => {
+  const asEntries = entries as Entry[]
+  mockEntriesByEmotionAll.mockResolvedValue(ok(asEntries))
+  mockEntriesByDistortionAll.mockResolvedValue(ok(asEntries))
+  mockEntriesByAnyTopic.mockResolvedValue(ok(asEntries))
+  mockEntriesForEntityAll.mockResolvedValue(ok(asEntries))
+}
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -184,26 +224,37 @@ describe('updateWikiForEntry', () => {
     mockListPages.mockResolvedValue(ok([]))                // no pages by default
     mockGetSetting.mockReset().mockResolvedValue(ok(null))   // trigger counter starts at 0
     mockSetSetting.mockReset().mockResolvedValue(ok(undefined))
+    mockUpdateCAS.mockReset()
+    mockUpdateCAS.mockResolvedValue(ok({ page: { id: 'p1' }, affected: 1 }))
+    mockInsertContribution.mockReset()
+    mockInsertContribution.mockResolvedValue(ok({ inserted: true }))
+    mockInsertMissingReceipts.mockReset()
+    mockInsertMissingReceipts.mockResolvedValue(ok({ inserted: 0 }))
+    // F-01 Slice 7b: all-source mocks default to empty so non-re-ground tests
+    // don't inadvertently trigger re-ground (sourceCount − regrounded_upto >= 10).
+    seedReGroundEvidence([])
   })
 
   it('creates a new page when none exists, then synthesizes and updates it', async () => {
     mockGetByTitle.mockResolvedValue(ok(null))
-    mockCreate.mockImplementation(async (input) => ok({ id: 'p', title: input.title, category: input.category, content: '' }))
+    mockCreate.mockImplementation(async (input) => ok({ id: 'p', title: input.title, category: input.category, content: '', version: 1 }))
 
     const result = await updateWikiForEntry(entry({ emotion: null }))
 
     expect(mockCreate).toHaveBeenCalledWith({ title: 'Catastrophizing', category: 'distortion' })
+    // New page: uses non-CAS update (no race possible)
     expect(mockUpdate).toHaveBeenCalledWith('p', 'synthesized content')
     expect(result.success && result.data).toEqual(['Catastrophizing'])
   })
 
   it('updates an existing page without recreating it', async () => {
-    mockGetByTitle.mockResolvedValue(ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'old' }))
+    mockGetByTitle.mockResolvedValue(ok({ id: 'p9', title: 'Catastrophizing', category: 'distortion', content: 'old', version: 7 }))
 
     const result = await updateWikiForEntry(entry({ emotion: null }))
 
     expect(mockCreate).not.toHaveBeenCalled()
-    expect(mockUpdate).toHaveBeenCalledWith('p9', 'synthesized content')
+    // Existing page: uses CAS path
+    expect(mockUpdateCAS).toHaveBeenCalledWith('p9', 'synthesized content', 7, {}, undefined)
     expect(result.success && result.data).toEqual(['Catastrophizing'])
   })
 
@@ -225,7 +276,7 @@ describe('updateWikiForEntry', () => {
       expect.objectContaining({ title: 'Work stress', existingContent: 'live take' })
     )
     expect(mockCreate).not.toHaveBeenCalled()
-    expect(mockUpdate).toHaveBeenCalledWith('survivor', 'synthesized content')
+    expect(mockUpdateCAS).toHaveBeenCalledWith('survivor', 'synthesized content', expect.any(Number), {}, undefined)
     expect(result.success && result.data).toEqual(['Job pressure'])
   })
 
@@ -238,7 +289,7 @@ describe('updateWikiForEntry', () => {
 
     // synthesized fresh — the dismissed content is NOT fed back in
     expect(mockSynth).toHaveBeenCalledWith(expect.objectContaining({ existingContent: '' }))
-    expect(mockUpdate).toHaveBeenCalledWith('p9', 'synthesized content') // updatePage clears the flag
+    expect(mockUpdateCAS).toHaveBeenCalledWith('p9', 'synthesized content', expect.any(Number), {}, undefined)
   })
 
   it('builds on existing content for an active (non-dismissed) page', async () => {
@@ -257,7 +308,7 @@ describe('updateWikiForEntry', () => {
 
     const result = await updateWikiForEntry(entry({ emotion: null }))
 
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateCAS).not.toHaveBeenCalled()
     expect(result.success && result.data).toEqual([])
   })
 
@@ -341,13 +392,13 @@ describe('updateWikiForEntry', () => {
     expect(mockListReframes).not.toHaveBeenCalled()
   })
 
-  describe('re-grounding (every 10 entries)', () => {
+  describe('re-grounding (every 10 entries — sourceCount-based)', () => {
     const oldPage = (over: Partial<WikiPage> = {}): WikiPage => ({
       id: 'p9',
       title: 'Catastrophizing',
       category: 'distortion',
       content: 'You tend to assume worst-case outcomes.',
-      entry_count: 10,                  // triggers re-grounding
+      entry_count: 10,
       version: 7,
       version_history: [],
       created_at: Date.now() - 2 * 24 * 60 * 60 * 1000, // older than 24h
@@ -356,19 +407,33 @@ describe('updateWikiForEntry', () => {
       corrected_at: null,
       merged_into: null,
       aggregated_upto: 0,
+      regrounded_upto: 0,
       ...over,
     })
     const sampleEntry = {
+      id: 'e1',
       situation: 'Had a tough standup',
       thought: 'Everyone saw me stumble',
       created_at: 1710000000000,
     }
+    // Seed enough entries so sourceCount (≥10) − regrounded_upto (0) ≥ RE_GROUND_INTERVAL
+    const manyEntries = Array.from({ length: 10 }, (_, i) => ({
+      ...sampleEntry,
+      id: `e${i + 1}`,
+      created_at: 1710000000000 + i * 86_400_000,
+    }))
 
     beforeEach(() => {
       mockSynthReGround.mockReset()
       mockSynthReGround.mockResolvedValue(ok('re-grounded content'))
       mockEntriesByDistortion.mockReset()
       mockEntriesByDistortion.mockResolvedValue(ok([sampleEntry]))
+      // F-01 Slice 7b — seed ≥10 all-source entries so the sourceCount check fires.
+      mockEntriesByEmotionAll.mockReset()
+      mockEntriesByDistortionAll.mockReset()
+      mockEntriesByAnyTopic.mockReset()
+      mockEntriesForEntityAll.mockReset()
+      seedReGroundEvidence(manyEntries)
     })
 
     it('uses re-grounding synthesis at entry_count % 10 === 0', async () => {
@@ -394,8 +459,11 @@ describe('updateWikiForEntry', () => {
       )
     })
 
-    it('still uses normal synthesis when entry_count is not a multiple of 10', async () => {
+    it('still uses normal synthesis when sourceCount − regrounded_upto < interval', async () => {
       mockGetByTitle.mockResolvedValue(ok(oldPage({ entry_count: 7 })))
+      // Override the all-source mocks to return few entries so sourceCount check
+      // doesn't trigger re-ground despite the ambient 10-entry beforeEach seed.
+      seedReGroundEvidence([sampleEntry])
 
       await updateWikiForEntry(entry({ emotion: null }))
 
@@ -406,6 +474,8 @@ describe('updateWikiForEntry', () => {
     it('falls back to normal synthesis when past entry queries come back empty', async () => {
       mockGetByTitle.mockResolvedValue(ok(oldPage()))
       mockEntriesByDistortion.mockResolvedValue(ok([])) // empty
+      // F-01 Slice 6: re-ground reads all-source variants too — set empty.
+      seedReGroundEvidence([])
 
       await updateWikiForEntry(entry({ emotion: null }))
 
@@ -528,7 +598,7 @@ describe('cleanupConnectionProse', () => {
 
   it('skips pages with no stale connection prose', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
     const result = await cleanupConnectionProse()
     expect(mockRegenContent).not.toHaveBeenCalled()
@@ -538,9 +608,9 @@ describe('cleanupConnectionProse', () => {
 
   it('cleans connection-prose pages and the knowledge-graph-shows leak', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nThe knowledge graph shows: Work often comes up with Anxiety.\nBack to the page.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
-      { id: 'p2', title: 'Anxiety', category: 'emotion', content: 'You worry.\nAnxiety often comes up with Work, Sleep.', entry_count: 5, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
-      { id: 'p3', title: 'Clean', category: 'theme', content: 'A normal page.', entry_count: 1, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nThe knowledge graph shows: Work often comes up with Anxiety.\nBack to the page.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
+      { id: 'p2', title: 'Anxiety', category: 'emotion', content: 'You worry.\nAnxiety often comes up with Work, Sleep.', entry_count: 5, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
+      { id: 'p3', title: 'Clean', category: 'theme', content: 'A normal page.', entry_count: 1, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
 
     const result = await cleanupConnectionProse()
@@ -555,8 +625,8 @@ describe('cleanupConnectionProse', () => {
 
   it('reports per-page progress as each page is cleaned', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
-      { id: 'p2', title: 'Sleep', category: 'theme', content: 'You rest.\nSleep often comes up with Anxiety.', entry_count: 4, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
+      { id: 'p2', title: 'Sleep', category: 'theme', content: 'You rest.\nSleep often comes up with Anxiety.', entry_count: 4, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
 
     const events: Array<{ title: string; index: number; total: number; status: string }> = []
@@ -572,7 +642,7 @@ describe('cleanupConnectionProse', () => {
 
   it('reports a failed status when persist fails', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
     mockRegenContent.mockResolvedValue(err('WIKI_REGEN_FAILED', 'down'))
 
@@ -588,7 +658,7 @@ describe('cleanupConnectionProse', () => {
 
   it('works with no callback', async () => {
     mockListPages.mockResolvedValue(ok([
-      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0 },
+      { id: 'p1', title: 'Work', category: 'theme', content: 'You stress.\nWork often comes up with Anxiety.', entry_count: 3, version: 1, version_history: [], created_at: 0, updated_at: 0, dismissed_at: null, corrected_at: null, merged_into: null, aggregated_upto: 0, regrounded_upto: 0 },
     ]))
     const result = await cleanupConnectionProse()
     expect(result.success).toBe(true)
@@ -649,6 +719,7 @@ describe('lineageForEntry', () => {
     corrected_at: null,
     merged_into: null,
     aggregated_upto: 0,
+    regrounded_upto: 0,
     ...over,
   })
 

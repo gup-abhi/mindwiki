@@ -49,6 +49,7 @@ const page = (id: string, title: string, content: string): WikiPage => ({
   corrected_at: null,
   merged_into: null,
   aggregated_upto: 0,
+    regrounded_upto: 0,
 })
 
 describe('gatherMaterial', () => {

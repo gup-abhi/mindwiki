@@ -44,6 +44,10 @@ jest.mock('@/services/storage/wiki', () => ({
 jest.mock('@/services/storage/entities', () => ({
   listEntitiesForEntry: jest.fn(),
   countEntriesForEntity: jest.fn(),
+  effectiveLabel: (e: { label: string; canonical_label?: string | null }) => {
+    const canon = (e.canonical_label ?? '').trim()
+    return canon.length > 0 ? canon : e.label
+  },
 }))
 jest.mock('@/services/storage/reframes', () => ({ listReframesForBelief: jest.fn() }))
 jest.mock('@/services/wiki/aggregates', () => {
@@ -131,6 +135,7 @@ const page = (over: Partial<WikiPage> = {}): WikiPage => ({
   version: 3,
   version_history: [],
   aggregated_upto: 0,
+  regrounded_upto: 0,
   created_at: Date.now() - 30 * DAY, // old enough by default
   updated_at: Date.now(),
   dismissed_at: null,

@@ -30,7 +30,7 @@ jest.mock('@/services/wiki/embeddings', () => ({
   backfillStaleEmbeddings: jest.fn().mockResolvedValue({ embedded: 0, failed: 0 }),
 }))
 jest.mock('@/services/wiki/belief-snap', () => ({
-  backfillBeliefEmbeddings: jest.fn().mockResolvedValue(undefined),
+  backfillBeliefEmbeddings: jest.fn().mockResolvedValue({ embedded: 0, failed: 0 }),
 }))
 jest.mock('@/services/wiki/query', () => ({
   suggestedQuestions: jest.fn().mockReturnValue([]),

@@ -21,6 +21,10 @@ jest.mock('@/services/storage/graph', () => ({
 jest.mock('@/services/storage/entities', () => ({
   listEntitiesForEntry: jest.fn(),
   countEntriesForEntity: jest.fn(async () => ({ success: true, data: 5 })),
+  effectiveLabel: (e: { label: string; canonical_label?: string | null }) => {
+    const canon = (e.canonical_label ?? '').trim()
+    return canon.length > 0 ? canon : e.label
+  },
 }))
 
 const mockUpsertNode = upsertNode as jest.Mock
@@ -351,5 +355,57 @@ describe('rebuildGraph', () => {
     expect(mockUpsertNode).not.toHaveBeenCalledWith('emotion', 'anxiety', expect.anything())
     expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing', expect.anything())
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'calm', expect.anything())
+  })
+})
+
+describe('F-02B: effective-label dedup in graph derivation', () => {
+  beforeEach(() => {
+    mockUpsertNode.mockReset()
+    mockUpsertEdge.mockReset()
+    mockListEntities.mockReset()
+    mockFindNode.mockReset()
+    mockLoadDismissed.mockReset()
+    mockFindNode.mockResolvedValue(ok(null))
+    mockLoadDismissed.mockResolvedValue(new Set())
+    let n = 0
+    mockUpsertNode.mockImplementation(async (type, label) =>
+      ok({ id: `id-${++n}`, type, label, frequency: 1 })
+    )
+    mockUpsertEdge.mockResolvedValue(ok({}))
+    setDb({ execute: jest.fn(), transaction: jest.fn(), close: jest.fn() } as unknown as SqliteDatabase)
+  })
+  afterEach(() => setDb(null))
+
+  it('two raw belief aliases on one entry with the same canonical contribute ONE node and no self-edge', async () => {
+    // Two raw labels snapped to the same canonical identity by belief maintenance.
+    mockListEntities.mockResolvedValue(
+      ok([
+        { id: 'x1', entry_id: 'e1', type: 'belief', label: 'I am unlovable', canonical_label: 'I am unworthy', created_at: 0, updated_at: 0 },
+        { id: 'x2', entry_id: 'e1', type: 'belief', label: 'I am bad', canonical_label: 'I am unworthy', created_at: 0, updated_at: 0 },
+      ])
+    )
+
+    // Only the belief entity (no emotion/theme/distortion) → just one node, no
+    // edges, and crucially no second node=alias, no self-pair edge from the brawl.
+    await updateGraphForEntry(entry({ emotion: '', distortion: 'none' }), undefined, undefined, HIGH)
+
+    const beliefCalls = mockUpsertNode.mock.calls.filter((c) => c[0] === 'belief')
+    expect(beliefCalls.length).toBe(1)
+    expect(beliefCalls[0][1]).toBe('I am unworthy')
+    // No edge at all — only the canonical belief node was created.
+    expect(mockUpsertEdge).not.toHaveBeenCalled()
+  })
+
+  it('a raw alias with no canonical is upserted under its raw label (no canonical leakage)', async () => {
+    // Fresh un-canonicalized entity — effective label is the raw one.
+    mockListEntities.mockResolvedValue(
+      ok([{ id: 'x1', entry_id: 'e1', type: 'belief', label: 'I am unlovable', canonical_label: null, created_at: 0, updated_at: 0 }])
+    )
+
+    await updateGraphForEntry(entry({ emotion: '', distortion: 'none' }), undefined, undefined, HIGH)
+
+    const beliefCalls = mockUpsertNode.mock.calls.filter((c) => c[0] === 'belief')
+    expect(beliefCalls.length).toBe(1)
+    expect(beliefCalls[0][1]).toBe('I am unlovable')
   })
 })
