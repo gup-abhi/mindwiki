@@ -1,13 +1,8 @@
 import { synthesizePage, synthesizePageReGround, synthesizeEmotionPage, regeneratePage } from '@/services/llm/deep-model'
 import { type TimingContext } from '@/types/wiki'
 import * as settingsStorage from '@/services/storage/settings'
-import {
-  type Entry,
-  listEntriesByEmotion,
-  listEntriesByDistortion,
-  listEntriesByTopicOrTopic2,
-  listEntriesForEntity,
-} from '@/services/storage/entries'
+import { type Entry } from '@/services/storage/entries'
+import { selectReGroundEvidence, listAllSourceEntriesForPage } from '@/services/wiki/reground-evidence'
 import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
 import { listReframesForBelief } from '@/services/storage/reframes'
 import {
@@ -106,31 +101,6 @@ const AGGREGATE_MIN_AGE_MS = 24 * 60 * 60 * 1000
 // How many new entries are needed since the last aggregate to re-synthesise.
 const AGGREGATE_BATCH_SIZE = 10
 
-/**
- * Sample recent entries that shaped a wiki page, for a re-grounding pass.
- * Routes by category to the right storage query. Returns up to K entries,
- * newest first. Best-effort — returns empty on any failure so the caller
- * falls through to normal incremental synthesis.
- */
-async function sampleEntriesForPage(
-  title: string,
-  category: string,
-  maxEntries: number
-): Promise<Entry[]> {
-  const queries: Record<string, () => Promise<Result<Entry[]>>> = {
-    emotion: () => listEntriesByEmotion(title),
-    distortion: () => listEntriesByDistortion(title),
-    theme: () => listEntriesByTopicOrTopic2(title),
-  }
-  // Entity categories route through the entity join table
-  const entityTypes = ['person', 'place', 'activity', 'belief', 'behavior']
-  const q = entityTypes.includes(category)
-    ? () => listEntriesForEntity(category as any, title)
-    : queries[category]
-  if (!q) return []
-  const res = await q()
-  return res.success ? res.data.slice(0, maxEntries) : []
-}
 
 async function recurringEntityTopics(entryId: string): Promise<Topic[]> {
   const res = await listEntitiesForEntry(entryId)
@@ -272,11 +242,16 @@ export async function updateWikiForEntry(
 
     let synth: Result<string>
     if (isReGround) {
-      const pastEntries = await sampleEntriesForPage(effectiveTitle, category, 6)
-      // The current entry may also appear in the historical sample query. Exclude
-      // it from the past-evidence block before adding the dedicated current-entry
-      // block, so its evidence isn't double-counted.
-      const historicalSamples = pastEntries.filter((e) => e.id !== entry.id)
+      // F-01 Slice 6 — all-source stratified evidence: query allSource variants
+      // (journal + reflect + path), then deterministically pick oldest + newest
+      // + evenly-spaced middle capped at 6, deduped + current-entry excluded so
+      // re-ground never double-counts the entry being committed.
+      const allRes = await listAllSourceEntriesForPage(effectiveTitle, category, undefined)
+      const corpus = allRes.success ? allRes.data : []
+      const historicalSamples = selectReGroundEvidence(corpus, {
+        max: 6,
+        excludeIds: new Set([entry.id]),
+      })
       if (historicalSamples.length > 0 && timing != null) {
         synth = await synthesizePageReGround({
           title: effectiveTitle,

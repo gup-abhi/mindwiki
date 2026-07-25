@@ -88,6 +88,9 @@ jest.mock('@/services/storage/entries', () => ({
   listEntriesByDistortion: jest.fn(),
   listEntriesByTopicOrTopic2: jest.fn(),
   listEntriesForEntity: jest.fn(),
+  listEntriesByEmotionAllSources: jest.fn(),
+  listEntriesByDistortionAllSources: jest.fn(),
+  listEntriesForEntityAllSources: jest.fn(),
 }))
 jest.mock('@/services/storage/settings', () => ({
   getSetting: jest.fn(),
@@ -99,6 +102,28 @@ const mockEntriesByEmotion = (listEntriesByEmotion as unknown as jest.Mock)
 const mockEntriesByDistortion = (listEntriesByDistortion as unknown as jest.Mock)
 const mockEntriesByTopic = (listEntriesByTopicOrTopic2 as unknown as jest.Mock)
 const mockEntriesForEntity = (listEntriesForEntity as unknown as jest.Mock)
+import {
+  listEntriesByEmotionAllSources,
+  listEntriesByDistortionAllSources,
+  listEntriesByTopicOrTopic2 as listEntriesByAnyTopic,
+  listEntriesForEntityAllSources,
+} from '@/services/storage/entries'
+const mockEntriesByEmotionAll = (listEntriesByEmotionAllSources as unknown as jest.Mock)
+const mockEntriesByDistortionAll = (listEntriesByDistortionAllSources as unknown as jest.Mock)
+const mockEntriesByAnyTopic = (listEntriesByAnyTopic as unknown as jest.Mock)
+const mockEntriesForEntityAll = (listEntriesForEntityAllSources as unknown as jest.Mock)
+
+// F-01 Slice 6: re-ground evidence now flows through `listAllSourceEntriesForPage`
+// which calls the *AllSources storage variants. The legacy journal-only mocks
+// are kept for the recurrence/entity-count code paths; re-ground tests
+// additionally seed the all-source mocks so they see the same fixture.
+const seedReGroundEvidence = (entries: Partial<Entry>[]) => {
+  const asEntries = entries as Entry[]
+  mockEntriesByEmotionAll.mockResolvedValue(ok(asEntries))
+  mockEntriesByDistortionAll.mockResolvedValue(ok(asEntries))
+  mockEntriesByAnyTopic.mockResolvedValue(ok(asEntries))
+  mockEntriesForEntityAll.mockResolvedValue(ok(asEntries))
+}
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
   id: 'e1',
@@ -369,6 +394,12 @@ describe('updateWikiForEntry', () => {
       mockSynthReGround.mockResolvedValue(ok('re-grounded content'))
       mockEntriesByDistortion.mockReset()
       mockEntriesByDistortion.mockResolvedValue(ok([sampleEntry]))
+      // F-01 Slice 6 — re-ground route now reads all-source variants.
+      mockEntriesByEmotionAll.mockReset()
+      mockEntriesByDistortionAll.mockReset()
+      mockEntriesByAnyTopic.mockReset()
+      mockEntriesForEntityAll.mockReset()
+      seedReGroundEvidence([sampleEntry])
     })
 
     it('uses re-grounding synthesis at entry_count % 10 === 0', async () => {
@@ -406,6 +437,8 @@ describe('updateWikiForEntry', () => {
     it('falls back to normal synthesis when past entry queries come back empty', async () => {
       mockGetByTitle.mockResolvedValue(ok(oldPage()))
       mockEntriesByDistortion.mockResolvedValue(ok([])) // empty
+      // F-01 Slice 6: re-ground reads all-source variants too — set empty.
+      seedReGroundEvidence([])
 
       await updateWikiForEntry(entry({ emotion: null }))
 
