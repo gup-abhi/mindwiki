@@ -10,6 +10,7 @@ import {
   getPageByTitle,
   createPage,
   updatePage,
+  updatePageCAS,
   ticklePageCount,
   regeneratePageContentWithAggregate,
   regeneratePageContent,
@@ -18,7 +19,8 @@ import {
 } from '@/services/storage/wiki'
 import { buildEmotionAggregate } from '@/services/wiki/aggregates'
 import { stripConnectionProse } from '@/services/wiki/cleanup'
-import { type Result, ok } from '@/types/result'
+import { insertContribution, insertMissingReceipts } from '@/services/storage/wiki-contributions'
+import { type Result, ok, err } from '@/types/result'
 
 export interface Topic {
   title: string
@@ -89,6 +91,41 @@ const RE_GROUND_INTERVAL = 10
 // A page must exist at least this long before its first re-ground, so a brand-
 // new page with content from its first 10 entries doesn't double-synthesise.
 const RE_GROUND_AGE_MS = 24 * 60 * 60 * 1000
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F-01 Slice 7b — serial synthesis queue + sourceCount-based trigger
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Per-page Promise chain: serialises the synth + CAS-update phase so two
+ * concurrent calls on the same page (tag-triggered pass + scan loop, or two
+ * entries rapidly tagged) read the same `page.version` for CAS and don't both
+ * fall through to the retry-once branch. Module-scoped — one chain per page id,
+ * released when the chain drains.
+ */
+const pageSynthesisQueues = new Map<string, Promise<void>>()
+
+function serializedPageSynthesis<T>(pageId: string, work: () => Promise<T>): Promise<T> {
+  const prev = pageSynthesisQueues.get(pageId) ?? Promise.resolve()
+  const cur = prev.then(work, work) // if prev rejected, still run work
+  pageSynthesisQueues.set(pageId, cur.then(() => {}, () => {})) // suppress tail rejection
+  return cur
+}
+
+/**
+ * Source count for a page = the total number of distinct matching entries that
+ * would be consulted if the page were re-ground right now. Routed through
+ * `listAllSourceEntriesForPage` so it covers journal + reflect + path sources.
+ * Best-effort; failure returns 0 (treated as "no fresh evidence").
+ */
+async function sourceCountForPage(
+  title: string,
+  category: string | null
+): Promise<number> {
+  if (category == null) return 0
+  const res = await listAllSourceEntriesForPage(title, category, undefined)
+  return res.success ? res.data.length : 0
+}
 
 // Emotion aggregate interval: after every N total emotion taggings (any
 // emotion), scan all emotion pages for aggregate synthesis due.
@@ -231,21 +268,25 @@ export async function updateWikiForEntry(
           })
         : null
 
-    // Re-grounding: every RE_GROUND_INTERVAL entries, synthesise from source
-    // entries instead of the incremental telephone chain. Resets drift to zero.
+    // F-01 Slice 7b — sourceCount-based re-ground trigger: re-ground when at
+    // least RE_GROUND_INTERVAL fresh matching sources exist above what was last
+    // acknowledged (regrounded_upto). Replaces the old modulo-on-entry_count
+    // check so source additions from reflect/catch-up/path also count.
+    const sourceCount = page ? await sourceCountForPage(effectiveTitle, category) : 0
     const isReGround =
       page != null &&
       page.entry_count > 0 &&
-      page.entry_count % RE_GROUND_INTERVAL === 0 &&
+      sourceCount - page.regrounded_upto >= RE_GROUND_INTERVAL &&
       !page.dismissed_at &&
       Date.now() - page.created_at > RE_GROUND_AGE_MS
 
+    // Capture base version BEFORE synthesis so CAS can detect race.
+    // For existing pages only — new pages use non-CAS update (no race possible).
+    const baseVersion = page?.version ?? 0
+
     let synth: Result<string>
     if (isReGround) {
-      // F-01 Slice 6 — all-source stratified evidence: query allSource variants
-      // (journal + reflect + path), then deterministically pick oldest + newest
-      // + evenly-spaced middle capped at 6, deduped + current-entry excluded so
-      // re-ground never double-counts the entry being committed.
+      // F-01 Slice 6 — all-source stratified evidence
       const allRes = await listAllSourceEntriesForPage(effectiveTitle, category, undefined)
       const corpus = allRes.success ? allRes.data : []
       const historicalSamples = selectReGroundEvidence(corpus, {
@@ -273,7 +314,6 @@ export async function updateWikiForEntry(
           })),
         })
       } else {
-        // No past entries to ground from — fall through to normal synthesis
         synth = await synthesizePage({
           title: effectiveTitle,
           category,
@@ -314,17 +354,163 @@ export async function updateWikiForEntry(
         continue
       }
       pageId = created.data.id
+      // New page — no race possible. Apply directly (no CAS) and record receipt.
+      const applied = await updatePage(pageId, synth.data)
+      if (applied.success) {
+        updated.push(topic.title)
+      } else if (__DEV__) {
+        console.log(`[wiki] update failed: ${applied.error.code}`)
+      }
+      await insertContribution(entry.id, pageId, undefined)
+      continue
     }
 
-    const applied = await updatePage(pageId, synth.data)
-    if (applied.success) {
-      updated.push(topic.title)
-    } else if (__DEV__) {
-      console.log(`[wiki] update failed: ${applied.error.code}`)
-    }
+    // Existing page — serialise synth + CAS apply per page id so two concurrent
+    // calls on the same page (tag-triggered pass + scan loop) see a consistent version.
+    await serializedPageSynthesis(pageId, async () => {
+      const casResult = await updatePageCAS(pageId!, synth.data, baseVersion, {}, undefined)
+      if (!casResult.success) {
+        if (__DEV__) console.log(`[wiki] CAS failed: ${casResult.error.code}`)
+        return
+      }
+      if (casResult.data.affected === 0) {
+        // Stale — someone else wrote while we were synthesising. Retry once:
+        // re-read the page, mark this entry as contributing, then re-apply
+        // without CAS (serialised queue prevents second stale).
+        const freshPage = await getPage(pageId!, undefined)
+        if (!freshPage.success || freshPage.data == null) {
+          if (__DEV__) console.log('[wiki] CAS retry — page vanished')
+          return
+        }
+        const retryUpdate = await updatePage(pageId!, synth.data, undefined)
+        if (retryUpdate.success) {
+          updated.push(topic.title)
+        }
+      } else {
+        updated.push(topic.title)
+      }
+
+      // Record the contribution receipt so catch-up / scan loop know this
+      // entry already shaped this page.
+      await insertContribution(entry.id, pageId!, undefined)
+    })
   }
 
   return ok(updated)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F-01 Slice 7b — scan loop for due re-ground pages
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Maximum pages re-grounded in a single scan pass (keep it cheap). */
+const SCAN_MAX_PAGES = 5
+
+/**
+ * Scan active (non-dismissed, non-merged) non-emotion wiki pages and re-ground
+ * any whose source count has grown by at least RE_GROUND_INTERVAL above their
+ * `regrounded_upto`. Uses the serialised per-page CAS path so a concurrent
+ * entry-triggered synthesis doesn't double-write.
+ *
+ * The scan is best-effort — a synth failure on one page skips it and continues
+ * to the next. Returns the count of pages successfully re-grounded.
+ *
+ * Call from a background task (e.g. after app resume, after batch catch-up).
+ * Not called on every entry save (the entry-triggered path handles that).
+ */
+export async function scanReGroundDuePages(): Promise<Result<number>> {
+  try {
+    const pageList = await listPages()
+    if (!pageList.success) return ok(0)
+
+    // Filter to non-dismissed, non-merged, non-emotion pages with content.
+    const candidates = pageList.data.filter(
+      (p) =>
+        p.dismissed_at == null &&
+        p.merged_into == null &&
+        p.category !== 'emotion' &&
+        p.entry_count > 0 &&
+        p.content.length > 0 &&
+        Date.now() - p.created_at > RE_GROUND_AGE_MS
+    )
+
+    let reGrounded = 0
+    for (const page of candidates) {
+      if (reGrounded >= SCAN_MAX_PAGES) break
+
+      const sourceCount = await sourceCountForPage(page.title, page.category)
+      if (sourceCount - page.regrounded_upto < RE_GROUND_INTERVAL) continue
+
+      await serializedPageSynthesis(page.id, async () => {
+        const freshPage = await getPage(page.id, undefined)
+        if (!freshPage.success || freshPage.data == null) return
+        const p = freshPage.data
+
+        // Double-check after acquiring the serial slot.
+        const freshSourceCount = await sourceCountForPage(p.title, p.category)
+        if (freshSourceCount - p.regrounded_upto < RE_GROUND_INTERVAL) return
+
+        if (p.category == null) return
+        const allRes = await listAllSourceEntriesForPage(p.title, p.category, undefined)
+        const corpus = allRes.success ? allRes.data : []
+
+        // We can't easily exclude already-receipted entries here without
+        // listing receipts per page, but the stratified pick is representative
+        // enough; receipt insert at the end handles dedup.
+        if (corpus.length === 0) return
+        const samples = selectReGroundEvidence(corpus, { max: 6 })
+        if (samples.length === 0) return
+
+        // We need a timing context. Use page's updated_at as a stand-in for
+        // "last shaped" so the prompt gets a real gap.
+        const timing = computeTiming({
+          pageUpdatedAt: p.updated_at,
+          entryCreatedAt: 0,
+          now: Date.now(),
+        })
+        if (timing == null) return
+
+        const synth = await synthesizePageReGround({
+          title: p.title,
+          category: p.category,
+          existingContent: p.content,
+          situation: '',
+          thought: '',
+          closingNote: null,
+          behavior: null,
+          distortion: null,
+          reframe: null,
+          timing,
+          pastEntries: samples.map((e) => ({
+            situation: e.situation,
+            thought: e.thought,
+            behavior: e.behavior,
+            closing_note: e.closing_note,
+            created_at: e.created_at,
+          })),
+        })
+        if (!synth.success) return
+
+        // CAS — entry_count stays unchanged (the scan doesn't represent a new
+        // entry). Use the current entry_count as the CAS payload.
+        const casResult = await updatePageCAS(p.id, synth.data, p.version, { entry_count: p.entry_count }, undefined)
+        if (!casResult.success) return
+        if (casResult.data.affected === 0) {
+          // Stale retry once
+          const stalePage = await getPage(p.id, undefined)
+          if (!stalePage.success || stalePage.data == null) return
+          const retry = await updatePage(p.id, synth.data, undefined)
+          if (!retry.success) return
+        }
+        await insertMissingReceipts(corpus.map((e) => e.id), p.id, undefined)
+        reGrounded++
+      })
+    }
+
+    return ok(reGrounded)
+  } catch (e) {
+    return err('WIKI_REGROUND_SCAN_FAILED', 'Scan re-ground failed', e)
+  }
 }
 
 /** A live wiki page an entry contributed to, for the entry-detail lineage. */

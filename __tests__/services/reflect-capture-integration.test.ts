@@ -74,6 +74,34 @@ jest.mock('@/services/storage/wiki', () => {
       }
       return { success: true, data: null }
     }),
+    updatePageCAS: jest.fn(
+      async (id: string, content: string, baseVersion: number, _fields: { entry_count?: number }) => {
+        for (const p of pages.values()) {
+          if (p.id === id) {
+            if ((p.version as number) !== baseVersion) {
+              return { success: true, data: { page: null, affected: 0 } }
+            }
+            const title = p.title as string
+            const next = {
+              ...p,
+              content,
+              version: (p.version as number) + 1,
+              entry_count: (p.entry_count as number) + 1,
+              updated_at: Date.now(),
+              dismissed_at: null,
+              corrected_at: null,
+            }
+            pages.set(title, next)
+            return { success: true, data: { page: next, affected: 1 } }
+          }
+        }
+        return { success: false, error: { code: 'WIKI_NOT_FOUND', message: '' } }
+      }
+    ),
+    getPage: jest.fn(async (id: string) => {
+      const p = [...pages.values()].find((x) => x.id === id)
+      return p ? { success: true, data: p } : { success: true, data: null }
+    }),
     ticklePageCount: jest.fn(async (id: string) => {
       const p = [...pages.values()].find((x) => x.id === id)
       if (p) {
@@ -164,6 +192,11 @@ jest.mock('@/services/storage/graph', () => ({
 
 jest.mock('@/services/storage/reframes', () => ({
   listReframesForBelief: jest.fn(async () => ({ success: true, data: [] })),
+}))
+jest.mock('@/services/storage/wiki-contributions', () => ({
+  insertContribution: jest.fn(async () => ({ success: true, data: { inserted: true } })),
+  insertMissingReceipts: jest.fn(async () => ({ success: true, data: { inserted: 0 } })),
+  hasContribution: jest.fn(async () => ({ success: true, data: false })),
 }))
 
 jest.mock('@/services/llm/model-manager', () => ({ isModelDownloaded: jest.fn() }))
