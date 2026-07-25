@@ -162,6 +162,17 @@ describe('converseFromWiki', () => {
     if (res.success) expect(res.data).toBe('That sounds exhausting. You kept going anyway.')
   })
 
+  it('replaces a question-only reply when the previous reply already asked one', async () => {
+    const input = {
+      ...cInput,
+      history: [{ role: 'assistant' as const, content: 'What feels hardest right now?' }],
+    }
+    mockConverse.mockResolvedValue({ text: 'What would help?' })
+    const res = await converseFromWiki(input)
+    expect(res.success).toBe(true)
+    if (res.success) expect(res.data).not.toMatch(/\?$/)
+  })
+
   it('strips a trailing question when the previous reply already asked one', async () => {
     const input = {
       ...cInput,

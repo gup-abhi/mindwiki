@@ -26,6 +26,9 @@ export const EntryExtractSchema = z.object({
   // Tolerant like the entity lists: a bad value yields no node, never a failure.
   beliefs: z.array(z.string()).default([]).catch([]),
   behaviors: z.array(z.string()).default([]).catch([]),
+  // Explicit Reflect capture gate. Missing/invalid model output fails closed via
+  // the false default; punctuation alone never decides self-relevance.
+  is_self_relevant: z.boolean().default(false).catch(false),
   // Reflect-only (requested via extractEntry's restate option): the message
   // rewritten as one self-contained statement, so a context-dependent chat
   // fragment ("yeah exactly, and it's worse at night") never grounds a wiki

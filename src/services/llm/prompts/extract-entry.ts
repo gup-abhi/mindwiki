@@ -32,13 +32,17 @@ export function buildExtractPrompt(
   const restateField = restate ? ', "restatement": string' : ''
   const lines = [
     'You analyze a journal entry and output ONLY a JSON object — no prose, no markdown.',
-    `Schema: {"emotion": string, "distortion": string, "distortion_confidence": number, "mood_score": number, "topics": string[], "people": string[], "places": string[], "activities": string[], "beliefs": string[], "behaviors": string[]${restateField}}`,
+    `Schema: {"emotion": string, "distortion": string, "distortion_confidence": number, "mood_score": number, "is_self_relevant": boolean, "topics": string[], "people": string[], "places": string[], "activities": string[], "beliefs": string[], "behaviors": string[]${restateField}}`,
     `- emotion: the single closest from this list ONLY: ${EMOTIONS.join(', ')}.`,
     `- distortion: the single closest from this list ONLY, or "none" if the thinking is`,
     `  not actually distorted: ${DISTORTIONS.join(', ')}.`,
     '- distortion_confidence: 0.0 to 1.0 — how sure you are the named distortion is truly',
     '  present. Use a LOW value (or "none") rather than forcing one that is not clearly there.',
     '- mood_score: 0.0 (very negative) to 1.0 (very positive).',
+    '- is_self_relevant: true ONLY when the message states the writer\'s own experience,',
+    '  thoughts, feelings, behavior, or situation. False for pure informational/advice',
+    '  questions, even when a topic is recognizable. A self-disclosure phrased as a',
+    '  question can still be true. Never decide this from punctuation alone.',
     '- topics: 1-2 short, CONCRETE themes naming what the entry is really about',
     '  (e.g. "App", "Job hunting", "Marriage"). Be consistent — the SAME subject across',
     '  entries must get the SAME topic (same singular form) so it accumulates rather',
