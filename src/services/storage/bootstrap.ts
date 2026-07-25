@@ -36,7 +36,7 @@ const DEDUPE_TOPICS_FLAG = 'maintenance:dedupe_topics_v1'
 let maintenanceFlight: Promise<void> | null = null
 
 /** Run inference-dependent repairs once per process. Never blocks DB startup. */
-function runStartupMaintenance(): Promise<void> {
+export function runStartupMaintenanceForDev(): Promise<void> {
   if (maintenanceFlight) return maintenanceFlight
   maintenanceFlight = (async () => {
     try {
@@ -133,7 +133,7 @@ export async function initStorage(): Promise<Result<void>> {
   // first aggregate was deferred until the deep model existed. Cheap no-op when
   // nothing's due. Fire-and-forget — never block launch.
   void maybeRefreshEmotionPages()
-  void runStartupMaintenance()
+  void runStartupMaintenanceForDev()
 
   return ok(undefined)
 }

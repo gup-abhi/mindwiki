@@ -12,6 +12,7 @@ import { DevReGround } from '@/components/DevReGround'
 import { DevConnectionCleanup } from '@/components/DevConnectionCleanup'
 import { DevEmotionPlaceholderBackfill } from '@/components/DevEmotionPlaceholderBackfill'
 import { DevEmbedProbe } from '@/components/DevEmbedProbe'
+import { DevWikiAudit } from '@/components/DevWikiAudit'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
@@ -289,6 +290,7 @@ export default function Settings() {
           <DevConnectionCleanup />
           <DevEmotionPlaceholderBackfill />
           <DevEmbedProbe />
+          <DevWikiAudit />
         </>
       )}
 
