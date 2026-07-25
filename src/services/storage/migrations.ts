@@ -34,6 +34,7 @@ import {
   migration030,
   migration031,
   migration032,
+  migration033,
 } from './schema'
 
 export interface Migration {
@@ -118,6 +119,7 @@ export const MIGRATIONS: Migration[] = [
   migration030,
   migration031,
   migration032,
+  migration033,
 ]
 
 export function migrate(db: SqliteDatabase = getDb()): Promise<Result<number[]>> {

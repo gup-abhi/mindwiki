@@ -704,3 +704,14 @@ export const migration032: Migration = {
     `INSERT INTO belief_maintenance_state (key) VALUES ('belief')`,
   ],
 }
+
+// F-02C Slice 8 — page-consolidation pass needs its own count so a
+// settlement can distinguish source-repair clusters from page-consolidation
+// clusters. Add the consolidated_clusters column to the seeded belief row.
+export const migration033: Migration = {
+  version: 33,
+  name: 'belief_maintenance_consolidated_clusters',
+  statements: [
+    `ALTER TABLE belief_maintenance_state ADD COLUMN consolidated_clusters INTEGER NOT NULL DEFAULT 0`,
+  ],
+}

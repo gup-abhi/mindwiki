@@ -374,6 +374,124 @@ export function buildAliasClusters(
 }
 
 /**
+ * Consolidate wiki pages under a cluster's canonical identity.
+ * Called after source repair for an approved cluster. Best-effort: failure
+ * logs but doesn't fail the cluster — source repair is the critical path.
+ *
+ * - 0 corrected pages: pick richest AI page as survivor, mark losers merged_into
+ * - 1 corrected page: preserve corrected page, mark AI losers merged_into,
+ *                     set entry_count/regrounded_upto so maintenance doesn't
+ *                     immediately overwrite correction
+ * - >1 corrected pages: no-op (deferred cluster — already skipped upstream)
+ */
+export async function consolidateClusterPages(
+  cluster: AliasCluster,
+  pages: Map<string, WikiPage>,
+  db: SqliteDatabase
+): Promise<Result<{ survivorId: string }>> {
+  if (cluster.deferred || cluster.canonical == null) {
+    return ok({ survivorId: '' })
+  }
+
+  // Find all wiki pages whose title matches any alias in the cluster.
+  const matches: WikiPage[] = []
+  const seen = new Set<string>()
+  for (const alias of cluster.aliases) {
+    const page = pages.get(alias.toLowerCase())
+    if (page && !seen.has(page.id) && page.merged_into == null) {
+      seen.add(page.id)
+      matches.push(page)
+    }
+  }
+  if (matches.length === 0) return ok({ survivorId: '' })
+
+  const corrected = matches.filter((p) => p.corrected_at != null)
+  const aiPages = matches.filter((p) => p.corrected_at == null)
+
+  if (corrected.length > 1) {
+    // Deferred cluster (should be skipped upstream, but guard here too).
+    return ok({ survivorId: '' })
+  }
+
+  try {
+    if (corrected.length === 1) {
+      // ONE corrected page — preserve byte-for-byte, mark AI losers.
+      const survivor = corrected[0]
+      const losers = aiPages.filter((p) => p.id !== survivor.id)
+      if (losers.length === 0) return ok({ survivorId: survivor.id })
+
+      // Compute approximate total distinct entry count.
+      let totalEntryCount = survivor.entry_count
+      for (const p of losers) totalEntryCount += p.entry_count
+
+      const now = Date.now()
+      await db.transaction(async (tx) => {
+        // Mark each loser merged_into survivor.
+        for (const p of losers) {
+          await tx.execute(
+            'UPDATE wiki_pages SET merged_into = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+            [survivor.id, now, p.id]
+          )
+          await tx.execute(
+            `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
+             VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+            [`sq:wiki_pages:${p.id}`, 'wiki_pages', p.id, now]
+          )
+        }
+        // Set survivor's entry_count and regrounded_upto so maintenance
+        // doesn't immediately overwrite the corrected content.
+        await tx.execute(
+          'UPDATE wiki_pages SET entry_count = ?, regrounded_upto = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+          [totalEntryCount, totalEntryCount, now, survivor.id]
+        )
+        await tx.execute(
+          `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
+           VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+          [`sq:wiki_pages:${survivor.id}`, 'wiki_pages', survivor.id, now]
+        )
+      })
+
+      return ok({ survivorId: survivor.id })
+    } else {
+      // 0 corrected pages — pick richest AI page as survivor.
+      aiPages.sort((a, b) => {
+        if (b.entry_count !== a.entry_count) return b.entry_count - a.entry_count
+        return (a.updated_at ?? 0) - (b.updated_at ?? 0)
+      })
+      const survivor = aiPages[0]
+      const losers = aiPages.slice(1)
+      if (losers.length === 0) return ok({ survivorId: survivor.id })
+
+      const now = Date.now()
+      await db.transaction(async (tx) => {
+        for (const p of losers) {
+          await tx.execute(
+            'UPDATE wiki_pages SET merged_into = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+            [survivor.id, now, p.id]
+          )
+          await tx.execute(
+            `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
+             VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+            [`sq:wiki_pages:${p.id}`, 'wiki_pages', p.id, now]
+          )
+        }
+        // Enqueue survivor too (entry_count unchanged but merged_into refs
+        // mean graph rebuild needs to re-index).
+        await tx.execute(
+          `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, payload, created_at)
+           VALUES (?, ?, ?, 'upsert', NULL, ?)`,
+          [`sq:wiki_pages:${survivor.id}`, 'wiki_pages', survivor.id, now]
+        )
+      })
+
+      return ok({ survivorId: survivor.id })
+    }
+  } catch {
+    return err('CONSOLIDATION_FAILED', 'Failed to consolidate cluster pages')
+  }
+}
+
+/**
  * Run a dry-run of belief maintenance: read the current belief landscape,
  * build alias clusters, produce a report. Never mutates any DB row. Never
  * logs label text. Returns the report for dev-only UI rendering.
@@ -458,7 +576,7 @@ export interface MaintenanceRunOptions {
 export async function runBeliefMaintenance(
   db: SqliteDatabase = getDb(),
   options: MaintenanceRunOptions = {}
-): Promise<Result<{ repairedClusters: number; deferredClusters: number; status: string }>> {
+): Promise<Result<{ repairedClusters: number; deferredClusters: number; consolidatedClusters: number; status: string }>> {
   const rebuild = options.rebuildGraph ?? ((_: SqliteDatabase) => defaultRebuildGraph())
 
   try {
@@ -472,7 +590,7 @@ export async function runBeliefMaintenance(
     const versionChanged = state.algorithm_version !== MAINTENANCE_ALGORITHM_VERSION
     const pendingDelta = state.source_generation > state.processed_generation
     if (!versionChanged && !pendingDelta && state.status !== 'needs-graph-rebuild') {
-      return ok({ repairedClusters: state.repaired_clusters, deferredClusters: state.deferred_clusters, status: state.status })
+      return ok({ repairedClusters: state.repaired_clusters, deferredClusters: state.deferred_clusters, consolidatedClusters: state.consolidated_clusters, status: state.status })
     }
 
     // If we only need to retry the graph rebuild (status was left 'needs-graph-rebuild'),
@@ -483,6 +601,7 @@ export async function runBeliefMaintenance(
 
     let deferred = 0
     let repaired = 0
+    let consolidated = 0
     let sourceChanged = false
     let firstError: { code: string; message: string } | undefined
 
@@ -571,6 +690,18 @@ export async function runBeliefMaintenance(
           if (!firstError) firstError = { code: 'BELIEF_MAINTENANCE_TX_FAILED', message: String(e?.message ?? e) }
           // Continue with other clusters (one failed tx doesn't abort others).
         }
+
+        // Page consolidation — best-effort, after source repair commits.
+        // Failure does NOT fail the cluster or prevent source settlement;
+        // un-consolidated pages will merge on next pass.
+        try {
+          const consRes = await consolidateClusterPages(cluster, pages, db)
+          if (consRes.success && consRes.data.survivorId) {
+            consolidated++
+          }
+        } catch {
+          // Best-effort — next pass retries consolidation.
+        }
       }
     }
 
@@ -619,6 +750,7 @@ export async function runBeliefMaintenance(
         last_run_at: Date.now(),
         repaired_clusters: repaired,
         deferred_clusters: deferred,
+        consolidated_clusters: consolidated,
         run_count: state.run_count + 1,
       },
       'belief',
@@ -631,7 +763,7 @@ export async function runBeliefMaintenance(
         firstError?.message ?? 'graph rebuild failed — marker left pending'
       )
     }
-    return ok({ repairedClusters: repaired, deferredClusters: deferred, status: newStatus })
+    return ok({ repairedClusters: repaired, deferredClusters: deferred, consolidatedClusters: consolidated, status: newStatus })
   } catch (e) {
     return err('BELIEF_MAINTENANCE_FAILED', 'Failed to run belief maintenance', e)
   }

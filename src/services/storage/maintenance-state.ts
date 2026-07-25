@@ -26,6 +26,7 @@ export interface BeliefMaintenanceState {
   last_run_at: number | null
   repaired_clusters: number
   deferred_clusters: number
+  consolidated_clusters: number
   run_count: number
 }
 
@@ -43,6 +44,7 @@ function rowToState(row: Record<string, unknown>): BeliefMaintenanceState {
     last_run_at: row.last_run_at == null ? null : Number(row.last_run_at),
     repaired_clusters: Number(row.repaired_clusters) || 0,
     deferred_clusters: Number(row.deferred_clusters) || 0,
+    consolidated_clusters: Number(row.consolidated_clusters) || 0,
     run_count: Number(row.run_count) || 0,
   }
 }
@@ -70,6 +72,7 @@ export async function getMaintenanceState(
         last_run_at: null,
         repaired_clusters: 0,
         deferred_clusters: 0,
+        consolidated_clusters: 0,
         run_count: 0,
       })
     }
@@ -89,6 +92,7 @@ type StatePatch = Partial<
     | 'last_run_at'
     | 'repaired_clusters'
     | 'deferred_clusters'
+    | 'consolidated_clusters'
     | 'run_count'
   >
 >
@@ -113,6 +117,7 @@ export async function updateMaintenanceState(
     'last_run_at',
     'repaired_clusters',
     'deferred_clusters',
+    'consolidated_clusters',
     'run_count',
   ]
   for (const f of fields) {

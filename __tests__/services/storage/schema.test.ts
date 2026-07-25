@@ -47,8 +47,8 @@ describe('migration 001 (initial schema)', () => {
 
     expect(result.success).toBe(true)
     if (result.success)
-      expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32])
+      expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -148,6 +148,19 @@ describe('migration 032 (belief maintenance state)', () => {
     // returns a row after migration 031. A future maintenance variant can add
     // its own row via a later migration without touching this one.
     expect(stmts.some((s) => /INSERT INTO belief_maintenance_state \(key\) VALUES \('belief'\)/.test(s))).toBe(true)
+  })
+})
+
+describe('migration 033 (belief maintenance consolidated_clusters)', () => {
+  it('is registered as version 33', () => {
+    expect(MIGRATIONS[32].version).toBe(33)
+    expect(MIGRATIONS[32].name).toBe('belief_maintenance_consolidated_clusters')
+  })
+
+  it('adds consolidated_clusters INTEGER NOT NULL DEFAULT 0 to belief_maintenance_state', () => {
+    const stmts = MIGRATIONS[32].statements
+    expect(stmts.some((s) => /ALTER TABLE belief_maintenance_state ADD COLUMN consolidated_clusters/i.test(s))).toBe(true)
+    expect(stmts.some((s) => /INTEGER NOT NULL DEFAULT 0/.test(s))).toBe(true)
   })
 })
 

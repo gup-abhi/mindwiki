@@ -134,4 +134,14 @@ describe('registry', () => {
     expect(sql).toContain('CREATE TABLE belief_maintenance_state')
     expect(sql).toContain("INSERT INTO belief_maintenance_state (key) VALUES ('belief')")
   })
+
+  it('registers migration 033 — consolidated_clusters column in belief_maintenance_state (F-02C Slice 8)', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 33)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('belief_maintenance_consolidated_clusters')
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('ALTER TABLE belief_maintenance_state')
+    expect(sql).toContain('ADD COLUMN consolidated_clusters')
+    expect(sql).toContain('INTEGER NOT NULL DEFAULT 0')
+  })
 })

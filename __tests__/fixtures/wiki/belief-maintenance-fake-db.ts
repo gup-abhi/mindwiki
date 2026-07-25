@@ -170,7 +170,7 @@ export function createFakeDb(initial: Partial<FakeState> = {}) {
         if (!state.belief_maintenance_state.has('belief')) {
           state.belief_maintenance_state.set('belief', {
             key: 'belief', algorithm_version: 0, source_generation: 0, processed_generation: 0,
-            status: 'idle', last_run_at: null, repaired_clusters: 0, deferred_clusters: 0, run_count: 0,
+            status: 'idle', last_run_at: null, repaired_clusters: 0, deferred_clusters: 0, consolidated_clusters: 0, run_count: 0,
           })
         }
         return { rows: [], rowsAffected: 0 }
@@ -191,7 +191,7 @@ export function createFakeDb(initial: Partial<FakeState> = {}) {
         if (!row) {
           row = {
             key: 'belief', algorithm_version: 0, source_generation: 0, processed_generation: 0,
-            status: 'idle', last_run_at: null, repaired_clusters: 0, deferred_clusters: 0, run_count: 0,
+            status: 'idle', last_run_at: null, repaired_clusters: 0, deferred_clusters: 0, consolidated_clusters: 0, run_count: 0,
           }
           state.belief_maintenance_state.set('belief', row)
         }
@@ -235,6 +235,27 @@ export function createFakeDb(initial: Partial<FakeState> = {}) {
       // wiki_pages (read-only for runner) — belief category
       if (/^SELECT \* FROM wiki_pages WHERE category = 'belief'/i.test(s)) {
         return { rows: [...state.wiki_pages.values()].filter((p) => p.category === 'belief' || p.category == null), rowsAffected: 0 }
+      }
+      // Slice 8 consolidation — mark loser merged_into survivor.
+      if (/^UPDATE wiki_pages SET merged_into = \?, updated_at = MAX\(updated_at \+ 1, \?\) WHERE id = \?/i.test(s)) {
+        const [survivorId, now, loserId] = params
+        const row = state.wiki_pages.get(String(loserId))
+        if (row) {
+          row.merged_into = String(survivorId)
+          row.updated_at = Math.max(Number(row.updated_at) || 0, Number(now) || 0)
+        }
+        return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      // Slice 8 consolidation — set survivor entry_count + regrounded_upto.
+      if (/^UPDATE wiki_pages SET entry_count = \?, regrounded_upto = \?, updated_at = MAX\(updated_at \+ 1, \?\) WHERE id = \?/i.test(s)) {
+        const [count, regroundUpto, now, pageId] = params
+        const row = state.wiki_pages.get(String(pageId))
+        if (row) {
+          row.entry_count = Number(count)
+          row.regrounded_upto = Number(regroundUpto)
+          row.updated_at = Math.max(Number(row.updated_at) || 0, Number(now) || 0)
+        }
+        return { rows: [], rowsAffected: row ? 1 : 0 }
       }
 
       // entity_embeddings (read-only) — store label+vector JSON.
