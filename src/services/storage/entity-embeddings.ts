@@ -92,15 +92,19 @@ export async function pruneStaleEntityEmbeddings(
 
 /**
  * Backfill entity-embeddings for every known label of a type (best-effort).
- * Skips labels whose stored hash already matches current content. Returns how
- * many were (re)embedded.
+ * Skips labels whose stored hash already matches current content. F-02A — a
+ * failed embed no longer stops the whole pass: every label is attempted
+ * independently, and the caller receives a count-only `{ embedded, failed }` so
+ * a partial pass (some labels missing the model, others fine) reports what
+ * finished. Never throws; never returns label text or error details.
  */
 export async function backfillEntityEmbeddings(
   type: string,
   embedFn: (text: string) => Promise<Result<number[]>>,
   db: SqliteDatabase = getDb()
-): Promise<number> {
+): Promise<{ embedded: number; failed: number }> {
   let embedded = 0
+  let failed = 0
   try {
     const labelsRes = await db.execute(
       'SELECT DISTINCT label FROM entry_entities WHERE type = ? ORDER BY label COLLATE NOCASE',
@@ -116,13 +120,20 @@ export async function backfillEntityEmbeddings(
     for (const row of labelsRes.rows) {
       const label = String(row.label)
       if (storedHashes.get(label) === hash(label)) continue
-      const vec = await embedFn(label)
-      if (!vec.success) break // model unavailable — stop this pass
-      await upsertEntityEmbedding(label, type, vec.data, db)
-      embedded++
+      try {
+        const vec = await embedFn(label)
+        if (!vec.success) {
+          failed++ // model unavailable for this label — isolate, keep going
+          continue
+        }
+        await upsertEntityEmbedding(label, type, vec.data, db)
+        embedded++
+      } catch {
+        failed++ // a thrown embed error is isolated too, not propagated
+      }
     }
   } catch {
-    // best-effort, never throw
+    // best-effort, never throw — counts reflect what got through
   }
-  return embedded
+  return { embedded, failed }
 }

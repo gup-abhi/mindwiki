@@ -638,3 +638,69 @@ export const migration029: Migration = {
     `CREATE INDEX idx_entries_updated_at ON entries (updated_at)`,
   ],
 }
+
+// Migration 031 — F-02B effective belief labels. `entry_entities` was
+// write-once-per-entry (re-tagging replaced the whole set), so the only
+// mutable signal was the raw label. Canonicalization needs a mutable column
+// that records "this raw label is an alias of <canonical>" without rewriting or
+// deleting the source row (deletes don't propagate via the additive sync
+// model). Add two columns:
+//   - canonical_label TEXT NULL:            null = raw label is its own
+//                                            canonical identity; otherwise the
+//                                            trimmed canonical label.
+//   - updated_at INTEGER NOT NULL:          LWW watermark so a canonicalization
+//                                            bump reaches other devices;
+//                                            backfilled from created_at so
+//                                            existing rows remain syncable.
+// All recurrence/lineage/routing paths were keyed on `label`; they now key on
+//    COALESCE(canonical_label, label) COLLATE NOCASE
+// so a canonicalized alias counts toward one node/recurrence/wiki identity
+// without losing or deleting the original raw row. See reports/wiki-structural-
+// audit-sparc-plan.md (F-02B).
+export const migration031: Migration = {
+  version: 31,
+  name: 'entry_entities_effective_label',
+  statements: [
+    `ALTER TABLE entry_entities ADD COLUMN canonical_label TEXT NULL`,
+    `ALTER TABLE entry_entities ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+    `UPDATE entry_entities SET updated_at = created_at WHERE updated_at = 0`,
+  ],
+}
+
+// Migration 032 — belief maintenance state. F-02C introduces an idempotent
+// historical belief-repair pass (alias clustering + canonicalization) that runs
+// only when the embedding model is available and only when there's belief
+// source the runner has not yet processed. The pass has to be restart-safe: a
+// pass interrupted between source repair and graph rebuild resumes on next
+// launch, and a pass that produced no new clusters is a no-op (same-version /
+// same-processed-generation is idle). That requires persisting:
+//   - algorithm_version     — bump when the cluster geometry / threshold /
+//                             polarity rules change; bumps force one rerun;
+//   - source_generation     — incremented by every raw belief/reframe ingestion
+//                             and remote apply (NOT by maintenance's own
+//                             rewrites); maintenance increments only on
+//                             writes it observes, never on its own writes;
+//   - processed_generation  — set to the captured source_generation after the
+//                             pass settles every approved and deferred cluster;
+//   - status / counts       — count-only; never label text or label hashes.
+// The table is keyed by a single string key ('belief' for the only maintenance
+// pass today) so a future maintenance variant can add its own row without a
+// schema migration.
+export const migration032: Migration = {
+  version: 32,
+  name: 'belief_maintenance_state',
+  statements: [
+    `CREATE TABLE belief_maintenance_state (
+      key                   TEXT PRIMARY KEY,
+      algorithm_version    INTEGER NOT NULL DEFAULT 0,
+      source_generation    INTEGER NOT NULL DEFAULT 0,
+      processed_generation INTEGER NOT NULL DEFAULT 0,
+      status               TEXT NOT NULL DEFAULT 'idle',
+      last_run_at          INTEGER,
+      repaired_clusters    INTEGER NOT NULL DEFAULT 0,
+      deferred_clusters    INTEGER NOT NULL DEFAULT 0,
+      run_count            INTEGER NOT NULL DEFAULT 0
+    )`,
+    `INSERT INTO belief_maintenance_state (key) VALUES ('belief')`,
+  ],
+}

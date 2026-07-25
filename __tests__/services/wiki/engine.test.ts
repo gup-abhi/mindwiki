@@ -58,6 +58,10 @@ jest.mock('@/services/storage/wiki-contributions', () => ({
 jest.mock('@/services/storage/entities', () => ({
   listEntitiesForEntry: jest.fn(),
   countEntriesForEntity: jest.fn(),
+  effectiveLabel: (e: { label: string; canonical_label?: string | null }) => {
+    const canon = (e.canonical_label ?? '').trim()
+    return canon.length > 0 ? canon : e.label
+  },
 }))
 jest.mock('@/services/storage/reframes', () => ({ listReframesForBelief: jest.fn() }))
 jest.mock('@/services/storage/graph', () => ({

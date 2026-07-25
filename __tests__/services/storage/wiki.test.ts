@@ -437,6 +437,7 @@ describe('storage/wiki CRUD', () => {
     expect(page.success && page.data?.version_history.slice(-1)[0].version).toBe(25)
   })
 
+
   describe('updatePageCAS — compare-and-set page persistence', () => {
     it('applies when base version matches current page version', async () => {
       const { db } = createFakeDb()
@@ -514,5 +515,84 @@ describe('storage/wiki CRUD', () => {
     expect(created.success).toBe(true)
     if (!created.success) return
     expect(created.data.regrounded_upto).toBe(0)
+  })
+
+  // F-06 — hard version-history bound. Forty years of monthly versions must
+  // collapse to at most 20 rows: first + newest ten + at most nine temporal
+  // anchors across the middle, oldest and newest middle candidates included.
+  it('capVersionHistory enforces a hard 20-row cap across forty years of monthly versions', () => {
+    // 40 distinct months in the middle (2020-01 .. 2023-04), plus first v1 and
+    // last ten recent versions. Total input = 1 + 40 + 10 = 51 rows.
+    const first: WikiPageVersion = {
+      version: 1,
+      content: 'v1',
+      updated_at: new Date('2019-01-01').getTime(),
+    }
+    const middle: WikiPageVersion[] = []
+    for (let i = 0; i < 40; i++) {
+      const y = 2020 + Math.floor(i / 12)
+      const m = (i % 12) + 1
+      const stamp = new Date(`${y}-${String(m).padStart(2, '0')}-15`).getTime()
+      middle.push({ version: i + 2, content: `v${i + 2}`, updated_at: stamp })
+    }
+    const recentStart = 42
+    const recent: WikiPageVersion[] = Array.from({ length: 10 }, (_, i) => ({
+      version: recentStart + i,
+      content: `v${recentStart + i}`,
+      updated_at: new Date('2024-06-01').getTime() + i * 86_400_000,
+    }))
+    const versions = [first, ...middle, ...recent].sort((a, b) => a.version - b.version)
+
+    const capped = capVersionHistory(versions)
+
+    // T-06.1 — hard cap
+    expect(capped.length).toBeLessThanOrEqual(20)
+
+    // T-06.2 — first + newest ten preserved; middle ≤ 9 and spans old→recent
+    expect(capped[0].version).toBe(1)
+    expect(capped.slice(-10).map((v) => v.version)).toEqual(
+      Array.from({ length: 10 }, (_, i) => recentStart + i)
+    )
+    const mid = capped.slice(1, -10)
+    expect(mid.length).toBeLessThanOrEqual(9)
+    // Middle anchors span the middle range: oldest surviving middle is the
+    // earliest candidate (v2) and newest surviving middle is the last monthly
+    // candidate (v41). Even spacing with endpoints keeps both.
+    expect(mid[0].version).toBe(2)
+    expect(mid[mid.length - 1].version).toBe(41)
+    // No duplicate versions in the returned chain.
+    const versions_seen = new Set(capped.map((v) => v.version))
+    expect(versions_seen.size).toBe(capped.length)
+  })
+
+  it('capVersionHistory is stable when exactly 20 versions are given and trims nothing', () => {
+    const versions: WikiPageVersion[] = Array.from({ length: 20 }, (_, i) => ({
+      version: i + 1,
+      content: `v${i + 1}`,
+      updated_at: Date.now() + i * 86_400_000,
+    }))
+    const capped = capVersionHistory(versions)
+    expect(capped).toEqual(versions)
+    expect(capped.length).toBe(20)
+  })
+
+  it('capVersionHistory is idempotent and survives invalid timestamps deterministically', () => {
+    // 25 versions with mixed invalid timestamps — no throw, version order wins.
+    const versions: WikiPageVersion[] = Array.from({ length: 25 }, (_, i) => ({
+      version: i + 1,
+      content: `v${i + 1}`,
+      // Every 5th stamp is NaN; the rest span 2020-04 .. 2021-08 monthly.
+      updated_at: i % 5 === 0 ? NaN : new Date(2020, i % 12, 5).getTime(),
+    }))
+    let capped: WikiPageVersion[]
+    expect(() => {
+      capped = capVersionHistory(versions)
+    }).not.toThrow()
+    expect(capped!.length).toBeLessThanOrEqual(20)
+    // First + newest ten survive even with garbage timestamps.
+    expect(capped![0].version).toBe(1)
+    expect(capped!.slice(-10).map((v) => v.version)).toEqual([16, 17, 18, 19, 20, 21, 22, 23, 24, 25])
+    // Idempotent — re-capping a capped result is a no-op.
+    expect(capVersionHistory(capped!)).toEqual(capped!)
   })
 })

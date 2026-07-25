@@ -47,8 +47,8 @@ describe('migration 001 (initial schema)', () => {
 
     expect(result.success).toBe(true)
     if (result.success)
-      expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30])
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30])
+      expect(result.data).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32])
     for (const table of TABLES) {
       expect(executed.some((sql) => sql.includes(`CREATE TABLE ${table} `))).toBe(true)
     }
@@ -104,6 +104,50 @@ describe('migration 028 (graph_nodes label NOCASE)', () => {
     expect(stmts.some((s) => s.includes('DROP TABLE graph_nodes'))).toBe(true)
     const recreate = stmts.find((s) => s.includes('CREATE TABLE graph_nodes'))
     expect(recreate).toContain('COLLATE NOCASE')
+  })
+})
+
+describe('migration 031 (entry_entities effective belief labels)', () => {
+  it('is registered as version 31', () => {
+    expect(MIGRATIONS[30].version).toBe(31)
+    expect(MIGRATIONS[30].name).toBe('entry_entities_effective_label')
+  })
+
+  it('adds canonical_label TEXT NULL and updated_at INTEGER NOT NULL, backfilling updated_at from created_at', () => {
+    const stmts = MIGRATIONS[30].statements
+    expect(stmts.some((s) => /ALTER TABLE entry_entities ADD COLUMN canonical_label TEXT NULL/.test(s))).toBe(true)
+    expect(
+      stmts.some((s) => /ALTER TABLE entry_entities ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0/.test(s))
+    ).toBe(true)
+    // Backfill: existing rows get updated_at = created_at so they remain syncable
+    // (LWW watermark) before any local canonicalization bump.
+    expect(stmts.some((s) => /UPDATE entry_entities SET updated_at = created_at WHERE updated_at = 0/.test(s))).toBe(true)
+  })
+})
+
+describe('migration 032 (belief maintenance state)', () => {
+  it('is registered as version 32', () => {
+    expect(MIGRATIONS[31].version).toBe(32)
+    expect(MIGRATIONS[31].name).toBe('belief_maintenance_state')
+  })
+
+  it('creates the belief_maintenance_state table with the count-only columns + seeds the belief row', () => {
+    const stmts = MIGRATIONS[31].statements
+    expect(stmts.some((s) => /CREATE TABLE belief_maintenance_state/.test(s))).toBe(true)
+    // Count-only metadata: algorithm version + source generations + counts.
+    // No label text or label-derived hashes live here — a future geometry tune
+    // bumps algorithm_version to force one rerun, but no belief content persists.
+    const ddl = stmts.join('\n')
+    expect(/algorithm_version\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    expect(/source_generation\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    expect(/processed_generation\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    expect(/status\s+TEXT\s+NOT\s+NULL\s+DEFAULT/i.test(ddl)).toBe(true)
+    expect(/repaired_clusters\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    expect(/deferred_clusters\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0/i.test(ddl)).toBe(true)
+    // Seed the only maintenance key ('belief') so getMaintenanceState always
+    // returns a row after migration 031. A future maintenance variant can add
+    // its own row via a later migration without touching this one.
+    expect(stmts.some((s) => /INSERT INTO belief_maintenance_state \(key\) VALUES \('belief'\)/.test(s))).toBe(true)
   })
 })
 

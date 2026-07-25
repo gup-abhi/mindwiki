@@ -5,6 +5,7 @@ import { rebuildGraph } from '@/services/graph/engine'
 import { type SqliteDatabase, getDb, isWiping } from '@/services/storage/db'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { pendingUploads, markSynced, backfillSyncQueue } from '@/services/storage/sync-queue'
+import { incrementSourceGeneration } from '@/services/storage/maintenance-state'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
 
@@ -37,11 +38,13 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
-  // Entities are write-once per entry (re-tagging replaces the set), so
-  // created_at is a sufficient last-write-wins watermark.
+  // Entities are now mutable (F-02B: canonical_label may be set by belief
+  // maintenance and updated_at bumped), so updated_at is the LWW watermark.
+  // A row sent by a pre-030 device omits updated_at/canonical_label; applyRemote
+  // derives both on receipt (updated_at = created_at, canonical_label = null).
   entry_entities: {
-    columns: ['id', 'entry_id', 'type', 'label', 'created_at'],
-    updatedAt: (r) => Number(r.created_at) || 0,
+    columns: ['id', 'entry_id', 'type', 'label', 'canonical_label', 'created_at', 'updated_at'],
+    updatedAt: (r) => Number(r.updated_at) || Number(r.created_at) || 0,
   },
   conversations: {
     columns: ['id', 'title', 'created_at', 'updated_at', 'summary', 'summary_count'],
@@ -96,6 +99,13 @@ async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Prom
   // Default it to 0 so the NOT NULL column stays valid on receipt.
   if (table === 'wiki_pages' && row.regrounded_upto == null) {
     row.regrounded_upto = 0
+  }
+  // F-02B — a pre-030 device sends an entity row without canonical_label /
+  // updated_at. Backfill both so the NOT NULL updated_at stays valid and the
+  // row is treated as its own raw identity (canonical_label = null).
+  if (table === 'entry_entities') {
+    if (row.updated_at == null) row.updated_at = Number(row.created_at) || 0
+    if (row.canonical_label === undefined) row.canonical_label = null
   }
   const cols = TABLES[table].columns
   const placeholders = cols.map(() => '?').join(', ')
@@ -210,6 +220,14 @@ export async function pullDelta(
     for (const d of recordsToApply(decoded, (id) => local.get(id) ?? null)) {
       try {
         await applyRemote(table, d.row, db)
+        // F-02C — a remote entity/reframe apply is an external raw write into the
+        // maintenance source pool; bump generation so a later pass catches up.
+        // Best-effort: failure never aborts the pull. Bump is outside db.transaction
+        // (applyRemote runs outside any explicit tx) so it survives POST-COMMIT.
+        if (table === 'entry_entities' || table === 'belief_reframes') {
+          const bump = await incrementSourceGeneration('belief', db)
+          if (!bump.success) console.warn('sync: source-gen bump failed', bump.error)
+        }
         // A synced entry's wiki is handled by the origin device (wiki pages sync
         // on their own), and INSERT OR REPLACE just wiped the local-only
         // wiki_indexed_at to NULL. Stamp it = tagged_at so the wiki catch-up

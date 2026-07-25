@@ -6,21 +6,44 @@ import {
   embedBeliefLabel,
 } from './belief-match'
 
+/** F-02A — single-flight chain so belief-snap operations serialize through one
+ *  in-process critical section. Two concurrent near-synonym first sightings now
+ *  queue: the second observes the first's stored vector and snaps, instead of
+ *  both embedding+upserting their own (avoidable fragmentation). The chain never
+ *  propagates a rejection — one failure can't starve later snaps. */
+let snapChain: Promise<unknown> = Promise.resolve()
+function runSerial<T>(task: () => Promise<T>): Promise<T> {
+  const ran = snapChain.then(task, task)
+  // Swallow the terminal rejection so the next queued op still runs.
+  snapChain = ran.then(
+    () => undefined,
+    () => undefined
+  )
+  return ran
+}
+
 /**
  * Given a canonicalized belief label, look through stored belief embeddings for
  * a near-semantic match. If one exists at or above the threshold, return the
  * existing label (so it accumulates instead of fragmenting). If no match, store
- * the new label's vector for future comparisons. Best-effort — on any failure
- * (embed model unavailable, DB error) returns the input unchanged so the
- * pipeline never stalls.
+ * the new label's vector for future comparisons. Serialized — a second
+ * near-synonym sighting awaits the first's upsert before reading the store, so
+ * two new labels in the same cluster converge on one anchor instead of both
+ * creating fragmented aliases. Best-effort — on any failure (embed model
+ * unavailable, DB error) returns the input unchanged so the pipeline never
+ * stalls.
  */
 export async function snapBeliefSemantic(label: string): Promise<string> {
+  return runSerial(() => snapBeliefSemanticCritical(label))
+}
+
+async function snapBeliefSemanticCritical(label: string): Promise<string> {
   try {
     const stored = await listEntityEmbeddings('belief')
     if (!stored.success || stored.data.size === 0) {
-      // No existing embeddings to compare against — store this one for future
-      // (best-effort, fire-and-forget).
-      void embedThenStore(label)
+      // No existing embeddings to compare against — embed + store synchronously
+      // (awaited, not fire-and-forget) so a queued second sighting observes it.
+      await embedThenStore(label)
       return label
     }
 
@@ -38,10 +61,11 @@ export async function snapBeliefSemantic(label: string): Promise<string> {
       }
     }
 
-    // If we didn't snap to anything existing, store the new vector so future
-    // entries can snap to this label.
+    // If we didn't snap to anything existing, store the new vector — awaited,
+    // so the queue guarantees the next sighting sees it — for future entries
+    // to snap to this label.
     if (bestLabel === label) {
-      void upsertEntityEmbedding(label, 'belief', vec.data)
+      await upsertEntityEmbedding(label, 'belief', vec.data)
     }
 
     return bestLabel
@@ -71,15 +95,18 @@ export async function snapBeliefsSemantic(labels: string[]): Promise<string[]> {
 
 /**
  * Backfill belief embeddings for all existing belief labels. Best-effort;
- * call once at startup (alongside the page-embedding backfill).
+ * call once at startup (alongside the page-embedding backfill). Returns a
+ * count-only {embedded, failed} so a partial pass (some labels fail to embed)
+ * still reports what finished without leaking label text.
  */
-export async function backfillBeliefEmbeddings(): Promise<number> {
+export async function backfillBeliefEmbeddings(): Promise<{ embedded: number; failed: number }> {
   return backfillEntityEmbeddings('belief', embedBeliefLabel)
 }
 
 /**
- * Embed a single label and store its vector. Fire-and-forget helper — never
- * throws; a failure is simply swallowed.
+ * Embed a single label and store its vector. Awaited inside the snap critical
+ * section so a queued second sighting observes the write; never throws — a
+ * failure is simply swallowed and the caller keeps the input label.
  */
 async function embedThenStore(label: string): Promise<void> {
   try {

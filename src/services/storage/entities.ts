@@ -2,6 +2,7 @@ import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
 import { enqueueUpsert } from './sync-queue'
+import { incrementSourceGeneration } from './maintenance-state'
 
 // Signals pulled from an entry by the deep model. A subset of the graph NodeType
 // union (see services/storage/graph.ts): concrete entities (person/place/
@@ -15,12 +16,28 @@ export interface EntryEntity {
   type: EntityType
   label: string
   created_at: number
+  /** F-02B — null when this raw label is its own canonical identity; otherwise
+   *  the trimmed canonical label this alias was snapped to. Never user-authored
+   *  text on a fresh row; set by belief maintenance (F-02C) and propagated by sync. */
+  canonical_label: string | null
+  /** F-02B — mutable LWW watermark. bumped on canonicalization so a relabel
+   *  reaches other devices. Backfilled from created_at by migration 030. */
+  updated_at: number
 }
 
 /** A type+label pair to attach to an entry (id/created_at are assigned here). */
 export interface NewEntity {
   type: EntityType
   label: string
+}
+
+/** F-02B — the effective identity of an entity: the trimmed canonical label
+ *  when one was set, otherwise the raw label. Every recurrence / lineage /
+ *  routing / graph path keys on this so a canonicalized alias converges on one
+ *  node/wiki identity without losing the original raw source row. */
+export function effectiveLabel(e: Pick<EntryEntity, 'label' | 'canonical_label'>): string {
+  const canon = (e.canonical_label ?? '').trim()
+  return canon.length > 0 ? canon : e.label
 }
 
 function rowToEntity(row: Record<string, unknown>): EntryEntity {
@@ -30,6 +47,8 @@ function rowToEntity(row: Record<string, unknown>): EntryEntity {
     type: String(row.type) as EntityType,
     label: String(row.label),
     created_at: Number(row.created_at),
+    canonical_label: row.canonical_label == null ? null : String(row.canonical_label),
+    updated_at: Number(row.updated_at ?? row.created_at),
   }
 }
 
@@ -41,7 +60,14 @@ function entityId(entryId: string, type: EntityType, label: string): string {
 
 /**
  * Replace the set of entities attached to an entry (delete-then-insert in one
- * transaction) and enqueue each for E2E sync. Best-effort enqueue — a queue
+ * transaction) and enqueue each for E2E sync. F-02B — the delete-then-insert
+ * now preserves any `canonical_label` previously stamped on a surviving row so
+ * re-extraction (catch-up `/reflect`, re-tagging, …) emitting the same raw
+ * entity again does not erase a canonicalization performed by belief
+ * maintenance. `updated_at` is bumped so the preserved canonicalization reaches
+ * other devices. **Maintenance itself never uses this replace-set helper** — it
+ * writes `canonical_label` directly via `setCanonicalLabel` so it can't be
+ * wiped by an entry re-extraction mid-pass. Best-effort enqueue — a queue
  * failure never fails the write (the row is local; sync just retries later).
  */
 export async function setEntitiesForEntry(
@@ -60,19 +86,51 @@ export async function setEntitiesForEntry(
     const key = `${e.type}:${label.toLowerCase()}`
     if (seen.has(key)) continue
     seen.add(key)
-    rows.push({ id: entityId(entryId, e.type, label), entry_id: entryId, type: e.type, label, created_at: now })
+    rows.push({
+      id: entityId(entryId, e.type, label),
+      entry_id: entryId,
+      type: e.type,
+      label,
+      created_at: now,
+      canonical_label: null,
+      updated_at: now,
+    })
   }
   try {
     await db.transaction(async (tx) => {
+      // Carry forward any canonical_label previously stamped on a row whose id
+      // survives this replace-set (same entry+type+raw label → same deterministic
+      // id). The original created_at is preserved so historical timestamps stay
+      // meaningful; updated_at is bumped to record the re-write.
+      const survived = new Set(rows.map((r) => r.id))
+      const existing = await tx.execute(
+        'SELECT id, canonical_label FROM entry_entities WHERE entry_id = ?',
+        [entryId]
+      )
+      const preserved = new Map<string, string | null>()
+      for (const r of existing.rows) {
+        const id = String(r.id)
+        if (survived.has(id)) preserved.set(id, r.canonical_label == null ? null : String(r.canonical_label))
+      }
       await tx.execute('DELETE FROM entry_entities WHERE entry_id = ?', [entryId])
       for (const r of rows) {
+        const canon = preserved.get(r.id) ?? null
         await tx.execute(
-          'INSERT INTO entry_entities (id, entry_id, type, label, created_at) VALUES (?, ?, ?, ?, ?)',
-          [r.id, r.entry_id, r.type, r.label, r.created_at]
+          'INSERT INTO entry_entities (id, entry_id, type, label, canonical_label, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [r.id, r.entry_id, r.type, r.label, canon, r.created_at, r.updated_at]
         )
       }
     })
     for (const r of rows) await enqueueUpsert('entry_entities', r.id, db)
+    // F-02C — raw belief ingestion bumps the maintenance source generation so
+    // an idempotent historical-repair pass eventually catches this entry. Do
+    // NOT bump from setCanonicalLabel / reframe-retarget (maintenance's own
+    // writes never self-increment — that's what prevents a self-trigger loop).
+    // Best-effort: a bump failure does not fail the entity save.
+    if (rows.some((r) => r.type === 'belief')) {
+      const bump = await incrementSourceGeneration('belief', db)
+      if (!bump.success) console.warn('setEntitiesForEntry: source-gen bump failed (entry still saved)', bump.error)
+    }
     return ok(undefined)
   } catch (e) {
     return err('ENTITY_SET_FAILED', 'Failed to set entry entities', e)
@@ -93,9 +151,12 @@ export async function listEntitiesForEntry(
 }
 
 /** Number of distinct entries that mention an entity — the wiki recurrence gate. */
-/** All distinct labels for belief-type entities — used by the semantic dedup
- *  step to look for near-duplicate beliefs across entries. Best-effort; caller
- *  treats empty result as "no existing labels to compare against". */
+/** All distinct RAW labels for belief-type entities — used by the semantic
+ *  dedup step and by belief maintenance (F-02C) to look for near-duplicate
+ *  beliefs across entries. Returns RAW labels, not effective: maintenance must
+ *  cluster on raw observations so a prior bad alias decision stays observable
+ *  and repairable. Best-effort; caller treats empty result as "no existing
+ *  labels to compare against". */
 export async function listDistinctBeliefLabels(
   db: SqliteDatabase = getDb()
 ): Promise<Result<string[]>> {
@@ -110,6 +171,11 @@ export async function listDistinctBeliefLabels(
   }
 }
 
+/** Count entries mentioning an entity by EFFECTIVE label: a row whose
+ *  `canonical_label` matches counts the same as a row whose raw `label`
+ *  matches, so a canonicalized alias contributes to one node/recurrence/wiki
+ *  identity instead of fragmenting the count across two labels. The wiki
+ *  recurrence gate queries by effective label. */
 export async function countEntriesForEntity(
   type: EntityType,
   label: string,
@@ -117,11 +183,38 @@ export async function countEntriesForEntity(
 ): Promise<Result<number>> {
   try {
     const res = await db.execute(
-      'SELECT COUNT(DISTINCT entry_id) AS n FROM entry_entities WHERE type = ? AND label = ? COLLATE NOCASE',
+      `SELECT COUNT(DISTINCT entry_id) AS n FROM entry_entities
+        WHERE type = ? AND COALESCE(canonical_label, label) = ? COLLATE NOCASE`,
       [type, label]
     )
     return ok(Number(res.rows[0]?.n ?? 0))
   } catch (e) {
     return err('ENTITY_COUNT_FAILED', 'Failed to count entity entries', e)
+  }
+}
+
+/** F-02B — set the canonical label for a single entity row and bump its LWW
+ *  watermark so the change reaches other devices. Used by belief maintenance
+ *  (F-02C) to retire a raw alias without deleting the source row; never used by
+ *  the re-tag replace-set helper (which preserves but does not write
+ *  canonical_label). Best-effort enqueue — a queue failure never fails the write. */
+export async function setCanonicalLabel(
+  rowId: string,
+  canonicalLabel: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<void>> {
+  const canon = canonicalLabel.trim()
+  if (!canon) return err('ENTITY_CANON_INVALID', 'canonical label must be non-empty')
+  try {
+    await db.execute(
+      `UPDATE entry_entities
+        SET canonical_label = ?, updated_at = MAX(updated_at, ?)
+        WHERE id = ?`,
+      [canon, Date.now(), rowId]
+    )
+    await enqueueUpsert('entry_entities', rowId, db)
+    return ok(undefined)
+  } catch (e) {
+    return err('ENTITY_CANON_FAILED', 'Failed to set canonical label', e)
   }
 }

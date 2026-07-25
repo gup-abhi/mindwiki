@@ -18,27 +18,73 @@ const MAX_VERSION_HISTORY = 20
 const KEEP_LAST_N = 10
 
 export function capVersionHistory(history: WikiPageVersion[]): WikiPageVersion[] {
-  if (history.length <= MAX_VERSION_HISTORY) return history
+  // Dedupe by version (last write wins) and sort ascending so the retention
+  // math is order-independent of how the caller assembled the history.
+  const byVersion = new Map<number, WikiPageVersion>()
+  for (const v of history) byVersion.set(v.version, v)
+  const ordered = [...byVersion.values()].sort((a, b) => a.version - b.version)
+  if (ordered.length <= MAX_VERSION_HISTORY) return ordered
 
-  // Always preserve the first version (v1 — the original synthesis)
-  const first = [history[0]]
+  // Always preserve the first version (v1 — the original synthesis) and the
+  // KEEP_LAST_N most recent versions (fine-grained recent evolution).
+  const first = [ordered[0]]
+  const recent = ordered.slice(-KEEP_LAST_N)
 
-  // Always preserve the N most recent versions (fine-grained recent evolution)
-  const lastN = history.slice(-KEEP_LAST_N)
+  // Remaining middle candidates, ordered oldest → recent.
+  const mid = ordered.slice(1, ordered.length - KEEP_LAST_N)
 
-  // For everything in between, keep at most one per calendar month
-  const mid = history.slice(1, -KEEP_LAST_N)
+  // Collapse the middle to one deterministic candidate per UTC calendar month
+  // (the first candidate in that month, in version order — already the case
+  // since `mid` is version-asc). Invalid timestamps fall back to a single
+  // shared bucket so they never throw and still order by version.
   const monthly: WikiPageVersion[] = []
-  let currentMonth = ''
-  for (const v of mid) {
-    const month = new Date(v.updated_at).toISOString().slice(0, 7) // YYYY-MM
-    if (month !== currentMonth) {
-      monthly.push(v)
-      currentMonth = month
+  const seenMonth = new Set<string>()
+  const monthKey = (ts: number): string => {
+    const d = new Date(ts)
+    if (Number.isNaN(d.getTime())) return 'invalid'
+    try {
+      return d.toISOString().slice(0, 7) // YYYY-MM
+    } catch {
+      return 'invalid'
     }
   }
+  for (const v of mid) {
+    const m = monthKey(v.updated_at)
+    if (seenMonth.has(m)) continue
+    seenMonth.add(m)
+    monthly.push(v)
+  }
 
-  return [...first, ...monthly, ...lastN]
+  // Hard budget: 20 total − first − recent. When recent is exactly the cap
+  // (KEEP_LAST_N=10), the middle gets exactly nine temporal anchors so the
+  // whole retained chain can never exceed 20 even before the final safety trim.
+  const slots = Math.max(0, MAX_VERSION_HISTORY - 1 - recent.length)
+  let sampled: WikiPageVersion[]
+  if (monthly.length <= slots) {
+    sampled = monthly
+  } else {
+    // Evenly spaced temporal anchors across the monthly candidates, including
+    // the oldest and newest middle entries so evolution gaps span the full
+    // middle window. Picks exactly `slots` candidates when slots ≥ 2.
+    const n = monthly.length
+    const picked: WikiPageVersion[] = [monthly[0]]
+    for (let s = 1; s < slots - 1 && slots > 1; s++) {
+      // Map s ∈ [0..slots) to a monthly index that always lands on the last
+      // candidate at s = slots-1; avoids float-rounding off-by-one.
+      const idx = Math.round((s * (n - 1)) / (slots - 1))
+      if (idx > 0 && idx < n) picked.push(monthly[idx])
+    }
+    picked.push(monthly[n - 1])
+    sampled = picked
+  }
+
+  // Merge, dedupe by version, sort ascending. The first+recent anchors are
+  // disjoint by construction, and the middle sample was drawn from rows
+  // outside the recent slice, so no version overlaps. The final slice is a
+  // defensive hard cap — the budget math already guarantees ≤ 20.
+  const merged = new Map<number, WikiPageVersion>()
+  for (const v of [...first, ...sampled, ...recent]) merged.set(v.version, v)
+  return [...merged.values()].sort((a, b) => a.version - b.version).slice(0, MAX_VERSION_HISTORY)
 }
 
 export interface WikiPage {

@@ -3,7 +3,7 @@ import { type TimingContext } from '@/types/wiki'
 import * as settingsStorage from '@/services/storage/settings'
 import { type Entry } from '@/services/storage/entries'
 import { selectReGroundEvidence, listAllSourceEntriesForPage } from '@/services/wiki/reground-evidence'
-import { listEntitiesForEntry, countEntriesForEntity } from '@/services/storage/entities'
+import { listEntitiesForEntry, countEntriesForEntity, effectiveLabel } from '@/services/storage/entities'
 import { listReframesForBelief } from '@/services/storage/reframes'
 import {
   getPage,
@@ -143,10 +143,18 @@ async function recurringEntityTopics(entryId: string): Promise<Topic[]> {
   const res = await listEntitiesForEntry(entryId)
   if (!res.success) return []
   const out: Topic[] = []
+  const seen = new Set<string>()
   for (const e of res.data) {
-    const count = await countEntriesForEntity(e.type, e.label)
+    // F-02B: count by EFFECTIVE label so a canonicalized alias counts toward
+    // the canonical wiki page's recurrence instead of fragmenting. Two aliases
+    // on one entry mapping to the same canonical contribute ONCE here too.
+    const title = effectiveLabel(e)
+    const dedupKey = `${e.type}:${title.toLowerCase()}`
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
+    const count = await countEntriesForEntity(e.type, title)
     if (count.success && count.data >= RECURRENCE_THRESHOLD) {
-      out.push({ title: e.label, category: e.type })
+      out.push({ title, category: e.type })
     }
   }
   return out
