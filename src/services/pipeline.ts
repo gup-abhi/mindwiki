@@ -15,7 +15,7 @@ import {
 import { isModelDownloaded } from '@/services/llm/model-manager'
 import { setEntitiesForEntry, type NewEntity } from '@/services/storage/entities'
 import { snapBeliefsSemantic } from '@/services/wiki/belief-snap'
-import { getSetting, setSetting } from '@/services/storage/settings'
+import { getSetting, setSetting, bumpSetting } from '@/services/storage/settings'
 import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { updateWikiForEntry, maybeRefreshEmotionPages } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
@@ -27,13 +27,19 @@ export interface ProcessResult {
   crisis: CrisisAssessment
 }
 
+/** Settings key for the count-only local diagnostic that tracks how often the
+ * deep model produced more distinct topics than the persisted two-slot schema
+ * could hold. Atomic, monotonic, label-free. No remote sync — purely a local
+ * signal to the product team when model fanout starts costing entries. */
+export const TOPIC_TRUNCATION_COUNT_KEY = 'topic_truncation_count'
+
 /**
  * Drop later entries whose trimmed label case-insensitively repeats an earlier
  * one, preserving order and the first occurrence's original casing. Used to
  * collapse duplicate extracted themes (topic == topic2) before they double-count
  * in the graph recurrence gate.
  */
-function dedupeCaseInsensitive(labels: string[]): string[] {
+export function dedupeCaseInsensitive(labels: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const label of labels) {
@@ -43,6 +49,36 @@ function dedupeCaseInsensitive(labels: string[]): string[] {
     out.push(label)
   }
   return out
+}
+
+export interface NormalizedTopics {
+  topics: string[]
+  truncated: boolean
+}
+
+/**
+ * Pure normalization step for deep-model topics. Drops non-string / whitespace
+ * entries, dedupes case-insensitively (first-occurrence casing wins), and caps
+ * at `maxDistinct` distinct values. `truncated` is true only when the input
+ * had MORE distinct values than the cap — a duplicate tail or short input
+ * never triggers it. No DB, no async — safe to call inline in the pipeline.
+ */
+export function normalizeTopics(
+  rawTopics: unknown[],
+  maxDistinct: number = 2
+): NormalizedTopics {
+  const cleaned: string[] = []
+  for (const t of rawTopics) {
+    if (typeof t !== 'string') continue
+    const trimmed = t.trim()
+    if (!trimmed) continue
+    cleaned.push(trimmed)
+  }
+  const deduped = dedupeCaseInsensitive(cleaned)
+  if (deduped.length <= maxDistinct) {
+    return { topics: deduped, truncated: false }
+  }
+  return { topics: deduped.slice(0, maxDistinct), truncated: true }
 }
 
 /**
@@ -58,9 +94,19 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // path increments the one node twice, and precomputedSupport (rebuild) sums the
   // topic + topic2 distributions, so a single entry passes the ≥2 gate. Keep the
   // first occurrence's original casing.
-  const dedupedTopics = dedupeCaseInsensitive(ex.topics)
-  const primaryTopic = dedupedTopics[0] ?? ''
-  const secondaryTopic = dedupedTopics[1] ?? ''
+  //
+  // Pure normalizeTopics handles dedupe-before-cap so a duplicate first value
+  // (e.g. ['Work', 'work', 'Marriage']) does not discard a distinct second
+  // theme. When the deep model supplies MORE distinct themes than the cap can
+  // hold, we atomically bump a count-only local diagnostic — labels are never
+  // stored in the counter; concurrent background indexers cannot lose
+  // increments because the read+write runs in a single SQLite transaction.
+  const normalized = normalizeTopics(ex.topics ?? [])
+  if (normalized.truncated) {
+    await bumpSetting(TOPIC_TRUNCATION_COUNT_KEY)
+  }
+  const primaryTopic = normalized.topics[0] ?? ''
+  const secondaryTopic = normalized.topics[1] ?? ''
   await applyTags(entry.id, {
     emotion: ex.emotion,
     distortion: ex.distortion,
@@ -91,7 +137,7 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // refocus. Mirrors what a sync pull does.
   useSyncStore.getState().bumpRevision()
 
-  const topics = dedupedTopics.filter((t) => t.length > 0).slice(0, 2)
+  const topics = normalized.topics.filter((t) => t.length > 0).slice(0, 2)
   const taggedEntry: Entry = {
     ...entry,
     emotion: ex.emotion,
