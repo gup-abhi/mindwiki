@@ -90,6 +90,19 @@ describe('DevWikiAudit', () => {
     expect(screen.getByText(/Belief idle · generation 2\/2/)).toBeTruthy()
   })
 
+  it('shows safe error code when belief maintenance fails', async () => {
+    mockRunBeliefMaintenance.mockResolvedValue({
+      success: false,
+      error: { code: 'BELIEF_LANDSCAPE_FAILED', message: 'hidden detail' },
+    })
+    render(<DevWikiAudit />)
+
+    fireEvent.press(screen.getByTestId('dev-wiki-audit-belief'))
+
+    await waitFor(() => expect(screen.getByText('Belief maintenance failed: BELIEF_LANDSCAPE_FAILED')).toBeTruthy())
+    expect(screen.queryByText('hidden detail')).toBeNull()
+  })
+
   it('runs production maintenance actions from settings controls', async () => {
     render(<DevWikiAudit />)
 

@@ -159,7 +159,17 @@ export function DevWikiAudit() {
           fullWidth
           onPress={() => void run(async () => {
             const result = await runBeliefMaintenance()
-            return result.success ? `Repaired ${result.data.repairedClusters} cluster(s)` : 'Belief maintenance failed'
+            if (result.success) {
+              return `Repaired ${result.data.repairedClusters} cluster(s)`
+            }
+            const message = result.error.message.toLowerCase()
+            if (result.error.code === 'BELIEF_LANDSCAPE_FAILED' && message.includes('no such table')) {
+              return 'Belief maintenance failed: schema missing — restart app to finish migrations'
+            }
+            if (result.error.code === 'BELIEF_MAINTENANCE_GRAPH_FAILED') {
+              return 'Belief maintenance failed: graph rebuild — retry after closing other work'
+            }
+            return `Belief maintenance failed: ${result.error.code}`
           })}
           loading={busy}
           testID="dev-wiki-audit-belief"
