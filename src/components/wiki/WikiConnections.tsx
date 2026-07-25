@@ -1,53 +1,49 @@
-import { useEffect, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { Pressable, StyleSheet, View } from 'react-native'
 
 import { Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
-import { pageConnections } from '@/services/graph/neighborhood'
-import { listNodes, listEdges } from '@/services/storage/graph'
-import { listPages, type WikiPage } from '@/services/storage/wiki'
-import { useSyncStore } from '@/store/sync.store'
+import { type WikiPage } from '@/services/storage/wiki'
+import { useWikiConnections } from '@/hooks/useWikiConnections'
 
 /**
  * The "Often comes up with" block on a wiki page — a deterministic, tappable
- * chip per graph connection (Level 2). Connections are computed at render time
- * from the local graph (always fresh, no persisted structured data), NOT woven
- * into the page's LLM prose. Each chip resolves:
+ * chip per graph connection (Level 2). Connections are computed in
+ * useWikiConnections from the local graph (always fresh, no persisted structured
+ * data), NOT woven into the page's LLM prose. Each chip resolves:
  *  - a live wiki page with a matching title → opens that page ("/wiki/:id")
  *  - no matching page (a graph node only, e.g. "Sleep") → opens the Map with
  *    that node focused ("/graph?focus=<label>").
+ *
+ * Presentation-only: state and storage reads live in useWikiConnections.
+ * Render decisions:
+ *   - loading → null (no flash of empty block during normal load — matches prior UX)
+ *   - error   → small, unobtrusive dev diagnostic row, never labels/titles
+ *   - loaded, empty labels → null (the node has no neighbours — normal)
+ *   - loaded, labels present → block with tappable chips
  */
 export function WikiConnections({ title }: { title: string }) {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const revision = useSyncStore((s) => s.revision)
-  const [labels, setLabels] = useState<string[] | null>(null)
-  const [pages, setPages] = useState<WikiPage[]>([])
+  const { status, labels, pages, error } = useWikiConnections(title)
 
-  useEffect(() => {
-    let active = true
-    void (async () => {
-      const [nodesRes, edgesRes, pagesRes] = await Promise.all([
-        listNodes(),
-        listEdges(),
-        listPages(),
-      ])
-      if (!active) return
-      const nodes = nodesRes.success ? nodesRes.data : []
-      const edges = edgesRes.success ? edgesRes.data : []
-      const live = (pagesRes.success ? pagesRes.data : []).filter(
-        (p) => p.dismissed_at == null && p.merged_into == null
-      )
-      setPages(live)
-      setLabels(pageConnections(title, nodes, edges))
-    })()
-    return () => {
-      active = false
-    }
-  }, [title, revision])
+  if (status === 'loading') return null
 
-  if (labels == null || labels.length === 0) return null
+  if (status === 'error') {
+    // Unobtrusive dev diagnostic — counts only, never logs labels.
+    // In production this is a single muted row; if no diagnostic is requested
+    // the row can be hidden entirely by returning null here.
+    return (
+      <View style={styles.section} testID="wiki-connections-error">
+        <Text variant="caption" color="textSecondary">
+          {error}
+        </Text>
+      </View>
+    )
+  }
+
+  // status === 'loaded'
+  if (labels.length === 0) return null
 
   return (
     <View style={styles.section} testID="wiki-connections">
@@ -65,7 +61,9 @@ export function WikiConnections({ title }: { title: string }) {
             <Pressable
               key={label}
               accessibilityRole="button"
-              accessibilityLabel={page ? `Open the ${label} page` : `See ${label} in your connections`}
+              accessibilityLabel={
+                page ? `Open the ${label} page` : `See ${label} in your connections`
+              }
               onPress={onPress}
               style={[styles.chip, styles.chipLink]}
               testID={`wiki-connection-${label}`}
@@ -81,10 +79,12 @@ export function WikiConnections({ title }: { title: string }) {
   )
 }
 
-/** Match a connection label to a live wiki page, case-insensitively (the
- *  graph label and the page title need not agree on casing). Returns null when
- *  the connection is a graph node only (no page) — the chip then links to the
- *  focused node in the Map instead. Pure: caller passes the current page list. */
+/**
+ * Match a connection label to a live wiki page, case-insensitively (the
+ * graph label and the page title need not agree on casing). Returns null when
+ * the connection is a graph node only (no page) — the chip then links to the
+ * focused node in the Map instead. Pure: caller passes the current page list.
+ */
 function resolvePage(label: string, live: WikiPage[]): WikiPage | null {
   const key = label.trim().toLowerCase()
   return live.find((p) => p.title.trim().toLowerCase() === key) ?? null
