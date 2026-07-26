@@ -9,7 +9,7 @@ import {
   getPage,
   getPageByTitle,
   createPage,
-  updatePage,
+  createPageWithContribution,
   updatePageCAS,
   updatePageCASWithContribution,
   updatePageCASWithContributions,
@@ -385,31 +385,28 @@ export async function updateWikiForEntry(
       continue
     }
 
-    let pageId = page?.id
-    if (pageId == null) {
-      const created = await createPage({ title: topic.title, category: topic.category })
+    if (page == null) {
+      const created = await createPageWithContribution(
+        {
+          title: topic.title,
+          category: topic.category,
+          content: synth.data,
+          entry_count: 1,
+        },
+        entry.id
+      )
       if (!created.success) {
         if (__DEV__) console.log(`[wiki] create failed: ${created.error.code}`)
         continue
       }
-      pageId = created.data.id
-      // A uniqueness-conflict create returns the existing winner. Do not apply
-      // synthesis built from an absent page onto that winner; next catch-up pass
-      // will take the normal CAS/re-synthesis path.
-      if (created.data.version != null && created.data.version !== 1) continue
-      // New page starts at version 1. Use CAS so page content, receipt, and
-      // sync queue commit together; a competing creator cannot overwrite it.
-      const applied = typeof updatePageCASWithContribution === 'function'
-        ? await applyEntryPage(pageId, synth.data, created.data.version, entry.id)
-        : await updatePage(pageId, synth.data)
-      if (applied.success && (!('affected' in applied.data) || applied.data.affected === 1)) {
-        updated.push(topic.title)
-      } else if (__DEV__ && !applied.success) {
-        console.log(`[wiki] update failed: ${applied.error.code}`)
-      }
+      // A uniqueness-race loser returns the existing winner without recording a
+      // receipt. Retry later against that winner rather than acknowledging stale synthesis.
+      if (!created.data.created) continue
+      updated.push(topic.title)
       continue
     }
 
+    const pageId = page.id
     // Existing page — serialise synth + CAS apply per page id so two concurrent
     // calls on the same page (tag-triggered pass + scan loop) see a consistent version.
     await serializedPageSynthesis(pageId, async () => {

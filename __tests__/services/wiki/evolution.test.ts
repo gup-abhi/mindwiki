@@ -173,7 +173,7 @@ describe('retentionAtVersions', () => {
         version: 3,
         content: 'you often brace for the worst before it happens',
         version_history: [
-          { version: 1, content: '', updated_at: 1 }, // empty — engine page init
+          { version: 1, content: '', updated_at: 1 }, // legacy empty engine shell
           { version: 2, content: 'you brace for worst', updated_at: 2 },
         ],
       })

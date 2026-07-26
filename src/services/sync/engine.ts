@@ -4,10 +4,11 @@ import { getTokens } from '@/services/auth/token-store'
 import { rebuildGraph } from '@/services/graph/engine'
 import { type SqliteDatabase, getDb, isWiping } from '@/services/storage/db'
 import { getSetting, setSetting } from '@/services/storage/settings'
-import { pendingUploads, markSynced, backfillSyncQueue } from '@/services/storage/sync-queue'
+import { pendingUploads, markSynced, backfillSyncQueue, enqueueUpsert } from '@/services/storage/sync-queue'
 import { incrementSourceGeneration } from '@/services/storage/maintenance-state'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
+import { repairLegacyRow } from '@/services/wiki/legacy-backfill'
 
 import { SYNCED_TABLES, recordsToApply, type SyncTable, type Versioned } from './conflict'
 import { encryptRecord, decryptRecord } from './encryption'
@@ -86,9 +87,21 @@ function isSyncTable(t: string): t is SyncTable {
   return (SYNCED_TABLES as string[]).includes(t)
 }
 
-/** INSERT OR REPLACE a remote row directly — deliberately bypasses the storage
- *  write helpers so it does NOT re-enqueue (which would echo back on next push). */
-async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Promise<void> {
+/** INSERT OR REPLACE a remote row directly. Normal remote rows bypass storage
+ * write helpers and do not re-enqueue; repaired legacy wiki rows are queued by
+ * pullDelta so canonicalization propagates to older devices. */
+async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Promise<boolean> {
+  // Canonicalize rows from older devices before storage. Repaired rows are
+  // re-uploaded below so older devices cannot reintroduce the legacy shape.
+  let repaired = false
+  if (table === 'wiki_pages') {
+    const canonical = repairLegacyRow(row)
+    if (canonical) {
+      Object.assign(row, canonical)
+      row.updated_at = Math.max((Number(row.updated_at) || 0) + 1, Date.now())
+      repaired = true
+    }
+  }
   // Devices upgraded from pre-029 may send an entry row without the new
   // watermark. Derive the legacy value on receipt so the NOT NULL column stays
   // valid and the row remains syncable.
@@ -113,6 +126,7 @@ async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Prom
     `INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`,
     cols.map((c) => (row[c] === undefined ? null : (row[c] as never)))
   )
+  return repaired
 }
 
 /** Local updated_at for a set of record ids (missing ids are simply absent). */
@@ -219,7 +233,8 @@ export async function pullDelta(
     const local = await localUpdatedAt(table, decoded.map((d) => d.record_id), db)
     for (const d of recordsToApply(decoded, (id) => local.get(id) ?? null)) {
       try {
-        await applyRemote(table, d.row, db)
+const repaired = await applyRemote(table, d.row, db)
+        if (repaired) await enqueueUpsert(table, d.record_id, db)
         // F-02C — a remote entity/reframe apply is an external raw write into the
         // maintenance source pool; bump generation so a later pass catches up.
         // Best-effort: failure never aborts the pull. Bump is outside db.transaction

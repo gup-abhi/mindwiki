@@ -9,6 +9,7 @@ import {
   retryBeliefMaintenanceGraphRebuild,
   runBeliefMaintenance,
 } from '@/services/wiki/belief-maintenance'
+import { backfillLegacyWikiPages } from '@/services/wiki/legacy-backfill'
 import { isModelDownloaded } from '@/services/llm/model-manager'
 import { type AppError, type Result, ok, err } from '@/types/result'
 
@@ -121,6 +122,11 @@ export async function initStorage(): Promise<Result<void>> {
     const res = await dedupeTopics()
     if (res.success) await setSetting(DEDUPE_TOPICS_FLAG, '1')
   }
+
+  // Repair pages created before contentful v1 was shipped before exposing the
+  // DB to screens. A failed run blocks readiness so the next launch retries.
+  const legacyBackfill = await backfillLegacyWikiPages(opened.data)
+  if (!legacyBackfill.success) return err(legacyBackfill.error.code, legacyBackfill.error.message, legacyBackfill.error.cause)
 
   // Self-heal any entries whose synthesis was interrupted (app killed before the
   // background index finished). Fire-and-forget — never block launch; no-ops

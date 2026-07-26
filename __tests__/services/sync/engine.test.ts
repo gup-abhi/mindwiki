@@ -22,6 +22,7 @@ const ENTRY_COLS = [
   'closing_note', 'emotion', 'named_emotion', 'energy', 'distortion', 'mood_score', 'topic', 'topic2', 'tagged_at', 'updated_at', 'raw_text', 'source',
 ]
 
+
 const entryRow = (id: string, over: Record<string, unknown> = {}) => {
   const row = {
     id, created_at: 1000, mood: 3, situation: 's', thought: 't', behavior: null,
@@ -51,18 +52,25 @@ function fakeDb() {
         const pending = [...syncQueue.values()].filter((r) => r.synced_at == null)
         return { rows: pending, rowsAffected: 0 }
       }
+      if (/^INSERT INTO sync_queue/.test(sql)) {
+        syncQueue.set(String(params[0]), {
+          id: params[0], table_name: params[1], record_id: params[2], operation: 'upsert',
+          created_at: params[3], synced_at: null,
+        })
+        return { rows: [], rowsAffected: 1 }
+      }
       if (/^UPDATE sync_queue SET synced_at/.test(sql)) {
         const [synced_at, id] = params
         const row = syncQueue.get(String(id))
         if (row) row.synced_at = synced_at
         return { rows: [], rowsAffected: 1 }
       }
-      if (/^SELECT \* FROM entries WHERE id IN/.test(sql)) {
-        const found = params.map((id) => entries.get(String(id))).filter(Boolean) as Record<string, unknown>[]
-        return { rows: found, rowsAffected: 0 }
-      }
       if (/^SELECT \* FROM wiki_pages WHERE id IN/.test(sql)) {
         const found = params.map((id) => wikiPages.get(String(id))).filter(Boolean) as Record<string, unknown>[]
+        return { rows: found, rowsAffected: 0 }
+      }
+      if (/^SELECT \* FROM entries WHERE id IN/.test(sql)) {
+        const found = params.map((id) => entries.get(String(id))).filter(Boolean) as Record<string, unknown>[]
         return { rows: found, rowsAffected: 0 }
       }
       if (/^SELECT \* FROM entries WHERE id = \?/.test(sql)) {
@@ -122,7 +130,7 @@ function fakeDb() {
     },
     close() {},
   }
-  return { db, syncQueue, entries, settings, entityRows, wikiPages }
+return { db, syncQueue, entries, settings, entityRows, wikiPages }
 }
 
 const okResp = (json: unknown) =>
@@ -225,6 +233,26 @@ describe('sync/engine pullDelta', () => {
     expect(syncQueue.size).toBe(0) // applyRemote must NOT re-enqueue (no echo)
     expect(mockFetch.mock.calls[0][0]).toBe('/sync/acc/delta?since=0')
     expect(useSyncStore.getState().revision).toBe(1) // signals hooks to refetch
+  })
+
+  it('canonicalizes a legacy wiki page received from an older device', async () => {
+    const { db, wikiPages } = fakeDb()
+    const legacy = {
+      id: 'p1', title: 'Work', category: 'theme', content: 'current', entry_count: 2,
+      version: 2,
+      version_history: JSON.stringify([{ version: 1, content: '', updated_at: 10 }]),
+      created_at: 1, updated_at: 5000, dismissed_at: null, corrected_at: null,
+      merged_into: null, aggregated_upto: 0,
+    }
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'wiki_pages', record_id: 'p1', ciphertext: JSON.stringify(legacy), updated_at: 5000 },
+    ]))
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success && res.data).toBe(1)
+    expect(wikiPages.get('p1')?.version).toBe(1)
+    expect(wikiPages.get('p1')?.version_history).toBe('[]')
   })
 
   it('stamps a pulled tagged entry wiki-indexed so catch-up never re-synthesizes it', async () => {

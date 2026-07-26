@@ -10,6 +10,7 @@ import {
   getPage,
   getPageByTitle,
   createPage,
+  createPageWithContribution,
   updatePage,
   updatePageCAS,
   ticklePageCount,
@@ -42,6 +43,7 @@ jest.mock('@/services/storage/wiki', () => ({
   getPage: jest.fn(),
   getPageByTitle: jest.fn(),
   createPage: jest.fn(),
+  createPageWithContribution: jest.fn(),
   updatePage: jest.fn(),
   updatePageCAS: jest.fn(),
   ticklePageCount: jest.fn(),
@@ -81,6 +83,7 @@ const mockListPages = listPages as jest.Mock
 const mockGetByTitle = getPageByTitle as jest.Mock
 const mockGetPage = getPage as jest.Mock
 const mockCreate = createPage as jest.Mock
+const mockCreateWithContribution = createPageWithContribution as jest.Mock
 const mockUpdate = updatePage as jest.Mock
 const mockTickleCount = ticklePageCount as jest.Mock
 const mockSetAggUpto = setAggregatedUpto as jest.Mock
@@ -203,6 +206,20 @@ describe('updateWikiForEntry', () => {
     mockGetByTitle.mockReset()
     mockGetPage.mockReset()
     mockCreate.mockReset()
+    mockCreate.mockResolvedValue(ok({ id: 'emotion-page' }))
+    mockCreateWithContribution.mockReset()
+    mockCreateWithContribution.mockImplementation(async (input) => ok({
+      page: {
+        id: input.title,
+        title: input.title,
+        category: input.category,
+        content: input.content,
+        entry_count: input.entry_count,
+        version: 1,
+        version_history: [],
+      },
+      created: true,
+    }))
     mockUpdate.mockReset()
     mockListEntities.mockReset()
     mockCountEntity.mockReset()
@@ -235,16 +252,56 @@ describe('updateWikiForEntry', () => {
     seedReGroundEvidence([])
   })
 
-  it('creates a new page when none exists, then synthesizes and updates it', async () => {
+  it('creates a new page with the first synthesis as version 1', async () => {
     mockGetByTitle.mockResolvedValue(ok(null))
-    mockCreate.mockImplementation(async (input) => ok({ id: 'p', title: input.title, category: input.category, content: '', version: 1 }))
+    mockCreateWithContribution.mockResolvedValue(ok({
+      page: {
+        id: 'p',
+        title: 'Catastrophizing',
+        category: 'distortion',
+        content: 'synthesized content',
+        entry_count: 1,
+        version: 1,
+        version_history: [],
+      },
+      created: true,
+    }))
 
     const result = await updateWikiForEntry(entry({ emotion: null }))
 
-    expect(mockCreate).toHaveBeenCalledWith({ title: 'Catastrophizing', category: 'distortion' })
-    // New page: uses non-CAS update (no race possible)
-    expect(mockUpdate).toHaveBeenCalledWith('p', 'synthesized content')
+    expect(mockCreateWithContribution).toHaveBeenCalledWith({
+      title: 'Catastrophizing',
+      category: 'distortion',
+      content: 'synthesized content',
+      entry_count: 1,
+    }, 'e1')
+    expect(mockUpdate).not.toHaveBeenCalled()
     expect(result.success && result.data).toEqual(['Catastrophizing'])
+  })
+
+  it('does not report a new page when creation fails', async () => {
+    mockGetByTitle.mockResolvedValue(ok(null))
+    mockCreateWithContribution.mockResolvedValue(err('WIKI_CREATE_FAILED', 'down'))
+
+    const result = await updateWikiForEntry(entry({ emotion: null }))
+
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(result.success && result.data).toEqual([])
+  })
+
+  it('keeps emotion placeholder creation on the default-count tickle path', async () => {
+    mockGetByTitle.mockResolvedValue(ok(null))
+    mockCreate.mockResolvedValue(ok({ id: 'emotion-page' }))
+
+    await updateWikiForEntry(entry({ emotion: 'anxiety', distortion: 'none' }))
+
+    expect(mockCreate).toHaveBeenCalledWith({
+      title: 'Anxiety',
+      category: 'emotion',
+      content: expect.stringContaining("started noticing anxiety"),
+    })
+    expect(mockTickleCount).toHaveBeenCalledWith('emotion-page')
+    expect(mockUpdate).not.toHaveBeenCalled()
   })
 
   it('updates an existing page without recreating it', async () => {
@@ -339,23 +396,18 @@ describe('updateWikiForEntry', () => {
   it('does not create a new page when synthesis fails (no blank shell)', async () => {
     mockGetByTitle.mockResolvedValue(ok(null)) // page does not exist yet
     mockSynth.mockResolvedValue(err('SYNTH_INFERENCE_FAILED', 'down'))
-    mockCreate.mockImplementation(async (input) =>
-      ok({ id: 'p', title: input.title, category: input.category, content: '' })
-    )
 
     const result = await updateWikiForEntry(entry({ emotion: null }))
 
     // synthesis is attempted before any page is created, so a failure leaves nothing
     expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockCreateWithContribution).not.toHaveBeenCalled()
     expect(mockUpdate).not.toHaveBeenCalled()
     expect(result.success && result.data).toEqual([])
   })
 
   it('only makes an entity page once the entity recurs (≥2 entries)', async () => {
     mockGetByTitle.mockResolvedValue(ok(null))
-    mockCreate.mockImplementation(async (input) =>
-      ok({ id: input.title, title: input.title, category: input.category, content: '' })
-    )
     mockListEntities.mockResolvedValue(
       ok([{ id: 'x1', entry_id: 'e1', type: 'person', label: 'Sarah', created_at: 0 }])
     )
@@ -364,20 +416,25 @@ describe('updateWikiForEntry', () => {
     mockCountEntity.mockResolvedValue(ok(1))
     const first = await updateWikiForEntry(entry({ emotion: 'anxiety', distortion: 'none' }))
     expect(first.success && first.data).toEqual([])
-    expect(mockCreate).not.toHaveBeenCalledWith({ title: 'Sarah', category: 'person' })
+    expect(mockCreateWithContribution).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Sarah', category: 'person' }),
+      expect.any(String)
+    )
 
     // Second mention: count = 2 → Sarah earns a page
     mockCountEntity.mockResolvedValue(ok(2))
     const second = await updateWikiForEntry(entry({ emotion: 'anxiety', distortion: 'none' }))
-    expect(mockCreate).toHaveBeenCalledWith({ title: 'Sarah', category: 'person' })
+    expect(mockCreateWithContribution).toHaveBeenCalledWith({
+      title: 'Sarah',
+      category: 'person',
+      content: 'synthesized content',
+      entry_count: 1,
+    }, 'e1')
     expect(second.success && second.data).toEqual(['Sarah'])
   })
 
   it('folds the writer’s latest reframe into a belief page synthesis', async () => {
     mockGetByTitle.mockResolvedValue(ok(null))
-    mockCreate.mockImplementation(async (input) =>
-      ok({ id: input.title, title: input.title, category: input.category, content: '' })
-    )
     mockListEntities.mockResolvedValue(
       ok([{ id: 'b1', entry_id: 'e1', type: 'belief', label: 'I am not good enough', created_at: 0 }])
     )
@@ -406,6 +463,12 @@ describe('updateWikiForEntry', () => {
         reframe: 'I can be nervous and still capable',
       })
     )
+    expect(mockCreateWithContribution).toHaveBeenCalledWith({
+      title: 'I am not good enough',
+      category: 'belief',
+      content: 'synthesized content',
+      entry_count: 1,
+    }, 'e1')
   })
 
   it('does not look up reframes for non-belief pages', async () => {

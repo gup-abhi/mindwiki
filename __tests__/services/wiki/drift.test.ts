@@ -109,13 +109,13 @@ describe('pageDrift', () => {
     expect(d!.origin).toBe(1)
   })
 
-  it('measures origin from the first contentful version (engine pages start empty)', () => {
+  it('measures origin from the first contentful version (legacy engine pages may start empty)', () => {
     const d = pageDrift(
       page({
         version: 3,
         content: 'storm beacon',
         version_history: [
-          { version: 1, content: '', updated_at: 1 }, // created empty by the engine
+          { version: 1, content: '', updated_at: 1 }, // legacy empty engine shell
           { version: 2, content: 'storm harbor anchor compass', updated_at: 2 },
         ],
       })

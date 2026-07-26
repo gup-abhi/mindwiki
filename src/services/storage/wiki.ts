@@ -121,6 +121,7 @@ export interface NewWikiPage {
   title: string
   category?: string | null
   content?: string
+  entry_count?: number
 }
 
 function rowToPage(row: Record<string, unknown>): WikiPage {
@@ -154,12 +155,13 @@ export async function createPage(
   db: SqliteDatabase = getDb()
 ): Promise<Result<WikiPage>> {
   const now = Date.now()
+  const entryCount = input.entry_count ?? 0
   const page: WikiPage = {
     id: randomUUID(),
     title: input.title,
     category: input.category ?? null,
     content: input.content ?? '',
-    entry_count: 0,
+    entry_count: entryCount,
     version: 1,
     version_history: [],
     aggregated_upto: 0,
@@ -175,7 +177,7 @@ export async function createPage(
       `INSERT INTO wiki_pages
          (id, title, category, content, entry_count, version, version_history, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [page.id, page.title, page.category, page.content, 0, 1, '[]', now, now]
+      [page.id, page.title, page.category, page.content, entryCount, 1, '[]', now, now]
     )
     await enqueueUpsert('wiki_pages', page.id, db) // best-effort; never blocks
     return ok(page)
@@ -186,6 +188,56 @@ export async function createPage(
     if (/unique|constraint/i.test(message)) {
       const existing = await getPageByTitle(page.title, db)
       if (existing.success && existing.data) return ok(existing.data)
+    }
+    return err('WIKI_CREATE_FAILED', 'Failed to create wiki page', e)
+  }
+}
+
+/** Create contentful v1 plus durable entry receipt and sync row atomically. */
+export async function createPageWithContribution(
+  input: NewWikiPage,
+  entryId: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<{ page: WikiPage; created: boolean }>> {
+  const now = Date.now()
+  const page: WikiPage = {
+    id: randomUUID(),
+    title: input.title,
+    category: input.category ?? null,
+    content: input.content ?? '',
+    entry_count: input.entry_count ?? 0,
+    version: 1,
+    version_history: [],
+    aggregated_upto: 0,
+    regrounded_upto: 0,
+    created_at: now,
+    updated_at: now,
+    dismissed_at: null,
+    corrected_at: null,
+    merged_into: null,
+  }
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        `INSERT INTO wiki_pages
+           (id, title, category, content, entry_count, version, version_history, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [page.id, page.title, page.category, page.content, page.entry_count, 1, '[]', now, now]
+      )
+      const receipt = await insertContribution(entryId, page.id, tx)
+      if (!receipt.success || !receipt.data.inserted) {
+        throw new Error(receipt.success ? 'WIKI_CONTRIBUTION_DUPLICATE' : receipt.error.code)
+      }
+      const queued = await enqueueUpsert('wiki_pages', page.id, tx, false)
+      if (!queued.success) throw new Error(queued.error.code)
+    })
+    notifySyncPending()
+    return ok({ page, created: true })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    if (/unique|constraint/i.test(message)) {
+      const existing = await getPageByTitle(page.title, db)
+      if (existing.success && existing.data) return ok({ page: existing.data, created: false })
     }
     return err('WIKI_CREATE_FAILED', 'Failed to create wiki page', e)
   }

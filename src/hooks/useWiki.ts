@@ -52,6 +52,7 @@ export function useWikiPage(id: string | undefined) {
   const [page, setPage] = useState<WikiPage | null>(null)
   const [loading, setLoading] = useState(true)
   const [regenerating, setRegenerating] = useState(false)
+  const revision = useSyncStore((s) => s.revision)
 
   useEffect(() => {
     let active = true
@@ -67,7 +68,7 @@ export function useWikiPage(id: string | undefined) {
     return () => {
       active = false
     }
-  }, [id])
+  }, [id, revision])
 
   // Drop this page as inaccurate (or restore it). Updates local state optimistically
   // so the screen flips to the dropped/active banner without a reload.

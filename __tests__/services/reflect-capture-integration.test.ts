@@ -36,18 +36,23 @@ jest.mock('@/services/storage/wiki', () => {
       success: true,
       data: pages.get(title) ?? null,
     })),
-    createPage: jest.fn(async (input: { title: string; category?: string | null; content?: string }) => {
+    createPage: jest.fn(async (input: {
+      title: string
+      category?: string | null
+      content?: string
+      entry_count?: number
+    }) => {
       const now = Date.now()
       const page = {
         id: `p${++seq}`,
         title: input.title,
         category: input.category ?? null,
         content: input.content ?? '',
-        entry_count: 0,
+        entry_count: input.entry_count ?? 0,
         version: 1,
         version_history: [],
         aggregated_upto: 0,
-    regrounded_upto: 0,
+        regrounded_upto: 0,
         created_at: now,
         updated_at: now,
         dismissed_at: null,
@@ -56,6 +61,32 @@ jest.mock('@/services/storage/wiki', () => {
       }
       pages.set(page.title, page)
       return { success: true, data: page }
+    }),
+    createPageWithContribution: jest.fn(async (input: {
+      title: string
+      category?: string | null
+      content?: string
+      entry_count?: number
+    }) => {
+      const now = Date.now()
+      const page = {
+        id: `p${++seq}`,
+        title: input.title,
+        category: input.category ?? null,
+        content: input.content ?? '',
+        entry_count: input.entry_count ?? 0,
+        version: 1,
+        version_history: [],
+        aggregated_upto: 0,
+        regrounded_upto: 0,
+        created_at: now,
+        updated_at: now,
+        dismissed_at: null,
+        corrected_at: null,
+        merged_into: null,
+      }
+      pages.set(page.title, page)
+      return { success: true, data: { page, created: true } }
     }),
     updatePage: jest.fn(async (id: string, content: string) => {
       for (const p of pages.values()) {

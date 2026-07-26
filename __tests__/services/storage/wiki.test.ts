@@ -3,6 +3,7 @@ import {
   capVersionHistory,
   correctPage,
   createPage,
+  createPageWithContribution,
   deleteEmptyPages,
   dismissPage,
   getPage,
@@ -25,6 +26,7 @@ jest.mock('expo-crypto', () => ({
 // In-memory fake backing the queries wiki.ts issues.
 function createFakeDb() {
   const rows = new Map<string, Record<string, unknown>>()
+  const contributions = new Set<string>()
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
       if (/^INSERT INTO wiki_pages/.test(sql)) {
@@ -46,6 +48,15 @@ function createFakeDb() {
           aggregated_upto: 0,
           regrounded_upto: 0,
         })
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^INSERT OR IGNORE INTO wiki_page_contributions/.test(sql)) {
+        const key = `${params[0]}:${params[1]}`
+        if (contributions.has(key)) return { rows: [], rowsAffected: 0 }
+        contributions.add(key)
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^INSERT INTO sync_queue/.test(sql)) {
         return { rows: [], rowsAffected: 1 }
       }
       if (/^SELECT \* FROM wiki_pages WHERE id/.test(sql)) {
@@ -175,6 +186,43 @@ describe('storage/wiki CRUD', () => {
     }
   })
 
+  it('creates a first synthesis as contentful version 1', async () => {
+    const { db } = createFakeDb()
+    const result = await createPage(
+      { title: 'Work stress', content: 'first synthesis', entry_count: 1 },
+      db
+    )
+    expect(result.success).toBe(true)
+    if (!result.success) return
+
+    expect(result.data.version).toBe(1)
+    expect(result.data.content).toBe('first synthesis')
+    expect(result.data.entry_count).toBe(1)
+    expect(result.data.version_history).toEqual([])
+
+    const reread = await getPage(result.data.id, db)
+    expect(reread.success && reread.data).toEqual(result.data)
+  })
+
+  it('atomically creates contentful v1 with a contribution receipt', async () => {
+    const { db } = createFakeDb()
+    const result = await createPageWithContribution(
+      { title: 'Work stress', category: 'theme', content: 'first synthesis', entry_count: 1 },
+      'entry-1',
+      db
+    )
+
+    expect(result.success).toBe(true)
+    if (!result.success) return
+    expect(result.data.created).toBe(true)
+    expect(result.data.page).toEqual(expect.objectContaining({
+      version: 1,
+      content: 'first synthesis',
+      entry_count: 1,
+      version_history: [],
+    }))
+  })
+
   it('finds a page by title and returns null when absent', async () => {
     const { db } = createFakeDb()
     await createPage({ title: 'Self-doubt' }, db)
@@ -186,7 +234,10 @@ describe('storage/wiki CRUD', () => {
 
   it('updatePage archives the old content, bumps version, increments entry_count', async () => {
     const { db } = createFakeDb()
-    const created = await createPage({ title: 'Work stress', content: 'v1 text' }, db)
+    const created = await createPage(
+      { title: 'Work stress', content: 'v1 text', entry_count: 1 },
+      db
+    )
     const id = created.success ? created.data.id : ''
 
     const updated = await updatePage(id, 'v2 text', db)
@@ -194,7 +245,7 @@ describe('storage/wiki CRUD', () => {
     if (updated.success) {
       expect(updated.data.content).toBe('v2 text')
       expect(updated.data.version).toBe(2)
-      expect(updated.data.entry_count).toBe(1)
+      expect(updated.data.entry_count).toBe(2)
       expect(updated.data.version_history).toHaveLength(1)
       expect(updated.data.version_history[0].content).toBe('v1 text')
     }
