@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { StyleSheet, View } from 'react-native'
+import { ScrollView, StyleSheet, View } from 'react-native'
 
 import { Button, Divider, Screen, Text } from '@/components/ui'
-import { VersionTimeline } from '@/components/wiki/VersionTimeline'
+import { VersionChipRow } from '@/components/wiki/VersionChipRow'
 import { VersionDiff } from '@/components/wiki/VersionDiff'
 import { VersionViewer } from '@/components/wiki/VersionViewer'
 import { type Theme, useThemedStyles } from '@/theme'
@@ -32,13 +32,13 @@ export default function PageEvolutionScreen() {
     return pageEvolution(page)
   }, [page])
 
-  // All versions for the timeline (oldest-first)
+  // All versions for the chip row (oldest-first)
   const timelineVersions = useMemo(() => {
     if (!evo) return []
     return [...evo.versions, evo.current]
   }, [evo])
 
-  // The timeline consumes the same full archived + live chain normalization as
+  // The chip row consumes the same full archived + live chain normalization as
   // drift metrics, including a retained-history gap immediately before live vN.
   const timelineGaps = evo?.gaps ?? []
 
@@ -57,10 +57,7 @@ export default function PageEvolutionScreen() {
 
   const onSelect = useCallback(
     (version: number) => {
-      if (isPlaying) {
-        setIsPlaying(false)
-        return
-      }
+      if (isPlaying) setIsPlaying(false)
       if (mode === 'compare') {
         if (selected == null) {
           setSelected(version)
@@ -152,113 +149,120 @@ export default function PageEvolutionScreen() {
   }
 
   return (
-    <Screen scroll>
-      {/* Back */}
-      <Text variant="label" color="accent" onPress={() => router.back()} testID="evolution-back">
-        ← Back to page
-      </Text>
+    <Screen padded={false} animated={false}>
+      <View style={styles.header}>
+        {/* Back */}
+        <Text variant="label" color="accent" onPress={() => router.back()} testID="evolution-back">
+          ← Back to page
+        </Text>
 
-      {/* Header */}
-      <Text variant="title" style={styles.title}>
-        {page.title}
-      </Text>
-      <Text variant="caption" color="textMuted" style={styles.meta}>
-        {page.category ?? 'page'} · {page.version} versions · {page.entry_count}{' '}
-        {page.entry_count === 1 ? 'entry' : 'entries'}
-      </Text>
+        {/* Header */}
+        <Text variant="title" style={styles.title}>
+          {page.title}
+        </Text>
+        <Text variant="caption" color="textMuted" style={styles.meta}>
+          {page.category ?? 'page'} · {page.version} versions · {page.entry_count}{' '}
+          {page.entry_count === 1 ? 'entry' : 'entries'}
+        </Text>
 
-      {/* Action bar */}
-      <View style={styles.actions}>
-        {timelineVersions.length > 1 && (
+        {/* Action bar */}
+        <View style={styles.actions}>
+          {timelineVersions.length > 1 && (
+            <Button
+              title={isPlaying ? '⏸ Pause' : '▶ Play'}
+              variant="ghost"
+              size="sm"
+              onPress={togglePlayback}
+              testID="evolution-play"
+            />
+          )}
           <Button
-            title={isPlaying ? '⏸ Pause' : '▶ Play'}
+            title={mode === 'compare' ? '⬡ View' : '⇄ Compare'}
             variant="ghost"
             size="sm"
-            onPress={togglePlayback}
-            testID="evolution-play"
+            onPress={toggleMode}
+            testID="evolution-mode"
           />
-        )}
-        <Button
-          title={mode === 'compare' ? '⬡ View' : '⇄ Compare'}
-          variant="ghost"
-          size="sm"
-          onPress={toggleMode}
-          testID="evolution-mode"
-        />
-        {mode === 'compare' && (
-          <Text variant="caption" color="accent" style={styles.compareHint}>
-            Tap two versions to compare
-          </Text>
-        )}
-      </View>
+          {mode === 'compare' && (
+            <Text variant="caption" color="accent" style={styles.compareHint}>
+              Tap two versions to compare
+            </Text>
+          )}
+        </View>
 
-      {/* Timeline */}
-      <View style={styles.timelineSection}>
-        <VersionTimeline
+        <VersionChipRow
           versions={timelineVersions}
           gaps={timelineGaps}
           selectedVersion={selected}
           compareVersion={compare}
           onSelect={onSelect}
+          isPlaying={isPlaying}
         />
       </View>
-      <Divider />
 
-      {evo != null && (evo.issues.length > 0 || evo.gaps.length > 0) && (
-        <View style={styles.integrityNotice} testID="evolution-integrity-notice">
-          <Text variant="bodyStrong" color="textSecondary">
-            History note
-          </Text>
-          {evo.issues.map((issue, index) => (
-            <Text
-              key={`${issue.type}-${issue.version}-${index}`}
-              variant="caption"
-              color="textMuted"
-            >
-              {issue.detail}
-            </Text>
-          ))}
-          {evo.gaps.map((gap) => (
-            <Text
-              key={`gap-${gap.fromVersion}-${gap.toVersion}`}
-              variant="caption"
-              color="textMuted"
-            >
-              {gap.missing} prior version{gap.missing === 1 ? '' : 's'} were sampled out between v{gap.fromVersion} and v{gap.toVersion}.
-            </Text>
-          ))}
-        </View>
-      )}
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Divider />
 
-      {/* Content area */}
-      <View style={styles.contentSection}>
-        {mode === 'compare' && selectedVersion && compareVersion ? (
-          <>
-            <Text variant="subtitle" style={styles.sectionTitle}>
-              Changes from v{selectedVersion.version} → v{compareVersion.version}
+        {evo != null && (evo.issues.length > 0 || evo.gaps.length > 0) && (
+          <View style={styles.integrityNotice} testID="evolution-integrity-notice">
+            <Text variant="bodyStrong" color="textSecondary">
+              History note
             </Text>
-            <VersionDiff
-              contentA={selectedVersion.content}
-              contentB={compareVersion.content}
-            />
-          </>
-        ) : selectedVersion ? (
-          <VersionViewer
-            version={selectedVersion}
-            entryCount={null}
-          />
-        ) : compareVersion ? (
-          <VersionViewer
-            version={compareVersion}
-            entryCount={null}
-          />
-        ) : (
-          <Text variant="body" color="textMuted" style={styles.hint}>
-            Tap a version on the timeline to view it.
-            {mode === 'compare' ? ' Tap a second version to compare.' : ''}
-          </Text>
+            {evo.issues.map((issue, index) => (
+              <Text
+                key={`${issue.type}-${issue.version}-${index}`}
+                variant="caption"
+                color="textMuted"
+              >
+                {issue.detail}
+              </Text>
+            ))}
+            {evo.gaps.map((gap) => (
+              <Text
+                key={`gap-${gap.fromVersion}-${gap.toVersion}`}
+                variant="caption"
+                color="textMuted"
+              >
+                {gap.missing} prior version{gap.missing === 1 ? '' : 's'} were sampled out between v{gap.fromVersion} and v{gap.toVersion}.
+              </Text>
+            ))}
+          </View>
         )}
-      </View>
+
+        {/* Content area */}
+        <View style={styles.contentSection}>
+          {mode === 'compare' && selectedVersion && compareVersion ? (
+            <>
+              <Text variant="subtitle" style={styles.sectionTitle}>
+                Changes from v{selectedVersion.version} → v{compareVersion.version}
+              </Text>
+              <VersionDiff
+                contentA={selectedVersion.content}
+                contentB={compareVersion.content}
+              />
+            </>
+          ) : selectedVersion ? (
+            <VersionViewer
+              version={selectedVersion}
+              entryCount={null}
+            />
+          ) : compareVersion ? (
+            <VersionViewer
+              version={compareVersion}
+              entryCount={null}
+            />
+          ) : (
+            <Text variant="body" color="textMuted" style={styles.hint}>
+              Tap a version chip to view it.
+              {mode === 'compare' ? ' Tap a second version to compare.' : ''}
+            </Text>
+          )}
+        </View>
+      </ScrollView>
     </Screen>
   )
 }
@@ -266,6 +270,9 @@ export default function PageEvolutionScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    header: { paddingHorizontal: t.spacing.xl },
+    body: { flex: 1 },
+    bodyContent: { paddingHorizontal: t.spacing.xl, paddingBottom: t.spacing['2xl'] },
     title: { marginTop: t.spacing.sm },
     meta: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
     actions: {
@@ -276,7 +283,6 @@ const makeStyles = (t: Theme) =>
       flexWrap: 'wrap',
     },
     compareHint: { flex: 1, textAlign: 'right' },
-    timelineSection: { marginVertical: t.spacing.lg },
     contentSection: { marginTop: t.spacing.md, marginBottom: t.spacing.xl },
     integrityNotice: {
       gap: t.spacing.xs,

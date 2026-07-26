@@ -1,4 +1,4 @@
-import { formatRelative } from '@/components/wiki/VersionTimeline'
+import { formatRelative } from '@/components/wiki/versionFormat'
 
 describe('VersionTimeline date formatting', () => {
   const now = new Date(2024, 1, 15, 12, 0, 0).getTime()

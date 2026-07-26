@@ -3,6 +3,10 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 
+import { formatRelative, type TimelineGap } from './versionFormat'
+
+export { formatRelative } from './versionFormat'
+
 export interface TimelineVersion {
   version: number
   updated_at: number
@@ -23,27 +27,9 @@ interface Props {
  *  timeline collapses the connecting line between the two versions and shows a
  *  'sampled' indicator instead — so a jump like v2 → v14 (versions 3–13
  *  discarded by the retained-history cap) is never drawn as a single rename. */
-export interface TimelineGap {
-  fromVersion: number
-  toVersion: number
-  /** How many version numbers were discarded between the two retained ones
- *  (e.g. 11 for v2 → v14). */
-  missing: number
-}
+export type { TimelineGap } from './versionFormat'
 
-export function formatRelative(ts: number, now = Date.now()): string {
-  if (!Number.isFinite(ts) || !Number.isFinite(now) || ts < 0 || ts > now) return 'date unavailable'
-  const diff = now - ts
-  const days = Math.floor(diff / 86_400_000)
-  if (days < 1) return 'today'
-  if (days === 1) return 'yesterday'
-  if (days < 7) return `${days}d ago`
-  if (days < 30) return `${Math.floor(days / 7)}w ago`
-  const date = new Date(ts)
-  return Number.isNaN(date.getTime())
-    ? 'date unavailable'
-    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
+
 
 export const VersionTimeline = ({
   versions,
