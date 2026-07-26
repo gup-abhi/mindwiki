@@ -145,6 +145,20 @@ describe('updateGraphForEntry', () => {
     expect(mockUpsertEdge).not.toHaveBeenCalled() // single surviving node → no pair
   })
 
+  it('keeps dismissal exact to (type,label), allowing another type with the same label', async () => {
+    // Product decision: dropping place:Work does not suppress situation:Work.
+    // Once the place node is gone, a recurring Work theme may become its own node.
+    await updateGraphForEntry(
+      entry({ emotion: '', distortion: 'none' }),
+      ['Work'],
+      new Set(['place:work']),
+      HIGH
+    )
+
+    expect(mockUpsertNode).toHaveBeenCalledTimes(1)
+    expect(mockUpsertNode).toHaveBeenCalledWith('situation', 'Work', expect.anything())
+  })
+
   it('adds person/place/activity nodes from the entry entities', async () => {
     mockListEntities.mockResolvedValue(
       ok([
@@ -178,6 +192,10 @@ describe('updateGraphForEntry', () => {
       expect(mockUpsertNode).not.toHaveBeenCalledWith('distortion', 'catastrophizing', expect.anything())
       expect(mockUpsertNode).not.toHaveBeenCalledWith('situation', 'Work', expect.anything())
       expect(mockUpsertEdge).not.toHaveBeenCalled() // one node → no pair
+      // Gate-trip entry contributes once, so live frequency starts at 1 even
+      // though support is already 2. Full rebuild later backfills both entries.
+      const created = await mockUpsertNode.mock.results[0].value
+      expect(created.success && created.data.frequency).toBe(1)
     })
   })
 })
@@ -245,6 +263,49 @@ describe('rebuildGraph', () => {
     expect(mockUpsertNode).toHaveBeenCalledWith('distortion', 'catastrophizing', expect.anything())
     expect(mockUpsertNode).toHaveBeenCalledWith('emotion', 'calm', expect.anything())
     expect(mockUpsertEdge).toHaveBeenCalledTimes(1) // e1: 2 nodes→1 edge; e2: 1 node→0
+  })
+
+  it('rebuild backfills exact recurring node frequency and edge weight', async () => {
+    const rows = [
+      entry({ id: 'e1', emotion: 'anxiety', distortion: 'catastrophizing' }),
+      entry({ id: 'e2', emotion: 'anxiety', distortion: 'catastrophizing' }),
+    ]
+    const nodeCounts = new Map<string, number>()
+    const edgeCounts = new Map<string, number>()
+    mockUpsertNode.mockImplementation(async (type, label) => {
+      const key = `${type}:${label}`
+      const frequency = (nodeCounts.get(key) ?? 0) + 1
+      nodeCounts.set(key, frequency)
+      return ok({ id: key, type, label, frequency })
+    })
+    mockUpsertEdge.mockImplementation(async (a, b) => {
+      const key = [a, b].sort().join('|')
+      const weight = (edgeCounts.get(key) ?? 0) + 1
+      edgeCounts.set(key, weight)
+      return ok({ id: key, source_id: a, target_id: b, weight })
+    })
+    const fakeDb = {
+      async execute(sql: string) {
+        if (/^DELETE FROM/.test(sql)) return { rows: [], rowsAffected: 0 }
+        const g = groupBy(sql)
+        if (g) return g
+        if (/^SELECT \* FROM entries/.test(sql)) return { rows, rowsAffected: 0 }
+        if (/^UPDATE entries SET graph_indexed_at/.test(sql)) return { rows: [], rowsAffected: 0 }
+        throw new Error(`unhandled SQL: ${sql}`)
+      },
+      async transaction(fn: (tx: SqliteDatabase) => Promise<void>) {
+        await fn(fakeDb)
+      },
+      close() {},
+    } as unknown as SqliteDatabase
+    setDb(fakeDb)
+
+    const res = await rebuildGraph()
+
+    expect(res.success).toBe(true)
+    expect(nodeCounts.get('emotion:anxiety')).toBe(2)
+    expect(nodeCounts.get('distortion:catastrophizing')).toBe(2)
+    expect(edgeCounts.get('distortion:catastrophizing|emotion:anxiety')).toBe(2)
   })
 
   it('does NOT stamp the graph backlog when one entry\'s update fails', async () => {

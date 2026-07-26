@@ -41,6 +41,18 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
 }
 
+/** JSON safe to embed directly in an HTML script element. JSON string escaping
+ * alone does not escape `<`, so an entry-derived `</script>` label could close
+ * the element and become executable markup inside the WebView. */
+function jsonForInlineScript(value: unknown): string {
+  return (JSON.stringify(value) ?? 'null')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+}
+
 /**
  * Build the self-contained HTML document for the WebView: the inlined library,
  * the graph data, and a small init script that wires ForceGraph3D with orbit
@@ -56,10 +68,10 @@ export function buildGraphHtml(
   backgroundColor: string
 ): string {
   const init = [
-    'const DATA = ' + JSON.stringify(data) + ';',
-    'const COLORS = ' + JSON.stringify(colors) + ';',
-    'const EDGE = ' + JSON.stringify(edgeColor) + ';',
-    'const BG = ' + JSON.stringify(backgroundColor) + ';',
+    'const DATA = ' + jsonForInlineScript(data) + ';',
+    'const COLORS = ' + jsonForInlineScript(colors) + ';',
+    'const EDGE = ' + jsonForInlineScript(edgeColor) + ';',
+    'const BG = ' + jsonForInlineScript(backgroundColor) + ';',
     'function post(m){ if(window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(JSON.stringify(m)); } }',
     "const el = document.getElementById('graph');",
     "const G = ForceGraph3D({ controlType: 'orbit' })(el)",
@@ -111,10 +123,17 @@ export function buildGraphHtml(
     "const labelsEl = document.getElementById('labels');",
     'var CURRENT = DATA.nodes;',
     'var labelMap = {};',
+    'var LABELED = [];',
     'function buildLabels(ns){',
     "  labelsEl.textContent = '';",
     '  labelMap = {};',
-    '  ns.forEach(function(n){',
+    // Bound per-frame projection + collision work. All graph nodes remain visible
+    // and tappable; only labels are limited, with the focused node kept first.
+    '  LABELED = ns.slice().sort(function(a, b){',
+    '    if (a.id === FOCUS) return -1; if (b.id === FOCUS) return 1;',
+    '    return (b.val || 1) - (a.val || 1);',
+    '  }).slice(0, 250);',
+    '  LABELED.forEach(function(n){',
     "    var d = document.createElement('div'); d.className = 'lbl'; d.textContent = n.label;",
     "    d.onclick = function(){ post({ type: 'node', id: n.id }); };",
     '    labelsEl.appendChild(d); labelMap[n.id] = d;',
@@ -126,7 +145,7 @@ export function buildGraphHtml(
     // visible set is small, so show all of its labels unconditionally.
     'function updateLabels(){',
     '  var placed = [];',
-    '  var order = CURRENT.slice().sort(function(a, b){ return (b.val || 1) - (a.val || 1); });',
+    '  var order = LABELED;',
     '  for (var i = 0; i < order.length; i++){',
     '    var n = order[i]; var el2 = labelMap[n.id]; if(!el2) continue;',
     // Default to non-interactive each frame; only a visible label is a tap target,
@@ -198,6 +217,7 @@ export function buildGraphHtml(
     '<!DOCTYPE html><html><head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">',
+    '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\' \'unsafe-eval\'; style-src \'unsafe-inline\'; connect-src \'none\'; img-src data:; font-src \'none\'; media-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">',
     '<style>html,body{margin:0;padding:0;height:100%;overflow:hidden;background:' + backgroundColor + ';}',
     '#graph{width:100vw;height:100vh;}canvas{touch-action:none;display:block;}',
     '#labels{position:absolute;top:0;left:0;width:100%;height:100%;overflow:hidden;pointer-events:none;}',
@@ -293,8 +313,9 @@ export function Graph3D({ nodes, edges, colors, edgeColor, labelColor, backgroun
     <WebView
       ref={webRef}
       testID="graph-webview"
-      originWhitelist={['*']}
+      originWhitelist={['about:blank']}
       source={{ html }}
+      onShouldStartLoadWithRequest={(request) => request.url === 'about:blank'}
       style={[styles.web, { backgroundColor }]}
       onMessage={onMessage}
       onLoadEnd={() => setReady(true)}

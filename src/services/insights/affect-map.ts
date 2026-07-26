@@ -59,7 +59,7 @@ export function computeAffectMap(entries: Entry[], now: number): AffectMap | nul
     const q = quadrantFor(e.mood, e.energy)
     byQuadrant.set(q, (byQuadrant.get(q) ?? 0) + 1)
   }
-  const dominant = [...byQuadrant.entries()].sort((a, b) => b[1] - a[1])[0][0]
+  const dominant = [...byQuadrant.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'neutral'
 
   return { cells, total: pts.length, max, dominant, summary: summaryFor(dominant) }
 }

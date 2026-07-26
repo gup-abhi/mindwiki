@@ -139,6 +139,8 @@ async function updateGraphForEntryImpl(
     // ever self-heals upward. Backfilling the prior entry here would reintroduce the
     // double-count risk the additive model exists to avoid.
     for (const spec of dedupedConcrete) {
+      // Dismissal identity is deliberately exact by (type,label): suppressing
+      // place:Work does not suppress an independently-derived situation:Work.
       if (dropped.has(nodeDismissalKey(spec.type, spec.label))) continue
       // Recurrence gate: skip until this signal is corroborated by ≥2 entries, so
       // a single (possibly mistagged) entry never seeds a permanent node.

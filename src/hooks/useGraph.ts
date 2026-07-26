@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 
 import {
@@ -10,13 +10,13 @@ import {
   type GraphEdge,
   type GraphNodeDismissal,
 } from '@/services/storage/graph'
-import { computeLayout, type Point } from '@/services/graph/layout'
+
 import { rebuildGraph } from '@/services/graph/engine'
 import { contextForNode, type NodeContext } from '@/services/graph/node-context'
 import { useSyncStore } from '@/store/sync.store'
 
-/** Loads the graph and computes node positions for a canvas of width x height. */
-export function useGraph(width: number, height: number) {
+/** Loads graph data for the interactive 3D map. Layout runs inside WebView. */
+export function useGraph() {
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const revision = useSyncStore((s) => s.revision)
@@ -33,17 +33,7 @@ export function useGraph(width: number, height: number) {
     }, [refresh, revision])
   )
 
-  const layout = useMemo<Map<string, Point>>(
-    () =>
-      computeLayout(
-        nodes.map((n) => n.id),
-        edges,
-        { width, height }
-      ),
-    [nodes, edges, width, height]
-  )
-
-  return { nodes, edges, layout, refresh }
+  return { nodes, edges, refresh }
 }
 
 /** The entries + wiki pages behind a selected node, reloaded when it changes.

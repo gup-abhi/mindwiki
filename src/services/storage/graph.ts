@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
-import { enqueueUpsert } from './sync-queue'
+import { enqueueUpsert, notifySyncPending } from './sync-queue'
 
 export type NodeType =
   | 'emotion'
@@ -179,7 +179,9 @@ export interface GraphNodeDismissal {
   updated_at: number
 }
 
-/** Stable identity / dismissal-set key for a (type, label) node. */
+/** Stable identity / dismissal-set key for a (type, label) node.
+ * Deliberately exact by type: dropping `place:Work` does not suppress a later
+ * `situation:Work` node. Same-label cross-type concepts remain independent. */
 export function nodeDismissalKey(type: string, label: string): string {
   return `${type}:${label}`.toLowerCase()
 }
@@ -252,8 +254,10 @@ export async function dismissNode(
         ])
         await tx.execute('DELETE FROM graph_nodes WHERE id = ?', [nodeId])
       }
-      await enqueueUpsert('graph_node_dismissals', id, tx)
+      const queued = await enqueueUpsert('graph_node_dismissals', id, tx, false)
+      if (!queued.success) throw queued.error
     })
+    notifySyncPending()
     return ok(undefined)
   } catch (e) {
     return err('GRAPH_NODE_DISMISS_FAILED', 'Failed to drop graph node', e)
@@ -269,12 +273,19 @@ export async function restoreNodeDismissal(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    const res = await db.execute(
-      'UPDATE graph_node_dismissals SET dismissed_at = NULL, updated_at = ? WHERE id = ?',
-      [Date.now(), id]
-    )
-    if ((res.rowsAffected ?? 0) === 0) return err('GRAPH_NODE_NOT_FOUND', 'Dropped node not found')
-    await enqueueUpsert('graph_node_dismissals', id, db)
+    let found = false
+    await db.transaction(async (tx) => {
+      const res = await tx.execute(
+        'UPDATE graph_node_dismissals SET dismissed_at = NULL, updated_at = ? WHERE id = ?',
+        [Date.now(), id]
+      )
+      found = (res.rowsAffected ?? 0) > 0
+      if (!found) return
+      const queued = await enqueueUpsert('graph_node_dismissals', id, tx, false)
+      if (!queued.success) throw queued.error
+    })
+    if (!found) return err('GRAPH_NODE_NOT_FOUND', 'Dropped node not found')
+    notifySyncPending()
     return ok(undefined)
   } catch (e) {
     return err('GRAPH_NODE_RESTORE_FAILED', 'Failed to restore graph node', e)

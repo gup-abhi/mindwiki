@@ -76,6 +76,27 @@ describe('buildGraphHtml', () => {
     expect(html).toContain('border-radius')
     // never points at a remote origin
     expect(html).not.toMatch(/https?:\/\//)
+    expect(html).toContain('Content-Security-Policy')
+    expect(html).toContain("connect-src 'none'")
+  })
+
+  it('keeps entry-derived labels inside the inline script string', () => {
+    const attack = '</script><img src=x onerror=alert(1)>\u2028<script>'
+    const html = buildGraphHtml(
+      'LIBCONTENT',
+      { nodes: [{ id: 'n1', type: 'situation', label: attack, val: 1 }], links: [] },
+      colors,
+      '#cccccc',
+      '#445544',
+      '#ffffff'
+    )
+
+    // Only the vendored-library and init-script tags may exist. User-derived
+    // labels must not create script/image markup or raw JS line separators.
+    expect(html.match(/<script(?:\s|>)/gi)).toHaveLength(2)
+    expect(html).not.toContain('<img')
+    expect(html).toContain('\\u003c/script\\u003e')
+    expect(html).toContain('\\u2028')
   })
 })
 
@@ -93,6 +114,9 @@ describe('Graph3D', () => {
     await screen.findByTestId('graph-webview')
     expect(mockWebProps.source.html).toContain('LIBJS')
     expect(mockWebProps.source.html).toContain('Anxiety')
+    expect(mockWebProps.originWhitelist).toEqual(['about:blank'])
+    expect(mockWebProps.onShouldStartLoadWithRequest({ url: 'about:blank' })).toBe(true)
+    expect(mockWebProps.onShouldStartLoadWithRequest({ url: 'https://example.com' })).toBe(false)
   })
 
   it('routes a node-tap message to onSelect and a background tap to null', async () => {

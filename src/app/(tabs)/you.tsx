@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
@@ -55,14 +54,13 @@ export default function YouScreen() {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
   const [tab, setTab] = useState<Tab>('pages')
-  const { width, height } = useWindowDimensions()
   const { pages, loading } = useWikiPages()
   const { pages: dismissed } = useDismissedPages()
   const { entries } = useEntries()
   const { frozenDays } = useStreakFreezes()
   const trending = useTrendingPages()
   const { digest, loading: digestLoading } = useDigest()
-  const { nodes, edges, refresh } = useGraph(width, height)
+  const { nodes, edges, refresh } = useGraph()
   const { dismissals, refresh: refreshHidden } = useNodeDismissals()
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<GraphNode | null>(null)

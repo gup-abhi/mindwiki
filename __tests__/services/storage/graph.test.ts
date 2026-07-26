@@ -22,6 +22,9 @@ function createFakeDb() {
   const dismissals = new Map<string, Record<string, unknown>>()
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
+      if (/^INSERT INTO sync_queue/.test(sql)) {
+        return { rows: [], rowsAffected: 1 }
+      }
       // --- node dismissals ---
       if (/^INSERT INTO graph_node_dismissals/.test(sql)) {
         const [id, type, label, dismissed_at, updated_at] = params
@@ -247,6 +250,41 @@ describe('storage/graph', () => {
     expect(keys.has('emotion:anxiety')).toBe(false)
     const active = await listActiveNodeDismissals(db)
     expect(active.success && active.data).toHaveLength(0)
+  })
+
+  it('restores the dismissal and enqueues sync inside one transaction', async () => {
+    const statements: string[] = []
+    let transactionCalled = false
+    const tx = {
+      async execute(sql: string) {
+        statements.push(sql)
+        if (/^UPDATE graph_node_dismissals/.test(sql)) return { rows: [], rowsAffected: 1 }
+        if (/^INSERT INTO sync_queue/.test(sql)) return { rows: [], rowsAffected: 1 }
+        throw new Error(`unhandled SQL: ${sql}`)
+      },
+      async transaction() {
+        throw new Error('nested transaction not expected')
+      },
+      close() {},
+    } as SqliteDatabase
+    const db = {
+      async execute() {
+        throw new Error('restore write escaped transaction')
+      },
+      async transaction(fn: (inner: SqliteDatabase) => Promise<void>) {
+        transactionCalled = true
+        await fn(tx)
+      },
+      close() {},
+    } as SqliteDatabase
+
+    const restored = await restoreNodeDismissal('emotion:anxiety', db)
+
+    expect(restored.success).toBe(true)
+    expect(transactionCalled).toBe(true)
+    expect(statements).toHaveLength(2)
+    expect(statements[0]).toMatch(/^UPDATE graph_node_dismissals/)
+    expect(statements[1]).toMatch(/^INSERT INTO sync_queue/)
   })
 
   it('restoreNodeDismissal returns GRAPH_NODE_NOT_FOUND for an unknown id', async () => {
