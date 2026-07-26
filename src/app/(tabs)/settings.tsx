@@ -14,6 +14,7 @@ import { DevEmotionPlaceholderBackfill } from '@/components/DevEmotionPlaceholde
 import { DevEmbedProbe } from '@/components/DevEmbedProbe'
 import { DevWikiAudit } from '@/components/DevWikiAudit'
 import { DevLegacyWikiBackfill } from '@/components/DevLegacyWikiBackfill'
+import { DevGraphAudit } from '@/components/DevGraphAudit'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
@@ -293,6 +294,7 @@ export default function Settings() {
           <DevEmbedProbe />
 <DevWikiAudit />
           <DevLegacyWikiBackfill />
+          <DevGraphAudit />
         </>
       )}
 

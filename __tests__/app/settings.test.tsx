@@ -21,6 +21,7 @@ jest.mock('@/hooks/useDevices', () => ({ useDevices: jest.fn() }))
 // Dev-only panel (data-backed); not under test here.
 jest.mock('@/components/DevStreakDebug', () => ({ DevStreakDebug: () => null }))
 jest.mock('@/components/DevLegacyWikiBackfill', () => ({ DevLegacyWikiBackfill: () => null }))
+jest.mock('@/components/DevGraphAudit', () => ({ DevGraphAudit: () => null }))
 
 // R4: logout is gated by a confirmation dialog. Capture the dialog and buttons
 // so each test can drive the "Log out" button (or cancel) explicitly.
