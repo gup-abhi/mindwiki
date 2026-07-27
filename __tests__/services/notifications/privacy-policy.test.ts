@@ -34,7 +34,7 @@ describe('notification privacy policy', () => {
         candidate({ id: 'journal', kind: 'journal', priority: 30 }),
         candidate({ id: 'digest', kind: 'digest', priority: 80, dedupeKey: 'digest:1' }),
       ],
-      { now: new Date(2026, 6, 27, 18).getTime(), recentEvents: [], journaledToday: false }
+      { now: new Date(2026, 6, 27, 18).getTime(), recentEvents: [], journaledToday: false, pendingIds: new Set() }
     )
     expect(result.map((item) => item.id)).toEqual(['digest'])
   })
@@ -42,7 +42,7 @@ describe('notification privacy policy', () => {
   it('suppresses journal candidate after same-day entry', () => {
     const result = chooseCandidates(
       [candidate()],
-      { now: new Date(2026, 6, 27, 18).getTime(), recentEvents: [], journaledToday: true }
+      { now: new Date(2026, 6, 27, 18).getTime(), recentEvents: [], journaledToday: true, pendingIds: new Set() }
     )
     expect(result).toEqual([])
   })

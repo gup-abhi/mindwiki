@@ -2,6 +2,7 @@ import * as SecureStore from 'expo-secure-store'
 
 import { CryptoModule } from '@/native/CryptoModule'
 import { deleteDatabase } from '@/services/storage/db'
+import { cleanupNotifications } from '@/services/notifications/cleanup'
 
 import { clearTokens } from './token-store'
 
@@ -32,6 +33,10 @@ export async function isWipePending(): Promise<boolean> {
  */
 export async function repairInterruptedWipe(): Promise<void> {
   if (!(await isWipePending())) return
+  // Clear native notification state too: an interrupted logout may have wiped
+  // DB/key but left the previous account's scheduled or delivered
+  // notifications on the lock screen.
+  await cleanupNotifications()
   deleteDatabase()
   await CryptoModule.deleteKeyFromKeychain()
   await CryptoModule.deleteKeyOwner()

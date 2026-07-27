@@ -86,8 +86,8 @@ export function useChallenge() {
 
   const remove = useCallback(async () => {
     if (!challenge) return
-    void reconcileNotifications('challenge-changed')
     await deleteChallenge(challenge.id)
+    void reconcileNotifications('challenge-changed')
     setChallenge(null)
   }, [challenge])
 

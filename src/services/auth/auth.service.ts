@@ -303,16 +303,21 @@ export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: stri
  * unauthenticated device with the old key + DB still installed (cases 7/8).
  */
 export async function logout(): Promise<void> {
-  // Native notification state is account-bound. Clear it before DB deletion;
-  // cleanup remains best-effort and can be retried on the unauthenticated path.
-  await cleanupNotifications()
   // 1. Durable marker: survives a kill so the wipe is always completable.
   await setWipePending()
-  // 2. Quiesce (I5): fail-close getDb() so in-flight sync / LLM work can't touch
-  //    the handle we're about to delete. Result-wrapped callers degrade to err.
+  // 2. Quiesce (I5): fail-close getDb() so in-flight sync / LLM / reconciler
+  //    work can't touch the handle we're about to delete. The reconciler
+  //    short-circuits here too (orchestrator checks isWiping between steps),
+  //    so no new OS request can be armed after this point.
   beginWipe()
 
-  // 3. Best-effort: drop this device from the owner's paired-devices list, with a
+  // 3. Native notification state is account-bound. Cleanup is best-effort and
+  //    bounded — a hung native API must not delay the local wipe, which is the
+  //    security-critical path. State that the cleanup misses is recovered on the
+  //    next unauthenticated launch (AppGate) and via repairInterruptedWipe().
+  await cleanupNotifications()
+
+  // 4. Best-effort: drop this device from the owner's paired-devices list, with a
   //    hard timeout so a hung network never blocks the local wipe. Runs while the
   //    session is still valid (tokens cleared below).
   try {
@@ -327,17 +332,17 @@ export async function logout(): Promise<void> {
     // ignore — local logout must always succeed
   }
 
-  // 4–6. Destroy local state: DB, then key, then tokens (DB/key before tokens).
+  // 5–7. Destroy local state: DB, then key, then tokens (DB/key before tokens).
   deleteDatabase()
   await CryptoModule.deleteKeyFromKeychain()
   await CryptoModule.deleteKeyOwner()
   await clearTokens()
 
-  // 7. Wipe complete — clear the marker and lift the guard.
+  // 8. Wipe complete — clear the marker and lift the guard.
   await clearWipePending()
   endWipe()
 
-  // 8. Reset in-memory stores + flip auth state (so no residue survives in RAM).
+  // 9. Reset in-memory stores + flip auth state (so no residue survives in RAM).
   resetSessionStores()
   useAuthStore.getState().setUnauthenticated()
 }

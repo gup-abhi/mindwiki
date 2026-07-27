@@ -6,11 +6,7 @@ import { type NotificationPermissionState } from './types'
 export async function notificationPermissionState(): Promise<NotificationPermissionState> {
   try {
     const status = await Notifications.getPermissionsAsync()
-    if (status.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) return 'provisional'
-    if (status.granted) return 'granted'
-    if (status.canAskAgain === false) return 'blocked'
-    if (status.ios?.status === Notifications.IosAuthorizationStatus.DENIED) return 'denied'
-    return 'not-determined'
+    return stateFromResponse(status)
   } catch {
     return 'denied'
   }
@@ -19,8 +15,12 @@ export async function notificationPermissionState(): Promise<NotificationPermiss
 function stateFromResponse(status: Awaited<ReturnType<typeof Notifications.getPermissionsAsync>>): NotificationPermissionState {
   if (status.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) return 'provisional'
   if (status.granted) return 'granted'
+  // Android denial surfaces as `status === 'denied'` with `canAskAgain` still
+  // true until the user has dismissed the system prompt twice. Treat that
+  // combination as denied (not not-determined), otherwise the Settings UI
+  // would offer no recovery path.
   if (status.canAskAgain === false) return 'blocked'
-  if (status.ios?.status === Notifications.IosAuthorizationStatus.DENIED) return 'denied'
+  if (status.status === 'denied' || status.ios?.status === Notifications.IosAuthorizationStatus.DENIED) return 'denied'
   return 'not-determined'
 }
 

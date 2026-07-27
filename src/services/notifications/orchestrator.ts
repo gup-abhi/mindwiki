@@ -7,7 +7,8 @@ import { getPage } from '@/services/storage/wiki'
 import { buildNotificationContent, chooseCandidates } from './policy'
 import { getNotificationPreferences } from './preferences'
 import { notificationPermissionState } from './permissions'
-import { createCandidate, listEligibleCandidates, listRecentNotificationEvents, markCandidateOpened, markCandidateStatus, recordNotificationEvent, getCandidate, upsertCandidate } from './repository'
+import { createCandidate, listEligibleCandidates, listRecentNotificationEvents, markCandidateOpened, markCandidateStatus, recordNotificationEvent, getCandidate, upsertCandidate, pruneNotificationHistory } from './repository'
+import { isWiping } from '@/services/storage/db'
 import { type NotificationCandidate, type NotificationReconcileReason, type NotificationReconcileSummary } from './types'
 
 const REQUEST_PREFIX = 'mindwiki-notification-'
@@ -42,9 +43,12 @@ async function configureChannel(): Promise<void> {
 }
 
 async function reconcileOnce(now: number): Promise<Result<NotificationReconcileSummary>> {
+  if (isWiping()) return ok({ scheduled: 0, cancelled: 0, suppressed: 0, permission: 'not-determined' })
   const permission = await notificationPermissionState()
   const preferences = await getNotificationPreferences()
   if (!preferences.success) return preferences
+  // Bound local history before reading it (no-op when nothing is due to prune).
+  await pruneNotificationHistory(now)
   let pending: Notifications.NotificationRequest[]
   try { pending = await Notifications.getAllScheduledNotificationsAsync() }
   catch (e) { return err('NOTIF_PENDING_READ_FAILED', 'Failed to read scheduled notifications', e) }
@@ -79,13 +83,22 @@ async function reconcileOnce(now: number): Promise<Result<NotificationReconcileS
       .filter((item) => item.identifier.startsWith(REQUEST_PREFIX))
       .map((item) => item.identifier.slice(REQUEST_PREFIX.length))
   )
-  // Keep already-pending candidates in desired state. A scheduled candidate
-  // whose native request vanished is not resurrected: its terminal transition
-  // happens when its request is cancelled or opened.
-  const selectable = candidates.map((candidate) =>
-    nativeCandidateIds.has(candidate.id) ? { ...candidate, status: undefined } : candidate
-  )
-  const selected = chooseCandidates(selectable, { now, recentEvents: recent.success ? recent.data : [], journaledToday, preferences: preferences.data })
+  // A scheduled candidate whose native request is no longer pending was
+  // delivered (the OS drops the request once a DATE trigger fires) and never
+  // opened. Mark it expired so it is not resurrected, and stop tracking it
+  // against the send budget — `opened` is the only budget event, so delivery
+  // without a tap does not consume a daily/weekly slot.
+  for (const candidate of candidates) {
+    if (candidate.status === 'scheduled' && !nativeCandidateIds.has(candidate.id)) {
+      void markCandidateStatus(candidate.id, 'expired')
+    }
+  }
+  // Already-pending candidates are passed to policy with their real status so
+  // policy can keep them desired without re-evaluating eligibility or consuming
+  // the send budget. Clearing status here caused the reconcile self-cancel bug:
+  // the matching `scheduled` event then suppressed the candidate, emptying the
+  // desired set on the very next run and cancelling the request we just armed.
+  const selected = chooseCandidates(candidates, { now, recentEvents: recent.success ? recent.data : [], journaledToday, pendingIds: nativeCandidateIds, preferences: preferences.data })
   const desired = new Set(selected.map(requestId))
   let cancelled = 0
   for (const item of existing) {
@@ -93,11 +106,6 @@ async function reconcileOnce(now: number): Promise<Result<NotificationReconcileS
       try {
         await Notifications.cancelScheduledNotificationAsync(item.identifier)
         cancelled++
-        const candidateId = item.identifier.startsWith(REQUEST_PREFIX) ? item.identifier.slice(REQUEST_PREFIX.length) : null
-        if (candidateId) {
-          await markCandidateStatus(candidateId, 'cancelled')
-          await recordNotificationEvent('cancelled', { candidateId, occurredAt: now })
-        }
       } catch { /* converge next run */ }
     }
   }
@@ -116,7 +124,6 @@ async function reconcileOnce(now: number): Promise<Result<NotificationReconcileS
     try {
       await Notifications.scheduleNotificationAsync(input)
       await upsertCandidate({ ...candidate, scheduledFor: candidate.eligibleAt, status: 'scheduled' })
-      await recordNotificationEvent('scheduled', { candidateId: candidate.id, kind: candidate.kind, occurredAt: now })
       scheduled++
     } catch {
       // Partial failure is represented by the Result summary; next lifecycle run converges.
@@ -135,13 +142,14 @@ export async function recordEntrySaved(now = Date.now()): Promise<Result<void>> 
   catch (e) { return err('NOTIF_ENTRY_EVENT_FAILED', 'Failed to record entry activity', e) }
 }
 
+// Foreground receipt means the OS fired the request while the app was open.
+  // We do NOT mark the candidate expired here: that decision belongs to the
+  // reconciler once the native request is confirmed gone. Marking on receipt
+  // would swallow past-time candidates that fired before the user could act.
 export async function handleNotificationDelivered(identifier: string): Promise<Result<void>> {
   if (!identifier.startsWith(REQUEST_PREFIX)) return ok(undefined)
   const candidateId = identifier.slice(REQUEST_PREFIX.length)
-  const status = await markCandidateStatus(candidateId, 'expired')
-  if (!status.success) return status
-  if (status.data) await recordNotificationEvent('delivered', { candidateId })
-  return ok(undefined)
+  return recordNotificationEvent('delivered', { candidateId })
 }
 
 export async function recordAndReconcile(

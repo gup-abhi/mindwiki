@@ -81,10 +81,16 @@ function AppRoot() {
   // Notification payload contains only opaque candidateId + allowlisted kind.
   // Resolve route through encrypted DB after auth, then clear native response.
   useEffect(() => {
-    let handled = false
+    // Deduplicate by stimulus identifier (not a mount-lifetime boolean). Each
+    // notification tap arrives as a distinct response with its own request
+    // identifier; using a permanent `handled` flag would swallow every tap after
+    // the first — including a valid tap that follows a malformed one.
+    let lastHandledIdentifier: string | null = null
     const routeFromResponse = (resp: Notifications.NotificationResponse | null) => {
-      if (!resp || handled) return
-      handled = true
+      if (!resp) return
+      const identifier = resp.notification.request.identifier
+      if (identifier === lastHandledIdentifier) return
+      lastHandledIdentifier = identifier
       const data = resp.notification.request.content.data as Record<string, unknown> | undefined
       const candidateId = data?.candidateId
       const kind = data?.kind

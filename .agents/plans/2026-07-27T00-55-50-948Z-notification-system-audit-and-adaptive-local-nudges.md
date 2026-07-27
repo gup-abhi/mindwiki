@@ -1,6 +1,6 @@
 # Notification System Audit and Adaptive Local Nudges
 
-**Status:** Executed through Slice 8 code scope — P0 privacy/logout, reconciler, permissions/settings, deterministic candidates, opt-in momentum/pattern candidates, bounded local adaptive timing, and automated verification complete; physical-device verification remains pending  
+**Status:** Executed through Slice 8 code scope — P0 privacy/logout, reconciler, permissions/settings, deterministic candidates, opt-in momentum/pattern candidates, bounded local adaptive timing, and automated verification complete; physical-device verification remains pending
 **Scope:** Expo local notifications, permission/settings UX, on-device personalization, lifecycle cleanup/reconciliation, interaction handling, tests, physical-device validation. Remote push infrastructure excluded.
 
 ## 1. Goal and assumptions

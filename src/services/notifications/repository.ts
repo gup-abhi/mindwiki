@@ -140,3 +140,17 @@ export async function recordNotificationEvent(
     return ok(undefined)
   } catch (e) { return err('NOTIF_EVENT_WRITE_FAILED', 'Failed to record notification event', e) }
 }
+
+/** Keep notification history bounded. Events older than the retention horizon
+ * are not useful for budget/cooldown decisions (window is seven days), and old
+ * terminal candidates accumulate as the user journals. */
+const RETENTION_MS = 90 * 86_400_000
+
+export async function pruneNotificationHistory(now: number, db: SqliteDatabase = getDb()): Promise<Result<void>> {
+  try {
+    const cutoff = now - RETENTION_MS
+    await db.execute('DELETE FROM notification_events WHERE occurred_at < ?', [cutoff])
+    await db.execute("DELETE FROM notification_candidates WHERE status IN ('opened','cancelled','expired') AND updated_at < ?", [cutoff])
+    return ok(undefined)
+  } catch (e) { return err('NOTIF_PRUNE_FAILED', 'Failed to prune notification history', e) }
+}
