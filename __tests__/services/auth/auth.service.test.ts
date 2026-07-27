@@ -13,6 +13,8 @@ import { generateRecoveryPhrase, recoveryKeyFromPhrase } from '@/services/auth/r
 import { saveTokens, getTokens, clearTokens } from '@/services/auth/token-store'
 import { deleteDatabase, beginWipe, endWipe } from '@/services/storage/db'
 import { resetSessionStores } from '@/services/auth/session-reset'
+import { cleanupNotifications } from '@/services/notifications/cleanup'
+import { suspendNotificationReconciliation, waitForNotificationReconciliation } from '@/services/notifications/orchestrator'
 import {
   setWipePending,
   clearWipePending,
@@ -21,6 +23,7 @@ import {
 import { CryptoModule } from '@/native/CryptoModule'
 import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
+import { ok } from '@/types/result'
 
 jest.mock('expo-crypto', () => ({
   // Non-deterministic so generated recovery phrases differ between calls.
@@ -65,6 +68,11 @@ jest.mock('@/services/auth/session-reset', () => ({
 }))
 // Stable per-device id; mocked so register/login/logout send a known value.
 jest.mock('@/services/auth/device-id', () => ({ getDeviceId: jest.fn(() => Promise.resolve('dev-1')) }))
+jest.mock('@/services/notifications/cleanup', () => ({ cleanupNotifications: jest.fn() }))
+jest.mock('@/services/notifications/orchestrator', () => ({
+  suspendNotificationReconciliation: jest.fn(),
+  waitForNotificationReconciliation: jest.fn(),
+}))
 
 const mockGetKey = CryptoModule.getKeyFromKeychain as jest.Mock
 const mockDerive = CryptoModule.deriveKey as jest.Mock
@@ -82,6 +90,9 @@ const mockSetWipePending = setWipePending as jest.Mock
 const mockClearWipePending = clearWipePending as jest.Mock
 const mockRepairWipe = repairInterruptedWipe as jest.Mock
 const mockResetSession = resetSessionStores as jest.Mock
+const mockCleanupNotifications = cleanupNotifications as jest.Mock
+const mockSuspendNotifications = suspendNotificationReconciliation as jest.Mock
+const mockWaitForNotifications = waitForNotificationReconciliation as jest.Mock
 
 const MASTER = 'ab'.repeat(32)
 const WRAP = 'cd'.repeat(32)
@@ -98,6 +109,8 @@ beforeEach(() => {
   global.fetch = jest.fn()
   mockGetKey.mockResolvedValue(MASTER)
   mockDerive.mockResolvedValue(WRAP)
+  mockCleanupNotifications.mockResolvedValue(ok(undefined))
+  mockWaitForNotifications.mockResolvedValue(undefined)
 })
 
 describe('register', () => {
@@ -347,7 +360,16 @@ describe('logout', () => {
       calls.push('wipe_pending')
       return Promise.resolve()
     })
+    mockSuspendNotifications.mockImplementation(() => calls.push('suspend_notifications'))
     mockBeginWipe.mockImplementation(() => calls.push('begin_wipe'))
+    mockWaitForNotifications.mockImplementation(() => {
+      calls.push('wait_notifications')
+      return Promise.resolve()
+    })
+    mockCleanupNotifications.mockImplementation(() => {
+      calls.push('cleanup_notifications')
+      return Promise.resolve(ok(undefined))
+    })
     mockDeleteDb.mockImplementation(() => calls.push('delete_db'))
     mockDeleteKey.mockImplementation(() => {
       calls.push('delete_key')
@@ -380,7 +402,10 @@ describe('logout', () => {
     // reset + unauth is last.
     expect(calls).toEqual([
       'wipe_pending',
+      'suspend_notifications',
       'begin_wipe',
+      'wait_notifications',
+      'cleanup_notifications',
       'delete_db',
       'delete_key',
       'delete_owner',
@@ -389,6 +414,32 @@ describe('logout', () => {
       'end_wipe',
       'reset_stores',
     ])
+    expect(useAuthStore.getState().status).toBe('unauthenticated')
+  })
+
+  it('still completes the wipe when notification cleanup rejects', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    mockCleanupNotifications.mockRejectedValueOnce(new Error('native failure'))
+
+    await logout()
+
+    expect(mockDeleteDb).toHaveBeenCalled()
+    expect(mockClear).toHaveBeenCalled()
+    expect(mockClearWipePending).toHaveBeenCalled()
+    expect(mockEndWipe).toHaveBeenCalled()
+    expect(mockResetSession).toHaveBeenCalled()
+    expect(useAuthStore.getState().status).toBe('unauthenticated')
+  })
+
+  it('retains wipe marker and ends wipe guard when destructive cleanup fails', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    mockDeleteKey.mockRejectedValueOnce(new Error('keychain failure'))
+
+    await expect(logout()).rejects.toThrow('keychain failure')
+
+    expect(mockClearWipePending).not.toHaveBeenCalled()
+    expect(mockEndWipe).toHaveBeenCalled()
+    expect(mockResetSession).toHaveBeenCalled()
     expect(useAuthStore.getState().status).toBe('unauthenticated')
   })
 

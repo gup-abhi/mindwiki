@@ -18,8 +18,8 @@ import { closeDb } from '@/services/storage/db'
 import { areModelsReady } from '@/services/llm/model-manager'
 import { configureNotifications } from '@/services/notifications/scheduler'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
-import { handleNotificationCandidate, handleNotificationDelivered, recordAndReconcile } from '@/services/notifications/orchestrator'
-import { isNotificationKind } from '@/services/notifications/policy'
+import { handleNotificationCandidate, handleNotificationDelivered, recordAndReconcile, resumeNotificationReconciliation } from '@/services/notifications/orchestrator'
+import { createNotificationResponseHandler } from '@/services/notifications/response'
 import { hydrateAuth } from '@/services/auth/auth.service'
 import { resetSessionStores } from '@/services/auth/session-reset'
 import { useAuthStore } from '@/store/auth.store'
@@ -51,6 +51,7 @@ type StorageStatus = 'idle' | 'loading' | 'ready' | 'error'
 function AppRoot() {
   useSync()
   useEffect(() => {
+    resumeNotificationReconciliation()
     void recordAndReconcile('app_active', 'launch')
   }, [])
 
@@ -81,28 +82,13 @@ function AppRoot() {
   // Notification payload contains only opaque candidateId + allowlisted kind.
   // Resolve route through encrypted DB after auth, then clear native response.
   useEffect(() => {
-    // Deduplicate by stimulus identifier (not a mount-lifetime boolean). Each
-    // notification tap arrives as a distinct response with its own request
-    // identifier; using a permanent `handled` flag would swallow every tap after
-    // the first — including a valid tap that follows a malformed one.
-    let lastHandledIdentifier: string | null = null
-    const routeFromResponse = (resp: Notifications.NotificationResponse | null) => {
-      if (!resp) return
-      const identifier = resp.notification.request.identifier
-      if (identifier === lastHandledIdentifier) return
-      lastHandledIdentifier = identifier
-      const data = resp.notification.request.content.data as Record<string, unknown> | undefined
-      const candidateId = data?.candidateId
-      const kind = data?.kind
-      if (typeof candidateId !== 'string' || !isNotificationKind(kind)) {
-        void Notifications.clearLastNotificationResponseAsync()
-        return
-      }
-      void handleNotificationCandidate(candidateId).then((result) => {
-        if (result.success && result.data) requestAnimationFrame(() => router.push(result.data as never))
-        return Notifications.clearLastNotificationResponseAsync()
-      })
-    }
+    // Deduplicate by request identifier (not a mount-lifetime boolean). Every
+    // consumed response is cleared, including malformed/duplicate stimuli.
+    const routeFromResponse = createNotificationResponseHandler({
+      handleCandidate: handleNotificationCandidate,
+      navigate: (route) => requestAnimationFrame(() => router.push(route as never)),
+      clearResponse: () => Notifications.clearLastNotificationResponseAsync(),
+    })
     void Notifications.getLastNotificationResponseAsync().then(routeFromResponse)
     const sub = Notifications.addNotificationResponseReceivedListener(routeFromResponse)
     return () => sub.remove()

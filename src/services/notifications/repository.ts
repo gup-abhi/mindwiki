@@ -65,11 +65,13 @@ export async function createCandidate(input: Omit<NotificationCandidate, 'id'>, 
   } catch (e) { return err('NOTIF_CANDIDATE_WRITE_FAILED', 'Failed to create notification candidate', e) }
 }
 
-export async function listEligibleCandidates(now: number, db: SqliteDatabase = getDb()): Promise<Result<NotificationCandidate[]>> {
+export async function listEligibleCandidates(_now: number, db: SqliteDatabase = getDb()): Promise<Result<NotificationCandidate[]>> {
   try {
+    // Reconciliation must see scheduled rows too: if their native request has
+    // disappeared they need a terminal transition instead of leaking forever.
+    // Expired eligible rows are also returned so the orchestrator can mark them.
     const res = await db.execute(
-      "SELECT * FROM notification_candidates WHERE status = 'eligible' AND expires_at > ? ORDER BY eligible_at ASC",
-      [now]
+      "SELECT * FROM notification_candidates WHERE status IN ('eligible','scheduled') ORDER BY eligible_at ASC"
     )
     return ok(res.rows.map(rowToCandidate))
   } catch (e) { return err('NOTIF_CANDIDATE_LIST_FAILED', 'Failed to list notification candidates', e) }
@@ -149,8 +151,10 @@ const RETENTION_MS = 90 * 86_400_000
 export async function pruneNotificationHistory(now: number, db: SqliteDatabase = getDb()): Promise<Result<void>> {
   try {
     const cutoff = now - RETENTION_MS
-    await db.execute('DELETE FROM notification_events WHERE occurred_at < ?', [cutoff])
-    await db.execute("DELETE FROM notification_candidates WHERE status IN ('opened','cancelled','expired') AND updated_at < ?", [cutoff])
+    await db.transaction(async (tx) => {
+      await tx.execute('DELETE FROM notification_events WHERE occurred_at < ?', [cutoff])
+      await tx.execute("DELETE FROM notification_candidates WHERE status IN ('opened','cancelled','expired') AND updated_at < ?", [cutoff])
+    })
     return ok(undefined)
   } catch (e) { return err('NOTIF_PRUNE_FAILED', 'Failed to prune notification history', e) }
 }

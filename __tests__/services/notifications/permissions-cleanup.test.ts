@@ -20,6 +20,21 @@ describe('notification permissions and cleanup', () => {
     await expect(notificationPermissionState()).resolves.toBe('provisional')
   })
 
+  it('maps Android denied while still askable to denied', async () => {
+    getPermissions.mockResolvedValueOnce({ granted: false, canAskAgain: true, status: 'denied' })
+    await expect(notificationPermissionState()).resolves.toBe('denied')
+  })
+
+  it('maps denied with no further prompt to blocked', async () => {
+    getPermissions.mockResolvedValueOnce({ granted: false, canAskAgain: false, status: 'denied' })
+    await expect(notificationPermissionState()).resolves.toBe('blocked')
+  })
+
+  it('keeps undetermined permission distinct', async () => {
+    getPermissions.mockResolvedValueOnce({ granted: false, canAskAgain: true, status: 'undetermined' })
+    await expect(notificationPermissionState()).resolves.toBe('not-determined')
+  })
+
   it('clears scheduled, delivered, and cached notifications', async () => {
     await expect(cleanupNotifications()).resolves.toEqual({ success: true, data: undefined })
     expect(cancelAll).toHaveBeenCalledTimes(1)
@@ -33,5 +48,16 @@ describe('notification permissions and cleanup', () => {
     expect(result.success).toBe(false)
     expect(dismissAll).toHaveBeenCalledTimes(1)
     expect(clearLast).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds a hung native operation without delaying the other cleanup calls', async () => {
+    jest.useFakeTimers()
+    cancelAll.mockImplementationOnce(() => new Promise(() => undefined))
+    const result = cleanupNotifications()
+    await jest.advanceTimersByTimeAsync(1500)
+    await expect(result).resolves.toEqual({ success: true, data: undefined })
+    expect(dismissAll).toHaveBeenCalledTimes(1)
+    expect(clearLast).toHaveBeenCalledTimes(1)
+    jest.useRealTimers()
   })
 })

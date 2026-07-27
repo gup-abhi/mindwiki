@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
+import { suspendNotificationReconciliation, waitForNotificationReconciliation } from '@/services/notifications/orchestrator'
 
 import { authenticatedFetch } from './api-client'
 import { API_URL } from './config'
@@ -305,44 +306,44 @@ export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: stri
 export async function logout(): Promise<void> {
   // 1. Durable marker: survives a kill so the wipe is always completable.
   await setWipePending()
-  // 2. Quiesce (I5): fail-close getDb() so in-flight sync / LLM / reconciler
-  //    work can't touch the handle we're about to delete. The reconciler
-  //    short-circuits here too (orchestrator checks isWiping between steps),
-  //    so no new OS request can be armed after this point.
+  // 2. Quiesce before native cleanup. Generation invalidation makes every
+  //    in-flight reconciler checkpoint fail; a schedule resolving late cancels
+  //    its own identifier instead of writing into the wiped account.
+  suspendNotificationReconciliation()
   beginWipe()
 
-  // 3. Native notification state is account-bound. Cleanup is best-effort and
-  //    bounded — a hung native API must not delay the local wipe, which is the
-  //    security-critical path. State that the cleanup misses is recovered on the
-  //    next unauthenticated launch (AppGate) and via repairInterruptedWipe().
-  await cleanupNotifications()
-
-  // 4. Best-effort: drop this device from the owner's paired-devices list, with a
-  //    hard timeout so a hung network never blocks the local wipe. Runs while the
-  //    session is still valid (tokens cleared below).
   try {
-    await Promise.race([
-      authenticatedFetch('/auth/logout', {
-        method: 'POST',
-        body: JSON.stringify({ device_id: await getDeviceId() }),
-      }),
-      new Promise((resolve) => setTimeout(resolve, SERVER_LOGOUT_TIMEOUT_MS)),
-    ])
-  } catch {
-    // ignore — local logout must always succeed
+    await waitForNotificationReconciliation()
+
+    // 3. Native notification state is account-bound. Cleanup is best-effort and
+    //    bounded — a hung native API must not delay the security-critical wipe.
+    try { await cleanupNotifications() } catch { /* best-effort; continue local wipe */ }
+
+    // 4. Best-effort server logout while tokens still exist. Hard timeout keeps
+    //    offline/hung networking from blocking local destruction.
+    try {
+      await Promise.race([
+        authenticatedFetch('/auth/logout', {
+          method: 'POST',
+          body: JSON.stringify({ device_id: await getDeviceId() }),
+        }),
+        new Promise((resolve) => setTimeout(resolve, SERVER_LOGOUT_TIMEOUT_MS)),
+      ])
+    } catch {
+      // ignore — local logout must always succeed
+    }
+
+    // 5–7. Destroy local state: DB, then key, then tokens (DB/key before tokens).
+    deleteDatabase()
+    await CryptoModule.deleteKeyFromKeychain()
+    await CryptoModule.deleteKeyOwner()
+    await clearTokens()
+    await clearWipePending()
+  } finally {
+    // Marker intentionally survives a failed destructive step so launch repair
+    // can finish the wipe. Guard/store reset must still happen on every path.
+    endWipe()
+    resetSessionStores()
+    useAuthStore.getState().setUnauthenticated()
   }
-
-  // 5–7. Destroy local state: DB, then key, then tokens (DB/key before tokens).
-  deleteDatabase()
-  await CryptoModule.deleteKeyFromKeychain()
-  await CryptoModule.deleteKeyOwner()
-  await clearTokens()
-
-  // 8. Wipe complete — clear the marker and lift the guard.
-  await clearWipePending()
-  endWipe()
-
-  // 9. Reset in-memory stores + flip auth state (so no residue survives in RAM).
-  resetSessionStores()
-  useAuthStore.getState().setUnauthenticated()
 }

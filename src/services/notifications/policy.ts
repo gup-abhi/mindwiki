@@ -52,8 +52,8 @@ export interface PolicyContext {
   now: number
   recentEvents: NotificationEvent[]
   journaledToday: boolean
-  /** Candidate ids already scheduled in the OS. These remain desired and do
-   * NOT consume the per-day/per-week send budget or collide with new picks. */
+  /** Candidate ids already scheduled in the OS. These remain desired and are
+   * considered occupied future delivery slots when selecting new picks. */
   pendingIds: Set<string>
   preferences?: NotificationPreferences
 }
@@ -88,26 +88,29 @@ export function chooseCandidates(
   const preferences = context.preferences ?? { ...DEFAULT_NOTIFICATION_PREFERENCES, enabled: true }
   if (!preferences.enabled || (preferences.pausedUntil != null && preferences.pausedUntil > context.now)) return []
 
-  // Budget is counted from notifications actually opened. A `scheduled` event
-  // only proves the OS accepted a request, not that a notification fired.
-  // Counting those would make a re-run cancel the very request an earlier run
-  // just armed (the reconcile self-cancel bug): the matching `scheduled` event
-  // would suppress the candidate, the desired set would empty, and the OS
-  // request would be cancelled. Only `opened` (user saw + acted) consumes the
-  // budget.
-  const sent = context.recentEvents.filter((e) => e.type === 'opened')
-  const today = localDay(context.now)
-  const weekAgo = context.now - 7 * 86_400_000
-  const usedToday = sent.some((e) => localDay(e.occurredAt) === today)
-  const usedThisWeek = sent.filter((e) => e.occurredAt >= weekAgo).length
+  // Budget is counted from delivery/open events, never scheduling attempts. A
+  // `scheduled` event only proves the OS accepted a future request; counting it
+  // caused the reconcile self-cancel bug. Deduplicate by candidate because a
+  // foreground delivery followed by a tap can produce both event types.
+  const sentByCandidate = new Map<string, NotificationEvent>()
+  const anonymousSent: NotificationEvent[] = []
+  for (const event of context.recentEvents) {
+    if (event.type !== 'delivered' && event.type !== 'opened') continue
+    if (event.candidateId) sentByCandidate.set(event.candidateId, event)
+    else anonymousSent.push(event)
+  }
+  const sent = [...sentByCandidate.values(), ...anonymousSent]
   const appRecentlyActive = context.recentEvents.some(
     (e) => e.type === 'app_active' && e.occurredAt >= context.now - 2 * 3_600_000
   )
 
-  // Candidates already pending in the OS stay desired unconditionally: they
-  // neither compete with new picks nor count against the send budget. Removing
+  // Candidates already pending in the OS stay desired unconditionally. Removing
   // them here would cancel legitimate future reminders on every re-run.
-  const keep = candidates.filter((candidate) => context.pendingIds.has(candidate.id))
+  const keep = candidates.filter((candidate) =>
+    context.pendingIds.has(candidate.id)
+    && candidate.expiresAt > context.now
+    && (!candidate.status || !['opened', 'cancelled', 'expired'].includes(candidate.status))
+  )
   // Shift candidates whose eligibleAt lands inside quiet hours to the first
   // valid slot (quietEndHour same day, or quietEndHour next day). Suppress if
   // the shifted slot would be past expiresAt or in the past.
@@ -135,23 +138,34 @@ export function chooseCandidates(
 
   // Arm a bounded horizon, not a single request. Re-engagement D3/D7/D30 and
   // challenge/journal continuity only work if later tiers are already armed
-  // before the app goes dormant. Enforce one per local day and four per rolling
-  // seven days; suppress (do not shift) candidates that would collide inside
-  // the six-hour spacing window or exceed the weekly cap.
-  const pickedDays = new Set(keep.map((candidate) => localDay(candidate.eligibleAt)))
-  let weekCount = usedThisWeek + keep.filter((candidate) => candidate.eligibleAt >= weekAgo).length
+  // before the app goes dormant. Existing pending requests remain desired, but
+  // occupy their day/window when evaluating fresh requests. Enforce one per
+  // local day and no more than four occurrences in any rolling seven-day span.
+  const pickedDays = new Set([
+    ...sent.map((event) => localDay(event.occurredAt)),
+    ...keep.map((candidate) => localDay(candidate.eligibleAt)),
+  ])
+  const occurrenceTimes = [
+    ...sent.map((event) => event.occurredAt),
+    ...keep.map((candidate) => candidate.eligibleAt),
+  ]
   const picked: NotificationCandidate[] = []
   for (const candidate of fresh) {
     const day = localDay(candidate.eligibleAt)
-    if (usedToday || pickedDays.has(day)) continue
-    if (weekCount >= 4) continue
+    if (pickedDays.has(day)) continue
     const tooClose = [...keep, ...picked].some((other) => Math.abs(other.eligibleAt - candidate.eligibleAt) < 6 * 3_600_000)
     if (tooClose) continue
+    if (!withinWeeklyCap(candidate.eligibleAt, occurrenceTimes)) continue
     picked.push(candidate)
     pickedDays.add(day)
-    if (candidate.eligibleAt >= weekAgo) weekCount++
+    occurrenceTimes.push(candidate.eligibleAt)
   }
   return [...keep, ...picked]
+}
+
+function withinWeeklyCap(candidateAt: number, existing: number[]): boolean {
+  const times = [...existing, candidateAt].sort((a, b) => a - b)
+  return times.every((start) => times.filter((time) => time >= start && time < start + 7 * 86_400_000).length <= 4)
 }
 
 function atLocalHour(day: number, hour: number): number {

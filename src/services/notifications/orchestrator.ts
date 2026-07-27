@@ -17,6 +17,51 @@ const CHANNEL_ID = 'reflection-reminders'
 
 let flight: Promise<Result<NotificationReconcileSummary>> | null = null
 let rerun = false
+let suspended = false
+let generation = 0
+
+const EMPTY_SUMMARY: NotificationReconcileSummary = {
+  scheduled: 0,
+  cancelled: 0,
+  suppressed: 0,
+  permission: 'not-determined',
+}
+
+function canContinue(capturedGeneration: number): boolean {
+  return !suspended && capturedGeneration === generation && !isWiping()
+}
+
+export function suspendNotificationReconciliation(): void {
+  suspended = true
+  generation++
+  rerun = false
+}
+
+export function resumeNotificationReconciliation(): void {
+  suspended = false
+  generation++
+}
+
+export async function waitForNotificationReconciliation(timeoutMs = 500): Promise<void> {
+  const active = flight
+  if (!active) return
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(finish, timeoutMs)
+    void active.then(finish)
+  })
+  // A permanently hung native call must not own the singleton forever and
+  // block reconciliation for the next authenticated account. Its generation is
+  // already invalidated; detaching is safe, and identity checks prevent its
+  // eventual completion from clearing a newer flight.
+  if (flight === active) flight = null
+}
 
 function requestId(candidate: NotificationCandidate): string {
   return `${REQUEST_PREFIX}${candidate.id}`
@@ -42,55 +87,75 @@ async function configureChannel(): Promise<void> {
   }
 }
 
-async function reconcileOnce(now: number): Promise<Result<NotificationReconcileSummary>> {
-  if (isWiping()) return ok({ scheduled: 0, cancelled: 0, suppressed: 0, permission: 'not-determined' })
+async function reconcileOnce(now: number, capturedGeneration: number): Promise<Result<NotificationReconcileSummary>> {
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const permission = await notificationPermissionState()
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const preferences = await getNotificationPreferences()
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   if (!preferences.success) return preferences
   // Bound local history before reading it (no-op when nothing is due to prune).
   await pruneNotificationHistory(now)
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   let pending: Notifications.NotificationRequest[]
   try { pending = await Notifications.getAllScheduledNotificationsAsync() }
   catch (e) { return err('NOTIF_PENDING_READ_FAILED', 'Failed to read scheduled notifications', e) }
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const existing = pending.filter((item) => isMindWikiRequest(item.identifier))
 
   if (!preferences.data.enabled || (permission !== 'granted' && permission !== 'provisional')) {
     let cancelled = 0
     for (const item of existing) {
+      if (!canContinue(capturedGeneration)) return ok({ scheduled: 0, cancelled, suppressed: 0, permission })
       try { await Notifications.cancelScheduledNotificationAsync(item.identifier); cancelled++ } catch { /* converge next run */ }
     }
     return ok({ scheduled: 0, cancelled, suppressed: 0, permission })
   }
 
   await configureChannel()
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const activity = await listRecentNotificationEvents(now - 8 * 7 * 86_400_000)
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const recent = activity.success
     ? { ...activity, data: activity.data.filter((event) => event.occurredAt >= now - 7 * 86_400_000) }
     : activity
   const generated = await generateNotificationCandidates(now, activity.success
     ? activity.data.filter((event) => event.type === 'app_active' || event.type === 'entry_saved').map((event) => ({ occurredAt: event.occurredAt }))
     : [])
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const candidates: NotificationCandidate[] = []
   for (const item of generated) {
+    if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
     const saved = await createCandidate(item)
     if (saved.success) candidates.push(saved.data)
   }
   const stored = await listEligibleCandidates(now)
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   if (stored.success) candidates.push(...stored.data.filter((item) => !candidates.some((current) => current.id === item.id)))
   const journaledToday = await hasJournalEntryToday(now)
+  if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const nativeCandidateIds = new Set(
     existing
       .filter((item) => item.identifier.startsWith(REQUEST_PREFIX))
       .map((item) => item.identifier.slice(REQUEST_PREFIX.length))
   )
-  // A scheduled candidate whose native request is no longer pending was
-  // delivered (the OS drops the request once a DATE trigger fires) and never
-  // opened. Mark it expired so it is not resurrected, and stop tracking it
-  // against the send budget — `opened` is the only budget event, so delivery
-  // without a tap does not consume a daily/weekly slot.
+  // Reconcile DB/native divergence. A scheduled candidate whose native request
+  // vanished was delivered/cancelled externally; an expired pending request
+  // must be cancelled and terminal too. Neither may be resurrected.
   for (const candidate of candidates) {
-    if (candidate.status === 'scheduled' && !nativeCandidateIds.has(candidate.id)) {
-      void markCandidateStatus(candidate.id, 'expired')
+    const nativePending = nativeCandidateIds.has(candidate.id)
+    if ((candidate.status === 'scheduled' && !nativePending) || candidate.expiresAt <= now) {
+      if (candidate.status === 'scheduled' && !nativePending) {
+        await recordNotificationEvent('delivered', {
+          candidateId: candidate.id,
+          kind: candidate.kind,
+          occurredAt: candidate.scheduledFor ?? candidate.eligibleAt,
+        })
+        if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
+      }
+      await markCandidateStatus(candidate.id, 'expired')
+      candidate.status = 'expired'
+      if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
     }
   }
   // Already-pending candidates are passed to policy with their real status so
@@ -103,6 +168,7 @@ async function reconcileOnce(now: number): Promise<Result<NotificationReconcileS
   let cancelled = 0
   for (const item of existing) {
     if (!desired.has(item.identifier)) {
+      if (!canContinue(capturedGeneration)) return ok({ scheduled: 0, cancelled, suppressed: 0, permission })
       try {
         await Notifications.cancelScheduledNotificationAsync(item.identifier)
         cancelled++
@@ -122,8 +188,20 @@ async function reconcileOnce(now: number): Promise<Result<NotificationReconcileS
         : null,
     }
     try {
-      await Notifications.scheduleNotificationAsync(input)
+      if (!canContinue(capturedGeneration)) break
+      const nativeIdentifier = await Notifications.scheduleNotificationAsync(input)
+      // Suspension may begin while native scheduling is in flight. Cleanup may
+      // already have completed by the time it resolves, so cancel this specific
+      // late request and never write its scheduled state to the wiped DB.
+      if (!canContinue(capturedGeneration)) {
+        try { await Notifications.cancelScheduledNotificationAsync(nativeIdentifier) } catch { /* next unauthenticated cleanup retries */ }
+        break
+      }
       await upsertCandidate({ ...candidate, scheduledFor: candidate.eligibleAt, status: 'scheduled' })
+      if (!canContinue(capturedGeneration)) {
+        try { await Notifications.cancelScheduledNotificationAsync(nativeIdentifier) } catch { /* next unauthenticated cleanup retries */ }
+        break
+      }
       scheduled++
     } catch {
       // Partial failure is represented by the Result summary; next lifecycle run converges.
@@ -166,18 +244,25 @@ export function reconcileNotifications(
   _reason: NotificationReconcileReason,
   now = Date.now()
 ): Promise<Result<NotificationReconcileSummary>> {
+  if (suspended || isWiping()) return Promise.resolve(ok(EMPTY_SUMMARY))
   if (flight) {
     rerun = true
     return flight
   }
-  flight = reconcileOnce(now).catch((cause) => err('NOTIF_RECONCILE_FAILED', 'Notification reconciliation failed', cause)).finally(() => {
+  const capturedGeneration = generation
+  const active = reconcileOnce(now, capturedGeneration).catch((cause) => err('NOTIF_RECONCILE_FAILED', 'Notification reconciliation failed', cause))
+  flight = active
+  void active.finally(() => {
+    if (flight !== active) return
     flight = null
-    if (rerun) {
+    if (rerun && !suspended && !isWiping()) {
       rerun = false
       void reconcileNotifications('resume')
+    } else {
+      rerun = false
     }
   })
-  return flight
+  return active
 }
 
 function safeRoute(route: string): string | null {

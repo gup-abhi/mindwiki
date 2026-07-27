@@ -15,7 +15,7 @@ import {
   scheduleChallengeReminders,
 } from '@/services/notifications/scheduler'
 import { reconcileNotifications } from '@/services/notifications/orchestrator'
-import { ok } from '@/types/result'
+import { err, ok } from '@/types/result'
 
 jest.mock('expo-router', () => ({
   useFocusEffect: (cb: () => void) => {
@@ -152,8 +152,14 @@ describe('useChallenge', () => {
     expect(result.current.rewards[0].status).toBe('completed')
   })
 
-  it('remove reconciles reminders and deletes', async () => {
+  it('remove reconciles reminders only after successful deletion', async () => {
     mockGetActive.mockResolvedValue(ok(challenge()))
+    const calls: string[] = []
+    mockDelete.mockImplementation(async () => { calls.push('delete'); return ok(undefined) })
+    mockReconcile.mockImplementation(async () => {
+      calls.push('reconcile')
+      return ok({ scheduled: 0, cancelled: 0, suppressed: 0, permission: 'not-determined' })
+    })
     const { result } = renderHook(() => useChallenge())
     await waitFor(() => expect(result.current.challenge?.id).toBe('c1'))
 
@@ -161,8 +167,22 @@ describe('useChallenge', () => {
       await result.current.remove()
     })
     expect(mockCancel).not.toHaveBeenCalled()
-    expect(mockReconcile).toHaveBeenCalledWith('challenge-changed')
+    expect(calls).toEqual(['delete', 'reconcile'])
     expect(mockDelete).toHaveBeenCalledWith('c1')
     expect(result.current.challenge).toBeNull()
+  })
+
+  it('keeps challenge state and skips reconcile when deletion fails', async () => {
+    mockGetActive.mockResolvedValue(ok(challenge()))
+    mockDelete.mockResolvedValue(err('DELETE_FAILED', 'Failed to delete challenge'))
+    const { result } = renderHook(() => useChallenge())
+    await waitFor(() => expect(result.current.challenge?.id).toBe('c1'))
+
+    await act(async () => {
+      await result.current.remove()
+    })
+
+    expect(mockReconcile).not.toHaveBeenCalled()
+    expect(result.current.challenge?.id).toBe('c1')
   })
 })

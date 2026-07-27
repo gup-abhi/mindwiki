@@ -8,10 +8,27 @@ import { type Result, ok, err } from '@/types/result'
 const CLEANUP_TIMEOUT_MS = 1500
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  return Promise.race([
-    promise.then((v) => v as T | null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-  ])
+  return new Promise<T | null>((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      settled = true
+      resolve(null)
+    }, ms)
+    promise.then(
+      (value) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (cause: unknown) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        reject(cause)
+      }
+    )
+  })
 }
 
 /** Best-effort, idempotent account-boundary cleanup. Every native operation is
@@ -23,9 +40,11 @@ export async function cleanupNotifications(): Promise<Result<void>> {
   const safe = async (op: () => Promise<unknown>): Promise<void> => {
     try { await withTimeout(op(), CLEANUP_TIMEOUT_MS) } catch (e) { firstError ??= e }
   }
-  await safe(() => Notifications.cancelAllScheduledNotificationsAsync())
-  await safe(() => Notifications.dismissAllNotificationsAsync())
-  await safe(() => Notifications.clearLastNotificationResponseAsync())
+  await Promise.all([
+    safe(() => Notifications.cancelAllScheduledNotificationsAsync()),
+    safe(() => Notifications.dismissAllNotificationsAsync()),
+    safe(() => Notifications.clearLastNotificationResponseAsync()),
+  ])
   return firstError == null
     ? ok(undefined)
     : err('NOTIF_CLEANUP_FAILED', 'Notification cleanup failed', firstError)

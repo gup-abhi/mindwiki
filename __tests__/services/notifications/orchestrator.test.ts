@@ -105,6 +105,29 @@ describe('policy — multi-horizon selection', () => {
     expect(result.map((x) => x.id)).toHaveLength(1)
   })
 
+  it('pending future requests reserve daily and rolling-week slots for fresh picks', () => {
+    const day = 86_400_000
+    const anchor = Date.UTC(2026, 6, 15, 12, 0, 0, 0)
+    const pending = [1, 2, 3].map((days) => candidate({
+      id: `pending-${days}`,
+      kind: 'challenge',
+      eligibleAt: anchor + days * day,
+      priority: 60,
+      status: 'scheduled',
+    }))
+    const fresh = [
+      candidate({ id: 'same-day', kind: 'digest', eligibleAt: anchor + day + 1, priority: 80 }),
+      candidate({ id: 'fourth', kind: 'journal', eligibleAt: anchor + 4 * day, priority: 30 }),
+      candidate({ id: 'fifth', kind: 'journal', eligibleAt: anchor + 5 * day, priority: 30 }),
+    ]
+    const result = chooseCandidates([...pending, ...fresh], ctx({
+      now: anchor,
+      pendingIds: new Set(pending.map((item) => item.id)),
+    }))
+
+    expect(result.map((item) => item.id).sort()).toEqual(['fourth', 'pending-1', 'pending-2', 'pending-3'])
+  })
+
   it('weekly cap allows up to four fresh picks', () => {
     const day = 86_400_000
     const anchor = Date.UTC(2026, 6, 15, 12, 0, 0, 0)
@@ -132,11 +155,11 @@ describe('policy — multi-horizon selection', () => {
       { id: 'b', kind: 'challenge' as const, eligibleAt: anchor + 2 * day, priority: 60 },
       { id: 'c', kind: 'digest' as const, eligibleAt: anchor + 5 * day, priority: 80 },
     ].map((x) => candidate(x))
-    // 3 opened this week (days -1, -2, -3) → 1 slot left → only the highest
-    // priority fresh fits; usedToday=false because no opened on today (day 0).
+    // Rolling-window accounting allows one near-term slot and one beyond seven
+    // days from the oldest opened event. Static `now-7d` counting would wrongly
+    // suppress that later horizon.
     const result = chooseCandidates(candidates, ctx({ now: anchor, pendingIds: new Set(), recentEvents: opened }))
-    expect(result).toHaveLength(1)
-    expect(result[0].kind).toBe('digest')
+    expect(result.map((item) => item.kind)).toEqual(['digest', 'challenge'])
   })
 })
 
@@ -175,7 +198,7 @@ describe('policy — quiet hours shift', () => {
   })
 })
 
-describe('policy — budget counting per opened (not scheduled)', () => {
+describe('policy — budget counting per delivery/open (not scheduled)', () => {
   it('ignores scheduled events when counting daily/weekly budget', () => {
     // A candidate was scheduled (event exists) but never opened → budget unaffected
     const c = candidate({ id: 'j', kind: 'journal' })
@@ -183,5 +206,21 @@ describe('policy — budget counting per opened (not scheduled)', () => {
       recentEvents: [{ id: 's1', candidateId: 'other', kind: 'journal', type: 'scheduled', occurredAt: Date.now() }],
     }))
     expect(result.map((x) => x.id)).toContain('j')
+  })
+
+  it('counts delivered + opened for one candidate only once', () => {
+    const now = Date.now()
+    const fresh = candidate({ id: 'fresh', kind: 'journal', eligibleAt: now + 86_400_000 })
+    const result = chooseCandidates([fresh], ctx({
+      now,
+      recentEvents: [
+        { id: 'd', candidateId: 'old', kind: 'journal', type: 'delivered', occurredAt: now - 4 * 86_400_000 },
+        { id: 'o', candidateId: 'old', kind: 'journal', type: 'opened', occurredAt: now - 4 * 86_400_000 + 1 },
+        { id: 'd2', candidateId: 'old-2', kind: 'journal', type: 'delivered', occurredAt: now - 3 * 86_400_000 },
+        { id: 'd3', candidateId: 'old-3', kind: 'journal', type: 'delivered', occurredAt: now - 2 * 86_400_000 },
+        { id: 'd4', candidateId: 'old-4', kind: 'journal', type: 'delivered', occurredAt: now - 86_400_000 },
+      ],
+    }))
+    expect(result).toHaveLength(0)
   })
 })
