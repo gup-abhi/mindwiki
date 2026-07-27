@@ -95,9 +95,11 @@ describe('policy — multi-horizon selection', () => {
 
   it('detects same local day collision even when 6-hour spacing is satisfied', () => {
     const day = 86_400_000
-    const now = Date.now()
-    // Both eligibleAt on the same local day (now+24h) but spaced >6h apart.
-    // Still only one per local day is allowed.
+    // Fixed midnight anchor ensures both 09:00 and 17:00 fall on the same
+    // UTC day, which guarantees same localDay in all but extreme -12 offset
+    // timezones. Deterministic vs Date.now() flakiness.
+    const anchor = Date.UTC(2026, 6, 15, 0, 0, 0, 0)
+    const now = anchor
     const nineAm = candidate({ id: 'm', kind: 'challenge', eligibleAt: now + day + 9 * 3_600_000, priority: 60 })
     const fivePm = candidate({ id: 'a', kind: 'journal', eligibleAt: now + day + 17 * 3_600_000, priority: 30 })
     const result = chooseCandidates([nineAm, fivePm], ctx({ now, pendingIds: new Set() }))
