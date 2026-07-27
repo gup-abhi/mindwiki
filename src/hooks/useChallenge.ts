@@ -15,19 +15,16 @@ import {
   isDoneToday,
   recordCheckin,
 } from '@/services/challenges/checkin'
-import {
-  cancelChallengeReminders,
-  ensurePermission,
-  scheduleChallengeReminders,
-} from '@/services/notifications/scheduler'
+
+import { reconcileNotifications } from '@/services/notifications/orchestrator'
 
 /**
  * The active 30-day challenge (one at a time) for the Home card + create flow.
- * Loads on focus and orchestrates storage with the morning-nudge notifications:
- * creating arms them, a check-in re-arms them (or cancels on completion), and
- * removing cancels them. `checkIn` returns the result so the screen can fire a
- * completion celebration. All state is derived against `now` at call time so the
- * streak reads correctly even if a day lapsed while the screen was closed.
+ * Loads on focus and asks the central notification reconciler to converge
+ * challenge reminders after create/check-in/remove. `checkIn` returns the result
+ * so the screen can fire a completion celebration. All state is derived against
+ * `now` at call time so the streak reads correctly even if a day lapsed while
+ * the screen was closed.
  */
 export function useChallenge() {
   const [challenge, setChallenge] = useState<Challenge | null>(null)
@@ -55,8 +52,7 @@ export function useChallenge() {
       try {
         const res = await createChallenge(input)
         if (!res.success) return null
-        await ensurePermission()
-        void scheduleChallengeReminders(res.data, Date.now(), false)
+        void reconcileNotifications('challenge-changed')
         setChallenge(res.data)
         return res.data
       } finally {
@@ -75,11 +71,11 @@ export function useChallenge() {
       if (!res.success) return null
       const updated = res.data.challenge
       if (updated.status === 'completed') {
-        void cancelChallengeReminders(updated.id)
+        void reconcileNotifications('challenge-changed')
         setChallenge(null)
         setRewards((prev) => [updated, ...prev]) // newly earned reward
       } else {
-        void scheduleChallengeReminders(updated, now, true) // just done today
+        void reconcileNotifications('challenge-changed')
         setChallenge(updated)
       }
       return res.data
@@ -90,7 +86,7 @@ export function useChallenge() {
 
   const remove = useCallback(async () => {
     if (!challenge) return
-    void cancelChallengeReminders(challenge.id)
+    void reconcileNotifications('challenge-changed')
     await deleteChallenge(challenge.id)
     setChallenge(null)
   }, [challenge])

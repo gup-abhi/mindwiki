@@ -22,6 +22,7 @@ import { useBiometricLock } from '@/hooks/useBiometricLock'
 import { useDevices } from '@/hooks/useDevices'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
+import { useNotifications } from '@/hooks/useNotifications'
 
 function timeAgo(ms: number | null): string {
   if (!ms) return 'Never'
@@ -55,6 +56,7 @@ export default function Settings() {
     logoutDevice,
   } = useDevices()
   const { logout } = useAuth()
+  const { preferences: notificationPreferences, permission: notificationPermission, busy: notificationBusy, update: updateNotifications, enable: enableNotifications, openSystemSettings } = useNotifications()
 
   // Logout is destructive (local wipe). Confirm first (R4), escalating the copy
   // when unsynced changes would be lost, and attempt one final flush online.
@@ -122,6 +124,81 @@ export default function Settings() {
         <Text variant="caption" color="textSecondary" style={styles.hint}>
           See the introduction again — no download required.
         </Text>
+      </Card>
+
+      <Text variant="label" color="textMuted" style={styles.section}>
+        Notifications
+      </Text>
+      <Card variant="sunken">
+        <View style={styles.row}>
+          <View style={styles.lockText}>
+            <Text variant="bodyStrong">Private reminders</Text>
+            <Text variant="caption" color="textSecondary" style={styles.hint}>
+              Generic lock-screen copy. Journal data stays on this device.
+            </Text>
+          </View>
+          <Chip
+            label={notificationPreferences.enabled ? 'On' : 'Off'}
+            selected={notificationPreferences.enabled}
+            onPress={() => {
+              if (notificationPreferences.enabled) void updateNotifications({ enabled: false })
+              else void enableNotifications()
+            }}
+            testID="settings-notifications-toggle"
+          />
+        </View>
+        <Text variant="caption" color="textMuted" style={styles.hint}>
+          Permission: {notificationPermission}
+        </Text>
+        {notificationPreferences.enabled && (
+          <>
+            <Text variant="caption" color="textSecondary" style={styles.hint}>
+              Reminder topics
+            </Text>
+            <View style={styles.appearance}>
+              <Chip label="Journal" selected={notificationPreferences.journal} onPress={() => void updateNotifications({ journal: !notificationPreferences.journal })} testID="settings-notifications-journal" />
+              <Chip label="Challenge" selected={notificationPreferences.challenge} onPress={() => void updateNotifications({ challenge: !notificationPreferences.challenge })} testID="settings-notifications-challenge" />
+              <Chip label="Insights" selected={notificationPreferences.insights} onPress={() => void updateNotifications({ insights: !notificationPreferences.insights })} testID="settings-notifications-insights" />
+            </View>
+            <Text variant="caption" color="textSecondary" style={styles.hint}>
+              Reminder window: {notificationPreferences.reminderStartHour}:00–{notificationPreferences.reminderEndHour}:00
+            </Text>
+            <View style={styles.appearance}>
+              <Chip label="Earlier" onPress={() => void updateNotifications({ reminderStartHour: Math.max(8, notificationPreferences.reminderStartHour - 1), reminderEndHour: Math.max(9, notificationPreferences.reminderEndHour - 1) })} testID="settings-notifications-earlier" />
+              <Chip label="Later" onPress={() => void updateNotifications({ reminderStartHour: Math.min(22, notificationPreferences.reminderStartHour + 1), reminderEndHour: Math.min(23, notificationPreferences.reminderEndHour + 1) })} testID="settings-notifications-later" />
+            </View>
+            <Text variant="caption" color="textSecondary" style={styles.hint}>
+              Quiet hours: {notificationPreferences.quietStartHour}:00–{notificationPreferences.quietEndHour}:00
+            </Text>
+            <View style={styles.appearance}>
+              <Chip label="Momentum" selected={notificationPreferences.momentum} onPress={() => void updateNotifications({ momentum: !notificationPreferences.momentum })} testID="settings-notifications-momentum" />
+              <Chip label="Patterns" selected={notificationPreferences.patterns} onPress={() => void updateNotifications({ patterns: !notificationPreferences.patterns })} testID="settings-notifications-patterns" />
+            </View>
+            <Text variant="caption" color="textMuted" style={styles.hint}>
+              Preview: MindWiki — A quiet moment to check in, if it would help.
+            </Text>
+            <Text variant="caption" color="textMuted" style={styles.hint}>
+              Why: reminders are planned on this device from activity timestamps only. Journal content never enters notification payloads.
+            </Text>
+          </>
+        )}
+        {(notificationPermission === 'blocked' || notificationPermission === 'denied') && (
+          <View style={styles.action}>
+            <Button title="Open system notification settings" variant="secondary" fullWidth onPress={() => void openSystemSettings()} testID="settings-notifications-system" />
+          </View>
+        )}
+        {notificationPreferences.enabled && (
+          <View style={styles.action}>
+            <Button
+              title="Pause reminders for one week"
+              variant="secondary"
+              fullWidth
+              loading={notificationBusy}
+              onPress={() => void updateNotifications({ pausedUntil: Date.now() + 7 * 86_400_000 })}
+              testID="settings-notifications-pause"
+            />
+          </View>
+        )}
       </Card>
 
       <Text variant="label" color="textMuted" style={styles.section}>

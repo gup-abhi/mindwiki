@@ -14,6 +14,7 @@ import {
   ensurePermission,
   scheduleChallengeReminders,
 } from '@/services/notifications/scheduler'
+import { reconcileNotifications } from '@/services/notifications/orchestrator'
 import { ok } from '@/types/result'
 
 jest.mock('expo-router', () => ({
@@ -37,6 +38,9 @@ jest.mock('@/services/notifications/scheduler', () => ({
   scheduleChallengeReminders: jest.fn(),
   cancelChallengeReminders: jest.fn(),
 }))
+jest.mock('@/services/notifications/orchestrator', () => ({
+  reconcileNotifications: jest.fn().mockResolvedValue({ success: true, data: { scheduled: 0, cancelled: 0, suppressed: 0, permission: 'not-determined' } }),
+}))
 
 const mockGetActive = getActiveChallenge as jest.Mock
 const mockList = listChallenges as jest.Mock
@@ -46,6 +50,7 @@ const mockRecord = recordCheckin as jest.Mock
 const mockSchedule = scheduleChallengeReminders as jest.Mock
 const mockCancel = cancelChallengeReminders as jest.Mock
 const mockPerms = ensurePermission as jest.Mock
+const mockReconcile = reconcileNotifications as jest.Mock
 
 const challenge = (over: Partial<Challenge> = {}): Challenge => ({
   id: 'c1',
@@ -93,18 +98,20 @@ describe('useChallenge', () => {
     expect(result.current.rewards[0].id).toBe('done1')
   })
 
-  it('create arms reminders and asks permission', async () => {
+  it('create requests central notification reconciliation without prompting', async () => {
     const { result } = renderHook(() => useChallenge())
+    let created: Challenge | null = null
     await act(async () => {
-      await result.current.create({ title: 'Read' })
+      created = await result.current.create({ title: 'Read' })
     })
     expect(mockCreate).toHaveBeenCalledWith({ title: 'Read' })
-    expect(mockPerms).toHaveBeenCalled()
-    expect(mockSchedule).toHaveBeenCalled()
-    expect(result.current.challenge?.id).toBe('c1')
+    expect(mockPerms).not.toHaveBeenCalled()
+    expect(mockSchedule).not.toHaveBeenCalled()
+    expect(mockReconcile).toHaveBeenCalledWith('challenge-changed')
+    expect(created).toEqual(expect.objectContaining({ id: 'c1' }))
   })
 
-  it('checkIn on an active challenge reschedules (skipping today)', async () => {
+  it('checkIn on an active challenge reconciles notification state', async () => {
     mockGetActive.mockResolvedValue(ok(challenge({ current_streak: 2 })))
     mockRecord.mockResolvedValue(
       ok({
@@ -119,14 +126,11 @@ describe('useChallenge', () => {
       await result.current.checkIn()
     })
     expect(mockRecord).toHaveBeenCalledWith('c1', expect.any(Number))
-    expect(mockSchedule).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'active' }),
-      expect.any(Number),
-      true
-    )
+    expect(mockSchedule).not.toHaveBeenCalled()
+    expect(mockReconcile).toHaveBeenCalledWith('challenge-changed')
   })
 
-  it('checkIn that completes cancels reminders and clears the active challenge', async () => {
+  it('checkIn that completes reconciles reminders and clears the active challenge', async () => {
     mockGetActive.mockResolvedValue(ok(challenge({ current_streak: 29 })))
     mockRecord.mockResolvedValue(
       ok({
@@ -140,14 +144,15 @@ describe('useChallenge', () => {
     await act(async () => {
       await result.current.checkIn()
     })
-    expect(mockCancel).toHaveBeenCalledWith('c1')
+    expect(mockCancel).not.toHaveBeenCalled()
+    expect(mockReconcile).toHaveBeenCalledWith('challenge-changed')
     expect(result.current.challenge).toBeNull()
     // the freshly completed challenge becomes an earned reward
     expect(result.current.rewards).toHaveLength(1)
     expect(result.current.rewards[0].status).toBe('completed')
   })
 
-  it('remove cancels reminders and deletes', async () => {
+  it('remove reconciles reminders and deletes', async () => {
     mockGetActive.mockResolvedValue(ok(challenge()))
     const { result } = renderHook(() => useChallenge())
     await waitFor(() => expect(result.current.challenge?.id).toBe('c1'))
@@ -155,7 +160,8 @@ describe('useChallenge', () => {
     await act(async () => {
       await result.current.remove()
     })
-    expect(mockCancel).toHaveBeenCalledWith('c1')
+    expect(mockCancel).not.toHaveBeenCalled()
+    expect(mockReconcile).toHaveBeenCalledWith('challenge-changed')
     expect(mockDelete).toHaveBeenCalledWith('c1')
     expect(result.current.challenge).toBeNull()
   })

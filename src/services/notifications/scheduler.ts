@@ -7,6 +7,8 @@ import { type Result, ok, err } from '@/types/result'
 import { type Challenge } from '@/services/storage/challenges'
 
 import { challengeCopy, reminderCopy } from './copy'
+import { scheduleFirstInsightCandidate } from './orchestrator'
+import { requestNotificationPermission } from './permissions'
 import {
   type HourHistogram,
   emptyHistogram,
@@ -15,7 +17,7 @@ import {
 } from './timing'
 
 const HISTOGRAM_KEY = 'notif_hour_histogram'
-const PERMISSION_ASKED_KEY = 'notif_permission_asked'
+
 const DAILY_ID = 'mindwiki-daily-reminder'
 const WEEKLY_DIGEST_ID = 'mindwiki-weekly-digest'
 const CHALLENGE_ID_PREFIX = 'mindwiki-challenge'
@@ -33,7 +35,9 @@ const CHALLENGE_REMINDER_DAYS = 14
 export function configureNotifications(): void {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
+      // Foreground notifications do not interrupt active journaling. The
+      // authenticated app can surface an in-app explanation later.
+      shouldShowAlert: false,
       shouldPlaySound: false,
       shouldSetBadge: false,
     }),
@@ -42,15 +46,8 @@ export function configureNotifications(): void {
 
 /** Request notification permission (call after the first entry, not on launch). */
 export async function ensurePermission(): Promise<Result<boolean>> {
-  try {
-    const current = await Notifications.getPermissionsAsync()
-    if (current.granted) return ok(true)
-    if (current.canAskAgain === false) return ok(false)
-    const req = await Notifications.requestPermissionsAsync()
-    return ok(req.granted)
-  } catch (e) {
-    return err('NOTIF_PERMISSION_FAILED', 'Notification permission request failed', e)
-  }
+  const result = await requestNotificationPermission()
+  return result.success ? ok(result.data === 'granted' || result.data === 'provisional') : result
 }
 
 async function loadHistogram(db: SqliteDatabase): Promise<HourHistogram> {
@@ -195,57 +192,38 @@ export async function scheduleWeeklyDigest(): Promise<Result<void>> {
   }
 }
 
-const FIRST_PAGE_READY_ID = 'mindwiki-first-page-ready'
+
 
 /**
  * Fire one immediate local notification announcing the user's first synthesized
  * insight page — the deferred aha moment, delivered once the deep model has
- * finished weaving the first-run entries. `data.wikiId` drives the tap deep-link
- * (see the response listener in _layout). Cancels any prior instance first so a
- * re-run can't duplicate. Best-effort, never throws.
+ * finished weaving the first-run entries. Route is resolved from encrypted
+ * candidate metadata after an authenticated tap. Best-effort, never throws.
  */
 export async function sendFirstPageReadyNotification(page: {
   id: string
   title: string
 }): Promise<Result<void>> {
-  try {
-    await Notifications.cancelScheduledNotificationAsync(FIRST_PAGE_READY_ID).catch(() => {})
-    await Notifications.scheduleNotificationAsync({
-      identifier: FIRST_PAGE_READY_ID,
-      content: {
-        title: 'Your first insight page is ready',
-        body: `${page.title} — see what emerged from what you wrote.`,
-        data: { wikiId: page.id, route: `/wiki/${page.id}` },
-      },
-      trigger: null, // fire immediately
-    })
-    return ok(undefined)
-  } catch (e) {
-    return err('NOTIF_FIRST_PAGE_FAILED', 'Failed to announce first ready page', e)
-  }
+  // `title` remains in the API for compatibility with the onboarding marker,
+  // but never enters native notification content. Route is encrypted locally in
+  // the candidate table; OS receives only opaque candidateId + kind.
+  return scheduleFirstInsightCandidate(page.id)
 }
 
 /**
- * Run after an entry is saved: ask for notification permission once (after the
- * first entry, never on launch), record the activity, and re-arm the evening
- * reminder batch (skipping today) + the weekly digest. Best-effort — callers
- * fire-and-forget; never blocks the entry.
+ * Run after an entry is saved: record local activity. Permission and native
+ * scheduling are owned by explicit Settings opt-in plus orchestrator.
  */
 export async function onEntrySaved(
   now: number,
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    const asked = await getSetting(PERMISSION_ASKED_KEY, db)
-    if (!(asked.success && asked.data === '1')) {
-      await ensurePermission()
-      await setSetting(PERMISSION_ASKED_KEY, '1', db)
-    }
+    // Permission is now explicit user action from Settings. Entry saves only
+    // record local activity and reconcile existing opt-in preferences.
     await recordActivity(now, db)
-    // The user just journaled, so today's reminder is skipped; the batch arms
-    // the coming evenings.
-    await scheduleDailyReminders(now, true, db)
-    await scheduleWeeklyDigest()
+    // Reconciliation owns native requests. Legacy batch exports remain for
+    // compatibility, but save events no longer create unmanaged requests.
     return ok(undefined)
   } catch (e) {
     return err('NOTIF_ON_ENTRY_FAILED', 'Failed to update habit state', e)

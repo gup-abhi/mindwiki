@@ -187,18 +187,14 @@ describe('scheduleChallengeReminders', () => {
 })
 
 describe('onEntrySaved', () => {
-  it('asks for permission on the first entry, records activity, and schedules', async () => {
+  it('records activity without prompting or creating unmanaged native requests', async () => {
     const { db, store } = createFakeDb()
     const res = await onEntrySaved(at(21), db)
 
     expect(res).toEqual({ success: true, data: undefined })
-    expect(mockReqPerms).toHaveBeenCalledTimes(1)
-    expect(store.get('notif_permission_asked')).toBe('1')
+    expect(mockReqPerms).not.toHaveBeenCalled()
     expect(JSON.parse(store.get('notif_hour_histogram')!)[21]).toBe(1)
-    // schedules the evening reminder batch + the weekly digest
-    const ids = mockSchedule.mock.calls.map((c) => c[0].identifier)
-    expect(ids).toContain('mindwiki-weekly-digest')
-    expect(ids.some((id: string) => id.startsWith('mindwiki-daily-reminder-'))).toBe(true)
+    expect(mockSchedule).not.toHaveBeenCalled()
   })
 
   it('does not ask for permission again on subsequent entries', async () => {

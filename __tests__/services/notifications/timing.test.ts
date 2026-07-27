@@ -1,4 +1,5 @@
 import {
+  adaptiveReminderTiming,
   DEFAULT_SEND_HOUR,
   emptyHistogram,
   recordActivity,
@@ -49,6 +50,13 @@ describe('timing', () => {
     let h = emptyHistogram()
     for (let i = 0; i < 5; i++) h = recordActivity(h, at(1)) // 1am peak
     expect(reminderHour(h)).toBe(DEFAULT_SEND_HOUR) // not 1am
+  })
+
+  it('uses recent weighted activity inside bounded evening window', () => {
+    const now = at(20)
+    const samples = Array.from({ length: 8 }, (_, index) => ({ occurredAt: now - index * 86_400_000 }))
+    expect(adaptiveReminderTiming(samples, now).hour).toBe(20)
+    expect(adaptiveReminderTiming(samples.slice(0, 2), now).hour).toBe(DEFAULT_SEND_HOUR)
   })
 
   it('ignores daytime peaks outside the evening window', () => {

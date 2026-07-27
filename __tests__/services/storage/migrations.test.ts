@@ -135,6 +135,11 @@ describe('registry', () => {
     expect(sql).toContain("INSERT INTO belief_maintenance_state (key) VALUES ('belief')")
   })
 
+  it('registers migration 036 — notification insight kinds', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 36)
+    expect(m?.name).toBe('local_notification_insight_kinds')
+  })
+
   it('registers migration 034 — live wiki title uniqueness', () => {
     const m = MIGRATIONS.find((mig) => mig.version === 34)
     expect(m).toBeDefined()

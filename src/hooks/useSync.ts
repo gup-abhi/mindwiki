@@ -5,6 +5,7 @@ import NetInfo from '@react-native-community/netinfo'
 import { sync } from '@/services/sync/engine'
 import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
+import { reconcileNotifications, recordAndReconcile } from '@/services/notifications/orchestrator'
 
 // Collapse a burst of enqueues (one entry can touch several wiki pages) into a
 // single push, and let background-generated records settle before syncing.
@@ -39,13 +40,17 @@ export function useSync(): void {
     running.current = true
     void sync().finally(() => {
       running.current = false
+      void reconcileNotifications('sync')
     })
   }, [])
 
   useEffect(() => {
     run()
     const appSub = AppState.addEventListener('change', (state: AppStateStatus) => {
-      if (state === 'active') run()
+      if (state === 'active') {
+        run()
+        void recordAndReconcile('app_active', 'resume')
+      }
     })
     // Flush the pending queue the instant connectivity is restored (offline→online
     // transition only, so we don't re-sync on every network event).

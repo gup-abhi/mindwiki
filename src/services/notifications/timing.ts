@@ -51,3 +51,52 @@ export function reminderHour(
   }
   return eveningTotal < minSamples ? fallback : bestHour
 }
+
+export interface ActivitySample {
+  occurredAt: number
+  kind?: 'app_active' | 'entry_saved'
+}
+
+export interface AdaptiveTiming {
+  hour: number
+  weekday: number | null
+  sampleCount: number
+}
+
+const ADAPTIVE_LOOKBACK_MS = 8 * 7 * 86_400_000
+const ADAPTIVE_MIN_SAMPLES = 8
+
+/**
+ * Select recent local activity slot using bounded exponential recency weights.
+ * Returns fallback until enough activity exists. Caller still applies quiet
+ * hours and user-selected bounds; this function never schedules anything.
+ */
+export function adaptiveReminderTiming(
+  samples: ActivitySample[],
+  now: number,
+  fallback = DEFAULT_SEND_HOUR,
+  minSamples = ADAPTIVE_MIN_SAMPLES
+): AdaptiveTiming {
+  const recent = samples.filter((sample) => sample.occurredAt >= now - ADAPTIVE_LOOKBACK_MS && sample.occurredAt <= now)
+  if (recent.length < minSamples) return { hour: fallback, weekday: null, sampleCount: recent.length }
+
+  const hours = new Array(24).fill(0) as number[]
+  const weekdays = new Array(7).fill(0) as number[]
+  for (const sample of recent) {
+    const age = Math.max(0, now - sample.occurredAt)
+    const weight = Math.exp(-age / (4 * 7 * 86_400_000))
+    const date = new Date(sample.occurredAt)
+    hours[date.getHours()] += weight
+    weekdays[date.getDay()] += weight
+  }
+  const bestInWindow = (scores: number[], start: number, end: number): number => {
+    let best = start
+    for (let index = start + 1; index <= end; index++) {
+      if (scores[index] > scores[best]) best = index
+    }
+    return best
+  }
+  const hour = bestInWindow(hours, REMINDER_WINDOW_START, REMINDER_WINDOW_END)
+  const weekday = bestInWindow(weekdays, 0, 6)
+  return { hour, weekday, sampleCount: recent.length }
+}

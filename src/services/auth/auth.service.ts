@@ -7,6 +7,7 @@ import { beginWipe, deleteDatabase, endWipe } from '@/services/storage/db'
 import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
+import { cleanupNotifications } from '@/services/notifications/cleanup'
 
 import { authenticatedFetch } from './api-client'
 import { API_URL } from './config'
@@ -302,6 +303,9 @@ export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: stri
  * unauthenticated device with the old key + DB still installed (cases 7/8).
  */
 export async function logout(): Promise<void> {
+  // Native notification state is account-bound. Clear it before DB deletion;
+  // cleanup remains best-effort and can be retried on the unauthenticated path.
+  await cleanupNotifications()
   // 1. Durable marker: survives a kill so the wipe is always completable.
   await setWipePending()
   // 2. Quiesce (I5): fail-close getDb() so in-flight sync / LLM work can't touch

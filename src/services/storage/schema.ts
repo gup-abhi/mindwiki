@@ -753,3 +753,63 @@ export const migration034: Migration = {
        WHERE merged_into IS NULL`,
   ],
 }
+
+// Migration 035 — device-local notification planning and count-only outcomes.
+// These tables are intentionally absent from SYNCED_TABLES: schedules, native
+// permission state, and interaction history belong to this device.
+export const migration035: Migration = {
+  version: 35,
+  name: 'local_notification_state',
+  statements: [
+    `CREATE TABLE notification_candidates (
+      id            TEXT PRIMARY KEY,
+      kind          TEXT NOT NULL CHECK (kind IN ('journal','challenge','reengagement','digest','insight','momentum','pattern')),
+      dedupe_key    TEXT NOT NULL UNIQUE,
+      target_route  TEXT NOT NULL,
+      eligible_at   INTEGER NOT NULL,
+      expires_at    INTEGER NOT NULL,
+      scheduled_for INTEGER,
+      status        TEXT NOT NULL CHECK (status IN ('eligible','scheduled','opened','suppressed','cancelled','expired')),
+      reason_code   TEXT,
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL
+    )`,
+    `CREATE INDEX idx_notification_candidates_schedule ON notification_candidates (status, scheduled_for)`,
+    `CREATE TABLE notification_events (
+      id           TEXT PRIMARY KEY,
+      candidate_id TEXT,
+      kind         TEXT CHECK (kind IS NULL OR kind IN ('journal','challenge','reengagement','digest','insight','momentum','pattern')),
+      event_type   TEXT NOT NULL CHECK (event_type IN ('app_active','entry_saved','delivered','scheduled','opened','suppressed','cancelled')),
+      reason_code  TEXT,
+      occurred_at  INTEGER NOT NULL
+    )`,
+    `CREATE INDEX idx_notification_events_time ON notification_events (occurred_at)`,
+  ],
+}
+
+// Migration 036 — extend local notification allowlists for opt-in insight types.
+export const migration036: Migration = {
+  version: 36,
+  name: 'local_notification_insight_kinds',
+  statements: [
+    `ALTER TABLE notification_candidates RENAME TO notification_candidates_old`,
+    `CREATE TABLE notification_candidates (
+      id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('journal','challenge','reengagement','digest','insight','momentum','pattern')),
+      dedupe_key TEXT NOT NULL UNIQUE, target_route TEXT NOT NULL, eligible_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+      scheduled_for INTEGER, status TEXT NOT NULL CHECK (status IN ('eligible','scheduled','opened','suppressed','cancelled','expired')),
+      reason_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`,
+    `INSERT INTO notification_candidates SELECT * FROM notification_candidates_old`,
+    `DROP TABLE notification_candidates_old`,
+    `CREATE INDEX idx_notification_candidates_schedule ON notification_candidates (status, scheduled_for)`,
+    `ALTER TABLE notification_events RENAME TO notification_events_old`,
+    `CREATE TABLE notification_events (
+      id TEXT PRIMARY KEY, candidate_id TEXT, kind TEXT CHECK (kind IS NULL OR kind IN ('journal','challenge','reengagement','digest','insight','momentum','pattern')),
+      event_type TEXT NOT NULL CHECK (event_type IN ('app_active','entry_saved','delivered','scheduled','opened','suppressed','cancelled')),
+      reason_code TEXT, occurred_at INTEGER NOT NULL
+    )`,
+    `INSERT INTO notification_events SELECT * FROM notification_events_old`,
+    `DROP TABLE notification_events_old`,
+    `CREATE INDEX idx_notification_events_time ON notification_events (occurred_at)`,
+  ],
+}

@@ -17,6 +17,9 @@ import { initStorage } from '@/services/storage/bootstrap'
 import { closeDb } from '@/services/storage/db'
 import { areModelsReady } from '@/services/llm/model-manager'
 import { configureNotifications } from '@/services/notifications/scheduler'
+import { cleanupNotifications } from '@/services/notifications/cleanup'
+import { handleNotificationCandidate, handleNotificationDelivered, recordAndReconcile } from '@/services/notifications/orchestrator'
+import { isNotificationKind } from '@/services/notifications/policy'
 import { hydrateAuth } from '@/services/auth/auth.service'
 import { resetSessionStores } from '@/services/auth/session-reset'
 import { useAuthStore } from '@/store/auth.store'
@@ -47,6 +50,10 @@ type StorageStatus = 'idle' | 'loading' | 'ready' | 'error'
  */
 function AppRoot() {
   useSync()
+  useEffect(() => {
+    void recordAndReconcile('app_active', 'launch')
+  }, [])
+
   const router = useRouter()
   // One-time first-run redirect: after the carousel, route the user through a
   // guided path so they produce entries and see their first wiki page.
@@ -64,21 +71,34 @@ function AppRoot() {
     })()
   }, [])
 
-  // Deep-link a tap on the "first insight page ready" notification (and any other
-  // notification carrying a wikiId) to its wiki page. Registered once per app root
-  // mount, after navigation is in scope. Also handle a cold-launch tap.
   useEffect(() => {
-    const routeToWiki = (wikiId: unknown) => {
-      if (typeof wikiId !== 'string' || !wikiId) return
-      // Defer past the initial render so the router is ready to push.
-      requestAnimationFrame(() => router.push(`/wiki/${wikiId}`))
+    const sub = Notifications.addNotificationReceivedListener((notification) => {
+      void handleNotificationDelivered(notification.request.identifier)
+    })
+    return () => sub.remove()
+  }, [])
+
+  // Notification payload contains only opaque candidateId + allowlisted kind.
+  // Resolve route through encrypted DB after auth, then clear native response.
+  useEffect(() => {
+    let handled = false
+    const routeFromResponse = (resp: Notifications.NotificationResponse | null) => {
+      if (!resp || handled) return
+      handled = true
+      const data = resp.notification.request.content.data as Record<string, unknown> | undefined
+      const candidateId = data?.candidateId
+      const kind = data?.kind
+      if (typeof candidateId !== 'string' || !isNotificationKind(kind)) {
+        void Notifications.clearLastNotificationResponseAsync()
+        return
+      }
+      void handleNotificationCandidate(candidateId).then((result) => {
+        if (result.success && result.data) requestAnimationFrame(() => router.push(result.data as never))
+        return Notifications.clearLastNotificationResponseAsync()
+      })
     }
-    void Notifications.getLastNotificationResponseAsync().then((resp) => {
-      if (resp) routeToWiki(resp.notification.request.content.data?.wikiId)
-    })
-    const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
-      routeToWiki(resp.notification.request.content.data?.wikiId)
-    })
+    void Notifications.getLastNotificationResponseAsync().then(routeFromResponse)
+    const sub = Notifications.addNotificationResponseReceivedListener(routeFromResponse)
     return () => sub.remove()
   }, [router])
 
@@ -130,6 +150,7 @@ function AppGate() {
   // a fresh handle keyed to that account.
   useEffect(() => {
     if (authStatus === 'unauthenticated') {
+      void cleanupNotifications()
       closeDb()
       resetSessionStores()
       setStorage('idle')

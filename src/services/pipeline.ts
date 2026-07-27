@@ -24,6 +24,7 @@ import { useWikiStore } from '@/store/wiki.store'
 import { useSyncStore } from '@/store/sync.store'
 import { announceFirstRunPageIfPending } from '@/services/onboarding/first-run'
 import { sendFirstPageReadyNotification, onEntrySaved } from '@/services/notifications/scheduler'
+import { reconcileNotifications, recordEntrySaved } from '@/services/notifications/orchestrator'
 
 export interface ProcessResult {
   crisis: CrisisAssessment
@@ -605,10 +606,11 @@ export async function capturePathAnswers(answers: string[]): Promise<PathCapture
   void indexPathEntries(created)
 
   // Arm the habit loop: a completed path is a deliberate act of reflection, so it
-  // deserves the same notification-permission ask, activity record, and reminder
-  // arming as a journal save (P6). onEntrySaved self-gates the prompt to once.
-  // Fire-and-forget — never blocks completion.
+  // records local activity and asks central reconciler to converge notification
+  // state, matching journal saves. Fire-and-forget — never blocks completion.
   void onEntrySaved(Date.now())
+  void recordEntrySaved()
+  void reconcileNotifications('entry-saved')
 
   return { crisis, entryIds: created.map((e) => e.id) }
 }
