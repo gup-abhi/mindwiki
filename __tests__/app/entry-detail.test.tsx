@@ -5,6 +5,7 @@ import { type Entry } from '@/services/storage/entries'
 
 const mockUseEntry = jest.fn()
 const mockUseEntries = jest.fn()
+const mockUseNeighbors = jest.fn()
 const mockUseLineage = jest.fn()
 const mockBack = jest.fn()
 const mockReplace = jest.fn()
@@ -12,6 +13,7 @@ const mockPush = jest.fn()
 jest.mock('@/hooks/useEntries', () => ({
   useEntry: () => mockUseEntry(),
   useEntries: () => mockUseEntries(),
+  useEntryNeighbors: () => mockUseNeighbors(),
 }))
 jest.mock('@/hooks/useWiki', () => ({ useEntryLineage: () => mockUseLineage() }))
 jest.mock('expo-router', () => ({
@@ -48,10 +50,12 @@ describe('EntryDetailScreen', () => {
   beforeEach(() => {
     mockUseEntry.mockReset()
     mockUseEntries.mockReset()
+    mockUseNeighbors.mockReset()
     mockUseLineage.mockReset()
     mockReplace.mockReset()
     mockPush.mockReset()
     mockUseEntries.mockReturnValue({ entries: [entry] })
+    mockUseNeighbors.mockReturnValue({ older: null, newer: null })
     mockUseLineage.mockReturnValue([])
   })
 
@@ -83,7 +87,8 @@ describe('EntryDetailScreen', () => {
     const newest = make({ id: 'e1', created_at: 200 })
     const older = make({ id: 'e0', created_at: 100 })
     mockUseEntry.mockReturnValue({ entry: newest, loading: false })
-    mockUseEntries.mockReturnValue({ entries: [newest, older] }) // newest-first
+    mockUseEntries.mockReturnValue({ entries: [newest, older] }) // related-entry source remains latest-first
+    mockUseNeighbors.mockReturnValue({ older, newer: null })
 
     render(<EntryDetailScreen />)
     fireEvent.press(screen.getByText('← Older'))

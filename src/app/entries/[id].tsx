@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native'
 
 import { Screen, Text } from '@/components/ui'
 import { type Theme, moodColorKey, moodLabel, useThemedStyles } from '@/theme'
-import { useEntries, useEntry } from '@/hooks/useEntries'
+import { useEntries, useEntry, useEntryNeighbors } from '@/hooks/useEntries'
 import { useEntryLineage } from '@/hooks/useWiki'
 
 function formatShortDate(ts: number): string {
@@ -87,14 +87,7 @@ export default function EntryDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>()
   const { entry, loading } = useEntry(id)
   const { entries } = useEntries()
-
-  // Neighbours for prev/next, from the newest-first list. Older sits at a higher
-  // index; newer at a lower one.
-  const { older, newer } = useMemo(() => {
-    const i = entries.findIndex((e) => e.id === id)
-    if (i === -1) return { older: undefined, newer: undefined }
-    return { older: entries[i + 1], newer: entries[i - 1] }
-  }, [entries, id])
+  const { older, newer } = useEntryNeighbors(entry)
 
   // The wiki pages this entry shaped, and other entries on the same theme.
   const lineage = useEntryLineage(entry)

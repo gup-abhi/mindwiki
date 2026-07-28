@@ -15,6 +15,7 @@ jest.mock('expo-router', () => ({
 }))
 jest.mock('@/services/storage/entries', () => ({
   listEntries: jest.fn(),
+  countJournalEntries: jest.fn(() => Promise.resolve({ success: true, data: 0 })),
   listStreakTimestamps: jest.fn(() => Promise.resolve({ success: true, data: [] })),
 }))
 jest.mock('@/services/storage/streak-freezes', () => ({
@@ -50,6 +51,7 @@ const mockChallenge = jest.fn(() => ({
 jest.mock('@/hooks/useChallenge', () => ({ useChallenge: () => mockChallenge() }))
 
 const mockList = listEntries as jest.Mock
+const mockCount = jest.mocked(require('@/services/storage/entries').countJournalEntries)
 
 const entry = (over = {}) => ({
   id: 'a',
@@ -66,15 +68,28 @@ const entry = (over = {}) => ({
   ...over,
 })
 
-describe('Home entries list', () => {
+describe('Home dashboard', () => {
   beforeEach(() => {
     mockList.mockReset()
+    mockCount.mockReset()
+    mockCount.mockResolvedValue(ok(0))
     mockPush.mockReset()
     mockWiki.mockReturnValue({ pages: [], loading: false })
     mockChallengeCheckIn.mockReset()
     mockChallenge.mockReturnValue({ challenge: null, streak: 0, doneToday: false, checkIn: mockChallengeCheckIn })
     mockLineage.mockResolvedValue({ success: true, data: [] })
     useWikiStore.setState({ pending: 0 })
+  })
+
+  it('renders Today, recent entries, and View all action', async () => {
+    mockCount.mockResolvedValue(ok(4))
+    mockList.mockResolvedValue(ok([entry(), entry({ id: 'b' }), entry({ id: 'c' }), entry({ id: 'd' })]))
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('Recent entries')).toBeTruthy())
+    expect(screen.queryByText('Today')).toBeNull()
+    expect(screen.getByTestId('home-view-all')).toBeTruthy()
+    expect(screen.getByText('4 journal entries')).toBeTruthy()
+    expect(screen.getAllByRole('button').filter((node) => node.props.accessibilityLabel?.includes('12/31/1969')).length).toBe(3)
   })
 
   it('opens an entry for reading when its row is tapped', async () => {
@@ -85,39 +100,7 @@ describe('Home entries list', () => {
     expect(mockPush).toHaveBeenCalledWith('/entries/a')
   })
 
-  it('filters the timeline by emotion, and clears back to all', async () => {
-    mockList.mockResolvedValue(
-      ok([
-        entry({ id: 'a', situation: 'anxious meeting', emotion: 'Anxiety' }),
-        entry({ id: 'b', situation: 'joyful walk', emotion: 'Joy' }),
-      ])
-    )
-    render(<Home />)
-    await waitFor(() => expect(screen.getByText('joyful walk')).toBeTruthy())
 
-    fireEvent.press(screen.getByTestId('filter-Anxiety'))
-    expect(screen.getByText('anxious meeting')).toBeTruthy()
-    expect(screen.queryByText('joyful walk')).toBeNull()
-
-    fireEvent.press(screen.getByTestId('filter-all'))
-    expect(screen.getByText('joyful walk')).toBeTruthy()
-  })
-
-  it('filters the timeline inline from the search field', async () => {
-    mockList.mockResolvedValue(
-      ok([
-        entry({ id: 'a', situation: 'anxious meeting', thought: 'x' }),
-        entry({ id: 'b', situation: 'joyful walk', thought: 'y' }),
-      ])
-    )
-    render(<Home />)
-    await waitFor(() => expect(screen.getByText('joyful walk')).toBeTruthy())
-
-    fireEvent.press(screen.getByTestId('home-search'))
-    fireEvent.changeText(screen.getByTestId('home-search-input'), 'anxious')
-    expect(screen.getByText('anxious meeting')).toBeTruthy()
-    expect(screen.queryByText('joyful walk')).toBeNull()
-  })
 
   it('renders a tagged entry with its emotion and topic', async () => {
     mockList.mockResolvedValue(
@@ -125,7 +108,7 @@ describe('Home entries list', () => {
     )
     render(<Home />)
     await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
-    expect(screen.getByText('anxiety · Work')).toBeTruthy()
+    expect(screen.getByText('Low · anxiety · catastrophizing · Work')).toBeTruthy()
   })
 
   it('shows "tagging…" for an entry not yet tagged', async () => {
@@ -186,11 +169,31 @@ describe('Home entries list', () => {
     expect(screen.queryByTestId('home-challenge-checkin')).toBeNull()
   })
 
-  it('opens the entry composer from the floating button', async () => {
+  it('opens archive from View all and composer from New entry', async () => {
     mockList.mockResolvedValue(ok([entry()]))
     render(<Home />)
     await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+    fireEvent.press(screen.getByTestId('home-view-all'))
+    expect(mockPush).toHaveBeenCalledWith('/entries')
+  })
+
+  it('opens creation actions from the floating plus menu', async () => {
+    mockList.mockResolvedValue(ok([entry()]))
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+
     fireEvent.press(screen.getByTestId('home-new-entry'))
+    expect(screen.getByTestId('home-action-menu')).toBeTruthy()
+
+    fireEvent.press(screen.getByTestId('home-action-guided-reflection'))
+    expect(mockPush).toHaveBeenCalledWith('/paths')
+
+    fireEvent.press(screen.getByTestId('home-new-entry'))
+    fireEvent.press(screen.getByTestId('home-action-untangle'))
+    expect(mockPush).toHaveBeenCalledWith('/untangle')
+
+    fireEvent.press(screen.getByTestId('home-new-entry'))
+    fireEvent.press(screen.getByTestId('home-action-new-entry'))
     expect(mockPush).toHaveBeenCalledWith('/entry')
   })
 })
