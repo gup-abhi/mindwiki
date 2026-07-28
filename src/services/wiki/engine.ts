@@ -23,6 +23,7 @@ import { buildEmotionAggregate } from '@/services/wiki/aggregates'
 import { stripConnectionProse } from '@/services/wiki/cleanup'
 import { hasContribution, insertMissingReceipts } from '@/services/storage/wiki-contributions'
 import { type Result, ok, err } from '@/types/result'
+import { startSessionWork } from '@/services/auth/session-work'
 
 export interface Topic {
   title: string
@@ -722,20 +723,27 @@ async function tickleEmotionPage(
  */
 export function maybeRefreshEmotionPages(): Promise<number> {
   if (emotionScanInFlight) return emotionScanInFlight
-  emotionScanInFlight = runEmotionScan()
+  const lease = startSessionWork()
+  if (!lease) return Promise.resolve(0)
+  emotionScanInFlight = runEmotionScan(lease)
   // Always clear the lock on settle so a later trigger can run a fresh scan.
-  emotionScanInFlight.finally(() => { emotionScanInFlight = null })
+  emotionScanInFlight.finally(() => {
+    lease.done()
+    emotionScanInFlight = null
+  })
   return emotionScanInFlight
 }
 
 /** The actual scan loop. Owned by the single-flight wrapper above. */
-async function runEmotionScan(): Promise<number> {
+async function runEmotionScan(lease: ReturnType<typeof startSessionWork>): Promise<number> {
+  if (!lease || !lease.checkpoint()) return 0
   const pagesRes = await listPages()
   if (!pagesRes.success) return 0
 
   let refreshed = 0
   const now = Date.now()
   for (const page of pagesRes.data) {
+    if (!lease.checkpoint()) break
     if (page.category !== 'emotion') continue
     if (page.entry_count < AGGREGATE_MIN_ENTRIES) continue
     if (page.entry_count - (page.aggregated_upto ?? 0) < AGGREGATE_BATCH_SIZE) continue

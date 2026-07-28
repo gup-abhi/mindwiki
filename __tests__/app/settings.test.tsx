@@ -186,6 +186,7 @@ describe('Settings', () => {
     })
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-device-logout'))
+    chooseAlert('Log out')
     expect(logoutDevice).toHaveBeenCalledWith('d1')
   })
 

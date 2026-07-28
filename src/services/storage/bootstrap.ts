@@ -12,8 +12,9 @@ import {
 import { backfillLegacyWikiPages } from '@/services/wiki/legacy-backfill'
 import { isModelDownloaded } from '@/services/llm/model-manager'
 import { type AppError, type Result, ok, err } from '@/types/result'
+import { resumeSessionWork, startSessionWork } from '@/services/auth/session-work'
 
-import { initDb, deleteDatabase } from './db'
+import { beginWipe, endWipe, initDb, deleteDatabase } from './db'
 import { migrate } from './migrations'
 import { getSetting, setSetting } from './settings'
 
@@ -40,6 +41,8 @@ let maintenanceFlight: Promise<void> | null = null
 export function runStartupMaintenanceForDev(): Promise<void> {
   if (maintenanceFlight) return maintenanceFlight
   maintenanceFlight = (async () => {
+    const lease = startSessionWork()
+    if (!lease) return
     try {
       const mergeNeeds = await isGraphRebuildRequired()
       if (mergeNeeds) {
@@ -56,6 +59,8 @@ export function runStartupMaintenanceForDev(): Promise<void> {
       }
     } catch {
       // Best-effort. Durable markers/watermarks remain pending for next launch.
+    } finally {
+      lease.done()
     }
   })().finally(() => {
     maintenanceFlight = null
@@ -99,7 +104,12 @@ export async function initStorage(): Promise<Result<void>> {
     // and sync re-pulls the account's data. Without this, a stale DB from a
     // previous account (whose logout wipe was missed) bricks every launch.
     if (!isDecryptFailure(opened.error)) return opened
-    deleteDatabase()
+    beginWipe()
+    try {
+      if (deleteDatabase() === false) return err('DB_DELETE_FAILED', 'Could not delete encrypted database')
+    } finally {
+      endWipe()
+    }
     opened = await initDb(key)
     if (!opened.success) return opened
   }
@@ -140,6 +150,7 @@ export async function initStorage(): Promise<Result<void>> {
   // nothing's due. Fire-and-forget — never block launch.
   void maybeRefreshEmotionPages()
   void runStartupMaintenanceForDev()
+  resumeSessionWork()
 
   return ok(undefined)
 }

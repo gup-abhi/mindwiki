@@ -53,9 +53,13 @@ export default function Settings() {
     loading: devicesLoading,
     refresh: refreshDevices,
     currentDeviceId,
+    identityResolved,
+    busyDeviceId,
+    error: devicesError,
     logoutDevice,
   } = useDevices()
   const { logout } = useAuth()
+  const deviceIdentityReady = identityResolved === undefined ? currentDeviceId !== null : identityResolved
   const { preferences: notificationPreferences, permission: notificationPermission, busy: notificationBusy, update: updateNotifications, enable: enableNotifications, openSystemSettings } = useNotifications()
 
   // Logout is destructive (local wipe). Confirm first (R4), escalating the copy
@@ -76,7 +80,12 @@ export default function Settings() {
           setLoggingOut(true)
           // Best-effort final flush so pending entries reach the backup before the
           // wipe; ignore the result — logout proceeds regardless (offline is fine).
-          if (pending > 0) await syncNow()
+          if (pending > 0) {
+            await Promise.race([
+              syncNow(),
+              new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+            ])
+          }
           await logout()
         },
       },
@@ -322,6 +331,11 @@ export default function Settings() {
         />
       </View>
       <Card variant="sunken">
+        {devicesError && (
+          <Text variant="caption" color="danger" style={styles.error} testID="settings-devices-error">
+            {devicesError}
+          </Text>
+        )}
         {devices.length === 0 ? (
           <Text variant="body" color="textSecondary">
             {devicesLoading ? 'Loading…' : 'No other devices have paired.'}
@@ -340,15 +354,26 @@ export default function Settings() {
                     <Text variant="caption" color="textMuted">
                       This device
                     </Text>
-                  ) : (
+                  ) : deviceIdentityReady && busyDeviceId !== d.id ? (
                     <IconButton
                       name="log-out-outline"
                       size={18}
-                      onPress={() => void logoutDevice(d.id)}
+                      onPress={() => Alert.alert(
+                        `Log out ${d.label}?`,
+                        'This signs out only this other device.',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Log out', style: 'destructive', onPress: () => void logoutDevice(d.id) },
+                        ]
+                      )}
                       accessibilityLabel={`Log out ${d.label}`}
                       testID="settings-device-logout"
                     />
-                  )}
+                  ) : deviceIdentityReady && busyDeviceId === d.id ? (
+                    <Text variant="caption" color="textMuted" accessibilityLiveRegion="polite">
+                      Signing out…
+                    </Text>
+                  ) : null}
                 </View>
               </View>
             )

@@ -31,12 +31,12 @@ export async function listDevices(): Promise<Result<PairedDevice[]>> {
  * (it's forced back to login within ~15 min) and drops it from the list. Also
  * clears stale/legacy rows that have no session to revoke. Requires a session.
  */
-export async function logoutDevice(id: string): Promise<Result<void>> {
+export async function logoutDevice(id: string, currentDeviceId?: string | null): Promise<Result<void>> {
+  if (!id || (currentDeviceId && id === currentDeviceId)) {
+    return err('CURRENT_DEVICE', 'This device cannot be signed out here')
+  }
   try {
-    const res = await authenticatedFetch('/auth/logout', {
-      method: 'POST',
-      body: JSON.stringify({ device_id: id }),
-    })
+    const res = await authenticatedFetch(`/auth/devices/${encodeURIComponent(id)}`, { method: 'DELETE' })
     if (!res.success) return res
     if (!res.data.ok) return err('DEVICE_LOGOUT_FAILED', `Logout failed (${res.data.status})`)
     return ok(undefined)

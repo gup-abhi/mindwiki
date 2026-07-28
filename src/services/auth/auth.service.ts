@@ -21,7 +21,10 @@ import {
   isValidRecoveryPhrase,
 } from './recovery'
 import { resetSessionStores } from './session-reset'
+import { invalidateSessionWork, waitForSessionWork } from './session-work'
+import { clearAccountTransition, repairAccountTransition, setAccountTransition } from './account-transition'
 import { getTokens, saveTokens, clearTokens } from './token-store'
+import * as tokenStore from './token-store'
 import {
   clearWipePending,
   repairInterruptedWipe,
@@ -31,6 +34,7 @@ import {
 // Hard cap on the best-effort server logout call so a hung network never blocks
 // the local wipe (R1 step 3). On timeout we proceed to wipe regardless.
 const SERVER_LOGOUT_TIMEOUT_MS = 5_000
+let logoutFlight: Promise<void> | null = null
 
 async function randomHex(bytes: number): Promise<string> {
   const arr = await getRandomBytesAsync(bytes)
@@ -73,14 +77,14 @@ export async function register(
   password: string
 ): Promise<Result<{ accountId: string; recoveryPhrase: string }>> {
   try {
-    // Finish any logout wipe the app was killed in the middle of, then ensure no
-    // previous account's key survives to be reused for this new account.
+    // Repair only an interrupted explicit wipe. Do not destroy retained local
+    // state before server registration accepts this new account.
     await repairInterruptedWipe()
-    deleteDatabase()
-    await CryptoModule.deleteKeyFromKeychain()
-    await CryptoModule.deleteKeyOwner()
+    await repairAccountTransition()
 
-    const masterKey = await CryptoModule.getKeyFromKeychain()
+    // Candidate key stays in memory until server accepts registration. A failed
+    // 409/network attempt must preserve the current account's local residue.
+    const masterKey = await randomHex(32)
     const salt = await randomHex(16)
     const wrappingKey = await CryptoModule.deriveKey(password, salt)
     const wrapped = await wrapMasterKey(masterKey, wrappingKey)
@@ -110,8 +114,27 @@ export async function register(
     if (!res.ok) return err('REGISTER_FAILED', `Registration failed (${res.status})`)
 
     const data = (await res.json()) as AuthResponse
-    await CryptoModule.setKeyOwner(data.account_id) // R3: this key belongs to this account
-    await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
+    // Accepted registration is account transition point: now wipe old local
+    // state, install candidate key, then persist ownership and session.
+    await setAccountTransition({
+      accountId: data.account_id,
+      masterKey,
+      tokens: { accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id },
+    })
+    await setWipePending()
+    beginWipe()
+    try {
+      if (deleteDatabase() === false) throw new Error('Database deletion failed')
+      await CryptoModule.deleteKeyFromKeychain()
+      await CryptoModule.deleteKeyOwner()
+      await CryptoModule.setKeyInKeychain(masterKey)
+      await CryptoModule.setKeyOwner(data.account_id)
+      await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
+      await clearWipePending()
+      await clearAccountTransition()
+    } finally {
+      endWipe()
+    }
     // Don't flip auth state yet: the caller shows the recovery phrase first, then
     // authenticates on acknowledgement (so the user can't skip past saving it).
     return ok({ accountId: data.account_id, recoveryPhrase })
@@ -129,6 +152,7 @@ export async function register(
 export async function loginNewDevice(email: string, password: string): Promise<Result<{ accountId: string }>> {
   try {
     await repairInterruptedWipe()
+    await repairAccountTransition()
     const res = await fetch(`${API_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -179,11 +203,18 @@ export async function recoverAccount(
   try {
     if (!isValidRecoveryPhrase(phrase)) return err('RECOVER_INVALID_PHRASE', 'Invalid recovery phrase')
     await repairInterruptedWipe()
+    await repairAccountTransition()
 
     const res = await fetch(`${API_URL}/auth/recover`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, recovery_hash: recoveryHash(phrase) }),
+      body: JSON.stringify({
+        email,
+        recovery_hash: recoveryHash(phrase),
+        device_label: deviceLabel(),
+        platform: Platform.OS,
+        device_id: await getDeviceId(),
+      }),
     })
     if (!res.ok) return err('RECOVER_FAILED', `Recovery failed (${res.status})`)
 
@@ -212,6 +243,7 @@ export async function hydrateAuth(): Promise<void> {
   // Finish an interrupted logout wipe before reading the session (R2), so a kill
   // mid-wipe can't relaunch into a half-torn-down authenticated state.
   await repairInterruptedWipe()
+  await repairAccountTransition()
   const tokens = await getTokens()
   if (tokens) useAuthStore.getState().setAuthenticated(tokens.accountId)
   else useAuthStore.getState().setUnauthenticated()
@@ -304,37 +336,46 @@ export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: stri
  * unauthenticated device with the old key + DB still installed (cases 7/8).
  */
 export async function logout(): Promise<void> {
+  if (logoutFlight) return logoutFlight
+  tokenStore.invalidateTokenMutations?.()
+  logoutFlight = logoutImpl().finally(() => {
+    logoutFlight = null
+  })
+  return logoutFlight
+}
+
+async function logoutImpl(): Promise<void> {
   // 1. Durable marker: survives a kill so the wipe is always completable.
   await setWipePending()
   // 2. Quiesce before native cleanup. Generation invalidation makes every
   //    in-flight reconciler checkpoint fail; a schedule resolving late cancels
   //    its own identifier instead of writing into the wiped account.
   suspendNotificationReconciliation()
+  invalidateSessionWork()
   beginWipe()
 
   try {
     await waitForNotificationReconciliation()
+    await waitForSessionWork(SERVER_LOGOUT_TIMEOUT_MS)
 
     // 3. Native notification state is account-bound. Cleanup is best-effort and
     //    bounded — a hung native API must not delay the security-critical wipe.
     try { await cleanupNotifications() } catch { /* best-effort; continue local wipe */ }
 
-    // 4. Best-effort server logout while tokens still exist. Hard timeout keeps
-    //    offline/hung networking from blocking local destruction.
+    // 4. Best-effort server logout while tokens still exist. Abort the request
+    //    on timeout so late completion cannot race local destruction.
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), SERVER_LOGOUT_TIMEOUT_MS)
     try {
-      await Promise.race([
-        authenticatedFetch('/auth/logout', {
-          method: 'POST',
-          body: JSON.stringify({ device_id: await getDeviceId() }),
-        }),
-        new Promise((resolve) => setTimeout(resolve, SERVER_LOGOUT_TIMEOUT_MS)),
-      ])
+      await authenticatedFetch('/auth/logout', { method: 'POST', signal: controller.signal })
     } catch {
       // ignore — local logout must always succeed
+    } finally {
+      clearTimeout(timer)
     }
 
     // 5–7. Destroy local state: DB, then key, then tokens (DB/key before tokens).
-    deleteDatabase()
+    if (deleteDatabase() === false) throw new Error('Database deletion failed')
     await CryptoModule.deleteKeyFromKeychain()
     await CryptoModule.deleteKeyOwner()
     await clearTokens()

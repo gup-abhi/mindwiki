@@ -21,7 +21,7 @@ jest.mock('expo-secure-store', () => {
   }
 })
 
-jest.mock('@/services/storage/db', () => ({ deleteDatabase: jest.fn() }))
+jest.mock('@/services/storage/db', () => ({ deleteDatabase: jest.fn(() => true), beginWipe: jest.fn(), endWipe: jest.fn() }))
 jest.mock('@/services/auth/token-store', () => ({ clearTokens: jest.fn() }))
 jest.mock('@/native/CryptoModule', () => ({
   CryptoModule: {

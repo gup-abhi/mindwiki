@@ -101,18 +101,20 @@ export function closeDb(): void {
  * we open a throwaway one — op-sqlite's open() is lazy, so this removes the file
  * (and its -wal/-shm) without needing the matching key.
  */
-export function deleteDatabase(): void {
+export function deleteDatabase(): boolean {
   const live = dbInstance
   dbInstance = null
-  if (live?.delete) {
-    live.delete()
-    return
-  }
-  live?.close()
   try {
+    if (live?.delete) {
+      live.delete()
+      return true
+    }
+    live?.close()
     const handle = open({ name: DB_NAME }) as unknown as SqliteDatabase
     handle.delete?.()
+    return true
   } catch {
-    // best-effort — nothing more we can do about the file from JS
+    // Caller retains wipe marker when native deletion fails.
+    return false
   }
 }

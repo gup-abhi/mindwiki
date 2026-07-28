@@ -16,8 +16,8 @@ Covers the device-local lifecycle of four pieces of state:
 | Encrypted DB file (`mindwiki.db` + `-wal`/`-shm`) | app sandbox, keyed by master key | account |
 | In-memory state (Zustand stores, `dbInstance` singleton) | JS runtime | session |
 
-Out of scope: server-side session revocation, push-logout (deferred), backup
-restore semantics, RevenueCat state.
+Out of scope: push-logout (deferred), backup restore semantics, RevenueCat state.
+Server-side session revocation is covered by auth/device routes.
 
 ## Invariants (normative)
 
@@ -50,10 +50,10 @@ State tuple notation: `(tokens, key, dbFile)` where each is `A` (account A's),
 | 4 | Logout A (complete) → login A again | Fresh DB, same key from escrow, re-pull | OK (data re-pulled, by design) |
 | 5 | Session expiry (401 + refresh fail) → relogin A | Tokens cleared, **key + DB kept**; same key reinstalled; old DB opens; local data preserved | OK, but must be pinned as intended (see Decisions) |
 | 6 | Session expiry → login B | B's key installed; old DB fails decrypt → bootstrap self-heal wipes → fresh DB | OK (backstop works) |
-| 7 | **Kill between `clearTokens()` and `deleteDatabase()` in logout → register B** | State `(∅, A, A)`. `register()` **reuses A's keychain key**, escrows it for B; `initStorage` opens A's DB **successfully** (same key) → **B sees A's entire journal** | **CRITICAL — violates I1, I2, I3, I4** |
-| 8 | Kill between `deleteDatabase()` and `deleteKeyFromKeychain()` → register B | State `(∅, A, ∅)`. B escrows A's master key (key reuse, I1); B's data encrypted under a key A's old devices/escrow could know | **HIGH — violates I1** |
+| 7 | Kill during logout → register B | Durable wipe marker repairs before registration; accepted registration uses candidate key and transition marker | Fixed by R1/R2/R3 |
+| 8 | Kill during accepted registration transition | Durable transition payload repairs to clean accepted B state; candidate key is never reused from A | Fixed by transition repair |
 | 9 | Kill before `clearTokens()` (during server call) | Fully logged in still; user retries logout | OK (fail-safe) |
-| 10 | Logout while background sync / LLM synthesis in flight | `deleteDatabase()` deletes the native handle mid-use; in-flight queries fail (Result-wrapped) or risk native-layer UB | **MEDIUM — violates I5** |
+| 10 | Logout while background sync / LLM synthesis in flight | Session-work generation invalidates leases; sync, pipeline, startup maintenance, and wiki scan checkpoints stop persistence before wipe | Fixed by I5 barrier |
 | 11 | Logout with unsynced local changes (or offline) | No confirmation dialog at all (`settings.tsx` logout button); queue rows are in the DB → silently destroyed | **MEDIUM — violates I6** |
 | 12 | Account switch within one app session (A logout → B login, no restart) | Zustand stores not reset: `entry.store` draft, `chat.store` messages, `sync.store` flags survive in memory | **MEDIUM — violates I2 (residue), fix required** |
 | 13 | Session expiry → relogin same account | Old `dbInstance` handle never closed; `initDb` opens a second connection on the same file; old handle leaks | LOW (WAL tolerates it; still a leak) |
@@ -63,18 +63,16 @@ State tuple notation: `(tokens, key, dbFile)` where each is `A` (account A's),
 | 17 | Self-heal wipe on transient IO error | `isDecryptFailure()` is deliberately narrow; transient errors do NOT wipe | OK |
 | 18 | Dev-build JS reload → `dbInstance` null during logout | `deleteDatabase()` opens a throwaway handle to delete the file | OK (already fixed 2026-06-27) |
 
-### Root cause of the reported bug (cases 7/8)
+### Root cause of reported bug (cases 7/8) — fixed
 
-`logout()` currently runs: server call → `clearTokens()` → `deleteDatabase()` →
+Previous logout ran server call → `clearTokens()` → `deleteDatabase()` →
 `deleteKeyFromKeychain()` → `setUnauthenticated()`.
 
-Tokens are destroyed **before** the key/DB wipe. A kill in that window leaves an
-unauthenticated device with the previous account's key and DB installed.
-`register()` then *reuses* any key present in the keystore
-(`getKeyFromKeychain()` generates only when missing — a design left over from
-the pre-account-first anonymous mode, per its own comment), and because the key
-matches, the old DB opens cleanly and the decrypt-failure self-heal never
-fires. Result: the new account inherits the old account's journal.
+Tokens were destroyed **before** the key/DB wipe. Current logout wipes DB/key
+before tokens and leaves a durable marker during interruption.
+Registration now uses an in-memory candidate key and durable transition payload.
+Relaunch repairs either old-account wipe or accepted new-account installation; it
+cannot open mixed account state.
 
 ## Required behavior (normative)
 
@@ -152,6 +150,24 @@ it needs its own spec; it must not weaken R1–R3.)
 Additionally, on transition to `unauthenticated` without wipe (this path):
 `closeDb()` must be called so no open handle outlives the session (case 13),
 and in-memory stores must be reset exactly as in R1 step 8 (case 12).
+
+### Refresh and device-session contract
+
+Protected requests share one refresh operation per rotating refresh token. A
+transport failure preserves tokens and local encrypted state; definitive server
+rejection clears only the matching token snapshot and gates app. Logout or
+account transition increments session generation, so late refresh results cannot
+recreate tokens.
+
+`POST /auth/logout` revokes only caller JWT family and ignores request body.
+`DELETE /auth/devices/:deviceId` revokes only another device in same account;
+server rejects caller family. Device identity is unresolved until stable ID load;
+rows are read-only before then. Recovery sessions record device metadata like
+login, register, and pairing.
+
+Failed registration preserves existing local DB/key/session. Only accepted
+registration enters durable account transition: old DB/key are wiped, candidate
+key installed, then new session tuple stored.
 
 ### R6 — What intentionally survives logout
 

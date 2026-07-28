@@ -9,6 +9,7 @@ import { incrementSourceGeneration } from '@/services/storage/maintenance-state'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
 import { repairLegacyRow } from '@/services/wiki/legacy-backfill'
+import { startSessionWork } from '@/services/auth/session-work'
 
 import { SYNCED_TABLES, recordsToApply, type SyncTable, type Versioned } from './conflict'
 import { encryptRecord, decryptRecord } from './encryption'
@@ -152,13 +153,15 @@ async function localUpdatedAt(
 export async function pushPending(
   masterKeyHex: string,
   accountId: string,
-  db: SqliteDatabase = getDb()
+  db: SqliteDatabase = getDb(),
+  isCurrent: () => boolean = () => true
 ): Promise<Result<number>> {
   const pend = await pendingUploads(db)
   if (!pend.success) return pend
 
   let pushed = 0
   for (const item of pend.data) {
+    if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
     if (!isSyncTable(item.table_name)) {
       await markSynced(item.id, Date.now(), db) // unknown table — drop from queue
       continue
@@ -184,6 +187,7 @@ export async function pushPending(
     })
     if (!put.success || !put.data.ok) continue // keep pending
 
+    if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
     await markSynced(item.id, Date.now(), db)
     pushed++
   }
@@ -205,7 +209,8 @@ interface DeltaRecord {
 export async function pullDelta(
   masterKeyHex: string,
   accountId: string,
-  db: SqliteDatabase = getDb()
+  db: SqliteDatabase = getDb(),
+  isCurrent: () => boolean = () => true
 ): Promise<Result<number>> {
   const cursor = await getSetting(LAST_PULL_KEY, db)
   const since = cursor.success && cursor.data ? Number(cursor.data) : 0
@@ -219,6 +224,7 @@ export async function pullDelta(
   let applied = 0
   let maxUpdated = since
   for (const table of SYNCED_TABLES) {
+    if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
     // Decrypt this table's records first; skip any that don't decrypt (tamper /
     // wrong key) rather than failing the whole pull.
     const decoded: (Versioned & { row: Row })[] = []
@@ -232,8 +238,10 @@ export async function pullDelta(
 
     const local = await localUpdatedAt(table, decoded.map((d) => d.record_id), db)
     for (const d of recordsToApply(decoded, (id) => local.get(id) ?? null)) {
+      if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
       try {
-const repaired = await applyRemote(table, d.row, db)
+        if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
+        const repaired = await applyRemote(table, d.row, db)
         if (repaired) await enqueueUpsert(table, d.record_id, db)
         // F-02C — a remote entity/reframe apply is an external raw write into the
         // maintenance source pool; bump generation so a later pass catches up.
@@ -268,6 +276,7 @@ const repaired = await applyRemote(table, d.row, db)
     }
   }
 
+  if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
   await setSetting(LAST_PULL_KEY, String(maxUpdated), db)
   // Tell data hooks to refetch so a first-login pull shows up immediately
   // (and rebuild the derived graph from the now-synced entries).
@@ -284,6 +293,9 @@ const repaired = await applyRemote(table, d.row, db)
  * call opportunistically when online — never throws.
  */
 export async function sync(): Promise<Result<{ pushed: number; pulled: number }>> {
+  const lease = startSessionWork()
+  if (!lease) return err('SESSION_WORK_STOPPED', 'Session work unavailable')
+  try {
   // Bail if a logout wipe is in progress (I5): the DB handle is being deleted,
   // so there's nothing safe to sync.
   if (isWiping()) return err('DB_WIPING', 'Sync unavailable during wipe')
@@ -302,13 +314,16 @@ export async function sync(): Promise<Result<{ pushed: number; pulled: number }>
   store.setSyncing(true)
   try {
     const db = getDb()
+    if (!lease.checkpoint()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
     // One-time: enqueue any data written before sync existed, so the first sync
     // uploads the existing journal (not just new entries).
     await backfillSyncQueue(SYNCED_TABLES, db)
-    const pushed = await pushPending(masterKeyHex, tokens.accountId, db)
+    const pushed = await pushPending(masterKeyHex, tokens.accountId, db, lease.checkpoint)
     if (!pushed.success) return pushed
-    const pulled = await pullDelta(masterKeyHex, tokens.accountId, db)
+    if (!lease.checkpoint()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
+    const pulled = await pullDelta(masterKeyHex, tokens.accountId, db, lease.checkpoint)
     if (!pulled.success) return pulled
+    if (!lease.checkpoint()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
 
     await setSetting(LAST_SYNCED_KEY, String(Date.now()), db)
     // The first successful pull after a login/pair has landed — stop showing the
@@ -317,5 +332,8 @@ export async function sync(): Promise<Result<{ pushed: number; pulled: number }>
     return ok({ pushed: pushed.data, pulled: pulled.data })
   } finally {
     store.setSyncing(false)
+  }
+  } finally {
+    lease.done()
   }
 }

@@ -395,7 +395,7 @@ describe('logout', () => {
     // Best-effort: removes this device from the owner's paired-devices list.
     const [url, init] = (global.fetch as jest.Mock).mock.calls[0]
     expect(url).toMatch(/\/auth\/logout$/)
-    expect(JSON.parse(init.body).device_id).toBe('dev-1')
+    expect(init.body).toBeUndefined()
 
     // R1 load-bearing ordering: wipe marker + begin are first; DB + key die
     // BEFORE tokens; marker cleared + wipe ended only after the wipe; store
@@ -461,20 +461,26 @@ describe('logout', () => {
 })
 
 describe('register (account isolation, R3)', () => {
-  it('deletes any pre-existing key + DB before generating a fresh key', async () => {
+  it('preserves local residue when registration is rejected', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(409))
+    await register('a@b.com', 'password')
+
+    expect(mockRepairWipe).toHaveBeenCalled()
+    expect(mockDeleteDb).not.toHaveBeenCalled()
+    expect(mockDeleteKey).not.toHaveBeenCalled()
+    expect(mockSave).not.toHaveBeenCalled()
+  })
+
+  it('wipes old local residue and installs fresh key only after acceptance', async () => {
     ;(global.fetch as jest.Mock).mockResolvedValue(
       resp(200, { account_id: 'acc1', access_token: 'at', refresh_token: 'rt' })
     )
     await register('a@b.com', 'password')
 
-    // The inherited-key hole: a left-over key/DB from a previous account is wiped
-    // before the fresh key is generated for this new account.
-    expect(mockRepairWipe).toHaveBeenCalled()
     expect(mockDeleteDb).toHaveBeenCalled()
     expect(mockDeleteKey).toHaveBeenCalled()
     expect(mockDeleteKeyOwner).toHaveBeenCalled()
-    // A fresh key is read/generated for escrow; ownership is recorded for this account.
-    expect(mockGetKey).toHaveBeenCalledTimes(1)
+    expect(mockSetKey).toHaveBeenCalledWith(expect.any(String))
     expect(mockSetKeyOwner).toHaveBeenCalledWith('acc1')
     expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
   })

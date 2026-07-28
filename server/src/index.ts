@@ -3,7 +3,7 @@ import { handleChangePassword } from './auth/change-password'
 import { handleLogin } from './auth/login'
 import { handleLogout } from './auth/logout'
 import { handlePairStart, handlePairRedeem } from './auth/pair'
-import { handleListDevices } from './auth/devices'
+import { handleListDevices, handleRevokeDevice } from './auth/devices'
 import { handleRecover } from './auth/recover'
 import { handleRecoveryStatus, handleSetRecovery } from './auth/recovery-setup'
 import { handleRefresh } from './auth/refresh'
@@ -29,12 +29,22 @@ export default {
     const auth = await authMiddleware(req, env)
     if (!auth.ok) return new Response('Unauthorized', { status: 401 })
     const accountId = auth.accountId
+    const familyId = auth.familyId
 
     if (method === 'POST' && path === '/auth/change-password')
       return handleChangePassword(req, env, accountId)
     if (method === 'GET' && path === '/auth/recovery') return handleRecoveryStatus(req, env, accountId)
     if (method === 'POST' && path === '/auth/recovery') return handleSetRecovery(req, env, accountId)
-    if (method === 'POST' && path === '/auth/logout') return handleLogout(req, env, accountId)
+    if (method === 'POST' && path === '/auth/logout') return handleLogout(req, env, accountId, familyId)
+    if (method === 'DELETE' && path.startsWith('/auth/devices/')) {
+      let deviceId: string
+      try {
+        deviceId = decodeURIComponent(path.slice('/auth/devices/'.length))
+      } catch {
+        return new Response('Invalid device id', { status: 400 })
+      }
+      return handleRevokeDevice(req, env, accountId, familyId, deviceId)
+    }
     if (method === 'POST' && path === '/auth/pair/start') return handlePairStart(req, env, accountId)
     if (method === 'GET' && path === '/auth/devices') return handleListDevices(req, env, accountId)
     if (method === 'GET' && path.endsWith('/delta')) return handleDelta(req, env, accountId, url)

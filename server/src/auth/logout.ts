@@ -1,5 +1,5 @@
 import type { Env } from '../types'
-import { revokeDevice } from './devices'
+import { revokeFamily } from './devices'
 
 /**
  * Sign a device out (authenticated). Invalidates the device's token family so its
@@ -7,8 +7,12 @@ import { revokeDevice } from './devices'
  * Used both for a device logging itself out and for the owner signing another
  * device out from their device list — the body just names which device by id.
  */
-export async function handleLogout(req: Request, env: Env, accountId: string): Promise<Response> {
-  const { device_id } = await req.json<{ device_id?: string }>()
-  if (device_id) await revokeDevice(env, accountId, device_id)
+export async function handleLogout(
+  _req: Request,
+  env: Env,
+  accountId: string,
+  familyId: string
+): Promise<Response> {
+  await revokeFamily(env, accountId, familyId)
   return new Response(null, { status: 204 })
 }

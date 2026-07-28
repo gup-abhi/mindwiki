@@ -75,7 +75,7 @@ export function useAuth() {
     []
   )
 
-  /** Sign out: drops the session (re-login required); local data + master key stay. */
+  /** Sign out: destructive local logout; DB, master key, and tokens are wiped. */
   const logout = useCallback(() => logoutAccount(), [])
 
   return { submit, submitting, error, pendingPhrase, confirmPhrase, recover, logout }

@@ -7,6 +7,7 @@ import { API_URL } from '@/services/auth/config'
 import { getDeviceId } from '@/services/auth/device-id'
 import { saveTokens } from '@/services/auth/token-store'
 import { repairInterruptedWipe } from '@/services/auth/wipe-marker'
+import { repairAccountTransition } from '@/services/auth/account-transition'
 import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
@@ -75,6 +76,7 @@ export async function redeemPairing(raw: string): Promise<Result<{ accountId: st
   if (!parsed.success) return parsed
   try {
     await repairInterruptedWipe()
+    await repairAccountTransition()
     const res = await fetch(`${API_URL}/auth/pair/redeem`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

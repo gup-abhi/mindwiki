@@ -57,24 +57,57 @@ export async function recordPairedDevice(
  * and signing another device out from the owner's device list. No-op if the id
  * isn't present.
  */
-export async function revokeDevice(env: Env, accountId: string, deviceId: string): Promise<void> {
+export async function revokeFamily(env: Env, accountId: string, familyId: string): Promise<void> {
+  await env.AUTH_KV.put(
+    `family:${familyId}`,
+    JSON.stringify({ account_id: accountId, invalidated: true })
+  )
+  const key = `devices:${accountId}`
+  const existing = ((await env.AUTH_KV.get(key, 'json')) as PairedDevice[] | null) ?? []
+  const next = existing.filter((d) => d.family_id !== familyId)
+  if (next.length !== existing.length) await env.AUTH_KV.put(key, JSON.stringify(next))
+}
+
+/** Revoke selected other device. Caller family is checked before mutation. */
+export async function revokeDevice(
+  env: Env,
+  accountId: string,
+  deviceId: string,
+  callerFamilyId: string
+): Promise<'revoked' | 'missing' | 'current'> {
   const key = `devices:${accountId}`
   const existing = ((await env.AUTH_KV.get(key, 'json')) as PairedDevice[] | null) ?? []
   const target = existing.find((d) => d.id === deviceId)
-  if (target?.family_id) {
+  if (!target) return 'missing'
+  if (target.family_id === callerFamilyId) return 'current'
+  if (target.family_id) {
     await env.AUTH_KV.put(
       `family:${target.family_id}`,
       JSON.stringify({ account_id: accountId, invalidated: true })
     )
   }
-  const next = existing.filter((d) => d.id !== deviceId)
-  if (next.length !== existing.length) await env.AUTH_KV.put(key, JSON.stringify(next))
+  await env.AUTH_KV.put(key, JSON.stringify(existing.filter((d) => d.id !== deviceId)))
+  return 'revoked'
 }
 
 /**
  * List the account's paired devices, newest first (authenticated). Strips the
  * internal family_id — clients only need to recognize and sign out devices by id.
  */
+export async function handleRevokeDevice(
+  _req: Request,
+  env: Env,
+  accountId: string,
+  callerFamilyId: string,
+  deviceId: string
+): Promise<Response> {
+  if (!deviceId || deviceId.length > 200) return new Response('Invalid device id', { status: 400 })
+  const result = await revokeDevice(env, accountId, deviceId, callerFamilyId)
+  if (result === 'current') return new Response('Cannot revoke current device', { status: 409 })
+  if (result === 'missing') return new Response('Device not found', { status: 404 })
+  return new Response(null, { status: 204 })
+}
+
 export async function handleListDevices(
   _req: Request,
   env: Env,

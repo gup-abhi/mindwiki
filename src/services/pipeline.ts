@@ -25,6 +25,7 @@ import { useSyncStore } from '@/store/sync.store'
 import { announceFirstRunPageIfPending } from '@/services/onboarding/first-run'
 import { sendFirstPageReadyNotification, onEntrySaved } from '@/services/notifications/scheduler'
 import { reconcileNotifications, recordEntrySaved } from '@/services/notifications/orchestrator'
+import { startSessionWork } from '@/services/auth/session-work'
 
 export interface ProcessResult {
   crisis: CrisisAssessment
@@ -91,6 +92,9 @@ export function normalizeTopics(
  * Reflect-chat capture so there is one indexing path. Best-effort, never throws.
  */
 async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
+  const lease = startSessionWork()
+  if (!lease) return
+  try {
   // Dedupe the extracted themes case-insensitively before anything reads them:
   // the deep model can emit the same theme as both topic and topic2. Persisting
   // both would double-count the entry in the situation recurrence gate — the live
@@ -110,6 +114,7 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   }
   const primaryTopic = normalized.topics[0] ?? ''
   const secondaryTopic = normalized.topics[1] ?? ''
+  if (!lease.checkpoint()) return
   await applyTags(entry.id, {
     emotion: ex.emotion,
     distortion: ex.distortion,
@@ -125,6 +130,7 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // good enough" / "I am inadequate") collapse to the same stored label — the
   // exact normalization already handles surface variants via canonicalizeBelief.
   const beliefs = await snapBeliefsSemantic(ex.beliefs)
+  if (!lease.checkpoint()) return
   const entities: NewEntity[] = [
     ...ex.people.map((label) => ({ type: 'person' as const, label })),
     ...ex.places.map((label) => ({ type: 'place' as const, label })),
@@ -155,8 +161,9 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // a full rebuild — additive edges forbid a per-entry re-run). Awaiting also
   // means nothing is in flight when catch-up's rebuild runs. This whole function
   // is already background (callers `void` it), so the extra await costs no UX.
+  if (!lease.checkpoint()) return
   const graph = await updateGraphForEntry(taggedEntry, topics)
-  if (graph.success) await markGraphIndexed(entry.id)
+  if (graph.success && lease.checkpoint()) await markGraphIndexed(entry.id)
 
   // Wiki synthesis is the slow deep-model step — track it for the indicator.
   // Mark wiki-indexed only once synthesis resolves; an interruption leaves the
@@ -166,9 +173,12 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   useWikiStore.getState().begin()
   try {
     const wiki = await updateWikiForEntry(taggedEntry, topics)
-    if (wiki.success) await markWikiIndexed(entry.id)
+    if (wiki.success && lease.checkpoint()) await markWikiIndexed(entry.id)
   } finally {
     useWikiStore.getState().end()
+  }
+  } finally {
+    lease.done()
   }
 }
 
@@ -207,7 +217,10 @@ async function updateWikiForEmotionScan(): Promise<void> {
  * Gated on the deep model being present, so it doesn't churn before models exist.
  */
 export async function catchUpUnindexed(): Promise<void> {
-  if (!(await isModelDownloaded('deep'))) return
+  const lease = startSessionWork()
+  if (!lease) return
+  try {
+  if (!(await isModelDownloaded('deep')) || !lease.checkpoint()) return
 
   // Pass 1: entries never tagged (extraction never ran) — full re-index.
   const untagged = await listUnindexedEntries()
@@ -245,8 +258,11 @@ export async function catchUpUnindexed(): Promise<void> {
   // graph write is in flight when the rebuild runs. rebuildGraph re-derives from
   // journal entries and stamps the whole graph-pending backlog on success.
   const graphPending = await listGraphPendingEntries()
-  if (graphPending.success && graphPending.data.length > 0) {
+  if (graphPending.success && graphPending.data.length > 0 && lease.checkpoint()) {
     await rebuildGraph()
+  }
+  } finally {
+    lease.done()
   }
 }
 

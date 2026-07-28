@@ -20,7 +20,7 @@ jest.mock('@/native/CryptoModule', () => ({
     deleteKeyFromKeychain: jest.fn(),
   },
 }))
-jest.mock('@/services/storage/db', () => ({ initDb: jest.fn(), deleteDatabase: jest.fn() }))
+jest.mock('@/services/storage/db', () => ({ initDb: jest.fn(), deleteDatabase: jest.fn(() => true), beginWipe: jest.fn(), endWipe: jest.fn() }))
 jest.mock('@/services/storage/migrations', () => ({ migrate: jest.fn() }))
 jest.mock('@/services/graph/engine', () => ({
   rebuildGraph: jest.fn(() => Promise.resolve({ success: true, data: undefined })),

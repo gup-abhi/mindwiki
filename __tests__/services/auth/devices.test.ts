@@ -29,10 +29,7 @@ describe('logoutDevice', () => {
     mockFetch.mockResolvedValue({ success: true, data: { ok: true } })
     const res = await logoutDevice('d1')
     expect(res.success).toBe(true)
-    expect(mockFetch).toHaveBeenCalledWith('/auth/logout', {
-      method: 'POST',
-      body: JSON.stringify({ device_id: 'd1' }),
-    })
+    expect(mockFetch).toHaveBeenCalledWith('/auth/devices/d1', { method: 'DELETE' })
   })
 
   it('fails on a non-ok response', async () => {

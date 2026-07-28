@@ -91,7 +91,9 @@ refresh:{token_hash}
 
 family:{family_id}
   → { account_id: string, invalidated: boolean }
-  Invalidated if refresh token reuse detected (anti-replay)
+  Invalidated by self logout, remote device revoke, or future replay handling.
+  KV reads/writes are not strongly transactional; client single-flight is not
+  a strict server-side replay guarantee.
 
 push:{account_id}
   → { tokens: Array<{ token: string, platform: 'ios' | 'android' }> }
@@ -115,6 +117,7 @@ import { handleRecoveryStatus, handleSetRecovery } from './auth/recovery-setup'
 import { handlePairStart, handlePairRedeem } from './auth/pair'
 import { handleRefresh } from './auth/refresh'
 import { handleLogout } from './auth/logout'
+import { handleRevokeDevice } from './auth/devices'
 import { handleChangePassword } from './auth/change-password'
 import { handleDeleteAccount } from './auth/delete-account'
 import { handleUpload } from './storage/upload'
@@ -150,8 +153,10 @@ export default {
     const auth = await authMiddleware(req, env)
     if (!auth.ok) return new Response('Unauthorized', { status: 401 })
     const accountId = auth.accountId
+    const familyId = auth.familyId
 
-    if (method === 'POST'   && path === '/auth/logout')           return handleLogout(req, env, accountId)
+    if (method === 'POST'   && path === '/auth/logout')           return handleLogout(req, env, accountId, familyId)
+    if (method === 'DELETE' && path.startsWith('/auth/devices/')) return handleRevokeDevice(req, env, accountId, familyId, decodeURIComponent(path.slice('/auth/devices/'.length)))
     if (method === 'POST'   && path === '/auth/change-password')  return handleChangePassword(req, env, accountId)
     if (method === 'GET'    && path === '/auth/recovery')         return handleRecoveryStatus(req, env, accountId)
     if (method === 'POST'   && path === '/auth/recovery')         return handleSetRecovery(req, env, accountId)
@@ -177,7 +182,7 @@ export default {
 import { verify } from '@tsndr/cloudflare-worker-jwt'
 
 type AuthResult =
-  | { ok: true; accountId: string }
+  | { ok: true; accountId: string; familyId: string }
   | { ok: false }
 
 export async function authMiddleware(req: Request, env: Env): Promise<AuthResult> {
@@ -189,9 +194,9 @@ export async function authMiddleware(req: Request, env: Env): Promise<AuthResult
     if (!valid) return { ok: false }
 
     const payload = JSON.parse(atob(token.split('.')[1]))
-    if (!payload.sub || payload.exp < Date.now() / 1000) return { ok: false }
+    if (!payload.sub || !payload.fam || payload.type !== 'access' || payload.exp < Date.now() / 1000) return { ok: false }
 
-    return { ok: true, accountId: payload.sub }
+    return { ok: true, accountId: payload.sub, familyId: payload.fam }
   } catch {
     return { ok: false }
   }
@@ -201,6 +206,17 @@ export async function authMiddleware(req: Request, env: Env): Promise<AuthResult
 ---
 
 ## Auth endpoints
+
+`POST /auth/logout` revokes caller JWT family and ignores body. Remote device
+revocation uses `DELETE /auth/devices/:deviceId`; account-scoped lookup rejects
+missing devices and rejects caller family with 409. Recovery records supplied
+device metadata and family like login/register/pairing.
+
+Pre-production security backlog: KV rotation is not strongly transactional, so
+strict refresh replay detection requires Durable Object or D1 coordination;
+family rows need cleanup/indexing; password changes do not yet revoke other
+sessions; auth body validation and endpoint rate limits remain pending; email
+uniqueness is check-then-put under eventually consistent KV.
 
 ### POST /auth/register
 

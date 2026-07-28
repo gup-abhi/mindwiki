@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store'
 
 import { CryptoModule } from '@/native/CryptoModule'
-import { deleteDatabase } from '@/services/storage/db'
+import { beginWipe, deleteDatabase, endWipe } from '@/services/storage/db'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
 
 import { clearTokens } from './token-store'
@@ -33,13 +33,22 @@ export async function isWipePending(): Promise<boolean> {
  */
 export async function repairInterruptedWipe(): Promise<void> {
   if (!(await isWipePending())) return
-  // Clear native notification state too: an interrupted logout may have wiped
-  // DB/key but left the previous account's scheduled or delivered
-  // notifications on the lock screen.
-  await cleanupNotifications()
-  deleteDatabase()
-  await CryptoModule.deleteKeyFromKeychain()
-  await CryptoModule.deleteKeyOwner()
-  await clearTokens()
-  await clearWipePending()
+  beginWipe()
+  try {
+    // Clear native notification state too: an interrupted logout may have wiped
+    // DB/key but left the previous account's scheduled or delivered
+    // notifications on the lock screen.
+    try { await cleanupNotifications() } catch { /* best-effort */ }
+    try {
+      if (deleteDatabase() === false) return
+      await CryptoModule.deleteKeyFromKeychain()
+      await CryptoModule.deleteKeyOwner()
+      await clearTokens()
+      await clearWipePending()
+    } catch {
+      // Marker remains until destructive cleanup succeeds on next auth boundary.
+    }
+  } finally {
+    endWipe()
+  }
 }

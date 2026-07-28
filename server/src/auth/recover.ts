@@ -2,6 +2,7 @@ import { compare } from 'bcryptjs'
 
 import type { Env } from '../types'
 import { issueTokens } from './tokens'
+import { recordPairedDevice } from './devices'
 
 /**
  * Account recovery via the recovery phrase (used when the password is lost).
@@ -10,7 +11,13 @@ import { issueTokens } from './tokens'
  * holder of the phrase can open. The server stays zero-knowledge.
  */
 export async function handleRecover(req: Request, env: Env): Promise<Response> {
-  const { email, recovery_hash } = await req.json<{ email: string; recovery_hash: string }>()
+  const { email, recovery_hash, device_label, platform, device_id } = await req.json() as {
+    email: string
+    recovery_hash: string
+    device_label?: string
+    platform?: string
+    device_id?: string
+  }
 
   const emailRecord = (await env.AUTH_KV.get(`email:${email.toLowerCase()}`, 'json')) as {
     account_id: string
@@ -26,7 +33,15 @@ export async function handleRecover(req: Request, env: Env): Promise<Response> {
   const valid = await compare(recovery_hash, recovery.recovery_bcrypt)
   if (!valid) return new Response('Invalid credentials', { status: 401 })
 
-  const { accessToken, refreshToken } = await issueTokens(emailRecord.account_id, env)
+  const { accessToken, refreshToken, familyId } = await issueTokens(emailRecord.account_id, env)
+  await recordPairedDevice(
+    env,
+    emailRecord.account_id,
+    device_label ?? 'Recovered device',
+    platform ?? 'unknown',
+    device_id,
+    familyId
+  )
   return Response.json({
     account_id: emailRecord.account_id,
     access_token: accessToken,

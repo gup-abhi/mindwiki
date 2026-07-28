@@ -21,11 +21,12 @@ export async function handleDelta(
   const changed: R2Object[] = []
   let cursor: string | undefined
   do {
-    const listed = await env.R2.list({
+    const options = {
       prefix: `${accountId}/`,
       include: ['customMetadata'],
       cursor,
-    })
+    } as unknown as Parameters<typeof env.R2.list>[0]
+    const listed = await env.R2.list(options)
     for (const obj of listed.objects) {
       if (Number(obj.customMetadata?.updated_at ?? 0) > since) changed.push(obj)
     }
