@@ -47,6 +47,16 @@ describe('policy — pending exclusion', () => {
     expect(result.map((x) => x.id)).toEqual(['p'])
   })
 
+  it('arms future journal reminders after recent app activity', () => {
+    const now = Date.UTC(2026, 6, 15, 12)
+    const c = candidate({ id: 'future', kind: 'journal', eligibleAt: now + 86_400_000 })
+    const result = chooseCandidates([c], ctx({
+      now,
+      recentEvents: [{ id: 'ev', type: 'app_active', occurredAt: now - 1_000 }],
+    }))
+    expect(result.map((x) => x.id)).toEqual(['future'])
+  })
+
   it('keeps pending candidates even when weekly or daily cap would be exceeded by new picks', () => {
     const pending = [
       candidate({ id: 'a', kind: 'journal', eligibleAt: Date.now() + 86_400_000 }),

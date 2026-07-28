@@ -103,6 +103,8 @@ export function chooseCandidates(
   const appRecentlyActive = context.recentEvents.some(
     (e) => e.type === 'app_active' && e.occurredAt >= context.now - 2 * 3_600_000
   )
+  const dueSoon = (candidate: NotificationCandidate): boolean =>
+    candidate.eligibleAt <= context.now + 2 * 3_600_000
 
   // Candidates already pending in the OS stay desired unconditionally. Removing
   // them here would cancel legitimate future reminders on every re-run.
@@ -131,7 +133,7 @@ export function chooseCandidates(
     .map((candidate) => shiftedFresh(candidate))
     .filter((candidate): candidate is NotificationCandidate => candidate != null)
     .filter((candidate) => !(context.journaledToday && (candidate.kind === 'journal' || candidate.kind === 'reengagement')))
-    .filter((candidate) => !(appRecentlyActive && (candidate.kind === 'journal' || candidate.kind === 'reengagement')))
+    .filter((candidate) => !(appRecentlyActive && dueSoon(candidate) && (candidate.kind === 'journal' || candidate.kind === 'reengagement')))
     .filter((candidate) => !candidate.status || !['opened', 'cancelled', 'expired'].includes(candidate.status))
     .filter((candidate) => !sent.some((event) => event.candidateId === candidate.id))
     .sort((a, b) => b.priority - a.priority || a.eligibleAt - b.eligibleAt || a.id.localeCompare(b.id))
