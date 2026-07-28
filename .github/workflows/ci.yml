@@ -28,8 +28,18 @@ jobs:
         # --ignore-scripts skips native module builds (node-gyp, pod-install)
         # that fail on Linux CI. All native modules are mocked in jest.setup.js.
 
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci --ignore-scripts
+        # Server sources are imported by root-level boundary tests, so their
+        # dependencies must be available before the root TypeScript check.
+
       - name: TypeScript check
         run: yarn tsc --noEmit
+
+      - name: Server TypeScript check
+        working-directory: server
+        run: npm run typecheck
 
       - name: Lint
         run: yarn lint
