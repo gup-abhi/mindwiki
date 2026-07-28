@@ -85,10 +85,9 @@ describe('Home dashboard', () => {
     mockCount.mockResolvedValue(ok(4))
     mockList.mockResolvedValue(ok([entry(), entry({ id: 'b' }), entry({ id: 'c' }), entry({ id: 'd' })]))
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('Recent entries')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('4 journal entries')).toBeTruthy())
     expect(screen.queryByText('Today')).toBeNull()
     expect(screen.getByTestId('home-view-all')).toBeTruthy()
-    expect(screen.getByText('4 journal entries')).toBeTruthy()
     expect(screen.getAllByRole('button').filter((node) => node.props.accessibilityLabel?.includes('12/31/1969')).length).toBe(3)
   })
 
