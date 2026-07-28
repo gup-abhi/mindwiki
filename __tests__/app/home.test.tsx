@@ -85,10 +85,15 @@ describe('Home dashboard', () => {
     mockCount.mockResolvedValue(ok(4))
     mockList.mockResolvedValue(ok([entry(), entry({ id: 'b' }), entry({ id: 'c' }), entry({ id: 'd' })]))
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('4 journal entries')).toBeTruthy())
+    await waitFor(() => {
+      const entryButtons = screen.getAllByRole('button').filter((node) =>
+        node.props.accessibilityLabel?.includes('a tense meeting')
+      )
+      expect(entryButtons).toHaveLength(3)
+    })
     expect(screen.queryByText('Today')).toBeNull()
     expect(screen.getByTestId('home-view-all')).toBeTruthy()
-    expect(screen.getAllByRole('button').filter((node) => node.props.accessibilityLabel?.includes('12/31/1969')).length).toBe(3)
+    expect(screen.getByText('4 journal entries')).toBeTruthy()
   })
 
   it('opens an entry for reading when its row is tapped', async () => {
