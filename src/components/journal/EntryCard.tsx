@@ -18,15 +18,30 @@ interface EntryCardProps {
  * tags, and a short preview of what was written. Memoized — lists re-render. */
 function EntryCardBase({ entry, onPress }: EntryCardProps) {
   const styles = useThemedStyles(makeStyles)
-  const moodOnly = entry.situation.trim() === ''
-  const tags = entry.emotion
-    ? [entry.emotion, entry.topic, entry.topic2].filter((t): t is string => !!t && t !== 'none').join(' · ')
-    : null
+  const moodOnly = entry.situation.trim() === '' && entry.thought.trim() === ''
+  const preview = entry.situation.trim() || entry.thought.trim() || 'Mood check-in.'
+  const metadata = [
+    moodLabel(entry.mood),
+    entry.named_emotion,
+    entry.emotion,
+    entry.distortion && entry.distortion !== 'none' ? entry.distortion : null,
+    entry.topic,
+    entry.topic2,
+  ].filter((value): value is string => !!value && value.trim() !== '')
+  const seen = new Set<string>()
+  const tags = metadata.filter((value) => {
+    const key = value.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).join(' · ')
+  const accessibilityLabel = `${new Date(entry.created_at).toLocaleString()}, ${moodLabel(entry.mood)}, ${preview.slice(0, 120)}`
 
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
+      accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <MoodBar mood={entry.mood} />
@@ -41,17 +56,16 @@ function EntryCardBase({ entry, onPress }: EntryCardProps) {
           </Text>
         ) : (
           <>
-            {tags ? (
-              <Text variant="label" color="accentText" style={styles.tags} numberOfLines={1}>
-                {tags}
-              </Text>
-            ) : (
+            {entry.tagged_at == null ? (
               <Text variant="caption" color="textMuted" style={styles.tags}>
                 tagging…
               </Text>
-            )}
+            ) : null}
+            <Text variant="label" color="accentText" style={styles.tags} numberOfLines={1}>
+              {tags || moodLabel(entry.mood)}
+            </Text>
             <Text variant="body" style={styles.preview} numberOfLines={2}>
-              {entry.situation}
+              {preview}
             </Text>
           </>
         )}

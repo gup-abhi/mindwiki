@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'expo-router'
-import { Pressable, ScrollView, SectionList, StyleSheet, View } from 'react-native'
+import { Pressable, SectionList, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Button, Card, Chip, ProgressBar, Screen, Text, TextField } from '@/components/ui'
+import { Button, Card, ProgressBar, Screen, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { EntryCard } from '@/components/journal/EntryCard'
-import { groupEntriesByDay } from '@/components/journal/grouping'
+
 import { ModelDownloadCard } from '@/components/ModelDownloadCard'
 import { RecoverySetupCard } from '@/components/auth/RecoverySetupCard'
 import { useChallenge } from '@/hooks/useChallenge'
-import { useEntries } from '@/hooks/useEntries'
+import { useEntries, useJournalEntryCount } from '@/hooks/useEntries'
 import { useStreakTimestamps } from '@/hooks/useStreakTimestamps'
 import { useWikiPages } from '@/hooks/useWiki'
 import { useStreakFreezes } from '@/hooks/useStreakFreezes'
@@ -35,7 +35,8 @@ export default function Home() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
-  const { entries, count } = useEntries()
+  const { entries } = useEntries()
+  const { count: journalCount } = useJournalEntryCount()
   const { pages } = useWikiPages()
   const { challenge, streak, doneToday, checkIn } = useChallenge()
   const { frozenDays, applyFreezes } = useStreakFreezes()
@@ -78,6 +79,7 @@ export default function Home() {
 
   // Offer to save an at-risk streak once per launch.
   const [rescueOpen, setRescueOpen] = useState(false)
+  const [actionMenuOpen, setActionMenuOpen] = useState(false)
   useEffect(() => {
     if (rescue.atRisk && !rescuePromptShown) {
       rescuePromptShown = true
@@ -85,49 +87,15 @@ export default function Home() {
     }
   }, [rescue.atRisk])
 
-  // Filter the timeline by emotion (the primary tag) and an inline text search.
-  // Lifetime stats above stay on the full set; only the list below is filtered.
-  const [emotion, setEmotion] = useState<string | null>(null)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const emotions = useMemo(() => {
-    const seen = new Set<string>()
-    for (const e of entries) if (e.emotion) seen.add(e.emotion)
-    return Array.from(seen).sort()
-  }, [entries])
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return entries.filter((e) => {
-      if (emotion && e.emotion !== emotion) return false
-      if (q) {
-        const hay = `${e.situation} ${e.thought} ${e.behavior ?? ''} ${e.closing_note ?? ''}`.toLowerCase()
-        if (!hay.includes(q)) return false
-      }
-      return true
-    })
-  }, [entries, emotion, query])
-
-  // The search icon toggles the field; closing it clears the query.
-  const toggleSearch = () =>
-    setSearchOpen((open) => {
-      if (open) setQuery('')
-      return !open
-    })
-  const sections = useMemo(() => groupEntriesByDay(visible, Date.now()), [visible])
+  const recentEntries = entries.slice(0, 3)
 
   return (
     <Screen padded={false}>
       <SectionList
-        sections={sections}
+        sections={[]}
         keyExtractor={(e) => e.id}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
-        stickySectionHeadersEnabled
-        renderSectionHeader={({ section }) => (
-          <Text variant="label" color="textSecondary" style={styles.sectionHeader}>
-            {section.title}
-          </Text>
-        )}
         ListHeaderComponent={
           <View style={styles.header}>
             <SyncBanner />
@@ -136,7 +104,7 @@ export default function Home() {
               longest={journalStreak.longest}
               week={week}
               headline={headline}
-              entries={count}
+              entries={journalCount}
               insights={pages.length}
               freezesAvailable={journalStreak.freezesAvailable}
               onPress={() => router.push('/trends')}
@@ -184,100 +152,76 @@ export default function Home() {
                 )}
               </Card>
             )}
-            <Card
-              variant="sunken"
-              style={styles.fullWidth}
-              onPress={() => router.push('/paths')}
-              testID="home-paths"
-            >
-              <Text variant="caption" color="accent">
-                🧭 Guided reflections
-              </Text>
-              <Text variant="bodyStrong" style={styles.surfaceText}>
-                Work through something, one prompt at a time
-              </Text>
-            </Card>
             {synthesizing && (
               <Text variant="caption" color="accent" style={styles.synth}>
                 Synthesizing your insights…
               </Text>
             )}
-            {entries.length > 0 && (
-              <View style={styles.filterBar}>
-                <Pressable
-                  onPress={toggleSearch}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel={searchOpen ? 'Close search' : 'Search entries'}
-                  testID="home-search"
-                  style={styles.searchBtn}
-                >
-                  <Ionicons
-                    name={searchOpen ? 'close' : 'search'}
-                    size={20}
-                    color={searchOpen ? theme.colors.accent : theme.colors.textSecondary}
-                  />
-                </Pressable>
-                {emotions.length > 0 && (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.filterRow}
-                  >
-                    <Chip
-                      label="All"
-                      selected={emotion === null}
-                      onPress={() => setEmotion(null)}
-                      testID="filter-all"
-                    />
-                    {emotions.map((em) => (
-                      <Chip
-                        key={em}
-                        label={em}
-                        selected={emotion === em}
-                        onPress={() => setEmotion((cur) => (cur === em ? null : em))}
-                        testID={`filter-${em}`}
-                      />
-                    ))}
-                  </ScrollView>
-                )}
+            <View style={[styles.recentHeader, reshaped && styles.recentHeaderCompact]}>
+              <View>
+                <Text variant="subtitle">Recent entries</Text>
+                <Text variant="caption" color="textMuted">{journalCount} journal {journalCount === 1 ? 'entry' : 'entries'}</Text>
               </View>
-            )}
-            {searchOpen && (
-              <View style={styles.searchField}>
-                <TextField
-                  placeholder="Search your entries"
-                  value={query}
-                  onChangeText={setQuery}
-                  autoFocus
-                  autoCapitalize="none"
-                  returnKeyType="search"
-                  testID="home-search-input"
-                />
-              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="View all entries" onPress={() => router.push('/entries')} testID="home-view-all">
+                <Text variant="label" color="accent">View all →</Text>
+              </Pressable>
+            </View>
+            {recentEntries.length === 0 ? (
+              <Card variant="sunken" style={styles.fullWidth} onPress={() => router.push('/entry')} testID="home-empty-entries">
+                <Text variant="bodyStrong" style={styles.surfaceText}>No entries yet</Text>
+                <Text variant="caption" color="textMuted" style={styles.digestSub}>Start with a quick check-in.</Text>
+              </Card>
+            ) : (
+              recentEntries.map((entry) => <EntryCard key={entry.id} entry={entry} onPress={() => router.push(`/entries/${entry.id}`)} />)
             )}
           </View>
         }
-        renderItem={({ item }) => (
-          <EntryCard entry={item} onPress={() => router.push(`/entries/${item.id}`)} />
-        )}
-        ListEmptyComponent={
-          query.trim() !== '' ? (
-            <Text variant="body" color="textMuted" style={styles.searchEmpty}>
-              No entries match “{query.trim()}”.
-            </Text>
-          ) : null
-        }
-      />
+        />
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="New entry"
+        accessibilityLabel="New"
+        accessibilityState={{ expanded: actionMenuOpen }}
         testID="home-new-entry"
-        onPress={() => router.push('/entry')}
+        onPress={() => setActionMenuOpen((open) => !open)}
         style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
       >
         <Ionicons name="add" size={30} color={theme.colors.primaryText} />
       </Pressable>
+
+      {actionMenuOpen && (
+        <View style={styles.actionMenu} testID="home-action-menu">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Guided reflection"
+            onPress={() => { setActionMenuOpen(false); router.push('/paths') }}
+            style={({ pressed }) => [styles.actionButton, pressed && styles.fabPressed]}
+            testID="home-action-guided-reflection"
+          >
+            <Ionicons name="compass-outline" size={22} color={theme.colors.primaryText} />
+            <Text variant="bodyStrong" color="primaryText">Guided reflection</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Untangle a thought"
+            onPress={() => { setActionMenuOpen(false); router.push('/untangle') }}
+            style={({ pressed }) => [styles.actionButton, pressed && styles.fabPressed]}
+            testID="home-action-untangle"
+          >
+            <Ionicons name="bulb-outline" size={22} color={theme.colors.primaryText} />
+            <Text variant="bodyStrong" color="primaryText">Untangle a thought</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="New entry"
+            onPress={() => { setActionMenuOpen(false); router.push('/entry') }}
+            style={({ pressed }) => [styles.actionButton, pressed && styles.fabPressed]}
+            testID="home-action-new-entry"
+          >
+            <Ionicons name="create-outline" size={22} color={theme.colors.primaryText} />
+            <Text variant="bodyStrong" color="primaryText">New entry</Text>
+          </Pressable>
+        </View>
+      )}
 
       <StreakRescueModal
         visible={rescueOpen}
@@ -298,6 +242,8 @@ const makeStyles = (t: Theme) =>
     // extra bottom space so the last entry clears the floating button
     listContent: { paddingBottom: t.spacing['3xl'] + t.spacing['2xl'] },
     header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.sm, paddingHorizontal: t.spacing.xl },
+    recentHeader: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: t.spacing['2xl'] },
+    recentHeaderCompact: { marginTop: 0 },
     fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     challengeBar: { marginTop: t.spacing.md },
     challengeAction: { flexDirection: 'row', marginTop: t.spacing.md },
@@ -305,17 +251,7 @@ const makeStyles = (t: Theme) =>
     digestSub: { marginTop: t.spacing.xs },
     surfaceText: { marginTop: t.spacing.xs },
     synth: { marginTop: t.spacing.md },
-    filterBar: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: t.spacing.md, marginTop: t.spacing.xl },
-    searchBtn: { paddingVertical: t.spacing.xs },
-    filterRow: { gap: t.spacing.sm, paddingRight: t.spacing.xl },
-    searchField: { alignSelf: 'stretch', marginTop: t.spacing.md },
-    searchEmpty: { textAlign: 'center', marginTop: t.spacing['2xl'], paddingHorizontal: t.spacing.xl },
-    sectionHeader: {
-      paddingHorizontal: t.spacing.xl,
-      paddingTop: t.spacing.lg,
-      paddingBottom: t.spacing.xs,
-      backgroundColor: t.colors.bg,
-    },
+
     fab: {
       position: 'absolute',
       right: t.spacing.xl,
@@ -333,4 +269,6 @@ const makeStyles = (t: Theme) =>
       elevation: 6,
     },
     fabPressed: { opacity: 0.85 },
+    actionMenu: { position: 'absolute', left: 0, right: 0, bottom: t.spacing.xl + 64, alignItems: 'center', gap: t.spacing.sm },
+    actionButton: { minWidth: 220, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: t.spacing.md, paddingHorizontal: t.spacing.lg, borderRadius: 24, backgroundColor: t.colors.primary, ...t.shadows.low },
   })

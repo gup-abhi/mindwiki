@@ -184,6 +184,147 @@ export async function listEntries(
   }
 }
 
+export interface EntryCursor {
+  createdAt: number
+  id: string
+}
+
+export interface JournalEntryPageOptions {
+  limit?: number
+  query?: string
+  emotion?: string | null
+  cursor?: EntryCursor | null
+}
+
+export interface JournalEntryPage {
+  items: Entry[]
+  nextCursor: EntryCursor | null
+  hasMore: boolean
+}
+
+export interface JournalEntryNeighbors {
+  older: Entry | null
+  newer: Entry | null
+}
+
+// Keep archive search identical to former Home search: written journal fields only.
+const SEARCH_COLUMNS = ['situation', 'thought', 'behavior', 'closing_note'] as const
+
+function escapeLike(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+}
+
+function archiveWhere(options: JournalEntryPageOptions): { clauses: string[]; params: (string | number | null)[] } {
+  const clauses = ["source = 'journal'"]
+  const params: (string | number | null)[] = []
+  const query = options.query?.trim()
+  if (query) {
+    const pattern = `%${escapeLike(query)}%`
+    clauses.push(`(${SEARCH_COLUMNS.map((column) => `${column} LIKE ? ESCAPE '\\' COLLATE NOCASE`).join(' OR ')})`)
+    params.push(...SEARCH_COLUMNS.map(() => pattern))
+  }
+  if (options.emotion?.trim()) {
+    clauses.push('emotion = ?')
+    params.push(options.emotion.trim())
+  }
+  if (options.cursor) {
+    clauses.push('(created_at < ? OR (created_at = ? AND id < ?))')
+    params.push(options.cursor.createdAt, options.cursor.createdAt, options.cursor.id)
+  }
+  return { clauses, params }
+}
+
+/** Paginated journal archive query. Ordering and cursor predicate are deliberately paired. */
+export async function listJournalEntriesPage(
+  options: JournalEntryPageOptions = {},
+  db: SqliteDatabase = getDb()
+): Promise<Result<JournalEntryPage>> {
+  try {
+    const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 30)))
+    const where = archiveWhere(options)
+    const res = await db.execute(
+      `SELECT * FROM entries WHERE ${where.clauses.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT ?`,
+      [...where.params, limit + 1]
+    )
+    const rows = res.rows.map(rowToEntry)
+    const hasMore = rows.length > limit
+    const items = hasMore ? rows.slice(0, limit) : rows
+    const last = items[items.length - 1]
+    return ok({
+      items,
+      hasMore,
+      nextCursor: hasMore && last ? { createdAt: last.created_at, id: last.id } : null,
+    })
+  } catch (e) {
+    return err('ENTRY_ARCHIVE_LIST_FAILED', 'Failed to list journal archive', e)
+  }
+}
+
+export async function countJournalEntries(
+  db: SqliteDatabase = getDb()
+): Promise<Result<number>> {
+  try {
+    const res = await db.execute("SELECT COUNT(*) AS n FROM entries WHERE source = 'journal'")
+    return ok(Number(res.rows[0]?.n ?? 0))
+  } catch (e) {
+    return err('ENTRY_COUNT_FAILED', 'Failed to count journal entries', e)
+  }
+}
+
+export async function listJournalEmotions(
+  db: SqliteDatabase = getDb()
+): Promise<Result<string[]>> {
+  try {
+    const res = await db.execute(
+      "SELECT DISTINCT emotion FROM entries WHERE source = 'journal' AND emotion IS NOT NULL AND TRIM(emotion) <> '' ORDER BY emotion COLLATE NOCASE"
+    )
+    const seen = new Set<string>()
+    const emotions: string[] = []
+    for (const row of res.rows) {
+      const value = String(row.emotion ?? '').trim()
+      const key = value.toLowerCase()
+      if (value && !seen.has(key)) {
+        seen.add(key)
+        emotions.push(value)
+      }
+    }
+    return ok(emotions)
+  } catch (e) {
+    return err('ENTRY_EMOTIONS_FAILED', 'Failed to list journal emotions', e)
+  }
+}
+
+async function getAdjacentJournalEntry(
+  entry: Entry,
+  newer: boolean,
+  db: SqliteDatabase
+): Promise<Entry | null> {
+  const direction = newer ? 'ASC' : 'DESC'
+  const predicate = newer
+    ? '(created_at > ? OR (created_at = ? AND id > ?))'
+    : '(created_at < ? OR (created_at = ? AND id < ?))'
+  const res = await db.execute(
+    `SELECT * FROM entries WHERE source = 'journal' AND ${predicate} ORDER BY created_at ${direction}, id ${direction} LIMIT 1`,
+    [entry.created_at, entry.created_at, entry.id]
+  )
+  return res.rows[0] ? rowToEntry(res.rows[0]) : null
+}
+
+export async function getJournalEntryNeighbors(
+  entry: Entry,
+  db: SqliteDatabase = getDb()
+): Promise<Result<JournalEntryNeighbors>> {
+  try {
+    const [older, newer] = await Promise.all([
+      getAdjacentJournalEntry(entry, false, db),
+      getAdjacentJournalEntry(entry, true, db),
+    ])
+    return ok({ older, newer })
+  } catch (e) {
+    return err('ENTRY_NEIGHBORS_FAILED', 'Failed to read journal entry neighbors', e)
+  }
+}
+
 /**
  * Every entry that feeds the derived graph — journal + path (guided reflection)
  * + reflect (chat capture). Unlike listEntries (journal-only, for the timeline),
