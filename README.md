@@ -57,7 +57,7 @@ src/
 server/           Cloudflare Workers backend (auth, encrypted storage, push relay)
 demo/             Phase -1 validation app (SQLCipher / Argon2 / LLM on real hardware)
 models/           GGUF files (gitignored — see models/README.md)
-docs/             ARCHITECTURE, DATABASE, LLM_PIPELINE, SYNC, PRIVACY_SECURITY, SERVER, …
+docs/             ARCHITECTURE, HOME_ENTRIES, DATABASE, LLM_PIPELINE, SYNC, PRIVACY_SECURITY, SERVER, …
 __tests__/        service + screen tests
 ```
 
@@ -105,7 +105,7 @@ Conventions worth knowing before you contribute:
 - Absolute imports only (`@/services/...`), `StyleSheet.create()` for all styles, functional components only.
 - Conventional commits (`feat(storage): …`, `fix(crisis): …`).
 
-See [CLAUDE.md](CLAUDE.md) for the full engineering context and the [docs/](docs/) folder for subsystem deep-dives.
+Home dashboard and full journal archive behavior is documented in [docs/HOME_ENTRIES.md](docs/HOME_ENTRIES.md). See [CLAUDE.md](CLAUDE.md) for the full engineering context and the [docs/](docs/) folder for subsystem deep-dives.
 
 ## Status
 

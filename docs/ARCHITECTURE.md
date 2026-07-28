@@ -15,6 +15,14 @@ User submits → Save to SQLite (immediate) → Fast model tag (sync ≤2s) →
 Crisis check (sync) → Wiki update via deep model (background) →
 Graph upsert (background) → Sync queue (background)
 
+## Home and journal archive
+Home is a dashboard with status, streak, synthesis, and up to three recent journal
+entries. The full journal-only archive lives at `/entries`, outside the four bottom
+tabs. Archive queries use encrypted local storage, stable keyset pagination, and
+storage-backed Older/Newer detail navigation. Home plus actions expand inline into
+centered primary-color buttons for Guided reflection, Untangle a thought, and New
+entry. See `docs/HOME_ENTRIES.md` for behavior and search semantics.
+
 ## Weekly digest pipeline
 Deterministic generator (6 sections) → reflection question (deep model) →
 multi-agent synthesis (background): retriever (pure) → analyst (deep model) →
