@@ -11,6 +11,7 @@ export type WikiConnectionsStatus = 'loading' | 'loaded' | 'error'
 export interface WikiConnectionsData {
   status: WikiConnectionsStatus
   labels: string[]
+  nodes: GraphNode[]
   pages: WikiPage[]
   error: string | null
 }
@@ -31,13 +32,14 @@ export function useWikiConnections(title: string, category?: string | null): Wik
   const [data, setData] = useState<WikiConnectionsData>({
     status: 'loading',
     labels: [],
+    nodes: [],
     pages: [],
     error: null,
   })
 
   useEffect(() => {
     let active = true
-    setData({ status: 'loading', labels: [], pages: [], error: null })
+    setData({ status: 'loading', labels: [], nodes: [], pages: [], error: null })
 
     void (async () => {
       const results = await Promise.allSettled([
@@ -68,6 +70,7 @@ export function useWikiConnections(title: string, category?: string | null): Wik
         setData({
           status: 'error',
           labels: [],
+          nodes: [],
           pages: [],
           error: `Failed to read graph: ${failures.join(', ')}`,
         })
@@ -88,6 +91,7 @@ export function useWikiConnections(title: string, category?: string | null): Wik
       setData({
         status: 'loaded',
         labels,
+        nodes,
         pages: live,
         error: null,
       })

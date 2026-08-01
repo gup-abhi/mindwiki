@@ -205,6 +205,7 @@ export default function ChallengeScreen() {
             </Text>
             <View style={styles.field}>
               <TextField
+                sensitive
                 label="Your challenge"
                 placeholder="e.g. Work out every day"
                 value={title}
@@ -214,6 +215,7 @@ export default function ChallengeScreen() {
             </View>
             <View style={styles.field}>
               <TextField
+                sensitive
                 label="What does it involve? (optional)"
                 placeholder="e.g. 20 minutes, any kind of movement"
                 value={details}

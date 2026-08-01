@@ -58,6 +58,10 @@ export function ConversationComposer({ sending, onSend, seed }: Props) {
         }
         placeholder="Share what’s on your mind…"
         placeholderTextColor={theme.colors.textMuted}
+        autoCorrect={false}
+        spellCheck={false}
+        autoComplete="off"
+        importantForAutofill="noExcludeDescendants"
         multiline
         editable={!sending}
         testID="composer-input"

@@ -51,6 +51,9 @@ export function RecoverScreen({ onCancel }: { onCancel: () => void }) {
           placeholderTextColor={theme.colors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
+          spellCheck={false}
+          autoComplete="off"
+          importantForAutofill="noExcludeDescendants"
           multiline
           value={phrase}
           onChangeText={setPhrase}

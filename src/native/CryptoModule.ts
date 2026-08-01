@@ -2,6 +2,8 @@ import { getRandomBytesAsync } from 'expo-crypto'
 import * as SecureStore from 'expo-secure-store'
 import argon2, { type Argon2Options } from 'react-native-argon2'
 
+import { SECRET_STORE_OPTIONS } from '@/services/auth/secure-store'
+
 import { notImplemented } from './notImplemented'
 
 const MASTER_KEY_ID = 'mindwiki.master_key'
@@ -71,22 +73,28 @@ export const CryptoModule: ICryptoModule = {
   // for the sync/auth flow in a later phase.
   async getKeyFromKeychain() {
     const existing = await SecureStore.getItemAsync(MASTER_KEY_ID)
-    if (existing) return existing
+    if (existing) {
+      // Rewrite legacy default-accessibility entries as device-only on first read.
+      await SecureStore.setItemAsync(MASTER_KEY_ID, existing, SECRET_STORE_OPTIONS)
+      return existing
+    }
     const key = toHex(await getRandomBytesAsync(32))
-    await SecureStore.setItemAsync(MASTER_KEY_ID, key)
+    await SecureStore.setItemAsync(MASTER_KEY_ID, key, SECRET_STORE_OPTIONS)
     return key
   },
   async setKeyInKeychain(key: string) {
-    await SecureStore.setItemAsync(MASTER_KEY_ID, key)
+    await SecureStore.setItemAsync(MASTER_KEY_ID, key, SECRET_STORE_OPTIONS)
   },
   async deleteKeyFromKeychain() {
     await SecureStore.deleteItemAsync(MASTER_KEY_ID)
   },
   async setKeyOwner(accountId: string) {
-    await SecureStore.setItemAsync(KEY_OWNER_ID, accountId)
+    await SecureStore.setItemAsync(KEY_OWNER_ID, accountId, SECRET_STORE_OPTIONS)
   },
   async getKeyOwner() {
-    return SecureStore.getItemAsync(KEY_OWNER_ID)
+    const owner = await SecureStore.getItemAsync(KEY_OWNER_ID)
+    if (owner) await SecureStore.setItemAsync(KEY_OWNER_ID, owner, SECRET_STORE_OPTIONS)
+    return owner
   },
   async deleteKeyOwner() {
     await SecureStore.deleteItemAsync(KEY_OWNER_ID)

@@ -21,6 +21,7 @@ const mockedUse = useWikiConnections as jest.MockedFunction<typeof useWikiConnec
 const baseData: WikiConnectionsData = {
   status: 'loading',
   labels: [],
+  nodes: [],
   pages: [],
   error: null,
 }
@@ -43,6 +44,7 @@ describe('WikiConnections — loaded with connections', () => {
     mockedUse.mockReturnValue({
       status: 'loaded',
       labels: ['Work', 'Sleep'],
+      nodes: [{ id: 'node-work', label: 'Work' }, { id: 'node-sleep', label: 'Sleep' }] as any,
       pages: [
         { id: 'p-work', title: 'Work' } as any,
         { id: 'p-sleep', title: 'Sleep' } as any,
@@ -59,6 +61,7 @@ describe('WikiConnections — loaded with connections', () => {
     mockedUse.mockReturnValue({
       status: 'loaded',
       labels: ['Work'],
+      nodes: [{ id: 'node-work', label: 'Work' }] as any,
       pages: [{ id: 'p-work', title: 'work' } as any],
       error: null,
     })
@@ -75,6 +78,7 @@ describe('WikiConnections — loaded with connections', () => {
     mockedUse.mockReturnValue({
       status: 'loaded',
       labels: ['Sleep'],
+      nodes: [{ id: 'node-sleep', label: 'Sleep' }] as any,
       pages: [], // no wiki page for "Sleep"
       error: null,
     })
@@ -82,7 +86,7 @@ describe('WikiConnections — loaded with connections', () => {
     fireEvent.press(screen.getByTestId('wiki-connection-Sleep'))
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { router } = require('expo-router')
-    expect(router.push).toHaveBeenCalledWith({ pathname: '/graph', params: { focus: 'Sleep' } })
+    expect(router.push).toHaveBeenCalledWith({ pathname: '/graph', params: { nodeId: 'node-sleep' } })
   })
 })
 
@@ -100,6 +104,7 @@ describe('WikiConnections — error state', () => {
     mockedUse.mockReturnValue({
       status: 'error',
       labels: [],
+      nodes: [],
       pages: [],
       error: 'Failed to read graph: nodes, edges',
     })
@@ -114,6 +119,7 @@ describe('WikiConnections — error state', () => {
     mockedUse.mockReturnValue({
       status: 'error',
       labels: [],
+      nodes: [],
       pages: [],
       error: 'Failed to read graph: nodes',
     })

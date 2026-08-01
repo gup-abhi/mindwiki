@@ -126,7 +126,7 @@ export default function WikiPageScreen() {
             title="Challenge this belief"
             variant="secondary"
             fullWidth
-            onPress={() => router.push({ pathname: '/reframe', params: { belief: page.title } })}
+            onPress={() => router.push({ pathname: '/reframe', params: { pageId: page.id } })}
             testID="wiki-challenge-belief"
           />
           {reframes.length > 0 && (
@@ -203,6 +203,7 @@ export default function WikiPageScreen() {
               Rewrite this in your own words
             </Text>
             <TextField
+              sensitive
               multiline
               value={draft}
               onChangeText={setDraft}

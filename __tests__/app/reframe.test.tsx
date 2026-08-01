@@ -4,7 +4,7 @@ import ReframeScreen from '@/app/reframe'
 import { ok } from '@/types/result'
 
 const mockBack = jest.fn()
-let mockParams: Record<string, string> = { belief: 'I am not good enough' }
+let mockParams: Record<string, string> = { pageId: 'belief-page-1' }
 jest.mock('expo-router', () => ({
   useRouter: () => ({ back: mockBack, push: jest.fn() }),
   useLocalSearchParams: () => mockParams,
@@ -16,9 +16,16 @@ jest.mock('@/hooks/useReframes', () => ({
   useReframes: () => ({ reframes: [], refresh: jest.fn(), save: mockSave, suggest: mockSuggest }),
 }))
 
+jest.mock('@/hooks/useWiki', () => ({
+  useWikiPage: (pageId?: string) => ({
+    page: pageId ? { id: 'belief-page-1', title: 'I am not good enough', category: 'belief' } : null,
+    loading: false,
+  }),
+}))
+
 describe('ReframeScreen', () => {
   beforeEach(() => {
-    mockParams = { belief: 'I am not good enough' }
+    mockParams = { pageId: 'belief-page-1' }
     mockBack.mockReset()
     mockSave.mockReset().mockResolvedValue(ok({ id: 'r1' }))
     mockSuggest.mockReset().mockResolvedValue(ok('I can be nervous and still capable.'))
@@ -67,7 +74,7 @@ describe('ReframeScreen', () => {
     expect(mockSave).not.toHaveBeenCalled()
   })
 
-  it('shows a fallback when no belief was passed', () => {
+  it('shows a fallback when no page id was passed', () => {
     mockParams = {}
     render(<ReframeScreen />)
     expect(screen.getByText('No belief to reframe.')).toBeTruthy()

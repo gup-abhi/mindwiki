@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store'
 import { CryptoModule } from '@/native/CryptoModule'
 import { beginWipe, deleteDatabase, endWipe } from '@/services/storage/db'
 import { clearTokens, saveTokens, type AuthTokens } from './token-store'
+import { SECRET_STORE_OPTIONS } from './secure-store'
 
 const TRANSITION_KEY = 'mindwiki.account_transition'
 
@@ -31,7 +32,7 @@ function parse(value: string | null): AccountTransition | null {
 }
 
 export async function setAccountTransition(transition: AccountTransition): Promise<void> {
-  await SecureStore.setItemAsync(TRANSITION_KEY, JSON.stringify(transition))
+  await SecureStore.setItemAsync(TRANSITION_KEY, JSON.stringify(transition), SECRET_STORE_OPTIONS)
 }
 
 export async function clearAccountTransition(): Promise<void> {
@@ -39,7 +40,11 @@ export async function clearAccountTransition(): Promise<void> {
 }
 
 export async function getAccountTransition(): Promise<AccountTransition | null> {
-  return parse(await SecureStore.getItemAsync(TRANSITION_KEY))
+  const transition = parse(await SecureStore.getItemAsync(TRANSITION_KEY))
+  if (transition) {
+    await SecureStore.setItemAsync(TRANSITION_KEY, JSON.stringify(transition), SECRET_STORE_OPTIONS)
+  }
+  return transition
 }
 
 /** Finish accepted registration after a crash, never leaving mixed account state. */

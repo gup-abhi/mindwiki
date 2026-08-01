@@ -164,6 +164,7 @@ export default function PathRunnerScreen() {
 
       <View style={styles.field}>
         <TextField
+          sensitive
           placeholder="Take your time…"
           value={p.answer}
           onChangeText={p.setAnswer}

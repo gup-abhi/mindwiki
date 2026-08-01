@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native'
 
 import { Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
+import { type GraphNode } from '@/services/storage/graph'
 import { type WikiPage } from '@/services/storage/wiki'
 import { useWikiConnections } from '@/hooks/useWikiConnections'
 
@@ -25,7 +26,7 @@ import { useWikiConnections } from '@/hooks/useWikiConnections'
 export function WikiConnections({ title, category }: { title: string; category?: string | null }) {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { status, labels, pages, error } = useWikiConnections(title, category)
+  const { status, labels, nodes, pages, error } = useWikiConnections(title, category)
 
   if (status === 'loading') return null
 
@@ -55,7 +56,10 @@ export function WikiConnections({ title, category }: { title: string; category?:
           const page = resolvePage(label, pages)
           const onPress = () => {
             if (page) router.push(`/wiki/${page.id}`)
-            else router.push({ pathname: '/graph', params: { focus: label } })
+            else {
+              const node = resolveNode(label, nodes)
+              if (node) router.push({ pathname: '/graph', params: { nodeId: node.id } })
+            }
           }
           return (
             <Pressable
@@ -88,6 +92,11 @@ export function WikiConnections({ title, category }: { title: string; category?:
 function resolvePage(label: string, live: WikiPage[]): WikiPage | null {
   const key = label.trim().toLowerCase()
   return live.find((p) => p.title.trim().toLowerCase() === key) ?? null
+}
+
+function resolveNode(label: string, nodes: GraphNode[]): GraphNode | null {
+  const key = label.trim().toLowerCase()
+  return nodes.find((node) => node.label.trim().toLowerCase() === key) ?? null
 }
 
 const makeStyles = (t: Theme) =>

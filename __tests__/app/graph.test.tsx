@@ -97,14 +97,14 @@ describe('GraphScreen (inside You tab > Map segment)', () => {
     expect(screen.getAllByTestId('graph-node')).toHaveLength(2)
   })
 
-  it('focuses a node from a deep-link focus param (case-insensitive)', () => {
-    mockParams = { focus: 'work' }
+  it('focuses a node from an opaque deep-link node id', () => {
+    mockParams = { nodeId: 'n2' }
     renderMap()
     expect(screen.getByText('situation · appeared 1 time')).toBeTruthy()
   })
 
-  it('ignores a focus param that matches no node', () => {
-    mockParams = { focus: 'nonexistent' }
+  it('ignores an unknown deep-link node id', () => {
+    mockParams = { nodeId: 'nonexistent' }
     renderMap()
     expect(screen.queryByText(/appeared/)).toBeNull()
   })

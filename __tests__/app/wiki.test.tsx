@@ -325,7 +325,7 @@ describe('WikiPageScreen', () => {
     fireEvent.press(screen.getByTestId('wiki-challenge-belief'))
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/reframe',
-      params: { belief: 'I am not good enough' },
+      params: { pageId: 'p9' },
     })
   })
 

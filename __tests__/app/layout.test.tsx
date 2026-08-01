@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react-native'
+import { act, render, screen, waitFor } from '@testing-library/react-native'
+import { AppState, type AppStateStatus } from 'react-native'
 
 import RootLayout from '@/app/_layout'
 import { initStorage } from '@/services/storage/bootstrap'
@@ -46,8 +47,16 @@ jest.mock('@/hooks/useFirstRunRedirect', () => ({
 }))
 
 const mockInitStorage = initStorage as jest.Mock
+let appStateHandler: ((state: AppStateStatus) => void) | null = null
 
 describe('RootLayout — auth gate then DB open', () => {
+  beforeAll(() => {
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_, handler) => {
+      appStateHandler = handler
+      return { remove: jest.fn() }
+    })
+  })
+  afterAll(() => jest.restoreAllMocks())
   beforeEach(() => {
     mockInitStorage.mockReset()
     mockInitStorage.mockResolvedValue(ok(undefined))
@@ -57,6 +66,20 @@ describe('RootLayout — auth gate then DB open', () => {
   it('shows a spinner while the session is resolving', () => {
     render(<RootLayout />)
     expect(screen.getByTestId('storage-loading')).toBeTruthy()
+  })
+
+  it('covers every route while inactive or backgrounded', async () => {
+    useAuthStore.setState({ status: 'unauthenticated', accountId: null })
+    render(<RootLayout />)
+    await waitFor(() => expect(screen.getByTestId('auth-submit')).toBeTruthy())
+    act(() => appStateHandler?.('active'))
+    expect(screen.queryByTestId('privacy-cover')).toBeNull()
+
+    act(() => appStateHandler?.('background'))
+    expect(screen.getByTestId('privacy-cover')).toBeTruthy()
+
+    act(() => appStateHandler?.('active'))
+    expect(screen.queryByTestId('privacy-cover')).toBeNull()
   })
 
   it('shows the auth screen when unauthenticated — and does NOT open the DB', async () => {

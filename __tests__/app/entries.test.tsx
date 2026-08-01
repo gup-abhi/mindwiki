@@ -19,7 +19,7 @@ jest.mock('@/hooks/useEntries', () => ({
 
 const entry = (id: string) => ({
   id,
-  created_at: new Date(2026, 6, 27, 9).getTime(),
+  created_at: Date.now() - 24 * 60 * 60 * 1000,
   mood: 3,
   situation: `situation ${id}`,
   thought: '',

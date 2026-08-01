@@ -3,7 +3,7 @@ import { Stack, useRouter } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import * as Notifications from 'expo-notifications'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native'
 import {
   useFonts,
   Lora_400Regular,
@@ -228,6 +228,14 @@ function AppGate() {
 }
 
 export default function RootLayout() {
+  // Covers every route — including auth, pairing, and recovery — before a task
+  // snapshot can expose a secret when the app becomes inactive/backgrounded.
+  const [privacyCovered, setPrivacyCovered] = useState(AppState.currentState !== 'active')
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => setPrivacyCovered(state !== 'active'))
+    return () => sub.remove()
+  }, [])
+
   // Loads in parallel with hydrateAuth, so fonts don't add serial startup delay.
   const [fontsLoaded] = useFonts({
     Lora_400Regular,
@@ -250,10 +258,15 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider>
         <AppGate />
+        {privacyCovered && <View pointerEvents="auto" style={privacyCoverStyles.cover} testID="privacy-cover" />}
       </ThemeProvider>
     </SafeAreaProvider>
   )
 }
+
+const privacyCoverStyles = StyleSheet.create({
+  cover: { ...StyleSheet.absoluteFillObject, backgroundColor: '#121613' },
+})
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({

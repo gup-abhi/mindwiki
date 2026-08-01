@@ -77,19 +77,20 @@ export default function YouScreen() {
     return () => { active = false }
   }, [])
 
-  // Deep-link from an entry: /graph?focus=<label> — switch to Map and select node.
-  const { focus } = useLocalSearchParams<{ focus?: string }>()
-  const appliedFocus = useRef<string | null>(null)
+  // Deep-link with a persisted graph-node ID. Labels stay in encrypted storage,
+  // never navigation state or deep-link serialization.
+  const { nodeId } = useLocalSearchParams<{ nodeId?: string }>()
+  const appliedNodeId = useRef<string | null>(null)
   useEffect(() => {
-    if (!focus || nodes.length === 0 || appliedFocus.current === focus) return
-    const node = nodes.find((n) => n.label.toLowerCase() === focus.toLowerCase())
+    if (!nodeId || nodes.length === 0 || appliedNodeId.current === nodeId) return
+    const node = nodes.find((n) => n.id === nodeId)
     if (node) {
       setTab('map')
       setFilter('all')
       setSelected(node)
-      appliedFocus.current = focus
+      appliedNodeId.current = nodeId
     }
-  }, [focus, nodes])
+  }, [nodeId, nodes])
 
   const presentTypes = useMemo(
     () => Array.from(new Set(nodes.map((n) => n.type))),
