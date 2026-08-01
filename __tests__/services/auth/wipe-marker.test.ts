@@ -11,6 +11,7 @@ import { CryptoModule } from '@/native/CryptoModule'
 jest.mock('expo-secure-store', () => {
   const store = new Map<string, string>()
   return {
+    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
     setItemAsync: jest.fn(async (k: string, v: string) => {
       store.set(k, v)
     }),
@@ -39,6 +40,12 @@ describe('wipe-marker', () => {
     expect(await isWipePending()).toBe(false)
     await setWipePending()
     expect(await isWipePending()).toBe(true)
+    const SecureStore = jest.requireMock('expo-secure-store') as { setItemAsync: jest.Mock }
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
+      'mindwiki.wipe_pending',
+      '1',
+      expect.objectContaining({ keychainAccessible: 6 })
+    )
     await clearWipePending()
     expect(await isWipePending()).toBe(false)
   })

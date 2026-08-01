@@ -25,6 +25,19 @@ beforeEach(() => {
 })
 
 describe('AuthScreen', () => {
+  it('declares intentional credential-manager semantics for register and login', () => {
+    render(<AuthScreen />)
+    expect(screen.getByTestId('auth-email').props.autoComplete).toBe('email')
+    expect(screen.getByTestId('auth-email').props.textContentType).toBe('emailAddress')
+    expect(screen.getByTestId('auth-password').props.autoComplete).toBe('new-password')
+    expect(screen.getByTestId('auth-password').props.textContentType).toBe('newPassword')
+    expect(screen.getByTestId('auth-password-confirm').props.autoComplete).toBe('new-password')
+
+    fireEvent.press(screen.getByTestId('auth-toggle'))
+    expect(screen.getByTestId('auth-password').props.autoComplete).toBe('current-password')
+    expect(screen.getByTestId('auth-password').props.textContentType).toBe('password')
+  })
+
   it('defaults to register and toggles to login', () => {
     render(<AuthScreen />)
     expect(screen.getByText('Create your account')).toBeTruthy()
@@ -131,6 +144,17 @@ describe('AuthScreen', () => {
     fireEvent.press(screen.getByTestId('auth-toggle')) // → login
     fireEvent.press(screen.getByTestId('auth-forgot'))
     expect(screen.getByText('Recover your account')).toBeTruthy()
+  })
+
+  it('protects recovery phrase input while keeping credential autofill explicit', () => {
+    render(<AuthScreen />)
+    fireEvent.press(screen.getByTestId('auth-toggle'))
+    fireEvent.press(screen.getByTestId('auth-forgot'))
+
+    expect(screen.getByTestId('recover-email').props.autoComplete).toBe('email')
+    expect(screen.getByTestId('recover-phrase').props.textContentType).toBe('none')
+    expect(screen.getByTestId('recover-password').props.autoComplete).toBe('new-password')
+    expect(screen.getByTestId('recover-password').props.textContentType).toBe('newPassword')
   })
 
   it('opens the QR scanner from "Pair with another device"', () => {

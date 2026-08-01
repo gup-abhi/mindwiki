@@ -4,6 +4,7 @@ import { CryptoModule } from '@/native/CryptoModule'
 import { beginWipe, deleteDatabase, endWipe } from '@/services/storage/db'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
 
+import { SECRET_STORE_OPTIONS } from './secure-store'
 import { clearTokens } from './token-store'
 
 // Durable marker set at the very start of a logout wipe and cleared once the
@@ -14,7 +15,7 @@ import { clearTokens } from './token-store'
 const WIPE_PENDING_ID = 'mindwiki.wipe_pending'
 
 export async function setWipePending(): Promise<void> {
-  await SecureStore.setItemAsync(WIPE_PENDING_ID, '1')
+  await SecureStore.setItemAsync(WIPE_PENDING_ID, '1', SECRET_STORE_OPTIONS)
 }
 
 export async function clearWipePending(): Promise<void> {

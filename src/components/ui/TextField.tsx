@@ -46,6 +46,7 @@ export function TextField({ label, error, multiline, scrollEnabled, sensitive = 
         autoCorrect={sensitive ? false : rest.autoCorrect}
         spellCheck={sensitive ? false : rest.spellCheck}
         autoComplete={sensitive ? 'off' : rest.autoComplete}
+        textContentType={sensitive ? 'none' : rest.textContentType}
         importantForAutofill={sensitive ? 'noExcludeDescendants' : rest.importantForAutofill}
         multiline={multiline}
         // A multiline input defaults to its own internal scroll, which fights a

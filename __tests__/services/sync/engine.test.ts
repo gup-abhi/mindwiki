@@ -6,11 +6,15 @@ import { useSyncStore } from '@/store/sync.store'
 
 jest.mock('@/services/auth/api-client', () => ({ authenticatedFetch: jest.fn() }))
 jest.mock('@/services/auth/token-store', () => ({ getTokens: jest.fn() }))
-// Crypto passthrough — ciphertext === plaintext JSON, so we can assert merge
-// logic without exercising AES (covered by encryption.test.ts).
+// Wire-safe hex codec — merge behavior remains readable while network-boundary
+// validation still sees AES-GCM-shaped hex. Cryptography is covered separately.
+const mockWire = (plaintext: string) => Buffer.from(plaintext).toString('hex').padEnd(56, '0')
+const mockUnwire = (ciphertext: string) => Buffer.from(ciphertext, 'hex').toString().replace(/\0+$/g, '')
 jest.mock('@/services/sync/encryption', () => ({
-  encryptRecord: jest.fn(async (pt: string) => ({ success: true, data: pt })),
-  decryptRecord: jest.fn(async (blob: string) => ({ success: true, data: blob })),
+  createSyncId: jest.fn(() => 'a'.repeat(64)),
+  encryptRecord: jest.fn(async (pt: string) => ({ success: true, data: mockWire(pt) })),
+  decryptRecord: jest.fn(async (blob: string) => ({ success: true, data: mockUnwire(blob) })),
+  decryptLegacyRecord: jest.fn(async (blob: string) => ({ success: true, data: mockUnwire(blob) })),
 }))
 
 const mockFetch = authenticatedFetch as jest.Mock
@@ -133,8 +137,28 @@ function fakeDb() {
 return { db, syncQueue, entries, settings, entityRows, wikiPages }
 }
 
+const deltaPage = (json: unknown): unknown => {
+  const source = Array.isArray(json)
+    ? { records: json, next_cursor: null }
+    : json as { records?: unknown[]; next_cursor?: unknown }
+  if (!source || !Array.isArray(source.records)) return source
+  return {
+    records: source.records.map((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+      const record = value as Record<string, unknown>
+      if (record.version !== undefined) return record
+      return {
+        version: 1,
+        ...record,
+        ciphertext: typeof record.ciphertext === 'string' ? mockWire(record.ciphertext) : record.ciphertext,
+      }
+    }),
+    next_cursor: source.next_cursor ?? null,
+  }
+}
+
 const okResp = (json: unknown) =>
-  ({ success: true, data: { ok: true, status: 200, json: async () => json } }) as const
+  ({ success: true, data: { ok: true, status: 200, json: async () => deltaPage(json) } }) as const
 
 // Wiki pages column order sent over the wire — must mirror
 // TABLES.wiki_pages.columns in engine.ts.
@@ -188,11 +212,17 @@ describe('sync/engine pushPending', () => {
 
     expect(res.success && res.data).toBe(1)
     const [path, init] = mockFetch.mock.calls[0]
-    expect(path).toBe('/sync/acc/entries/e1')
+    expect(path).toBe(`/sync/acc/v2/entries/${'a'.repeat(64)}`)
     expect(init.method).toBe('PUT')
     const body = JSON.parse(init.body)
-    expect(body).toMatchObject({ record_id: 'e1', table: 'entries', updated_at: 2000 })
-    expect(JSON.parse(body.ciphertext).id).toBe('e1') // passthrough cipher = row JSON
+    expect(body).toMatchObject({
+      version: 2,
+      sync_id: 'a'.repeat(64),
+      table: 'entries',
+      updated_at: 2000,
+    })
+    expect(body.record_id).toBeUndefined()
+    expect(JSON.parse(mockUnwire(body.ciphertext)).id).toBe('e1')
     expect(syncQueue.get('entries:e1')?.synced_at).not.toBeNull()
   })
 
@@ -230,9 +260,29 @@ describe('sync/engine pullDelta', () => {
     expect(res.success && res.data).toBe(1)
     expect(entries.get('e2')?.situation).toBe('remote')
     expect(settings.get('sync:last_pull')).toBe('5000')
-    expect(syncQueue.size).toBe(0) // applyRemote must NOT re-enqueue (no echo)
+    expect(syncQueue.get('entries:e2')).toMatchObject({ table_name: 'entries', record_id: 'e2' })
+    // Legacy read is re-enqueued once for V2 migration; V2 pulls never echo.
     expect(mockFetch.mock.calls[0][0]).toBe('/sync/acc/delta?since=0')
     expect(useSyncStore.getState().revision).toBe(1) // signals hooks to refetch
+  })
+
+  it('does not re-enqueue a V2 pull after sync-id verification', async () => {
+    const { db, entries, syncQueue } = fakeDb()
+    mockFetch.mockResolvedValue(okResp({
+      records: [{
+        version: 2,
+        table: 'entries',
+        sync_id: 'a'.repeat(64),
+        ciphertext: mockWire(JSON.stringify(entryRow('v2'))),
+        updated_at: 5000,
+      }],
+      next_cursor: null,
+    }))
+
+    const res = await pullDelta('mk', 'acc', db)
+    expect(res.success && res.data).toBe(1)
+    expect(entries.has('v2')).toBe(true)
+    expect(syncQueue.size).toBe(0)
   })
 
   it('canonicalizes a legacy wiki page received from an older device', async () => {
@@ -314,6 +364,71 @@ describe('sync/engine pullDelta', () => {
     expect(res.success && res.data).toBe(1)
     expect(entries.get('e1')?.topic).toBe('Work stress')
     expect(settings.get('sync:last_pull')).toBe('2000')
+  })
+
+  it('advances the watermark for valid authenticated records that lose LWW', async () => {
+    const { db, entries, settings } = fakeDb()
+    entries.set('local-newer', entryRow('local-newer', { updated_at: 9000 }))
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'entries', record_id: 'local-newer', ciphertext: JSON.stringify(entryRow('local-newer', { updated_at: 5000 })), updated_at: 5000 },
+    ]))
+
+    const res = await pullDelta('mk', 'acc', db)
+    expect(res.success && res.data).toBe(0)
+    expect(settings.get('sync:last_pull')).toBe('5000')
+  })
+
+  it('skips malformed remote envelopes and malformed decrypted JSON while applying later valid records', async () => {
+    const { db, entries, settings } = fakeDb()
+    mockFetch.mockResolvedValue(
+      okResp({
+        records: [
+          null,
+          { table: 'entries', record_id: '', ciphertext: '{}', updated_at: -1 },
+          { table: 'entries', record_id: 'bad-json', ciphertext: '{', updated_at: 4500 },
+          { table: 'entries', record_id: 'ok', ciphertext: JSON.stringify(entryRow('ok', { situation: 'valid' })), updated_at: 5000 },
+        ],
+        next_cursor: null,
+      })
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success && res.data).toBe(1)
+    expect(entries.get('ok')?.situation).toBe('valid')
+    expect(settings.get('sync:last_pull')).toBe('5000')
+  })
+
+  it('follows paginated delta responses without exposing the cursor to storage', async () => {
+    const { db, entries } = fakeDb()
+    mockFetch
+      .mockResolvedValueOnce(okResp({
+        records: [{ table: 'entries', record_id: 'one', ciphertext: JSON.stringify(entryRow('one')), updated_at: 4000 }],
+        next_cursor: 'opaque-cursor',
+      }))
+      .mockResolvedValueOnce(okResp({
+        records: [{ table: 'entries', record_id: 'two', ciphertext: JSON.stringify(entryRow('two')), updated_at: 5000 }],
+        next_cursor: null,
+      }))
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success && res.data).toBe(2)
+    expect(entries.has('one')).toBe(true)
+    expect(entries.has('two')).toBe(true)
+    expect(mockFetch.mock.calls[1][0]).toBe('/sync/acc/delta?since=0&cursor=opaque-cursor')
+  })
+
+  it('rejects a repeated opaque cursor without advancing the watermark', async () => {
+    const { db, settings } = fakeDb()
+    mockFetch
+      .mockResolvedValueOnce(okResp({ records: [], next_cursor: 'repeat' }))
+      .mockResolvedValueOnce(okResp({ records: [], next_cursor: 'repeat' }))
+
+    const res = await pullDelta('mk', 'acc', db)
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('SYNC_PULL_FAILED')
+    expect(settings.get('sync:last_pull')).toBeUndefined()
   })
 
   it('skips a remote record older than the local copy (last-write-wins)', async () => {
@@ -405,13 +520,15 @@ describe('sync/engine F-02B entry_entities effective-label sync', () => {
 
     expect(res.success && res.data).toBe(1)
     const [path, init] = mockFetch.mock.calls[0]
-    expect(path).toBe('/sync/acc/entry_entities/e1:belief:i am unlovable')
+    expect(path).toBe(`/sync/acc/v2/entry_entities/${'a'.repeat(64)}`)
     expect(JSON.parse(init.body)).toMatchObject({
-      record_id: 'e1:belief:i am unlovable', table: 'entry_entities',
+      version: 2,
+      sync_id: 'a'.repeat(64),
+      table: 'entry_entities',
       updated_at: 2000,
     })
-    // Passthrough cipher is the row JSON — both new columns survive the trip.
-    const decrypted = JSON.parse(JSON.parse(init.body).ciphertext)
+    expect(JSON.parse(init.body).record_id).toBeUndefined()
+    const decrypted = JSON.parse(mockUnwire(JSON.parse(init.body).ciphertext))
     expect(decrypted.canonical_label).toBe('I am unworthy')
     expect(decrypted.updated_at).toBe(2000)
   })

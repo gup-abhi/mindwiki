@@ -12,7 +12,12 @@ import { repairLegacyRow } from '@/services/wiki/legacy-backfill'
 import { startSessionWork } from '@/services/auth/session-work'
 
 import { SYNCED_TABLES, recordsToApply, type SyncTable, type Versioned } from './conflict'
-import { encryptRecord, decryptRecord } from './encryption'
+import {
+  createSyncId,
+  decryptLegacyRecord,
+  decryptRecord,
+  encryptRecord,
+} from './encryption'
 
 const LAST_PULL_KEY = 'sync:last_pull'
 // Wall-clock time of the last successful sync (push+pull completed). Distinct
@@ -20,6 +25,14 @@ const LAST_PULL_KEY = 'sync:last_pull'
 // doesn't move when there's nothing newer to pull, so it can't represent "last
 // synced". Surfaced in Settings.
 const LAST_SYNCED_KEY = 'sync:last_synced_at'
+const SYNC_ID_PATTERN = /^[0-9a-f]{64}$/
+const MIN_CIPHERTEXT_HEX_LENGTH = 56
+const MAX_CIPHERTEXT_HEX_LENGTH = 1_000_000
+const MAX_DELTA_RECORDS = 8
+const MAX_DELTA_PAGES = 512
+const MAX_DELTA_CIPHERTEXT_HEX = 64_000_000
+const MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1_000
+const MAX_LEGACY_RECORD_ID_BYTES = 2_048
 
 type Row = Record<string, unknown>
 
@@ -173,18 +186,29 @@ export async function pushPending(
       continue
     }
 
-    const enc = await encryptRecord(JSON.stringify(row), item.record_id, masterKeyHex)
+    const syncId = createSyncId(masterKeyHex, accountId, item.table_name, item.record_id)
+    const enc = await encryptRecord(
+      JSON.stringify(row),
+      syncId,
+      masterKeyHex,
+      accountId,
+      item.table_name
+    )
     if (!enc.success) continue // keep pending; retry next run
 
-    const put = await authenticatedFetch(`/sync/${accountId}/${item.table_name}/${item.record_id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        ciphertext: enc.data,
-        updated_at: TABLES[item.table_name].updatedAt(row),
-        record_id: item.record_id,
-        table: item.table_name,
-      }),
-    })
+    const put = await authenticatedFetch(
+      `/sync/${encodeURIComponent(accountId)}/v2/${item.table_name}/${syncId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          version: 2,
+          ciphertext: enc.data,
+          updated_at: TABLES[item.table_name].updatedAt(row),
+          sync_id: syncId,
+          table: item.table_name,
+        }),
+      }
+    )
     if (!put.success || !put.data.ok) continue // keep pending
 
     if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
@@ -194,11 +218,98 @@ export async function pushPending(
   return ok(pushed)
 }
 
-interface DeltaRecord {
-  table: string
+interface DeltaRecordV1 {
+  version: 1
+  table: SyncTable
   record_id: string
   ciphertext: string
   updated_at: number
+}
+
+interface DeltaRecordV2 {
+  version: 2
+  table: SyncTable
+  sync_id: string
+  ciphertext: string
+  updated_at: number
+}
+
+type DeltaRecord = DeltaRecordV1 | DeltaRecordV2
+
+interface DeltaPage {
+  records: DeltaRecord[]
+  next_cursor: string | null
+}
+
+function isCiphertext(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length >= MIN_CIPHERTEXT_HEX_LENGTH &&
+    value.length <= MAX_CIPHERTEXT_HEX_LENGTH &&
+    value.length % 2 === 0 &&
+    /^[0-9a-f]+$/i.test(value)
+  )
+}
+
+function isSafeTimestamp(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= Date.now() + MAX_FUTURE_SKEW_MS
+  )
+}
+
+function parseDeltaRecord(value: unknown): DeltaRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  if (typeof record.table !== 'string' || !isSyncTable(record.table)) return null
+  if (!isCiphertext(record.ciphertext) || !isSafeTimestamp(record.updated_at)) return null
+  if (record.version === 2) {
+    if (
+      Object.keys(record).length !== 5 ||
+      !Object.keys(record).every((key) => ['version', 'table', 'sync_id', 'ciphertext', 'updated_at'].includes(key)) ||
+      typeof record.sync_id !== 'string' ||
+      !SYNC_ID_PATTERN.test(record.sync_id)
+    ) return null
+    return record as unknown as DeltaRecordV2
+  }
+  if (record.version === 1) {
+    if (
+      Object.keys(record).length !== 5 ||
+      !Object.keys(record).every((key) => ['version', 'table', 'record_id', 'ciphertext', 'updated_at'].includes(key)) ||
+      typeof record.record_id !== 'string' ||
+      !record.record_id ||
+      /[\u0000-\u001f\u007f]/.test(record.record_id) ||
+      new TextEncoder().encode(record.record_id).length > MAX_LEGACY_RECORD_ID_BYTES
+    ) return null
+    return record as unknown as DeltaRecordV1
+  }
+  return null
+}
+
+function parseDeltaPage(value: unknown): DeltaPage | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const page = value as Record<string, unknown>
+  if (
+    Object.keys(page).length !== 2 ||
+    !Array.isArray(page.records) ||
+    page.records.length > MAX_DELTA_RECORDS ||
+    !(page.next_cursor === null || (typeof page.next_cursor === 'string' && /^[A-Za-z0-9_-]+$/.test(page.next_cursor)))
+  ) return null
+  return {
+    records: page.records.map(parseDeltaRecord).filter((record): record is DeltaRecord => record !== null),
+    next_cursor: page.next_cursor as string | null,
+  }
+}
+
+function parseRow(value: string): Row | null {
+  try {
+    const row: unknown = JSON.parse(value)
+    return row && typeof row === 'object' && !Array.isArray(row) ? row as Row : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -215,11 +326,40 @@ export async function pullDelta(
   const cursor = await getSetting(LAST_PULL_KEY, db)
   const since = cursor.success && cursor.data ? Number(cursor.data) : 0
 
-  const resp = await authenticatedFetch(`/sync/${accountId}/delta?since=${since}`, { method: 'GET' })
-  if (!resp.success) return resp
-  if (!resp.data.ok) return err('SYNC_PULL_FAILED', 'Delta request failed')
-
-  const remote = (await resp.data.json()) as DeltaRecord[]
+  const remote: DeltaRecord[] = []
+  let ciphertextHexLength = 0
+  let nextCursor: string | null = null
+  const seenCursors = new Set<string>()
+  let pageCount = 0
+  do {
+    const suffix = nextCursor ? `&cursor=${encodeURIComponent(nextCursor)}` : ''
+    const resp = await authenticatedFetch(
+      `/sync/${encodeURIComponent(accountId)}/delta?since=${since}${suffix}`,
+      { method: 'GET' }
+    )
+    if (!resp.success) return resp
+    if (!resp.data.ok) return err('SYNC_PULL_FAILED', 'Delta request failed')
+    let unknownPage: unknown
+    try {
+      unknownPage = await resp.data.json()
+    } catch {
+      return err('SYNC_PULL_FAILED', 'Malformed delta response')
+    }
+    const page = parseDeltaPage(unknownPage)
+    if (!page) return err('SYNC_PULL_FAILED', 'Malformed delta response')
+    ciphertextHexLength += page.records.reduce((sum, record) => sum + record.ciphertext.length, 0)
+    if (ciphertextHexLength > MAX_DELTA_CIPHERTEXT_HEX) {
+      return err('SYNC_PULL_FAILED', 'Delta response limit exceeded')
+    }
+    remote.push(...page.records)
+    if (page.next_cursor && seenCursors.has(page.next_cursor)) {
+      return err('SYNC_PULL_FAILED', 'Repeated delta cursor')
+    }
+    if (page.next_cursor) seenCursors.add(page.next_cursor)
+    nextCursor = page.next_cursor
+    pageCount++
+    if (pageCount > MAX_DELTA_PAGES) return err('SYNC_PULL_FAILED', 'Delta pagination limit exceeded')
+  } while (nextCursor)
 
   let applied = 0
   let maxUpdated = since
@@ -227,22 +367,37 @@ export async function pullDelta(
     if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
     // Decrypt this table's records first; skip any that don't decrypt (tamper /
     // wrong key) rather than failing the whole pull.
-    const decoded: (Versioned & { row: Row })[] = []
+    const decoded: (Versioned & { row: Row; legacy: boolean })[] = []
     for (const r of remote) {
       if (r.table !== table) continue
-      const dec = await decryptRecord(r.ciphertext, r.record_id, masterKeyHex)
+      const dec = r.version === 2
+        ? await decryptRecord(r.ciphertext, r.sync_id, masterKeyHex, accountId, table)
+        : await decryptLegacyRecord(r.ciphertext, r.record_id, masterKeyHex)
       if (!dec.success) continue
-      decoded.push({ record_id: r.record_id, updated_at: r.updated_at, row: JSON.parse(dec.data) as Row })
+      const row = parseRow(dec.data)
+      if (!row || typeof row.id !== 'string' || !row.id) continue
+      const recordId = String(row.id)
+      if (r.version === 1 && recordId !== r.record_id) continue
+      if (r.version === 2 && createSyncId(masterKeyHex, accountId, table, recordId) !== r.sync_id) continue
+      maxUpdated = Math.max(maxUpdated, r.updated_at)
+      decoded.push({ record_id: recordId, updated_at: r.updated_at, row, legacy: r.version === 1 })
     }
     if (decoded.length === 0) continue
 
     const local = await localUpdatedAt(table, decoded.map((d) => d.record_id), db)
+    // Existing local rows discovered through legacy objects need one V2 upload.
+    // This migrates identity/ciphertext without deleting legacy R2 objects.
+    for (const d of decoded) {
+      if (d.legacy && local.has(d.record_id) && (local.get(d.record_id) ?? 0) >= d.updated_at) {
+        await enqueueUpsert(table, d.record_id, db)
+      }
+    }
     for (const d of recordsToApply(decoded, (id) => local.get(id) ?? null)) {
       if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
       try {
         if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
         const repaired = await applyRemote(table, d.row, db)
-        if (repaired) await enqueueUpsert(table, d.record_id, db)
+        if (repaired || d.legacy) await enqueueUpsert(table, d.record_id, db)
         // F-02C — a remote entity/reframe apply is an external raw write into the
         // maintenance source pool; bump generation so a later pass catches up.
         // Best-effort: failure never aborts the pull. Bump is outside db.transaction
@@ -266,9 +421,9 @@ export async function pullDelta(
         // A single malformed/constraint-violating row must not abort the whole
         // pull — that would also block every table applied after it (entries is
         // first) and leave the cursor un-advanced, wedging sync permanently on
-        // the same row. Skip it, same policy as the decrypt failure above. Log
-        // the record id only — never the row content.
-        console.warn(`sync: skipped ${table}/${d.record_id} on apply`)
+        // the same row. Skip it, same policy as decrypt failure. Count/type only:
+        // some synced record IDs contain user-derived labels.
+        console.warn(`sync_apply_skipped table=${table}`)
         continue
       }
       maxUpdated = Math.max(maxUpdated, d.updated_at)

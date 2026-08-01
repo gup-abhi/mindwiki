@@ -42,7 +42,9 @@ export async function clearAccountTransition(): Promise<void> {
 export async function getAccountTransition(): Promise<AccountTransition | null> {
   const transition = parse(await SecureStore.getItemAsync(TRANSITION_KEY))
   if (transition) {
-    await SecureStore.setItemAsync(TRANSITION_KEY, JSON.stringify(transition), SECRET_STORE_OPTIONS)
+    try {
+      await SecureStore.setItemAsync(TRANSITION_KEY, JSON.stringify(transition), SECRET_STORE_OPTIONS)
+    } catch { /* keep readable transition; retry hardening next launch */ }
   }
   return transition
 }

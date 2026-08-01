@@ -61,6 +61,7 @@ export function ConversationComposer({ sending, onSend, seed }: Props) {
         autoCorrect={false}
         spellCheck={false}
         autoComplete="off"
+        textContentType="none"
         importantForAutofill="noExcludeDescendants"
         multiline
         editable={!sending}

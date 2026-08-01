@@ -5,6 +5,7 @@ import QueryScreen from '@/app/(tabs)/query'
 import { type UIMessage } from '@/store/chat.store'
 
 const mockUse = jest.fn()
+const mockConversationArgs = jest.fn()
 const mockPush = jest.fn()
 const mockSend = jest.fn()
 const mockRetry = jest.fn()
@@ -17,10 +18,14 @@ const mockNav: { tabPress?: () => void } = {}
 // Captured hardware-back handler registered by the screen.
 let backPressHandler: (() => boolean) | undefined
 
-jest.mock('@/hooks/useConversation', () => ({ useConversation: () => mockUse() }))
+jest.mock('@/hooks/useConversation', () => ({
+  useConversation: (...args: unknown[]) => {
+    mockConversationArgs(...args)
+    return mockUse()
+  },
+}))
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
-  useLocalSearchParams: () => ({}),
   useFocusEffect: (cb: () => void | (() => void)) => {
     require('react').useEffect(() => cb(), [])
   },
@@ -57,6 +62,7 @@ const base = {
 describe('QueryScreen (reflective conversation)', () => {
   beforeEach(() => {
     mockUse.mockReset()
+    mockConversationArgs.mockReset()
     mockPush.mockReset()
     mockSend.mockReset()
     mockRetry.mockReset()
@@ -74,6 +80,12 @@ describe('QueryScreen (reflective conversation)', () => {
   })
 
   afterEach(() => jest.restoreAllMocks())
+
+  it('does not accept user-authored route params as a conversation starter', () => {
+    mockUse.mockReturnValue(base)
+    render(<QueryScreen />)
+    expect(mockConversationArgs).toHaveBeenCalledWith()
+  })
 
   it('opens a starter via openStarter when tapped (reuses an existing conversation)', () => {
     mockUse.mockReturnValue(base)

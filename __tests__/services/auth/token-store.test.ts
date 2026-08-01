@@ -34,6 +34,14 @@ describe('auth token-store', () => {
     )
   })
 
+  it('returns readable legacy tokens when best-effort hardening rewrite fails', async () => {
+    await saveTokens(tokens)
+    ;(SecureStore.deleteItemAsync as jest.Mock).mockClear()
+    ;(SecureStore.setItemAsync as jest.Mock).mockRejectedValueOnce(new Error('keychain write failed'))
+    await expect(getTokens()).resolves.toEqual(tokens)
+    expect(SecureStore.deleteItemAsync).not.toHaveBeenCalledWith('mindwiki.auth_session')
+  })
+
   it('clears all tokens', async () => {
     await saveTokens(tokens)
     await clearTokens()

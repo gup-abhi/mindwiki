@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
+import { useFocusEffect, useNavigation, useRouter } from 'expo-router'
 import {
   ActivityIndicator,
   BackHandler,
@@ -38,10 +38,8 @@ const FEELING_CHIPS: { label: string; seed: string }[] = [
 export default function QueryScreen() {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
-  const { q } = useLocalSearchParams<{ q?: string }>()
-  const initial = typeof q === 'string' ? q : undefined
   const { messages, streaming, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
-    useConversation(initial)
+    useConversation()
   const summaryCrisisTier = useChatStore((s) => s.summaryCrisisTier)
   const scrollRef = useRef<ScrollView>(null)
   const savedScrollY = useRef(0)

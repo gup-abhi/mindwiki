@@ -53,8 +53,9 @@ function parse(raw: string | null): AuthTokens | null {
 async function readRaw(): Promise<AuthTokens | null> {
   const current = parse(await SecureStore.getItemAsync(SESSION_KEY))
   if (current) {
-    // Rewrite pre-device-only tokens after a successful read.
-    await SecureStore.setItemAsync(SESSION_KEY, serialize(current), SECRET_STORE_OPTIONS)
+    // Rewrite pre-device-only tokens after a successful read. Read remains usable
+    // if accessibility hardening transiently fails; retry next read.
+    try { await SecureStore.setItemAsync(SESSION_KEY, serialize(current), SECRET_STORE_OPTIONS) } catch { /* best-effort */ }
     return current
   }
 

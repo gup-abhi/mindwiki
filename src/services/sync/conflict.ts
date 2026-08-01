@@ -20,7 +20,7 @@ export type SyncTable =
   | 'belief_reframes'
   | 'streak_freezes'
 
-export const SYNCED_TABLES: SyncTable[] = [
+export const SYNCED_TABLES: readonly SyncTable[] = [
   'entries',
   'wiki_pages',
   'entry_entities',

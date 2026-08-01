@@ -26,6 +26,7 @@ import { useGraph, useNodeContext, useNodeDismissals } from '@/hooks/useGraph'
 import { useDigest } from '@/hooks/useDigest'
 import { dismissNode, type GraphNode, type NodeType } from '@/services/storage/graph'
 import { getHintSeen, markHintSeen } from '@/services/onboarding/first-run'
+import { opaqueRouteId } from '@/lib/route-params'
 import {
   moodByDay,
   monthMoodGrid,
@@ -79,7 +80,8 @@ export default function YouScreen() {
 
   // Deep-link with a persisted graph-node ID. Labels stay in encrypted storage,
   // never navigation state or deep-link serialization.
-  const { nodeId } = useLocalSearchParams<{ nodeId?: string }>()
+  const { nodeId: rawNodeId } = useLocalSearchParams<{ nodeId?: string }>()
+  const nodeId = opaqueRouteId(rawNodeId)
   const appliedNodeId = useRef<string | null>(null)
   useEffect(() => {
     if (!nodeId || nodes.length === 0 || appliedNodeId.current === nodeId) return

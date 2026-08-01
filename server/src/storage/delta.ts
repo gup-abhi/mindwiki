@@ -1,48 +1,105 @@
 import type { Env } from '../types'
+import {
+  DELTA_PAGE_SIZE,
+  MAX_UPLOAD_BODY_LENGTH,
+  decodeDeltaCursor,
+  encodeDeltaCursor,
+  isTimestamp,
+  parseStoredEnvelope,
+  parseSyncObjectKey,
+} from './protocol'
 
-/** GET /sync/{accountId}/delta?since={ts} — return blobs changed since a timestamp. */
+interface DeltaRecordV2 {
+  version: 2
+  table: string
+  sync_id: string
+  ciphertext: string
+  updated_at: number
+}
+
+interface DeltaRecordV1 {
+  version: 1
+  table: string
+  record_id: string
+  ciphertext: string
+  updated_at: number
+}
+
+/** GET /sync/{accountId}/delta?since={ts}&cursor={opaque} — bounded R2 page. */
 export async function handleDelta(
-  req: Request,
+  _req: Request,
   env: Env,
   accountId: string,
   url: URL
 ): Promise<Response> {
-  const since = Number(url.searchParams.get('since') ?? 0)
+  const rawSince = url.searchParams.get('since') ?? '0'
+  const since = Number(rawSince)
+  if (!/^\d+$/.test(rawSince) || !isTimestamp(since, Date.now(), false)) {
+    return new Response('Bad Request', { status: 400 })
+  }
 
-  // Page through the FULL object list: R2.list caps at 1000 objects per call and
-  // returns them in lexicographic key order (accountId/table/recordId), NOT by
-  // updated_at. A single un-paginated call only ever sees the first 1000 keys, so
-  // on a large account (chat_messages alone can be hundreds) the window is cut off
-  // mid-alphabet — later tables (entries, entry_entities, wiki_pages) never appear
-  // and a fresh-device restore comes back empty. Loop on the cursor so the since
-  // filter is applied across every object, not just the first page.
-  // (include customMetadata so updated_at is present — otherwise every object
-  // looks like updated_at=0 and drops from the delta.)
-  const changed: R2Object[] = []
-  let cursor: string | undefined
-  do {
-    const options = {
-      prefix: `${accountId}/`,
-      include: ['customMetadata'],
-      cursor,
-    } as unknown as Parameters<typeof env.R2.list>[0]
-    const listed = await env.R2.list(options)
-    for (const obj of listed.objects) {
-      if (Number(obj.customMetadata?.updated_at ?? 0) > since) changed.push(obj)
+  const decodedCursor = decodeDeltaCursor(url.searchParams.get('cursor'))
+  if (decodedCursor === null) return new Response('Bad Request', { status: 400 })
+
+  const listOptions = {
+    prefix: `${accountId}/`,
+    include: ['customMetadata'],
+    limit: DELTA_PAGE_SIZE,
+    cursor: decodedCursor,
+  } as unknown as Parameters<typeof env.R2.list>[0]
+  const listed = await env.R2.list(listOptions)
+
+  const records: Array<DeltaRecordV1 | DeltaRecordV2> = []
+  let skipped = 0
+  for (const object of listed.objects) {
+    const parsedKey = parseSyncObjectKey(object.key, accountId)
+    const metadataTimestamp = Number(object.customMetadata?.updated_at)
+    if (
+      !parsedKey ||
+      !isTimestamp(metadataTimestamp, Date.now(), false) ||
+      object.size > MAX_UPLOAD_BODY_LENGTH
+    ) {
+      skipped++
+      continue
     }
-    cursor = listed.truncated ? listed.cursor : undefined
-  } while (cursor)
+    if (metadataTimestamp <= since) continue
 
-  const results = await Promise.all(
-    changed.map(async (obj) => {
-      const body = await env.R2.get(obj.key)
-      if (!body) return null
-      const record = (await body.json()) as { ciphertext: string; updated_at: number }
-      // Expose the key path so the client knows which table/record this is.
-      const [, table, recordId] = obj.key.split('/')
-      return { table, record_id: recordId, ...record }
-    })
-  )
+    try {
+      const stored = await env.R2.get(object.key)
+      if (!stored) {
+        skipped++
+        continue
+      }
+      const envelope = parseStoredEnvelope(await stored.json<unknown>())
+      if (!envelope || envelope.updated_at !== metadataTimestamp) {
+        skipped++
+        continue
+      }
+      if (parsedKey.syncId) {
+        records.push({
+          version: 2,
+          table: parsedKey.table,
+          sync_id: parsedKey.syncId,
+          ...envelope,
+        })
+      } else if (parsedKey.recordId) {
+        records.push({
+          version: 1,
+          table: parsedKey.table,
+          record_id: parsedKey.recordId,
+          ...envelope,
+        })
+      }
+    } catch {
+      skipped++
+    }
+  }
 
-  return Response.json(results.filter(Boolean))
+  // Count only. Never log object keys, record IDs, ciphertext, or persisted bodies.
+  if (skipped > 0) console.warn(`sync_delta_skipped count=${skipped}`)
+
+  return Response.json({
+    records,
+    next_cursor: listed.truncated && listed.cursor ? encodeDeltaCursor(listed.cursor) : null,
+  })
 }

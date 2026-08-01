@@ -10,18 +10,18 @@ import {
 import { open, type DB } from '@op-engineering/op-sqlite'
 import { randomUUID } from 'expo-crypto'
 
+import { getDemoDatabaseKey } from '../services/demo-key'
+
 // Encrypted (SQLCipher) DB via op-sqlite. The file on disk is unreadable without
 // this key. op-sqlite caches the connection by name, so we reuse one instance.
 const DB_NAME = 'entries.db'
 let dbRef: DB | null = null
-let dbKey: string | null = null
 
 async function getDb(): Promise<DB> {
   if (!dbRef) {
-    // Fresh random key per demo launch. Test data cannot be recovered after a
-    // restart; this screen is intentionally unsuitable for real journaling.
-    dbKey = dbKey ?? `${randomUUID().replace(/-/g, '')}${randomUUID().replace(/-/g, '')}`
-    dbRef = open({ name: DB_NAME, encryptionKey: dbKey })
+    // Random per-install key survives process restarts in device-only SecureStore.
+    const key = await getDemoDatabaseKey()
+    dbRef = open({ name: DB_NAME, encryptionKey: key })
     await dbRef.execute(
       'CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY, content TEXT, created_at INTEGER)'
     )
@@ -55,7 +55,7 @@ export default function EntrySmoke() {
   }
 
   useEffect(() => {
-    refresh().catch((e) => setStatus(String(e)))
+    refresh().catch(() => setStatus('Encrypted storage unavailable'))
   }, [])
 
   async function save() {
@@ -70,8 +70,8 @@ export default function EntrySmoke() {
       setText('')
       setStatus('Saved ✓')
       await refresh()
-    } catch (e) {
-      setStatus(String(e))
+    } catch {
+      setStatus('Save failed')
     }
   }
 
@@ -81,8 +81,8 @@ export default function EntrySmoke() {
       await db.execute('DELETE FROM entries')
       setStatus('Cleared ✓')
       await refresh()
-    } catch (e) {
-      setStatus(String(e))
+    } catch {
+      setStatus('Clear failed')
     }
   }
 
@@ -90,7 +90,7 @@ export default function EntrySmoke() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Entry Smoke Test</Text>
       <Text style={styles.subtitle}>
-        Test-only: saves encrypted smoke-test data for this launch. Do not enter personal information.
+        Test-only: saves encrypted smoke-test data on this install. Do not enter personal information.
       </Text>
 
       <TextInput
@@ -101,6 +101,7 @@ export default function EntrySmoke() {
         autoCorrect={false}
         spellCheck={false}
         autoComplete="off"
+        textContentType="none"
         importantForAutofill="noExcludeDescendants"
         multiline
       />

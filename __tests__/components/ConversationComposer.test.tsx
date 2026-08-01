@@ -3,6 +3,16 @@ import { fireEvent, render, screen } from '@testing-library/react-native'
 import { ConversationComposer } from '@/components/wiki/ConversationComposer'
 
 describe('ConversationComposer', () => {
+  it('disables platform learning and autofill for private writing', () => {
+    render(<ConversationComposer sending={false} onSend={jest.fn()} />)
+    const input = screen.getByTestId('composer-input')
+    expect(input.props.autoCorrect).toBe(false)
+    expect(input.props.spellCheck).toBe(false)
+    expect(input.props.autoComplete).toBe('off')
+    expect(input.props.textContentType).toBe('none')
+    expect(input.props.importantForAutofill).toBe('noExcludeDescendants')
+  })
+
   it('sends the trimmed text and clears the field', () => {
     const onSend = jest.fn()
     render(<ConversationComposer sending={false} onSend={onSend} />)

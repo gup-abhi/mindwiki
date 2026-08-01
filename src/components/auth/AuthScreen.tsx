@@ -64,6 +64,8 @@ export function AuthScreen() {
           placeholderTextColor={theme.colors.textMuted}
           autoCapitalize="none"
           keyboardType="email-address"
+          autoComplete="email"
+          textContentType="emailAddress"
           value={email}
           onChangeText={setEmail}
           testID="auth-email"
@@ -75,6 +77,8 @@ export function AuthScreen() {
             placeholderTextColor={theme.colors.textMuted}
             secureTextEntry={!showPassword}
             autoCapitalize="none"
+            autoComplete={isRegister ? 'new-password' : 'current-password'}
+            textContentType={isRegister ? 'newPassword' : 'password'}
             value={password}
             onChangeText={setPassword}
             testID="auth-password"
@@ -100,6 +104,8 @@ export function AuthScreen() {
                 placeholderTextColor={theme.colors.textMuted}
                 secureTextEntry={!showConfirm}
                 autoCapitalize="none"
+                autoComplete="new-password"
+                textContentType="newPassword"
                 value={confirm}
                 onChangeText={setConfirm}
                 testID="auth-password-confirm"

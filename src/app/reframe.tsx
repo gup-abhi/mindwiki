@@ -6,6 +6,7 @@ import { Button, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { useReframes } from '@/hooks/useReframes'
 import { useWikiPage } from '@/hooks/useWiki'
+import { opaqueRouteId } from '@/lib/route-params'
 
 /**
  * Guided CBT thought-record for challenging a recurring belief: evidence for it,
@@ -15,7 +16,8 @@ import { useWikiPage } from '@/hooks/useWiki'
 export default function ReframeScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { pageId } = useLocalSearchParams<{ pageId?: string }>()
+  const { pageId: rawPageId } = useLocalSearchParams<{ pageId?: string }>()
+  const pageId = opaqueRouteId(rawPageId)
   const { page, loading } = useWikiPage(pageId)
   const belief = page?.category === 'belief' ? page.title : ''
   const { save, suggest } = useReframes(belief || null)

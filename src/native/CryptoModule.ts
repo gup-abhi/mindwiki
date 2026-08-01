@@ -75,7 +75,8 @@ export const CryptoModule: ICryptoModule = {
     const existing = await SecureStore.getItemAsync(MASTER_KEY_ID)
     if (existing) {
       // Rewrite legacy default-accessibility entries as device-only on first read.
-      await SecureStore.setItemAsync(MASTER_KEY_ID, existing, SECRET_STORE_OPTIONS)
+      // Keep readable key usable if rewrite fails; retry on next read.
+      try { await SecureStore.setItemAsync(MASTER_KEY_ID, existing, SECRET_STORE_OPTIONS) } catch { /* best-effort */ }
       return existing
     }
     const key = toHex(await getRandomBytesAsync(32))
@@ -93,7 +94,9 @@ export const CryptoModule: ICryptoModule = {
   },
   async getKeyOwner() {
     const owner = await SecureStore.getItemAsync(KEY_OWNER_ID)
-    if (owner) await SecureStore.setItemAsync(KEY_OWNER_ID, owner, SECRET_STORE_OPTIONS)
+    if (owner) {
+      try { await SecureStore.setItemAsync(KEY_OWNER_ID, owner, SECRET_STORE_OPTIONS) } catch { /* best-effort */ }
+    }
     return owner
   },
   async deleteKeyOwner() {

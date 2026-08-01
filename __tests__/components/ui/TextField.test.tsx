@@ -11,6 +11,7 @@ describe('TextField privacy mode', () => {
     expect(input.props.spellCheck).toBe(false)
     expect(input.props.autoComplete).toBe('off')
     expect(input.props.importantForAutofill).toBe('noExcludeDescendants')
+    expect(input.props.textContentType).toBe('none')
   })
 
   it('does not impose private-writing defaults on ordinary fields', () => {
