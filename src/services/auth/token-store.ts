@@ -1,5 +1,7 @@
 import * as SecureStore from 'expo-secure-store'
 
+import { SECRET_STORE_OPTIONS } from './secure-store'
+
 // Tokens live ONLY in the OS keystore (iOS Keychain / Android Keystore) —
 // never AsyncStorage, never SQLite (CLAUDE.md auth rules).
 const SESSION_KEY = 'mindwiki.auth_session'
@@ -50,7 +52,12 @@ function parse(raw: string | null): AuthTokens | null {
 
 async function readRaw(): Promise<AuthTokens | null> {
   const current = parse(await SecureStore.getItemAsync(SESSION_KEY))
-  if (current) return current
+  if (current) {
+    // Rewrite pre-device-only tokens after a successful read. Read remains usable
+    // if accessibility hardening transiently fails; retry next read.
+    try { await SecureStore.setItemAsync(SESSION_KEY, serialize(current), SECRET_STORE_OPTIONS) } catch { /* best-effort */ }
+    return current
+  }
 
   // One-release migration from the old three-item tuple. Never accept a partial
   // tuple: partial credentials are unusable and must not be resurrected.
@@ -71,7 +78,7 @@ async function readRaw(): Promise<AuthTokens | null> {
   }
 
   const migrated = { accessToken, refreshToken, accountId }
-  await SecureStore.setItemAsync(SESSION_KEY, serialize(migrated))
+  await SecureStore.setItemAsync(SESSION_KEY, serialize(migrated), SECRET_STORE_OPTIONS)
   await Promise.all([
     SecureStore.deleteItemAsync(ACCESS_KEY),
     SecureStore.deleteItemAsync(REFRESH_KEY),
@@ -88,7 +95,7 @@ function enqueue<T>(operation: () => Promise<T>): Promise<T> {
 
 export async function saveTokens(t: AuthTokens): Promise<void> {
   await enqueue(async () => {
-    await SecureStore.setItemAsync(SESSION_KEY, serialize(t))
+    await SecureStore.setItemAsync(SESSION_KEY, serialize(t), SECRET_STORE_OPTIONS)
     // Remove legacy tuple after successful single-item write.
     await Promise.all([
       SecureStore.deleteItemAsync(ACCESS_KEY),
@@ -113,7 +120,7 @@ export async function saveTokensIfCurrent(
       current.accountId !== expected.accountId ||
       (expectedGeneration !== undefined && generation !== expectedGeneration)
     ) return false
-    await SecureStore.setItemAsync(SESSION_KEY, serialize(next))
+    await SecureStore.setItemAsync(SESSION_KEY, serialize(next), SECRET_STORE_OPTIONS)
     generation++
     return true
   })

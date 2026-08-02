@@ -104,6 +104,7 @@ export default function EntriesScreen() {
       {searchOpen && (
         <View style={styles.searchField}>
           <TextField
+            sensitive
             accessibilityLabel="Search your entries"
             placeholder="Search your entries"
             value={query}

@@ -16,6 +16,7 @@ jest.mock('@/hooks/useEntries', () => ({
   useEntryNeighbors: () => mockUseNeighbors(),
 }))
 jest.mock('@/hooks/useWiki', () => ({ useEntryLineage: () => mockUseLineage() }))
+jest.mock('@/hooks/useGraph', () => ({ useGraph: () => ({ nodes: [{ id: 'node-work', label: 'Work' }, { id: 'node-anxiety', label: 'anxiety' }] }) }))
 jest.mock('expo-router', () => ({
   useRouter: () => ({ back: mockBack, replace: mockReplace, push: mockPush }),
   useLocalSearchParams: () => ({ id: 'e1' }),
@@ -125,14 +126,14 @@ describe('EntryDetailScreen', () => {
     mockUseEntry.mockReturnValue({ entry, loading: false })
     render(<EntryDetailScreen />)
     fireEvent.press(screen.getByTestId('entry-graph-link'))
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/graph', params: { focus: 'Work' } })
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/graph', params: { nodeId: 'node-work' } })
   })
 
   it('falls back to the emotion for the graph link when there is no topic', () => {
     mockUseEntry.mockReturnValue({ entry: make({ topic: null }), loading: false })
     render(<EntryDetailScreen />)
     fireEvent.press(screen.getByTestId('entry-graph-link'))
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/graph', params: { focus: 'anxiety' } })
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/graph', params: { nodeId: 'node-anxiety' } })
   })
 
   it('shows a not-found state when the entry is missing', () => {

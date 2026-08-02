@@ -167,6 +167,7 @@ export default function UntangleScreen() {
         <View style={styles.stepContent}>
           <Text variant="title">What is your mind telling you right now?</Text>
           <TextField
+            sensitive
             multiline
             value={input}
             onChangeText={setInput}

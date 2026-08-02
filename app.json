@@ -33,6 +33,7 @@
         }
       ],
       "expo-font",
+      "./plugins/withPrivacyProtection",
       [
         "expo-splash-screen",
         {

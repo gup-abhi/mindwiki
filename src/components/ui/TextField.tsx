@@ -7,6 +7,8 @@ import { Text } from './Text'
 interface TextFieldProps extends Omit<TextInputProps, 'style'> {
   label?: string
   error?: string
+  /** Disable keyboard learning, correction, and autofill for private writing. */
+  sensitive?: boolean
   style?: StyleProp<TextStyle>
 }
 
@@ -29,7 +31,7 @@ const makeStyles = (t: Theme) =>
   })
 
 /** Themed text input with optional label + error. */
-export function TextField({ label, error, multiline, scrollEnabled, style, ...rest }: TextFieldProps) {
+export function TextField({ label, error, multiline, scrollEnabled, sensitive = false, style, ...rest }: TextFieldProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   return (
@@ -41,6 +43,11 @@ export function TextField({ label, error, multiline, scrollEnabled, style, ...re
       ) : null}
       <TextInput
         {...rest}
+        autoCorrect={sensitive ? false : rest.autoCorrect}
+        spellCheck={sensitive ? false : rest.spellCheck}
+        autoComplete={sensitive ? 'off' : rest.autoComplete}
+        textContentType={sensitive ? 'none' : rest.textContentType}
+        importantForAutofill={sensitive ? 'noExcludeDescendants' : rest.importantForAutofill}
         multiline={multiline}
         // A multiline input defaults to its own internal scroll, which fights a
         // parent ScrollView for the touch responder on Android (New Arch) — the

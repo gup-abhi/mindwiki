@@ -9,6 +9,7 @@ import { handleRecoveryStatus, handleSetRecovery } from './auth/recovery-setup'
 import { handleRefresh } from './auth/refresh'
 import { handleUpload } from './storage/upload'
 import { handleDelta } from './storage/delta'
+import { handleSyncAudit } from './storage/audit'
 import { authMiddleware } from './middleware/auth'
 import type { Env } from './types'
 
@@ -47,8 +48,15 @@ export default {
     }
     if (method === 'POST' && path === '/auth/pair/start') return handlePairStart(req, env, accountId)
     if (method === 'GET' && path === '/auth/devices') return handleListDevices(req, env, accountId)
-    if (method === 'GET' && path.endsWith('/delta')) return handleDelta(req, env, accountId, url)
-    if (method === 'PUT' && path.startsWith('/sync/')) return handleUpload(req, env, accountId, path)
+    if (method === 'GET' && path === `/sync/${encodeURIComponent(accountId)}/delta`) {
+      return handleDelta(req, env, accountId, url)
+    }
+    if (method === 'GET' && path === `/sync/${encodeURIComponent(accountId)}/audit`) {
+      return handleSyncAudit(env, accountId, url)
+    }
+    if (method === 'PUT' && path.startsWith(`/sync/${encodeURIComponent(accountId)}/v2/`)) {
+      return handleUpload(req, env, accountId, path)
+    }
 
     return new Response('Not Found', { status: 404 })
   },

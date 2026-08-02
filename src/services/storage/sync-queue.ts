@@ -72,7 +72,7 @@ export function notifySyncPending(): void {
  * re-upload everything. Best-effort per row; returns the number queued.
  */
 export async function backfillSyncQueue(
-  tables: string[],
+  tables: readonly string[],
   db: SqliteDatabase = getDb()
 ): Promise<Result<number>> {
   try {

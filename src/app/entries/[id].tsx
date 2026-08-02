@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { Screen, Text } from '@/components/ui'
 import { type Theme, moodColorKey, moodLabel, useThemedStyles } from '@/theme'
 import { useEntries, useEntry, useEntryNeighbors } from '@/hooks/useEntries'
+import { useGraph } from '@/hooks/useGraph'
 import { useEntryLineage } from '@/hooks/useWiki'
 
 function formatShortDate(ts: number): string {
@@ -88,6 +89,7 @@ export default function EntryDetailScreen() {
   const { entry, loading } = useEntry(id)
   const { entries } = useEntries()
   const { older, newer } = useEntryNeighbors(entry)
+  const { nodes } = useGraph()
 
   // The wiki pages this entry shaped, and other entries on the same theme.
   const lineage = useEntryLineage(entry)
@@ -162,6 +164,9 @@ export default function EntryDetailScreen() {
   // Deep link into the connections view, focused on the entry's primary concept
   // (its theme, else its emotion) — only a node that recurred is focused there.
   const graphFocus = entry.topic?.trim() || entry.emotion?.trim() || null
+  const graphNode = graphFocus
+    ? nodes.find((node) => node.label.trim().toLowerCase() === graphFocus.toLowerCase()) ?? null
+    : null
 
   return (
     <Screen scroll>
@@ -208,11 +213,11 @@ export default function EntryDetailScreen() {
         </Text>
       ) : null}
 
-      {graphFocus ? (
+      {graphFocus && graphNode ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`See ${graphFocus} in your connections`}
-          onPress={() => router.push({ pathname: '/graph', params: { focus: graphFocus } })}
+          onPress={() => router.push({ pathname: '/graph', params: { nodeId: graphNode.id } })}
           style={styles.graphLink}
           testID="entry-graph-link"
         >

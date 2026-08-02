@@ -250,6 +250,7 @@ export default function EntryScreen() {
           </Pressable>
 
           <TextField
+            sensitive
             placeholder="Start writing… (optional)"
             value={j.draft.body}
             onChangeText={j.setBody}
@@ -269,6 +270,7 @@ export default function EntryScreen() {
                 The thought behind this
               </Text>
               <TextField
+                sensitive
                 placeholder="The automatic thought…"
                 value={j.draft.thought}
                 onChangeText={j.setThought}

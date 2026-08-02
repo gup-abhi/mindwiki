@@ -68,11 +68,13 @@ jest.mock('@/services/onboarding/first-run', () => ({
   markHintSeen: jest.fn().mockResolvedValue(undefined),
 }))
 
+const NODE_ONE = '123e4567-e89b-42d3-a456-426614174000'
+const NODE_TWO = '223e4567-e89b-42d3-a456-426614174000'
 const nodes = [
-  { id: 'n1', type: 'emotion', label: 'Anxiety', frequency: 3, created_at: 0, updated_at: 0 },
-  { id: 'n2', type: 'situation', label: 'Work', frequency: 1, created_at: 0, updated_at: 0 },
+  { id: NODE_ONE, type: 'emotion', label: 'Anxiety', frequency: 3, created_at: 0, updated_at: 0 },
+  { id: NODE_TWO, type: 'situation', label: 'Work', frequency: 1, created_at: 0, updated_at: 0 },
 ]
-const edges = [{ id: 'e1', source_id: 'n1', target_id: 'n2', weight: 2, created_at: 0, updated_at: 0 }]
+const edges = [{ id: 'e1', source_id: NODE_ONE, target_id: NODE_TWO, weight: 2, created_at: 0, updated_at: 0 }]
 
 function renderMap() {
   render(<YouScreen />)
@@ -97,14 +99,14 @@ describe('GraphScreen (inside You tab > Map segment)', () => {
     expect(screen.getAllByTestId('graph-node')).toHaveLength(2)
   })
 
-  it('focuses a node from a deep-link focus param (case-insensitive)', () => {
-    mockParams = { focus: 'work' }
+  it('focuses a node from an opaque deep-link node id', () => {
+    mockParams = { nodeId: NODE_TWO }
     renderMap()
     expect(screen.getByText('situation · appeared 1 time')).toBeTruthy()
   })
 
-  it('ignores a focus param that matches no node', () => {
-    mockParams = { focus: 'nonexistent' }
+  it('ignores an unknown deep-link node id', () => {
+    mockParams = { nodeId: 'private node label' }
     renderMap()
     expect(screen.queryByText(/appeared/)).toBeNull()
   })

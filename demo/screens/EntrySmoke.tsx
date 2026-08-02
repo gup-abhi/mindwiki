@@ -10,16 +10,18 @@ import {
 import { open, type DB } from '@op-engineering/op-sqlite'
 import { randomUUID } from 'expo-crypto'
 
+import { getDemoDatabaseKey } from '../services/demo-key'
+
 // Encrypted (SQLCipher) DB via op-sqlite. The file on disk is unreadable without
 // this key. op-sqlite caches the connection by name, so we reuse one instance.
 const DB_NAME = 'entries.db'
-const DB_KEY = 'demo-test-key-32bytes-padding!!'
-
 let dbRef: DB | null = null
 
 async function getDb(): Promise<DB> {
   if (!dbRef) {
-    dbRef = open({ name: DB_NAME, encryptionKey: DB_KEY })
+    // Random per-install key survives process restarts in device-only SecureStore.
+    const key = await getDemoDatabaseKey()
+    dbRef = open({ name: DB_NAME, encryptionKey: key })
     await dbRef.execute(
       'CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY, content TEXT, created_at INTEGER)'
     )
@@ -53,7 +55,7 @@ export default function EntrySmoke() {
   }
 
   useEffect(() => {
-    refresh().catch((e) => setStatus(String(e)))
+    refresh().catch(() => setStatus('Encrypted storage unavailable'))
   }, [])
 
   async function save() {
@@ -68,8 +70,8 @@ export default function EntrySmoke() {
       setText('')
       setStatus('Saved ✓')
       await refresh()
-    } catch (e) {
-      setStatus(String(e))
+    } catch {
+      setStatus('Save failed')
     }
   }
 
@@ -79,8 +81,8 @@ export default function EntrySmoke() {
       await db.execute('DELETE FROM entries')
       setStatus('Cleared ✓')
       await refresh()
-    } catch (e) {
-      setStatus(String(e))
+    } catch {
+      setStatus('Clear failed')
     }
   }
 
@@ -88,14 +90,19 @@ export default function EntrySmoke() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Entry Smoke Test</Text>
       <Text style={styles.subtitle}>
-        Write an entry, save it encrypted, and confirm it reads back from SQLite.
+        Test-only: saves encrypted smoke-test data on this install. Do not enter personal information.
       </Text>
 
       <TextInput
         style={styles.input}
         value={text}
         onChangeText={setText}
-        placeholder="Type an entry…"
+        placeholder="Type test data only…"
+        autoCorrect={false}
+        spellCheck={false}
+        autoComplete="off"
+        textContentType="none"
+        importantForAutofill="noExcludeDescendants"
         multiline
       />
 

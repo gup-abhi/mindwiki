@@ -5,6 +5,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Button, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { useReframes } from '@/hooks/useReframes'
+import { useWikiPage } from '@/hooks/useWiki'
+import { opaqueRouteId } from '@/lib/route-params'
 
 /**
  * Guided CBT thought-record for challenging a recurring belief: evidence for it,
@@ -14,8 +16,10 @@ import { useReframes } from '@/hooks/useReframes'
 export default function ReframeScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { belief: beliefParam } = useLocalSearchParams<{ belief?: string }>()
-  const belief = beliefParam ?? ''
+  const { pageId: rawPageId } = useLocalSearchParams<{ pageId?: string }>()
+  const pageId = opaqueRouteId(rawPageId)
+  const { page, loading } = useWikiPage(pageId)
+  const belief = page?.category === 'belief' ? page.title : ''
   const { save, suggest } = useReframes(belief || null)
 
   const [evidenceFor, setEvidenceFor] = useState('')
@@ -54,7 +58,7 @@ export default function ReframeScreen() {
     }
   }
 
-  if (!belief) {
+  if (loading || !belief) {
     return (
       <Screen>
         <View style={styles.center}>
@@ -87,6 +91,7 @@ export default function ReframeScreen() {
           What makes this feel true? (evidence for)
         </Text>
         <TextField
+          sensitive
           multiline
           value={evidenceFor}
           onChangeText={setEvidenceFor}
@@ -100,6 +105,7 @@ export default function ReframeScreen() {
           What doesn’t fit it? (evidence against)
         </Text>
         <TextField
+          sensitive
           multiline
           value={evidenceAgainst}
           onChangeText={setEvidenceAgainst}
@@ -123,6 +129,7 @@ export default function ReframeScreen() {
           />
         </View>
         <TextField
+          sensitive
           multiline
           value={balanced}
           onChangeText={setBalanced}
