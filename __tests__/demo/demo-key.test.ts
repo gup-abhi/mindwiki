@@ -1,29 +1,24 @@
-import * as SecureStore from 'expo-secure-store'
+import path from 'path'
 
-import { getDemoDatabaseKey } from '../../demo/services/demo-key'
+import type * as SecureStore from 'expo-secure-store'
 
-jest.mock('expo-secure-store', () => {
-  const store = new Map<string, string>()
-  return {
-    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
-    getItemAsync: jest.fn(async (key: string) => store.get(key) ?? null),
-    setItemAsync: jest.fn(async (key: string, value: string) => { store.set(key, value) }),
-  }
-})
-jest.mock('../../demo/node_modules/expo-secure-store', () => {
-  const store = new Map<string, string>()
-  return {
-    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
-    getItemAsync: jest.fn(async (key: string) => store.get(key) ?? null),
-    setItemAsync: jest.fn(async (key: string, value: string) => { store.set(key, value) }),
-  }
-})
-jest.mock('expo-crypto', () => ({
+const mockStore = new Map<string, string>()
+const mockSecureStore = {
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
+  getItemAsync: jest.fn(async (key: string) => mockStore.get(key) ?? null),
+  setItemAsync: jest.fn(async (key: string, value: string) => { mockStore.set(key, value) }),
+}
+const mockExpoCrypto = {
   getRandomBytesAsync: jest.fn(async (count: number) => new Uint8Array(count).fill(0xab)),
-}))
-jest.mock('../../demo/node_modules/expo-crypto', () => ({
-  getRandomBytesAsync: jest.fn(async (count: number) => new Uint8Array(count).fill(0xab)),
-}))
+}
+
+const demoRoot = path.resolve(__dirname, '../../demo')
+const secureStorePath = require.resolve('expo-secure-store', { paths: [demoRoot] })
+const expoCryptoPath = require.resolve('expo-crypto', { paths: [demoRoot] })
+jest.doMock(secureStorePath, () => mockSecureStore)
+jest.doMock(expoCryptoPath, () => mockExpoCrypto)
+
+const { getDemoDatabaseKey } = require('../../demo/services/demo-key') as typeof import('../../demo/services/demo-key')
 
 describe('demo SQLCipher key', () => {
   it('generates one device-only per-install key and reuses it after restart', async () => {
@@ -32,11 +27,10 @@ describe('demo SQLCipher key', () => {
 
     expect(first).toBe('ab'.repeat(32))
     expect(second).toBe(first)
-    const demoStore = jest.requireMock('../../demo/node_modules/expo-secure-store') as typeof SecureStore
-    expect(demoStore.setItemAsync).toHaveBeenCalledWith(
+    expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith(
       'mindwiki.demo.database_key',
       first,
-      { keychainAccessible: demoStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }
+      { keychainAccessible: mockSecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY } as SecureStore.SecureStoreOptions
     )
   })
 })
