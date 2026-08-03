@@ -2,6 +2,7 @@ import { authenticatedFetch } from '@/services/auth/api-client'
 import { getTokens } from '@/services/auth/token-store'
 import { type SqliteDatabase } from '@/services/storage/db'
 import { pushPending, pullDelta, sync } from '@/services/sync/engine'
+import { decryptRecord } from '@/services/sync/encryption'
 import { useSyncStore } from '@/store/sync.store'
 
 jest.mock('@/services/auth/api-client', () => ({ authenticatedFetch: jest.fn() }))
@@ -47,6 +48,7 @@ function fakeDb() {
   // writes matter, but we persist everything received so test assertions can
   // read back the applied row.
   const wikiPages = new Map<string, Record<string, unknown>>()
+  const skipped = new Map<string, Record<string, unknown>>()
 
   const ENTITY_COLS = ['id', 'entry_id', 'type', 'label', 'canonical_label', 'created_at', 'updated_at']
 
@@ -119,6 +121,39 @@ function fakeDb() {
         entityRows.set(String(row.id), row)
         return { rows: [], rowsAffected: 1 }
       }
+      if (/^INSERT INTO sync_skipped/.test(sql)) {
+        // Real SQL: (table_name, record_id, updated_at, failures=1, last_attempt)
+        // — four bound params; failures is a literal 1, bumped on conflict.
+        const [table, recordId, updatedAt, lastAttempt] = params
+        const key = `${table}:${recordId}`
+        const existing = skipped.get(key)
+        if (existing) {
+          existing.failures = Number(existing.failures) + 1
+          existing.updated_at = updatedAt
+          existing.last_attempt = lastAttempt
+        } else {
+          skipped.set(key, {
+            table_name: table, record_id: recordId, updated_at: updatedAt,
+            failures: 1, last_attempt: lastAttempt,
+          })
+        }
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT table_name, record_id, updated_at, failures FROM sync_skipped/.test(sql)) {
+        return { rows: [...skipped.values()], rowsAffected: 0 }
+      }
+      if (/^DELETE FROM sync_skipped WHERE table_name = \? AND record_id/.test(sql)) {
+        const [table, recordId] = params
+        skipped.delete(`${table}:${recordId}`)
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^DELETE FROM sync_skipped WHERE updated_at <= \?/.test(sql)) {
+        const [since] = params
+        for (const [key, row] of [...skipped]) {
+          if (Number(row.updated_at) <= Number(since)) skipped.delete(key)
+        }
+        return { rows: [], rowsAffected: 1 }
+      }
       if (/^SELECT value FROM settings WHERE key/.test(sql)) {
         const v = settings.get(String(params[0]))
         return { rows: v == null ? [] : [{ value: v }], rowsAffected: 0 }
@@ -134,7 +169,7 @@ function fakeDb() {
     },
     close() {},
   }
-return { db, syncQueue, entries, settings, entityRows, wikiPages }
+return { db, syncQueue, entries, settings, entityRows, wikiPages, skipped }
 }
 
 const deltaPage = (json: unknown): unknown => {
@@ -486,6 +521,156 @@ describe('sync/engine sync()', () => {
 
     expect(res.success && res.data).toBe(1)
     expect(wikiPages.get('w1')?.regrounded_upto).toBe(7)
+  })
+})
+
+describe('sync/engine pullDelta resume + quarantine', () => {
+  beforeEach(() => {
+    mockFetch.mockReset()
+    useSyncStore.setState({ revision: 0, restoring: false })
+  })
+
+  // Hardcoded mirror of MAX_DELTA_PAGES in engine.ts (not exported).
+  const MAX_PAGES = 512
+
+  it('pauses at the page cap, persists a resume cursor, and completes without a wedge', async () => {
+    const { db, entries, settings } = fakeDb()
+    const queue: unknown[] = []
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const records = Array.from({ length: 8 }, (_, i) => ({
+        table: 'entries',
+        record_id: `p${p}r${i}`,
+        ciphertext: JSON.stringify(entryRow(`p${p}r${i}`, { updated_at: p * 10 + i })),
+        updated_at: p * 10 + i,
+      }))
+      queue.push(okResp({ records, next_cursor: `c${p + 1}` }))
+    }
+    queue.push(okResp({
+      records: Array.from({ length: 8 }, (_, i) => ({
+        table: 'entries',
+        record_id: `tail${i}`,
+        ciphertext: JSON.stringify(entryRow(`tail${i}`, { updated_at: 10000 + i })),
+        updated_at: 10000 + i,
+      })),
+      next_cursor: null,
+    }))
+    mockFetch.mockImplementation(async () => queue.shift() ?? okResp({ records: [], next_cursor: null }))
+
+    // Pass 1: exactly MAX_PAGES pages fetched, cursor persisted, no error.
+    useSyncStore.setState({ restoring: true })
+    const p1 = await pullDelta('mk', 'acc', db)
+    expect(p1.success).toBe(true)
+    if (p1.success) expect(p1.data).toBe(MAX_PAGES * 8)
+    const state1 = JSON.parse(settings.get('sync:pull_state') as string)
+    expect(state1.since).toBe(0) // window not complete → cursor un-advanced
+    expect(state1.cursor).toBe(`c${MAX_PAGES}`)
+    expect(state1.windowMax).toBe((MAX_PAGES - 1) * 10 + 7)
+    expect(useSyncStore.getState().restoring).toBe(true) // restore UI stays until drained
+
+    // Pass 2: resumes from the stored cursor and completes the window.
+    const p2 = await pullDelta('mk', 'acc', db)
+    expect(p2.success).toBe(true)
+    if (p2.success) expect(p2.data).toBe(8)
+    const state2 = JSON.parse(settings.get('sync:pull_state') as string)
+    expect(state2.cursor).toBeNull()
+    expect(state2.windowMax).toBe(0)
+    expect(state2.since).toBe(10007) // max updated_at over the whole window
+    expect(entries.has('tail7')).toBe(true)
+    expect(useSyncStore.getState().restoring).toBe(false)
+  })
+
+  it('quarantines a record that fails to decrypt, retries it, and drops it after the attempt budget', async () => {
+    const { db, settings } = fakeDb()
+    const badCipher = 'a'.repeat(56)
+    ;(decryptRecord as jest.Mock).mockImplementation(async (blob: string) =>
+      blob === badCipher
+        ? { success: false, error: { code: 'DECRYPT_FAILED', message: 'x' } }
+        : { success: true, data: mockUnwire(blob) }
+    )
+
+    // Pass 1: bad (ts 9000) + good (ts 5000). The bad row must not block the
+    // good one, and must not advance the cursor.
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'entries', record_id: 'bad', ciphertext: badCipher, updated_at: 9000 },
+      { table: 'entries', record_id: 'good', ciphertext: JSON.stringify(entryRow('good', { updated_at: 5000 })), updated_at: 5000 },
+    ]))
+    const p1 = await pullDelta('mk', 'acc', db)
+    expect(p1.success && p1.data).toBe(1)
+    expect(settings.get('sync:last_pull')).toBe('5000')
+
+    // Pass 2: bad is re-fetched (ts still above the cursor) and fails again.
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'entries', record_id: 'bad', ciphertext: badCipher, updated_at: 9000 },
+    ]))
+    const p2 = await pullDelta('mk', 'acc', db)
+    expect(p2.success && p2.data).toBe(0)
+    expect(settings.get('sync:last_pull')).toBe('5000')
+
+    // Pass 3: retry budget exhausted → permanent drop, cursor advances past it.
+    const p3 = await pullDelta('mk', 'acc', db)
+    expect(p3.success && p3.data).toBe(0)
+    expect(settings.get('sync:last_pull')).toBe('9000')
+  })
+
+  it('quarantines a row whose apply throws and only advances past it after retries are exhausted', async () => {
+    const { db, settings } = fakeDb()
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'entries', record_id: 'poison', ciphertext: JSON.stringify(entryRow('poison', { updated_at: 9000 })), updated_at: 9000 },
+    ]))
+
+    const p1 = await pullDelta('mk', 'acc', db)
+    expect(p1.success && p1.data).toBe(0)
+    expect(settings.get('sync:last_pull')).toBe('0') // failed row excluded from cursor
+
+    const p2 = await pullDelta('mk', 'acc', db)
+    expect(settings.get('sync:last_pull')).toBe('0')
+
+    const p3 = await pullDelta('mk', 'acc', db)
+    expect(p3.success && p3.data).toBe(0)
+    expect(settings.get('sync:last_pull')).toBe('9000')
+  })
+
+  it('clears quarantine on a later successful apply', async () => {
+    const { db, settings, skipped } = fakeDb()
+    const badCipher = 'a'.repeat(56)
+    ;(decryptRecord as jest.Mock).mockImplementation(async (blob: string) =>
+      blob === badCipher
+        ? { success: false, error: { code: 'DECRYPT_FAILED', message: 'x' } }
+        : { success: true, data: mockUnwire(blob) }
+    )
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'entries', record_id: 'flaky', ciphertext: badCipher, updated_at: 9000 },
+    ]))
+    await pullDelta('mk', 'acc', db)
+    expect(skipped.size).toBe(1)
+
+    // The record recovers — now it decrypts and applies; quarantine is cleared
+    // and the cursor advances past it.
+    ;(decryptRecord as jest.Mock).mockImplementation(async (blob: string) => ({
+      success: true,
+      data: mockUnwire(blob),
+    }))
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'entries', record_id: 'flaky', ciphertext: JSON.stringify(entryRow('flaky', { updated_at: 9000 })), updated_at: 9000 },
+    ]))
+    const res = await pullDelta('mk', 'acc', db)
+    expect(res.success && res.data).toBe(1)
+    expect(skipped.size).toBe(0)
+    expect(settings.get('sync:last_pull')).toBe('9000')
+  })
+
+  it('seeds the pull state from the legacy sync:last_pull cursor', async () => {
+    const { db, settings } = fakeDb()
+    settings.set('sync:last_pull', '1000')
+    mockFetch.mockResolvedValue(okResp({ records: [], next_cursor: null }))
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success).toBe(true)
+    expect(mockFetch.mock.calls[0][0]).toBe('/sync/acc/delta?since=1000')
+    const state = JSON.parse(settings.get('sync:pull_state') as string)
+    expect(state.since).toBe(1000)
+    expect(state.cursor).toBeNull()
   })
 })
 

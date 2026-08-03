@@ -813,3 +813,26 @@ export const migration036: Migration = {
     `CREATE INDEX idx_notification_events_time ON notification_events (occurred_at)`,
   ],
 }
+
+// Migration 037 — sync convergence: per-record quarantine for pull failures
+// (F1) + tombstone column for challenge deletion (F2).
+//
+// sync_skipped: records that failed to decrypt/parse/apply during a pull. They
+// are excluded from the pull cursor until the retry budget (3 attempts) is
+// exhausted, then dropped permanently on this device. The payload is the row's
+// wire metadata only — never ciphertext, never content.
+export const migration037: Migration = {
+  version: 37,
+  name: 'sync_quarantine_and_challenge_tombstone',
+  statements: [
+    `CREATE TABLE IF NOT EXISTS sync_skipped (
+      table_name TEXT NOT NULL,
+      record_id TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      failures INTEGER NOT NULL DEFAULT 1,
+      last_attempt INTEGER NOT NULL,
+      PRIMARY KEY (table_name, record_id)
+    )`,
+    `ALTER TABLE challenges ADD COLUMN deleted_at INTEGER`,
+  ],
+}

@@ -140,6 +140,16 @@ describe('registry', () => {
     expect(m?.name).toBe('local_notification_insight_kinds')
   })
 
+  it('registers migration 037 — sync_skipped quarantine + challenges.deleted_at tombstone', () => {
+    const m = MIGRATIONS.find((mig) => mig.version === 37)
+    expect(m).toBeDefined()
+    expect(m!.name).toBe('sync_quarantine_and_challenge_tombstone')
+    const sql = m!.statements.join('\n')
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS sync_skipped')
+    expect(sql).toContain('PRIMARY KEY (table_name, record_id)')
+    expect(sql).toContain('ALTER TABLE challenges ADD COLUMN deleted_at INTEGER')
+  })
+
   it('registers migration 034 — live wiki title uniqueness', () => {
     const m = MIGRATIONS.find((mig) => mig.version === 34)
     expect(m).toBeDefined()

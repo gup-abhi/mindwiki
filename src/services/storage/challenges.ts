@@ -113,7 +113,7 @@ export async function getChallenge(
   db: SqliteDatabase = getDb()
 ): Promise<Result<Challenge | null>> {
   try {
-    const res = await db.execute('SELECT * FROM challenges WHERE id = ?', [id])
+    const res = await db.execute('SELECT * FROM challenges WHERE id = ? AND deleted_at IS NULL', [id])
     const row = res.rows[0]
     return ok(row ? rowToChallenge(row) : null)
   } catch (e) {
@@ -130,7 +130,7 @@ export async function getActiveChallenge(
 ): Promise<Result<Challenge | null>> {
   try {
     const res = await db.execute(
-      `SELECT * FROM challenges WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1`
+      `SELECT * FROM challenges WHERE status = 'active' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1`
     )
     const row = res.rows[0]
     return ok(row ? rowToChallenge(row) : null)
@@ -144,20 +144,29 @@ export async function listChallenges(
   db: SqliteDatabase = getDb()
 ): Promise<Result<Challenge[]>> {
   try {
-    const res = await db.execute('SELECT * FROM challenges ORDER BY updated_at DESC')
+    const res = await db.execute('SELECT * FROM challenges WHERE deleted_at IS NULL ORDER BY updated_at DESC')
     return ok(res.rows.map(rowToChallenge))
   } catch (e) {
     return err('CHALLENGE_LIST_FAILED', 'Failed to list challenges', e)
   }
 }
 
-/** Permanently remove a challenge (local-only, mirrors deleteEntry). */
+/**
+ * Permanently remove a challenge. Tombstone (deleted_at + updated_at bump) so
+ * the removal syncs to other devices via the existing upsert protocol instead
+ * of a local-only row drop that would resurrect on the next pull/restore.
+ */
 export async function deleteChallenge(
   id: string,
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    await db.execute('DELETE FROM challenges WHERE id = ?', [id])
+    const res = await db.execute(
+      'UPDATE challenges SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL',
+      [Date.now(), Date.now(), id]
+    )
+    if ((res.rowsAffected ?? 0) === 0) return ok(undefined) // already gone / never existed
+    await enqueueUpsert('challenges', id, db) // tombstone must sync
     return ok(undefined)
   } catch (e) {
     return err('CHALLENGE_DELETE_FAILED', 'Failed to delete challenge', e)
@@ -189,7 +198,7 @@ export async function updateChallenge(
   params.push(id)
 
   try {
-    const res = await db.execute(`UPDATE challenges SET ${sets.join(', ')} WHERE id = ?`, params)
+    const res = await db.execute(`UPDATE challenges SET ${sets.join(', ')} WHERE id = ? AND deleted_at IS NULL`, params)
     if ((res.rowsAffected ?? 0) === 0) return err('CHALLENGE_NOT_FOUND', 'Challenge not found')
     await enqueueUpsert('challenges', id, db)
     const got = await getChallenge(id, db)

@@ -111,6 +111,9 @@ export async function register(
     if (res.status === 409) {
       return err('EMAIL_TAKEN', 'An account with this email already exists. Sign in instead.')
     }
+    if (res.status === 429) {
+      return err('REGISTER_RATE_LIMITED', 'Too many attempts. Try again in a few minutes.')
+    }
     if (!res.ok) return err('REGISTER_FAILED', `Registration failed (${res.status})`)
 
     const data = (await res.json()) as AuthResponse
@@ -167,6 +170,9 @@ export async function loginNewDevice(email: string, password: string): Promise<R
     // 401 = the server rejected the email/password pair (unknown email or bad
     // password). Surface a friendly message; keep the status for other failures.
     if (res.status === 401) return err('LOGIN_INVALID_CREDENTIALS', 'Wrong email or password')
+    if (res.status === 429) {
+      return err('LOGIN_RATE_LIMITED', 'Too many attempts. Try again in a few minutes.')
+    }
     if (!res.ok) return err('LOGIN_FAILED', `Login failed (${res.status})`)
 
     const data = (await res.json()) as AuthResponse
@@ -216,6 +222,9 @@ export async function recoverAccount(
         device_id: await getDeviceId(),
       }),
     })
+    if (res.status === 429) {
+      return err('RECOVER_RATE_LIMITED', 'Too many attempts. Try again in a few minutes.')
+    }
     if (!res.ok) return err('RECOVER_FAILED', `Recovery failed (${res.status})`)
 
     const data = (await res.json()) as AuthResponse

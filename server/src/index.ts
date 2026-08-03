@@ -11,7 +11,38 @@ import { handleUpload } from './storage/upload'
 import { handleDelta } from './storage/delta'
 import { handleSyncAudit } from './storage/audit'
 import { authMiddleware } from './middleware/auth'
+import { kvRateLimit, clientIp } from './middleware/rate-limit'
 import type { Env } from './types'
+
+const MINUTE = 60 * 1000
+// Brute-force guards for the public auth surface. Login is the crown-jewel
+// vector (password guess → escrow unwrap → plaintext journal), so it gets an
+// email-scoped limit plus an IP-scoped one; recover/register are lower-volume.
+const RATE_LIMITS = {
+  loginEmail: { limit: 10, windowMs: 15 * MINUTE },
+  loginIp: { limit: 30, windowMs: 15 * MINUTE },
+  recoverEmail: { limit: 5, windowMs: 15 * MINUTE },
+  registerIp: { limit: 5, windowMs: 15 * MINUTE },
+}
+
+function rateLimited(retryAfterSeconds?: number): Response {
+  const seconds = retryAfterSeconds ?? 60
+  return new Response(`Too many attempts. Retry in ${seconds}s`, {
+    status: 429,
+    headers: { 'Retry-After': String(seconds) },
+  })
+}
+
+/** Email from a clone of the request body (handlers parse the original). */
+async function bodyEmail(req: Request): Promise<string | null> {
+  try {
+    const body = (await req.clone().json()) as { email?: unknown }
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+    return email || null
+  } catch {
+    return null
+  }
+}
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -20,9 +51,35 @@ export default {
     const path = url.pathname
 
     // Public routes (no auth)
-    if (method === 'POST' && path === '/auth/register') return handleRegister(req, env)
-    if (method === 'POST' && path === '/auth/login') return handleLogin(req, env)
-    if (method === 'POST' && path === '/auth/recover') return handleRecover(req, env)
+    if (method === 'POST' && path === '/auth/register') {
+      const ip = clientIp(req)
+      if (ip) {
+        const rl = await kvRateLimit(env, 'register', ip, RATE_LIMITS.registerIp.limit, RATE_LIMITS.registerIp.windowMs)
+        if (!rl.allowed) return rateLimited(rl.retryAfterSeconds)
+      }
+      return handleRegister(req, env)
+    }
+    if (method === 'POST' && path === '/auth/login') {
+      const email = await bodyEmail(req)
+      const ip = clientIp(req)
+      if (email) {
+        const rl = await kvRateLimit(env, 'login', email, RATE_LIMITS.loginEmail.limit, RATE_LIMITS.loginEmail.windowMs)
+        if (!rl.allowed) return rateLimited(rl.retryAfterSeconds)
+      }
+      if (ip) {
+        const rl = await kvRateLimit(env, 'login-ip', ip, RATE_LIMITS.loginIp.limit, RATE_LIMITS.loginIp.windowMs)
+        if (!rl.allowed) return rateLimited(rl.retryAfterSeconds)
+      }
+      return handleLogin(req, env)
+    }
+    if (method === 'POST' && path === '/auth/recover') {
+      const email = await bodyEmail(req)
+      if (email) {
+        const rl = await kvRateLimit(env, 'recover', email, RATE_LIMITS.recoverEmail.limit, RATE_LIMITS.recoverEmail.windowMs)
+        if (!rl.allowed) return rateLimited(rl.retryAfterSeconds)
+      }
+      return handleRecover(req, env)
+    }
     if (method === 'POST' && path === '/auth/pair/redeem') return handlePairRedeem(req, env)
     if (method === 'POST' && path === '/auth/refresh') return handleRefresh(req, env)
 

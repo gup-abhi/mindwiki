@@ -30,21 +30,24 @@ function createFakeDb() {
       }
       if (/^SELECT \* FROM challenges WHERE id/.test(sql)) {
         const row = challenges.get(String(params[0]))
-        return { rows: row ? [row] : [], rowsAffected: 0 }
+        const visible = row && row.deleted_at == null
+        return { rows: visible ? [row] : [], rowsAffected: 0 }
       }
       if (/^SELECT \* FROM challenges WHERE status = 'active'/.test(sql)) {
         const rows = [...challenges.values()]
-          .filter((c) => c.status === 'active')
+          .filter((c) => c.status === 'active' && c.deleted_at == null)
           .sort((a, b) => Number(b.updated_at) - Number(a.updated_at))
         return { rows: rows.slice(0, 1), rowsAffected: 0 }
       }
-      if (/^SELECT \* FROM challenges ORDER BY updated_at/.test(sql)) {
-        const rows = [...challenges.values()].sort(
-          (a, b) => Number(b.updated_at) - Number(a.updated_at)
-        )
+      if (/^SELECT \* FROM challenges WHERE deleted_at IS NULL ORDER BY updated_at/.test(sql)) {
+        const rows = [...challenges.values()]
+          .filter((c) => c.deleted_at == null)
+          .sort((a, b) => Number(b.updated_at) - Number(a.updated_at))
         return { rows, rowsAffected: 0 }
       }
       if (/^DELETE FROM challenges WHERE id/.test(sql)) {
+        // Legacy handler — deleteChallenge now tombstones via UPDATE; kept dead
+        // so a regression to hard DELETE is caught by the SQL matcher.
         const existed = challenges.delete(String(params[0]))
         return { rows: [], rowsAffected: existed ? 1 : 0 }
       }
@@ -170,7 +173,7 @@ describe('storage/challenges CRUD', () => {
     if (!res.success) expect(res.error.code).toBe('CHALLENGE_NOT_FOUND')
   })
 
-  it('deletes a challenge', async () => {
+  it('deletes a challenge via a syncable tombstone instead of a local row drop', async () => {
     const { db } = createFakeDb()
     const created = await createChallenge({ title: 'Temp' }, db)
     if (!created.success) throw new Error('setup failed')
@@ -178,7 +181,36 @@ describe('storage/challenges CRUD', () => {
     const del = await deleteChallenge(created.data.id, db)
     expect(del.success).toBe(true)
 
+    // The row survives (it must sync as a tombstone), but every read hides it.
     const got = await getChallenge(created.data.id, db)
     expect(got.success && got.data).toBeNull()
+    const list = await listChallenges(db)
+    expect(list.success && list.data.length).toBe(0)
+    const active = await getActiveChallenge(db)
+    expect(active.success && active.data).toBeNull()
+  })
+
+  it('hides a challenge tombstoned by a remote device after the row lands locally', async () => {
+    const { db } = createFakeDb()
+    // Simulates a synced row: INSERT OR REPLACE carries deleted_at verbatim.
+    const created = await createChallenge({ title: 'Remote' }, db)
+    if (!created.success) throw new Error('setup failed')
+    await db.execute('UPDATE challenges SET deleted_at = ? WHERE id = ?', [Date.now(), created.data.id])
+
+    const got = await getChallenge(created.data.id, db)
+    expect(got.success && got.data).toBeNull()
+    const active = await getActiveChallenge(db)
+    expect(active.success && active.data).toBeNull()
+  })
+
+  it('refuses to update a deleted challenge (CHALLENGE_NOT_FOUND)', async () => {
+    const { db } = createFakeDb()
+    const created = await createChallenge({ title: 'Gone' }, db)
+    if (!created.success) throw new Error('setup failed')
+    await deleteChallenge(created.data.id, db)
+
+    const res = await updateChallenge(created.data.id, { current_streak: 1 }, db)
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('CHALLENGE_NOT_FOUND')
   })
 })

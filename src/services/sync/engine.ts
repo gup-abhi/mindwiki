@@ -20,6 +20,16 @@ import {
 } from './encryption'
 
 const LAST_PULL_KEY = 'sync:last_pull'
+// Resumable pull state: the delta window spans sync passes. `since` is the
+// data cursor (advanced only when the window is fully drained), `cursor` is the
+// server's R2 list position (pinned mid-window so a large window never
+// re-scans from the start), `windowMax` is the highest scanned updated_at seen
+// so far across the paused passes.
+const PULL_STATE_KEY = 'sync:pull_state'
+// Retry budget for records that fail to decrypt/parse/apply during a pull.
+// After this many failures the record is dropped permanently on this device
+// (count-only log) so a permanently-bad row cannot hold the cursor hostage.
+const QUARANTINE_MAX_ATTEMPTS = 3
 // Wall-clock time of the last successful sync (push+pull completed). Distinct
 // from LAST_PULL_KEY, which is a data cursor (newest remote updated_at) — that
 // doesn't move when there's nothing newer to pull, so it can't represent "last
@@ -76,7 +86,7 @@ const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => nu
   challenges: {
     columns: [
       'id', 'title', 'details', 'target_days', 'current_streak', 'last_checkin_date',
-      'status', 'affirmation', 'created_at', 'updated_at', 'completed_at',
+      'status', 'affirmation', 'created_at', 'updated_at', 'completed_at', 'deleted_at',
     ],
     updatedAt: (r) => Number(r.updated_at) || 0,
   },
@@ -312,10 +322,104 @@ function parseRow(value: string): Row | null {
   }
 }
 
+interface PullState {
+  since: number
+  cursor: string | null
+  windowMax: number
+}
+
+/** Read the resumable pull state; one-time seed from the legacy cursor key. */
+async function readPullState(db: SqliteDatabase): Promise<PullState> {
+  const ps = await getSetting(PULL_STATE_KEY, db)
+  if (ps.success && ps.data) {
+    try {
+      const parsed = JSON.parse(ps.data) as { since?: unknown; cursor?: unknown; windowMax?: unknown }
+      return {
+        since: typeof parsed.since === 'number' && Number.isFinite(parsed.since) ? parsed.since : 0,
+        cursor: typeof parsed.cursor === 'string' ? parsed.cursor : null,
+        windowMax: typeof parsed.windowMax === 'number' && Number.isFinite(parsed.windowMax) ? parsed.windowMax : 0,
+      }
+    } catch {
+      // fall through to the legacy key
+    }
+  }
+  const legacy = await getSetting(LAST_PULL_KEY, db)
+  const since = legacy.success && legacy.data ? Number(legacy.data) || 0 : 0
+  return { since, cursor: null, windowMax: 0 }
+}
+
+/** Persist the pull state (and the legacy key for older builds / rollback). */
+async function persistPullState(db: SqliteDatabase, state: PullState): Promise<void> {
+  await setSetting(PULL_STATE_KEY, JSON.stringify(state), db)
+  await setSetting(LAST_PULL_KEY, String(state.since), db)
+}
+
+interface QuarantineRow {
+  table: string
+  recordId: string
+  updatedAt: number
+  failures: number
+}
+
+/** Record a pull failure. Best-effort — quarantine must never fail the pull. */
+async function quarantineRecord(
+  table: SyncTable,
+  recordId: string,
+  updatedAt: number,
+  db: SqliteDatabase
+): Promise<void> {
+  try {
+    await db.execute(
+      `INSERT INTO sync_skipped (table_name, record_id, updated_at, failures, last_attempt)
+       VALUES (?, ?, ?, 1, ?)
+       ON CONFLICT(table_name, record_id) DO UPDATE SET
+         updated_at = excluded.updated_at,
+         failures = failures + 1,
+         last_attempt = excluded.last_attempt`,
+      [table, recordId, updatedAt, Date.now()]
+    )
+  } catch {
+    // never abort the pull over quarantine bookkeeping
+  }
+}
+
+async function clearQuarantine(table: SyncTable, recordId: string, db: SqliteDatabase): Promise<void> {
+  try {
+    await db.execute('DELETE FROM sync_skipped WHERE table_name = ? AND record_id = ?', [table, recordId])
+  } catch {
+    // best-effort
+  }
+}
+
+async function listQuarantine(db: SqliteDatabase): Promise<QuarantineRow[]> {
+  const res = await db.execute('SELECT table_name, record_id, updated_at, failures FROM sync_skipped')
+  return res.rows.map((r) => ({
+    table: String(r.table_name),
+    recordId: String(r.record_id),
+    updatedAt: Number(r.updated_at) || 0,
+    failures: Number(r.failures) || 0,
+  }))
+}
+
+/** Drop quarantine rows that can no longer be re-fetched (below the cursor). */
+async function purgeQuarantine(db: SqliteDatabase, since: number): Promise<void> {
+  try {
+    await db.execute('DELETE FROM sync_skipped WHERE updated_at <= ?', [since])
+  } catch {
+    // best-effort
+  }
+}
+
 /**
  * Pull records changed since the last cursor, decrypt them, and apply the ones
- * that win last-write-wins against the local copy. Advances the cursor to the
- * newest applied updated_at. Returns the count applied.
+ * that win last-write-wins against the local copy. The delta window is
+ * resumable: a large window pauses at MAX_DELTA_PAGES and continues from the
+ * server's R2 list cursor on the next sync pass — never a hard failure. The
+ * data cursor advances only when the window is fully drained, so no record with
+ * updated_at > since is ever skipped unseen. Records that fail to
+ * decrypt/parse/apply are quarantined (excluded from the cursor) and retried on
+ * later windows; after QUARANTINE_MAX_ATTEMPTS failures they are dropped
+ * permanently on this device (count-only log).
  */
 export async function pullDelta(
   masterKeyHex: string,
@@ -323,14 +427,19 @@ export async function pullDelta(
   db: SqliteDatabase = getDb(),
   isCurrent: () => boolean = () => true
 ): Promise<Result<number>> {
-  const cursor = await getSetting(LAST_PULL_KEY, db)
-  const since = cursor.success && cursor.data ? Number(cursor.data) : 0
+  const state = await readPullState(db)
+  const since = state.since
 
+  // Phase 1 — resumable scan. The server lists objects in opaque key order, so
+  // the R2 list cursor pins the position mid-window; the `since` filter is
+  // server-side and unchanged.
   const remote: DeltaRecord[] = []
   let ciphertextHexLength = 0
-  let nextCursor: string | null = null
+  let nextCursor: string | null = state.cursor
   const seenCursors = new Set<string>()
+  let cursorReset = false
   let pageCount = 0
+  let paused = false
   do {
     const suffix = nextCursor ? `&cursor=${encodeURIComponent(nextCursor)}` : ''
     const resp = await authenticatedFetch(
@@ -338,7 +447,17 @@ export async function pullDelta(
       { method: 'GET' }
     )
     if (!resp.success) return resp
-    if (!resp.data.ok) return err('SYNC_PULL_FAILED', 'Delta request failed')
+    if (!resp.data.ok) {
+      // A persisted list cursor can go stale across app restarts; fall back to
+      // listing from the start (same since — idempotent) instead of wedging.
+      if (nextCursor && !cursorReset) {
+        nextCursor = null
+        seenCursors.clear()
+        cursorReset = true
+        continue
+      }
+      return err('SYNC_PULL_FAILED', 'Delta request failed')
+    }
     let unknownPage: unknown
     try {
       unknownPage = await resp.data.json()
@@ -347,22 +466,28 @@ export async function pullDelta(
     }
     const page = parseDeltaPage(unknownPage)
     if (!page) return err('SYNC_PULL_FAILED', 'Malformed delta response')
-    ciphertextHexLength += page.records.reduce((sum, record) => sum + record.ciphertext.length, 0)
-    if (ciphertextHexLength > MAX_DELTA_CIPHERTEXT_HEX) {
-      return err('SYNC_PULL_FAILED', 'Delta response limit exceeded')
-    }
     remote.push(...page.records)
-    if (page.next_cursor && seenCursors.has(page.next_cursor)) {
+    ciphertextHexLength += page.records.reduce((sum, record) => sum + record.ciphertext.length, 0)
+    const hadMore = page.next_cursor != null
+    if (hadMore && seenCursors.has(page.next_cursor as string)) {
       return err('SYNC_PULL_FAILED', 'Repeated delta cursor')
     }
-    if (page.next_cursor) seenCursors.add(page.next_cursor)
+    if (hadMore) seenCursors.add(page.next_cursor as string)
     nextCursor = page.next_cursor
     pageCount++
-    if (pageCount > MAX_DELTA_PAGES) return err('SYNC_PULL_FAILED', 'Delta pagination limit exceeded')
+    // Pause (never fail) when the pass budget is exhausted — the resume cursor
+    // is persisted so the next sync continues exactly where this one stopped.
+    if (hadMore && (pageCount >= MAX_DELTA_PAGES || ciphertextHexLength > MAX_DELTA_CIPHERTEXT_HEX)) {
+      paused = true
+      break
+    }
   } while (nextCursor)
 
+  // Phase 2 — decode + apply per table. Failures are quarantined (retried on a
+  // later window) rather than aborting the pull or silently dropping the row.
   let applied = 0
-  let maxUpdated = since
+  const windowCandidates = new Map<string, number>()
+  const failed = new Set<string>()
   for (const table of SYNCED_TABLES) {
     if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
     // Decrypt this table's records first; skip any that don't decrypt (tamper /
@@ -373,13 +498,29 @@ export async function pullDelta(
       const dec = r.version === 2
         ? await decryptRecord(r.ciphertext, r.sync_id, masterKeyHex, accountId, table)
         : await decryptLegacyRecord(r.ciphertext, r.record_id, masterKeyHex)
-      if (!dec.success) continue
+      if (!dec.success) {
+        // The record id is inside the ciphertext, so a decrypt failure has to be
+        // keyed by the wire identity (sync_id for V2, record_id for legacy). If
+        // it ever decrypts, apply clears the row by the real id and the purge
+        // below drops any stale entry.
+        await quarantineRecord(table, r.version === 2 ? r.sync_id : r.record_id, r.updated_at, db)
+        continue
+      }
       const row = parseRow(dec.data)
-      if (!row || typeof row.id !== 'string' || !row.id) continue
+      if (!row || typeof row.id !== 'string' || !row.id) {
+        await quarantineRecord(table, r.version === 2 ? r.sync_id : r.record_id, r.updated_at, db)
+        continue
+      }
       const recordId = String(row.id)
-      if (r.version === 1 && recordId !== r.record_id) continue
-      if (r.version === 2 && createSyncId(masterKeyHex, accountId, table, recordId) !== r.sync_id) continue
-      maxUpdated = Math.max(maxUpdated, r.updated_at)
+      if (r.version === 1 && recordId !== r.record_id) {
+        await quarantineRecord(table, r.record_id, r.updated_at, db)
+        continue
+      }
+      if (r.version === 2 && createSyncId(masterKeyHex, accountId, table, recordId) !== r.sync_id) {
+        await quarantineRecord(table, r.sync_id, r.updated_at, db)
+        continue
+      }
+      windowCandidates.set(`${table}:${recordId}`, r.updated_at)
       decoded.push({ record_id: recordId, updated_at: r.updated_at, row, legacy: r.version === 1 })
     }
     if (decoded.length === 0) continue
@@ -417,22 +558,53 @@ export async function pullDelta(
             [d.record_id]
           )
         }
+        await clearQuarantine(table, d.record_id, db)
       } catch {
         // A single malformed/constraint-violating row must not abort the whole
         // pull — that would also block every table applied after it (entries is
         // first) and leave the cursor un-advanced, wedging sync permanently on
-        // the same row. Skip it, same policy as decrypt failure. Count/type only:
-        // some synced record IDs contain user-derived labels.
+        // the same row. Quarantine it for a bounded number of retries instead.
+        // Count/type only: some synced record IDs contain user-derived labels.
+        await quarantineRecord(table, d.record_id, d.updated_at, db)
+        failed.add(`${table}:${d.record_id}`)
         console.warn(`sync_apply_skipped table=${table}`)
         continue
       }
-      maxUpdated = Math.max(maxUpdated, d.updated_at)
       applied++
     }
   }
 
   if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
-  await setSetting(LAST_PULL_KEY, String(maxUpdated), db)
+
+  // Phase 3 — cursor advance. The cursor only moves when the window is fully
+  // drained, and only over records that applied or lost LWW; quarantined rows
+  // stay above the cursor so they are re-fetched until their budget runs out.
+  let windowMax = 0
+  for (const [key, ts] of windowCandidates) {
+    if (!failed.has(key)) windowMax = Math.max(windowMax, ts)
+  }
+  const nextState: PullState = { since, cursor: nextCursor, windowMax: state.windowMax }
+  if (paused) {
+    nextState.windowMax = Math.max(state.windowMax, windowMax)
+  } else {
+    nextState.since = Math.max(since, state.windowMax, windowMax)
+    nextState.cursor = null
+    nextState.windowMax = 0
+    // Rows that exhausted their retry budget are dropped permanently: count them
+    // toward the cursor (never re-fetched) and clear them. Stale rows below the
+    // cursor can never be re-fetched either — clear those too.
+    for (const q of await listQuarantine(db)) {
+      if (q.failures >= QUARANTINE_MAX_ATTEMPTS) {
+        nextState.since = Math.max(nextState.since, q.updatedAt)
+        await db.execute('DELETE FROM sync_skipped WHERE table_name = ? AND record_id = ?', [q.table, q.recordId])
+      }
+    }
+    await purgeQuarantine(db, nextState.since)
+    // The first fully-drained window after a login/pair is the restore boundary.
+    useSyncStore.getState().endRestore()
+  }
+  await persistPullState(db, nextState)
+
   // Tell data hooks to refetch so a first-login pull shows up immediately
   // (and rebuild the derived graph from the now-synced entries).
   if (applied > 0) {
@@ -481,9 +653,9 @@ export async function sync(): Promise<Result<{ pushed: number; pulled: number }>
     if (!lease.checkpoint()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
 
     await setSetting(LAST_SYNCED_KEY, String(Date.now()), db)
-    // The first successful pull after a login/pair has landed — stop showing the
-    // "restoring your data" UI.
-    store.endRestore()
+    // Restore-UI handling lives inside pullDelta: endRestore fires only when a
+    // delta window fully drains, so a large multi-pass restore keeps its
+    // reassurance banner until the data actually lands.
     return ok({ pushed: pushed.data, pulled: pulled.data })
   } finally {
     store.setSyncing(false)
