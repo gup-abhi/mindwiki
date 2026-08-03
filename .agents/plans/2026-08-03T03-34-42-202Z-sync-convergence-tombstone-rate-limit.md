@@ -200,3 +200,28 @@ All items shipped + verified. Deviations from the plan (reality notes):
 ### Scope check
 - Deferred as planned: entries tombstone (§22.1), refresh-token reuse detection, push-relay drift, rebuildGraph gating, allowlist trap test, equal-LWW.
 - Nothing outside the plan was touched (10 modified files, 2 new: rate-limit.ts, migration037; challenge screens/useChallenge unaffected — tombstone transparent).
+
+## 8. FOLLOW-UP BATCH (2026-08-03) — deferred findings 6a–6e done
+
+**6a — refresh-token replay detection + family invalidation (P2, server)**
+- refresh.ts: rotated tokens are now kept as `used` markers (TTL = token lifetime) instead of deleted. Presenting a used token = replay → the whole family is invalidated → 401 'Refresh token reuse detected'. A stolen session can no longer refresh undetected; the real device is forced to re-login (family check in authMiddleware kills its access too). Marker growth bounded by TTL; client single-flights refresh per token, so same-token retry races don't false-positive.
+- Verified via wrangler dev: rotate → replay old = 401 reuse-detected → new token = 401 'Session invalidated' → access token = 401.
+
+**6b — push-relay doc drift (P2, docs)**
+- docs/SERVER.md: removed APNS_KEY/APNS_KEY_ID/APNS_TEAM_ID/FCM_SERVICE_ACCOUNT secrets, `push:{account_id}` KV schema, `/push/register` route + Env fields. Added a note: notifications are local-only today; server-side push relay is future work. No code change — `server/src/` never had push code.
+
+**6c — rebuildGraph gating (P3)**
+- engine.ts: full graph rebuild now only fires when the window applied `entries` or `entry_entities` rows (the only tables rebuildGraph reads). Other tables (chat_messages, streak_freezes, …) just bump the revision.
+
+**6d — synced-column allowlist trap (P3, test)**
+- engine.ts now exports `TABLES`; new guard tests in engine.test.ts walk MIGRATIONS (CREATE TABLE + ALTER ADD COLUMN) and assert (a) every TABLES column exists in the schema, (b) every schema column of a synced table is either in TABLES or declared local-only (`LOCAL_ONLY` = { entries: [wiki_indexed_at, graph_indexed_at] }). Verified red on a planted phantom column.
+
+**6e — equal-timestamp LWW divergence (P3, client)**
+- Key discovery: `createSyncId` is a deterministic HMAC of (account, table, record_id) — identical on every device — so sync_id is record identity, NOT a per-save version id; the server stores at most one object per record and can't break ties. My first approach (sync_ids mapping table + sync_id tie-break, migration 038) was WRONG and fully reverted.
+- Correct fix, client-only: on equal updated_at, compare the projected content (`JSON.stringify` of TABLES columns in order) — the larger content wins. Own pushes project identically → skipped → no re-pull churn. When the LOCAL content wins a tie, the record is re-enqueued so the server (which overwrites on tie) adopts the winner and the other device pulls it — full convergence. conflict.ts shouldApplyRemote gained content args; engine localState returns content projections; legacy V1 rows (content always known) fit the same rule.
+
+**5 — entries deletion tombstone: NOT implemented** — no deleteEntry UI caller exists today (§22.1); implementing would be speculative code. Same tombstone pattern as challenges when the feature ships.
+
+### Verification
+- tsc clean (client + server). 183 suites / 1658 tests (+9: 3 conflict, 3 engine tie/dedupe-repush, 2 guard, 1 conflict tie suite — net). Server: typecheck + wrangler dev replay test (above).
+- All committed + pushed (see git log).

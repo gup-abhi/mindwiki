@@ -52,11 +52,12 @@ wrangler r2 bucket create mindwiki-sync-staging
 
 # Secrets (never in wrangler.toml)
 wrangler secret put JWT_SECRET              # 256-bit random hex
-wrangler secret put APNS_KEY               # APNs private key (.p8 content)
-wrangler secret put APNS_KEY_ID
-wrangler secret put APNS_TEAM_ID
-wrangler secret put FCM_SERVICE_ACCOUNT    # FCM v1 service account JSON
 ```
+
+> **Notifications are local-only today.** The app schedules local notifications;
+> there is no APNs/FCM relay in `server/src/` and no `push:` KV namespace. A
+> server-side push relay (digest-ready style prompts, never journal content) is
+> future work — the client already routes candidates locally with a dedupe key.
 
 ---
 
@@ -91,12 +92,10 @@ refresh:{token_hash}
 
 family:{family_id}
   → { account_id: string, invalidated: boolean }
-  Invalidated by self logout, remote device revoke, or future replay handling.
-  KV reads/writes are not strongly transactional; client single-flight is not
-  a strict server-side replay guarantee.
-
-push:{account_id}
-  → { tokens: Array<{ token: string, platform: 'ios' | 'android' }> }
+  Invalidated by self logout, remote device revoke, or replay detection — when
+  a rotated refresh token is presented again, the family is invalidated so a
+  stolen session dies. KV reads/writes are not strongly transactional; client
+  single-flight is not a strict server-side replay guarantee.
 
 email:{email_lower}
   → { account_id: string }
@@ -123,17 +122,12 @@ import { handleDeleteAccount } from './auth/delete-account'
 import { handleUpload } from './storage/upload'
 import { handleDelta } from './storage/delta'
 import { handleStorageDelete } from './storage/delete'
-import { handleRegisterPush } from './push/register'
 import { authMiddleware } from './middleware/auth'
 
 export interface Env {
   AUTH_KV: KVNamespace
   R2: R2Bucket
   JWT_SECRET: string
-  APNS_KEY: string
-  APNS_KEY_ID: string
-  APNS_TEAM_ID: string
-  FCM_SERVICE_ACCOUNT: string
 }
 
 export default {
@@ -157,6 +151,7 @@ export default {
 
     if (method === 'POST'   && path === '/auth/logout')           return handleLogout(req, env, accountId, familyId)
     if (method === 'DELETE' && path.startsWith('/auth/devices/')) return handleRevokeDevice(req, env, accountId, familyId, decodeURIComponent(path.slice('/auth/devices/'.length)))
+    // No /push/register route — notifications are local-only (see above).
     if (method === 'POST'   && path === '/auth/change-password')  return handleChangePassword(req, env, accountId)
     if (method === 'GET'    && path === '/auth/recovery')         return handleRecoveryStatus(req, env, accountId)
     if (method === 'POST'   && path === '/auth/recovery')         return handleSetRecovery(req, env, accountId)
@@ -165,7 +160,6 @@ export default {
     if (method === 'PUT'    && path.startsWith('/sync/'))         return handleUpload(req, env, accountId, path)
     if (method === 'GET'    && path.endsWith('/delta'))           return handleDelta(req, env, accountId, url)
     if (method === 'DELETE' && path.startsWith('/sync/'))         return handleStorageDelete(req, env, accountId)
-    if (method === 'POST'   && path === '/push/register')         return handleRegisterPush(req, env, accountId)
 
     return new Response('Not Found', { status: 404 })
   }

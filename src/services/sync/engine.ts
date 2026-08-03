@@ -11,7 +11,14 @@ import { type Result, ok, err } from '@/types/result'
 import { repairLegacyRow } from '@/services/wiki/legacy-backfill'
 import { startSessionWork } from '@/services/auth/session-work'
 
-import { SYNCED_TABLES, recordsToApply, type SyncTable, type Versioned } from './conflict'
+import {
+  SYNCED_TABLES,
+  recordsToApply,
+  shouldApplyRemote,
+  type SyncTable,
+  type Versioned,
+  type LocalVersion,
+} from './conflict'
 import {
   createSyncId,
   decryptLegacyRecord,
@@ -48,7 +55,7 @@ type Row = Record<string, unknown>
 
 // Per-table sync config: which columns make up a record and how to read its
 // effective last-modified time.
-const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => number }> = {
+export const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => number }> = {
   entries: {
     columns: [
       'id', 'created_at', 'mood', 'situation', 'thought', 'behavior',
@@ -154,16 +161,27 @@ async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Prom
 }
 
 /** Local updated_at for a set of record ids (missing ids are simply absent). */
-async function localUpdatedAt(
+/** Deterministic projection of a row's synced columns — equal-ts tie-break. */
+function projectContent(table: SyncTable, row: Row): string {
+  return JSON.stringify(TABLES[table].columns.map((c) => row[c] ?? null))
+}
+
+/** Local version (updated_at + content projection) for each of the given ids. */
+async function localState(
   table: SyncTable,
   ids: string[],
   db: SqliteDatabase
-): Promise<Map<string, number>> {
-  const map = new Map<string, number>()
+): Promise<Map<string, LocalVersion>> {
+  const map = new Map<string, LocalVersion>()
   if (ids.length === 0) return map
   const placeholders = ids.map(() => '?').join(', ')
   const res = await db.execute(`SELECT * FROM ${table} WHERE id IN (${placeholders})`, ids)
-  for (const row of res.rows) map.set(String(row.id), TABLES[table].updatedAt(row))
+  for (const row of res.rows) {
+    map.set(String(row.id), {
+      updated_at: TABLES[table].updatedAt(row),
+      content: projectContent(table, row),
+    })
+  }
   return map
 }
 
@@ -486,6 +504,7 @@ export async function pullDelta(
   // Phase 2 — decode + apply per table. Failures are quarantined (retried on a
   // later window) rather than aborting the pull or silently dropping the row.
   let applied = 0
+  let graphAffected = false
   const windowCandidates = new Map<string, number>()
   const failed = new Set<string>()
   for (const table of SYNCED_TABLES) {
@@ -520,16 +539,23 @@ export async function pullDelta(
         await quarantineRecord(table, r.sync_id, r.updated_at, db)
         continue
       }
-      windowCandidates.set(`${table}:${recordId}`, r.updated_at)
-      decoded.push({ record_id: recordId, updated_at: r.updated_at, row, legacy: r.version === 1 })
+      decoded.push({
+        record_id: recordId,
+        updated_at: r.updated_at,
+        content: projectContent(table, row),
+        row,
+        legacy: r.version === 1,
+      })
     }
     if (decoded.length === 0) continue
 
-    const local = await localUpdatedAt(table, decoded.map((d) => d.record_id), db)
+    for (const d of decoded) windowCandidates.set(`${table}:${d.record_id}`, d.updated_at)
+
+    const local = await localState(table, decoded.map((d) => d.record_id), db)
     // Existing local rows discovered through legacy objects need one V2 upload.
     // This migrates identity/ciphertext without deleting legacy R2 objects.
     for (const d of decoded) {
-      if (d.legacy && local.has(d.record_id) && (local.get(d.record_id) ?? 0) >= d.updated_at) {
+      if (d.legacy && local.has(d.record_id) && (local.get(d.record_id)?.updated_at ?? 0) >= d.updated_at) {
         await enqueueUpsert(table, d.record_id, db)
       }
     }
@@ -571,6 +597,21 @@ export async function pullDelta(
         continue
       }
       applied++
+      // Graph rebuilds only ever read entries + entry_entities; skip the full
+      // clear+re-derive for windows that touched only other tables.
+      if (table === 'entries' || table === 'entry_entities') graphAffected = true
+    }
+    // Equal-timestamp tie where the LOCAL content won: the server still holds
+    // the loser (it overwrites on tie), so re-push the winner to converge every
+    // device on it. Identical content (own push) never reaches here — recordsToApply
+    // skipped it because contents are equal, and this pass requires a difference.
+    for (const d of decoded) {
+      const localRow = local.get(d.record_id)
+      if (!localRow || localRow.updated_at !== d.updated_at) { continue }
+      if (localRow.content === null || d.content === null || localRow.content === d.content) { continue }
+      if (localRow.content === null || d.content === null || localRow.content === d.content) continue
+      const apply = shouldApplyRemote(localRow.updated_at, localRow.content, d.updated_at, d.content ?? null)
+      if (!apply) await enqueueUpsert(table, d.record_id, db)
     }
   }
 
@@ -606,9 +647,9 @@ export async function pullDelta(
   await persistPullState(db, nextState)
 
   // Tell data hooks to refetch so a first-login pull shows up immediately
-  // (and rebuild the derived graph from the now-synced entries).
+  // (and rebuild the derived graph only when the window touched graph tables).
   if (applied > 0) {
-    await rebuildGraph()
+    if (graphAffected) await rebuildGraph()
     useSyncStore.getState().bumpRevision()
   }
   return ok(applied)

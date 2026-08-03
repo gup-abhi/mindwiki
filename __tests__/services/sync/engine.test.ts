@@ -1,7 +1,8 @@
 import { authenticatedFetch } from '@/services/auth/api-client'
 import { getTokens } from '@/services/auth/token-store'
 import { type SqliteDatabase } from '@/services/storage/db'
-import { pushPending, pullDelta, sync } from '@/services/sync/engine'
+import { MIGRATIONS } from '@/services/storage/migrations'
+import { pushPending, pullDelta, sync, TABLES } from '@/services/sync/engine'
 import { decryptRecord } from '@/services/sync/encryption'
 import { useSyncStore } from '@/store/sync.store'
 
@@ -169,7 +170,7 @@ function fakeDb() {
     },
     close() {},
   }
-return { db, syncQueue, entries, settings, entityRows, wikiPages, skipped }
+  return { db, syncQueue, entries, settings, entityRows, wikiPages, skipped }
 }
 
 const deltaPage = (json: unknown): unknown => {
@@ -758,5 +759,129 @@ describe('sync/engine F-02B entry_entities effective-label sync', () => {
     // canonical_label = null so the raw label is its own canonical identity.
     expect(entityRows.get('ent1')?.updated_at).toBe(1500)
     expect(entityRows.get('ent1')?.canonical_label).toBeNull()
+  })
+})
+
+describe('sync/engine sync allowlist vs schema (trap guard)', () => {
+  // The sync column allowlist (TABLES) and the SQLite schema (MIGRATIONS) are
+  // maintained separately. A column added to the schema but not to TABLES
+  // silently drops from sync (applyRemote binds TABLES columns only); a TABLES
+  // column removed from the schema breaks every INSERT. This guard cross-checks
+  // both directions: TABLES must be a subset of the schema, and every schema
+  // column that is not synced must be a declared local-only column.
+  function schemaColumns(): Map<string, Set<string>> {
+    const cols = new Map<string, Set<string>>()
+    const add = (t: string, c: string) => {
+      if (!cols.has(t)) cols.set(t, new Set())
+      cols.get(t)!.add(c)
+    }
+    for (const m of MIGRATIONS) {
+      for (const stmt of m.statements) {
+        const create = /CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\(([\s\S]*?)\)\s*$/.exec(stmt)
+        if (create) {
+          for (const mm of create[2].matchAll(/\b(\w+)\s+(TEXT|INTEGER|REAL|BLOB|NUMERIC)\b/g)) {
+            add(create[1], mm[1])
+          }
+          continue
+        }
+        const alter = /ALTER TABLE (\w+) ADD COLUMN (\w+)/.exec(stmt)
+        if (alter) add(alter[1], alter[2])
+      }
+    }
+    return cols
+  }
+
+  // Columns deliberately NOT synced (device-local bookkeeping). Adding a schema
+  // column that lands here without also declaring it is the trap this guards.
+  const LOCAL_ONLY: Record<string, string[]> = {
+    entries: ['wiki_indexed_at', 'graph_indexed_at'],
+  }
+
+  const expectColumn = (cond: boolean, msg: string) => {
+    if (!cond) throw new Error(msg)
+  }
+
+  it('every TABLES column exists in the schema', () => {
+    const schema = schemaColumns()
+    for (const [table, cfg] of Object.entries(TABLES)) {
+      const actual = schema.get(table)
+      expectColumn(!!actual, `table ${table} missing from schema`)
+      for (const col of cfg.columns) {
+        expectColumn(actual!.has(col), `sync allowlist column ${table}.${col} not in schema`)
+      }
+    }
+  })
+
+  it('every schema column of a synced table is either synced or declared local-only', () => {
+    const schema = schemaColumns()
+    for (const table of Object.keys(TABLES)) {
+      const actual = schema.get(table)
+      if (!actual) continue
+      const expectedLocal = new Set(LOCAL_ONLY[table] ?? [])
+      for (const col of actual) {
+        if (TABLES[table as keyof typeof TABLES].columns.includes(col)) continue
+        expectColumn(
+          expectedLocal.has(col),
+          `schema column ${table}.${col} is neither in the sync allowlist nor declared local-only`
+        )
+      }
+    }
+  })
+})
+describe('sync/engine pullDelta equal-timestamp LWW (6e)', () => {
+  beforeEach(() => {
+    mockFetch.mockReset()
+    useSyncStore.setState({ revision: 0, restoring: false })
+  })
+
+  it('does not re-apply an own push (identical content, equal ts)', async () => {
+    const { db, entries, settings, syncQueue } = fakeDb()
+    entries.set('e1', entryRow('e1', { updated_at: 1000 }))
+    mockFetch.mockResolvedValue(
+      okResp([
+        { version: 2, table: 'entries', sync_id: 'a'.repeat(64), ciphertext: mockWire(JSON.stringify(entryRow('e1', { updated_at: 1000 }))), updated_at: 1000 },
+      ])
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success && res.data).toBe(0) // own blob — no churn, no re-push
+    expect(entries.get('e1')?.situation).toBe('s')
+    expect(syncQueue.has('entries:e1')).toBe(false)
+    expect(settings.get('sync:last_pull')).toBe('1000')
+  })
+
+  it('adopts a different writer when remote content wins the tie', async () => {
+    const { db, entries, settings } = fakeDb()
+    entries.set('e1', entryRow('e1', { updated_at: 1000 }))
+    mockFetch.mockResolvedValue(
+      okResp([
+        { version: 2, table: 'entries', sync_id: 'a'.repeat(64), ciphertext: mockWire(JSON.stringify(entryRow('e1', { updated_at: 1000, situation: 'zzz other device' }))), updated_at: 1000 },
+      ])
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success && res.data).toBe(1)
+    expect(entries.get('e1')?.situation).toBe('zzz other device')
+    expect(settings.get('sync:last_pull')).toBe('1000')
+  })
+
+  it('re-pushes the local winner so the server converges on it', async () => {
+    const { db, entries, settings, syncQueue } = fakeDb()
+    entries.set('e1', entryRow('e1', { updated_at: 1000, situation: 'zzz local winner' }))
+    mockFetch.mockResolvedValue(
+      okResp([
+        { version: 2, table: 'entries', sync_id: 'a'.repeat(64), ciphertext: mockWire(JSON.stringify(entryRow('e1', { updated_at: 1000, situation: 'a' }))), updated_at: 1000 },
+      ])
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    
+    expect(res.success && res.data).toBe(0) // local kept
+    expect(entries.get('e1')?.situation).toBe('zzz local winner')
+    expect(syncQueue.get('entries:e1')?.synced_at).toBeNull() // pending re-push
+    expect(settings.get('sync:last_pull')).toBe('1000')
   })
 })
