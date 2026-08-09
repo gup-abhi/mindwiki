@@ -4,11 +4,13 @@ const {
   addIosPrivacyOverlay,
   hardenReleaseSigning,
   setNetworkInspectorDisabled,
+  applyAndroidBackupProtection,
 } = require('../../plugins/withPrivacyProtection') as {
   addAndroidFlagSecure: (contents: string, language: 'kt' | 'java') => string
   addIosPrivacyOverlay: (contents: string, language: string) => string
   hardenReleaseSigning: (contents: string) => string
   setNetworkInspectorDisabled: (properties: { type: string; key?: string; value?: string }[]) => { type: string; key?: string; value?: string }[]
+  applyAndroidBackupProtection: (application: { $: Record<string, string> }) => void
 }
 
 const kotlin = `package com.example
@@ -57,6 +59,23 @@ describe('privacy config plugin transforms', () => {
     expect(hardened).not.toContain('signingConfig signingConfigs.debug')
     expect(hardened).toContain('minifyEnabled true')
     expect(hardenReleaseSigning(`buildTypes {\n  release {\n    nested { value true }\n    signingConfig signingConfigs.debug\n  }\n}`)).not.toContain('signingConfig signingConfigs.debug')
+  })
+
+  it('disables Android backup without assigning a boolean to data extraction rules', () => {
+    const application = {
+      $: {
+        'android:dataExtractionRules': 'false',
+        'tools:replace': 'android:allowBackup,android:fullBackupContent,android:dataExtractionRules',
+      },
+    }
+
+    applyAndroidBackupProtection(application)
+
+    expect(application.$).toEqual({
+      'android:allowBackup': 'false',
+      'android:fullBackupContent': 'false',
+      'tools:replace': 'android:allowBackup,android:fullBackupContent',
+    })
   })
 
   it('forces dev-client network inspection off', () => {

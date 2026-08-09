@@ -1,8 +1,10 @@
 # Factual Personal Knowledge — Architecture Research
 
-> **Status:** Research proposal for review. No implementation approved or started.
+> **Status:** V1 non-device architecture contract specified on 2026-08-04; implementation remains blocked by the readiness gates in §26.10. No implementation has started.
 >
 > **Purpose:** Extend MindWiki from a knowledge base focused mainly on thoughts, emotions, beliefs, and patterns into one that can also retain user-stated personal facts safely and accurately.
+>
+> **Normative contract:** §26 supersedes earlier candidate lists and unresolved design questions where they conflict.
 
 ---
 
@@ -19,10 +21,10 @@ A claim such as “Sarah is my sister” can stand alone. A situation such as �
 
 **Recommendation:** add a provenance-first **episodic situation layer and semantic claim layer** beside the existing wiki.
 
-- Immutable entries and eligible user-authored Reflect messages remain lossless source evidence.
+- Entries and eligible user-authored Reflect messages remain primary source evidence. A source may be locally deleted, so structured memory must tolerate dangling evidence references.
 - New situation records preserve what happened, with whom, where, when, and under which perspective.
 - New claim records preserve durable user-stated details and their current/historical lifecycle.
-- Situation and claim lifecycle changes use append-only records, not mutable last-write-wins state; current sync cannot safely propagate record deletion or resolve equal-timestamp edits.
+- Situation and claim lifecycle changes use append-only records rather than mutable status. Current mutable-row sync now converges equal-timestamp writes deterministically, and challenge tombstones demonstrate synchronized concealment; neither provides semantic lifecycle history or physical remote erasure.
 - Wiki pages remain synthesized, evolving narrative interpretations rather than factual source of truth.
 - Existing co-occurrence graph remains separate; factual/event relationships are derived views only.
 - Raw sources and structured memory remain on-device and sync only as encrypted records through existing zero-knowledge sync.
@@ -76,7 +78,7 @@ Current entry pipeline is centered in `src/services/pipeline.ts`:
 
 ```text
 Journal / Guided Path / eligible Reflect capture
-  → save immutable entry immediately
+  → save primary source entry immediately
   → fast-model crisis assessment
   → deep-model structured extraction
   → persist tags and entities
@@ -181,11 +183,13 @@ Findings:
 - Records are encrypted individually before upload.
 - Server stores opaque ciphertext under account/table/record keys.
 - Server does not need record schema knowledge.
-- Mutable client records use `updated_at` last-write-wins.
+- Mutable client records converge by `updated_at`; exact timestamp ties use a deterministic lexicographic projection of synced column content, and the local winner is re-enqueued so devices converge.
+- `challenges` uses `deleted_at` plus an `updated_at` bump and ordinary encrypted upsert as a live synchronized-tombstone pattern. This conceals a row across devices but does not delete its R2 ciphertext.
 - Synced entries are not re-synthesized independently on every device; origin-generated wiki records sync separately.
 - Graph remains device-local and is rebuilt after pulls.
+- The global `sync:backfilled` marker does not revisit tables introduced after it was set.
 
-New claim tables would require client sync registration, but no plaintext-aware server feature.
+New structured-memory tables require client/server allowlist registration and a dedicated versioned sync backfill, but no plaintext-aware server feature.
 
 ---
 
@@ -465,7 +469,9 @@ They may share one completion while retaining separate schema/version boundaries
 Requirements:
 
 - set only after situation, claim, and provenance transaction commits;
-- synced with entry metadata;
+- device-local and excluded from the synced entry payload;
+- never bump `entries.updated_at` or `tagged_at`, and never enqueue the entry merely to stamp extraction completion;
+- follow the existing `markWikiIndexed()` / `markGraphIndexed()` pattern, not the `applyTags()` update path;
 - missing/older value remains eligible for retry or deliberate backfill;
 - extractor-version bump enables migration to improved extraction rules;
 - catch-up remains restart-safe and best-effort.
@@ -477,19 +483,24 @@ Claim identity needs two levels:
 1. opaque record ID for storage and encrypted sync;
 2. local canonical key for detecting equivalent claims.
 
-Canonical comparison may normalize:
+V1 canonical comparison is deliberately exact:
 
 ```text
-subject + predicate + typed object + temporal scope
+subject_type + normalized subject_label + predicate
++ object_type + normalized typed object + explicit temporal scope
 ```
 
-Situation identity is stricter. V1 situations remain source-scoped by default. Similar participants, type, place, and time may nominate `possibly_same_as`, but automatic cross-source merge is prohibited until event-coreference precision is measured. A user-directed grouping event may merge views while preserving every original situation and mention.
+Equivalent evidence attaches to one claim only when this exact key matches. Surface aliases do not match: `Sarah`, `Sis`, and `my sister` remain distinct. Embeddings, current graph labels, and semantic similarity must not establish factual identity. User-directed aliases may be designed later while preserving original assertions and evidence.
+
+Situation identity is stricter. V1 situations remain source-scoped. Similar participants, type, place, and time do not automatically merge or establish `same_as`. A user-directed grouping event may compose views while preserving every original situation and mention.
 
 Do not expose unhashed canonical content as server record ID. Predictable record IDs could leak information through dictionary guessing even when payload is encrypted. If deterministic cross-device IDs become necessary, derive them using keyed HMAC under master key.
 
 ---
 
-## 7. Initial structured-memory registries
+## 7. Initial structured-memory registry research
+
+> The candidate lists in this section are retained as design history. The normative v1 registries are in §26.2–26.3.
 
 Avoid arbitrary predicates, full FrameNet, or universal event ontology in v1. Small on-device model needs constrained choices, optional fields, and strict validation.
 
@@ -726,13 +737,15 @@ Current status is deterministic projection. No prior assertion, situation, evide
 
 ### 9.4 Repeated evidence
 
-When later source supports equivalent claim:
+When a later source matches the exact v1 claim key defined in §26.5:
 
-- reuse canonical active claim;
-- add source link;
-- do not create duplicate visible claim;
+- reuse the exact-key active claim;
+- add the canonical source link as a set-union operation;
+- do not create duplicate visible claim or count one logical Reflect statement twice;
 - preserve all provenance;
-- optionally surface source count.
+- optionally surface unique canonical source count.
+
+This does not merge aliases or semantic near-matches. `Sarah`, `Sis`, and `my sister` remain distinct in v1 unless future user-directed identity tooling links them.
 
 ### 9.5 Correction and supersession
 
@@ -951,16 +964,17 @@ knowledge_claim_events
 
 ### 13.3 Conflict policy
 
-Current last-write-wins transport is unsuitable for claim truth/status because equal-timestamp cross-device writes can lose one user action. Use immutable UUID records only:
+Current mutable-row transport converges equal timestamps through a deterministic synced-content tie-break, but that rule is not semantic authority and cannot preserve the intent of competing lifecycle actions. Use immutable UUID records only:
 
 - situation assertions, mentions, participants, claims, evidence, and lifecycle events are append-only;
 - corrections create replacement assertions plus `supersede` event;
 - rejection, retraction, split, merge, and resolution are events, never in-place status writes;
-- equivalent concurrent assertions may group through local canonical comparison, but source-scoped identities remain intact;
+- equivalent evidence reuses a claim only under the exact-key and canonical-source rules in §26.5;
+- source-scoped situation identities remain intact and never auto-merge;
 - incompatible concurrent events project as `conflicted` until a later explicit resolution event;
-- normal correction/rejection needs no remote delete protocol.
+- normal correction/rejection needs no physical remote-delete protocol.
 
-Exact projection and race rules remain a blocker in §22.8. This model aligns with current opaque encrypted-record transport and avoids silent LWW history loss.
+The exact projection and race rules are normative in §26.7. This model uses the current opaque encrypted-record transport while preserving semantic history independently from its mutable-row tie-break.
 
 ### 13.4 Origin-device extraction
 
@@ -1213,37 +1227,30 @@ Before implementation approval, define measurable gates.
 
 ---
 
-## 20. Open review decisions
+## 20. Decision status
 
-These require product and architecture agreement before implementation planning.
+§26 is the normative v1 contract. The following product and architecture decisions are closed for design:
 
-1. **Scope:** autobiographical facts only, or arbitrary world knowledge?
-   - Recommendation: autobiographical and personally relevant facts only.
+1. **Scope:** autobiographical and personally relevant structured memory only; no arbitrary world knowledge.
+2. **Automatic capture:** auto-store only eligible, high-confidence, explicit user-stated structured memory. No confirmation inbox.
+3. **Reflect evidence:** use an eligible original user `chat_message` as canonical evidence; a derivative hidden Reflect entry cannot count again.
+4. **Sensitive domains:** defer automatic and manual structured capture for the prohibited v1 domains in §26.4.
+5. **Situation registry:** use the bounded v1 types, actuality values, roles, and relations in §26.2.
+6. **Claim registry:** use the bounded predicates and policy metadata in §26.3.
+7. **Crisis safety:** block tier 2–3 and keyword-triggered sources from automatic structured memory and ordinary grounding; prohibit self-harm/suicidal predicates.
+8. **Identity:** exact-key deduplication only; defer alias and semantic person/entity resolution.
+9. **Time:** explicit absolute civil dates only for claim validity; preserve relative time without resolving it.
+10. **Projection:** use deterministic append-only lifecycle/grouping events; timestamps never select semantic truth.
+11. **Wrong extraction:** retain a masked encrypted audit record; exclude it from all normal views, counts, retrieval, and model context.
+12. **Plans:** retain explicit plans only as `actuality = planned` situations; never promote them to current claims.
 
-2. **Automatic capture:** which high-confidence situations and explicit durable claims qualify for automatic persistence?
-   - Agreed direction: auto-store allowed explicit structured memory as user-stated interpretation. No confirmation workflow. Suppress uncertain extraction; expose correction and targeted conflict resolution.
+The following remain open implementation-readiness decisions:
 
-3. **Reflect:** automatic extraction from eligible user messages, explicit “Remember this,” or both?
-   - Recommendation: start with explicit action or existing self-relevant capture gate only.
-
-4. **Sensitive domains:** which medical, legal, financial, and third-party predicates are prohibited initially?
-   - Recommendation: defer automatic extraction for these domains.
-
-5. **Extraction implementation:** combined with current deep extract or separate completion?
-   - Recommendation: decide through shadow evaluation, preserving separate architecture boundary.
-
-6. **Situation registry:** which event/state types, participant roles, actuality values, and relations are enabled in v1?
-
-7. **Conflict UX:** when should app ask user to resolve conflicting claims or situation grouping?
-
-8. **Backfill:** opt-in, automatic, charging-only, or deferred?
-
-9. **Retention:** should rejected structured records remain in local audit history or be hard-deletable immediately?
-
-10. **Visibility:** should auto-stored structured memory appear directly in “About you” and timelines, or only when retrieved?
-
-11. **Manual knowledge:** should user be able to add a manual claim or situation without creating a journal entry?
-    - Recommendation: yes.
+1. **Extraction implementation:** combined or dedicated completion, decided by target-device shadow evaluation.
+2. **Correction/manual-capture UX:** exact screens, conflict prompts, visibility, and accessibility behavior.
+3. **Historical backfill operation:** launch timing, charging policy, batching, and user control after device-cost measurement.
+4. **Remote erasure:** account deletion, R2 enumeration/deletion, retention, retries, and recovery behavior.
+5. **Performance:** expected record volume, indexes, pagination, and routed-retrieval budget.
 
 ---
 
@@ -1271,15 +1278,15 @@ This architecture extends MindWiki into episodic and semantic personal memory wi
 
 This review examined whether research above is sufficient to begin a detailed architecture design. Result: **core direction is sound, but implementation architecture is not ready for approval yet.** Six findings change design requirements; remaining blocker and high-priority investigations must close before SPARC specification work.
 
-### 22.1 Finding: current sync has no working remote-delete protocol
+### 22.1 Finding: current sync supports concealment tombstones, not physical remote deletion
 
-`src/services/storage/sync-queue.ts` declares `SyncOperation = 'upsert' | 'delete'`, but implementation only exposes `enqueueUpsert()`. `pushPending()` in `src/services/sync/engine.ts` only uploads rows that still exist locally; when a row is gone it marks queue item synced without sending a deletion. Server sync exposes only PUT and delta listing:
+`src/services/storage/sync-queue.ts` declares `SyncOperation = 'upsert' | 'delete'`, but implementation only exposes `enqueueUpsert()`. `pushPending()` in `src/services/sync/engine.ts` only uploads rows that still exist locally; when a row is gone it marks the queue item synced without sending a deletion. Server sync exposes only PUT and delta listing:
 
 - `server/src/storage/upload.ts`
 - `server/src/storage/delta.ts`
 - `server/src/index.ts`
 
-No encrypted tombstone, R2 delete, or client remote-delete apply path exists.
+Since the original review, `deleteChallenge()` established a working encrypted tombstone pattern: it stamps `deleted_at`, bumps `updated_at`, and sends the row through ordinary upsert sync. Receiving queries conceal the row. No R2 delete or physical remote-erasure path exists.
 
 **Architecture consequence:** normal claim correction/rejection cannot depend on row deletion. Claim state must be additive:
 
@@ -1291,23 +1298,17 @@ assertion exists
 
 A user-facing “remove from memory” action can retract or hide a claim from current retrieval, but cannot honestly promise physical erasure of its original assertion while source entry and remote ciphertext remain. Hard deletion requires separate deletion architecture for source entries, claim records, and remote R2 objects.
 
-### 22.2 Finding: mutable LWW claim status is unsafe for factual state
+### 22.2 Finding: convergent mutable transport is still unsuitable for factual lifecycle
 
-Current client conflict resolver accepts a remote record only when:
-
-```text
-remote.updated_at > local.updated_at
-```
-
-Server accepts equal timestamps and overwrites stored record because it rejects only `body.updated_at < stored`. Two devices may therefore make concurrent edits at same millisecond, with server and clients not sharing a deterministic semantic winner:
+Current client conflict resolution compares `updated_at`. Exact timestamp ties now use a deterministic lexicographic projection of synced column content, and a locally winning tied row is re-enqueued. This makes ordinary mutable rows converge across devices even though the server still accepts equal timestamps:
 
 - `src/services/sync/conflict.ts`
 - `src/services/sync/engine.ts`
 - `server/src/storage/upload.ts`
 
-This is tolerable for current simple mutable rows, but not for structured memory where concurrent “reject,” “replace,” “split,” or “merge” actions must remain auditable.
+That transport tie-break deliberately says nothing about semantic intent. Choosing the lexicographically larger serialized row cannot explain or preserve concurrent “reject,” “replace,” “split,” or “merge” actions. Structured-memory lifecycle must remain auditable and set-based even though the underlying row transport now converges.
 
-**Revised recommendation:** use immutable assertion, evidence, and lifecycle-event records. Do not store claim truth/status as one mutable LWW row.
+**Revised recommendation:** use immutable assertion, evidence, and lifecycle-event records. Do not store claim truth/status as one mutable row or use the transport tie-break as semantic authority.
 
 Conceptual records:
 
@@ -1429,34 +1430,31 @@ Projection rules are architecture logic, not model prompt:
 
 `origin_device_id` must be evaluated against existing device-ID privacy and lifecycle rules. It is a deterministic tie/audit attribute, not user content. If conflict resolution can remain set-based rather than order-based, it should; avoid inventing distributed-clock machinery unless a concrete resolution requires it.
 
-### 22.8 Remaining research required before detailed design
+### 22.8 Research status after v1 contract
 
-| Priority | Open question | Why architecture cannot guess |
+The original review correctly identified missing contracts. §26 now closes the non-device design questions for registries, crisis/sensitive policy, exact-key identity, Reflect provenance, civil time, projector/grouping semantics, source loss, marker behavior, and structured sync backfill.
+
+Remaining work is empirical or product-operational rather than guessable architecture:
+
+| Priority | Remaining question | Required evidence |
 |---|---|---|
-| Blocker | Situation and claim registries | Event types, roles, actuality, relations, predicate cardinality, conflict, and sensitive-domain rules are product/safety policy. |
-| Blocker | Extraction evaluation on target device | No situation/claim fixture corpus, segmentation baseline, promotion false-positive budget, or current-extraction regression data exists. |
-| Blocker | Data deletion and retention | Current server path does not demonstrate remote encrypted-record deletion; “remove” semantics cannot be honestly specified until resolved. |
-| Blocker | Projection/grouping conflict semantics | Must define exact outcomes for reject/supersede/retract and situation split/merge races before schema, sync, and UI design. |
-| High | Correction/manual-capture UX | Auto-store policy is agreed; exact correction, source inspection, targeted conflict, and manual capture UX remains open. |
-| High | Temporal contract | Need decide v1 support: explicit dates only, or new source timezone/civil-time fields plus relative-date resolution. |
-| High | Third-party sensitive data policy | Need prohibited event/role/predicate/object classes and whether third-party information can be retained automatically. |
-| Medium | Source deletion/edit semantics | Entries are treated as immutable, but structured records need behavior if future entry/chat deletion or editing arrives. |
-| Medium | Cross-device test strategy | Need two-writer cases: duplicate assertion, concurrent reject/replace, event split/merge, app kill, stale client, and fresh restore. |
-| Medium | Storage/query performance budget | Need expected situation/claim counts, indexes, pagination, and routed retrieval benchmark before choosing FTS or scan-based retrieval. |
+| Blocker | Extraction evaluation on target device | Fixture corpus, segmentation/role/actuality and per-predicate precision, abstention, regression, latency, battery, and thermal measurements |
+| Blocker | Data erasure and retention | Verified account deletion, R2 enumeration/deletion, retention, retry, stale-device, and recovery contract |
+| High | Correction/manual-capture UX | Screen flows, source inspection, targeted conflict resolution, accessibility, visibility, and safe copy |
+| High | Cross-device test strategy | Two-writer duplicate assertion, reject/retract, competing supersession, grouping split/merge, app kill, stale client, and fresh restore vectors |
+| Medium | Storage/query performance budget | Expected volume, indexes, pagination, and routed-retrieval benchmark |
 
 ### 22.9 Architecture readiness gate
 
-Proceed to detailed `[SPEC]` / `[PSEUDO]` architecture only after these gates pass:
+The non-device design gates have passed at contract level through §26. Implementation approval still requires:
 
-1. Product approves v1 situation/role/relation, predicate, scope, and sensitive-data registries.
-2. Situation and claim extraction evaluation demonstrates acceptable segmentation, role, actuality, promotion precision, and no material regression on target model/device.
-3. Additive claim projection and situation grouping are specified with race/conflict examples and deterministic expected state.
-4. Remote account-data deletion and retention are audited and specified.
-5. Civil-time policy is chosen; claim validity defaults to explicit dates only if source timezone contract is not added.
-6. Sync migration/backfill strategy includes every new structured-memory table for existing accounts.
-7. Correction and targeted conflict UX is specified without routine confirmation.
+1. situation and claim extraction evaluation on the target model/device;
+2. remote account-data deletion and retention architecture;
+3. detailed correction, source-inspection, conflict, and manual-capture UX;
+4. projector/grouping permutation and cross-device test vectors;
+5. storage/query and device-cost budgets.
 
-Until then, situation-plus-claim architecture is viable direction, not implementation-ready design.
+Until then, situation-plus-claim architecture is specified direction, not implementation-approved functionality.
 
 ---
 
@@ -1476,7 +1474,7 @@ Strong prior art converges on seven ideas:
 6. separate when memory was recorded from when it was valid or occurred;
 7. preserve old assertions and derive current state instead of destructively replacing history.
 
-MindWiki should adopt these principles without importing a graph database, RDF runtime, or vendor memory service. Existing SQLCipher SQLite, opaque encrypted sync, immutable journal entries, and on-device models remain correct substrate.
+MindWiki should adopt these principles without importing a graph database, RDF runtime, or vendor memory service. Existing SQLCipher SQLite, opaque encrypted sync, primary journal evidence, and on-device models remain the correct substrate; source references must tolerate local source deletion.
 
 ### 23.2 Research map
 
@@ -1504,7 +1502,7 @@ Source quality matters. Standards and peer-reviewed papers support architectural
 
 #### Borrow
 
-- **Source/event/semantic separation:** immutable entry remains evidence; situation frames support event recall; claim projection becomes reusable personal semantic memory.
+- **Source/event/semantic separation:** the entry/message remains primary evidence while available; situation frames support event recall; claim projection becomes reusable personal semantic memory and handles source loss explicitly.
 - **Event frames and roles:** represent occurrence plus who participated in which event-bounded role, when, where, and under whose viewpoint.
 - **Situation- and claim-level provenance:** every projected memory can answer “which source caused this?”
 - **Bi-temporal semantics:** keep record/ingestion time separate from claimed validity time.
@@ -1525,8 +1523,9 @@ Source quality matters. Standards and peer-reviewed papers support architectural
 ### 23.4 Recommended core architecture
 
 ```text
-LAYER 0 — LOSSLESS SOURCE EVIDENCE
-  immutable entries / eligible user-authored Reflect messages
+LAYER 0 — PRIMARY SOURCE EVIDENCE
+  entries / eligible user-authored Reflect messages
+  (source may become locally unavailable; references degrade honestly)
                     │
                     ▼
 LAYER 1 — EXTRACTION
@@ -1564,7 +1563,7 @@ LAYER 5 — REFLECT GROUNDING
 
 Responsibilities:
 
-- **Entries/messages:** lossless evidence of what user authored, not proof of objective truth and not pre-segmented episodes.
+- **Entries/messages:** primary evidence of what user authored while available, not proof of objective truth and not pre-segmented episodes; structured references degrade explicitly if a source is deleted.
 - **Situations:** normalized model interpretations of bounded occurrences or states, including actuality and contextual bindings.
 - **Participants/roles:** event-bounded participation, never automatically permanent entity relation.
 - **Claims:** normalized model interpretation of one explicit durable proposition.
@@ -1639,9 +1638,9 @@ Architecture response: evidence references source record, field, and optional of
 
 #### 7. Multi-device convergence
 
-Current sync is opaque and privacy-preserving, but mutable equal-timestamp LWW and missing remote-delete behavior are unsafe for claim status. Generic one-time backfill also misses later-added tables.
+Current sync is opaque and privacy-preserving. Mutable rows now converge equal timestamps through a deterministic content tie-break, and challenge tombstones support synchronized concealment. Neither mechanism is semantic claim lifecycle or physical remote erasure. Generic one-time backfill also misses later-added tables.
 
-Architecture response: assertions, evidence, and events are immutable records; projection is set-based; semantic conflict is explicit; claim migration has its own versioned enqueue pass. Hard deletion remains separate product-wide work.
+Architecture response: assertions, evidence, and events are immutable records; projection is set-based; semantic conflict is explicit; claim migration has its own versioned enqueue pass. Physical erasure remains separate product-wide work.
 
 #### 8. Retraction versus erasure
 
@@ -1659,7 +1658,7 @@ Architecture response: shadow-test both. Keep architectural contract separate ev
 
 Compact structured claims increase privacy harm if wrong, exposed, or over-collected.
 
-Architecture response: v1 allowlist; prohibit automatic medical, diagnostic, legal, financial, address, minor, sexuality, and allegation predicates. Manual explicit capture can be reviewed separately. Never infer diagnosis or treatment.
+Architecture response: v1 allowlist; prohibit automatic medical, diagnostic, legal, financial, address, minor, sexuality, and allegation predicates. §26.4 also defers manual structured capture for those domains in v1. Never infer diagnosis or treatment.
 
 #### 11. Retrieval trust
 
@@ -1735,16 +1734,16 @@ Proceed with relational, provenance-first situation and claim layers. Do not pro
 
 Next architecture sequence:
 
-1. approve v1 situation-type/role/relation and predicate/sensitivity registries;
-2. define exact situation grouping plus claim projection with race examples;
-3. build device fixture/evaluation harness before schema integration;
-4. audit remote erasure/account deletion semantics;
-5. choose combined versus dedicated completion from measured results;
-6. implement shadow situation/claim store and multi-device convergence tests;
-7. expose correction and source-inspection UI without routine confirmation;
+1. use the approved §26 registries and projection contract to build the fixture/evaluation specification;
+2. run the device extraction harness before schema integration;
+3. audit remote erasure/account deletion semantics;
+4. choose combined versus dedicated completion from measured results;
+5. formalize projector/grouping permutation and multi-device vectors;
+6. design correction, source-inspection, conflict, and manual-capture UX;
+7. implement a shadow situation/claim store only after those gates pass;
 8. enable routed retrieval only after trust gates pass.
 
-This preserves MindWiki's defining architecture: source entries remain immutable experience evidence, situations preserve contextual occurrences, claims preserve durable personal semantic memory, and wiki remains compounding narrative interpretation.
+This preserves MindWiki's defining architecture: source entries remain primary experience evidence and may become unavailable, situations preserve contextual occurrences, claims preserve durable personal semantic memory, and wiki remains compounding narrative interpretation.
 
 ### 23.11 Primary sources
 
@@ -1869,10 +1868,360 @@ Captured Reflect entries are filtered out of the journal timeline (timeline show
 
 `device_id` already exists (`src/services/auth/device-id.ts`, and server register/login/pair store it), so `origin_device_id` is implementable within existing device-ID rules. Requirement: it must live **inside the encrypted payload**, never as a server-parsed field — the server already holds a plaintext `device_id` on the account row, so do not add another plaintext claim/event-identity loose end.
 
-### 25.8 Rejected-claim retention needs a local purge decision, not just remote
+### 25.8 Rejected-claim retention required a local policy
 
-§20.9 asks "should rejected structured records remain in local audit history or be hard-deletable?" Remote hard-delete is impossible under §22.2, but the *local* policy is still open — and "reject" currently implies reject-event + assertion retained forever, doubling the most sensitive rows (a fact the user explicitly disowned stays stored). Decide whether the reject-event should mask the rejected assertion from current retrieval while leaving the immutable audit row, or support true local erasure of the rejected assertion, before Stage-3 correction UX is built.
+The original question was whether rejected structured records remain in local audit history or are hard-deletable. §26.7–26.8 resolves v1: `reject` retains the encrypted assertion and immutable reject event for audit/convergence, but masks it from every normal view, count, cache, embedding, retrieval path, model context, and composed page. This is concealment, not physical erasure; remote erasure remains blocked.
 
 ---
 
-**Priority for address:** §25.1 (source deletion contradicts immutability), §25.2 (crisis safety), §25.3 + §25.5 (canonicalization/dedup tension). None block the overall direction — all refine the implementation contract before SPARC detail.
+**Resolution:** §26 closes the non-device design questions raised in §25. Source deletion remains a supported dangling-evidence state; crisis tiers 2–3 are excluded; claim deduplication is exact-key only; an original Reflect `chat_message` is canonical evidence; rejected assertions remain encrypted but fully masked.
+
+---
+
+## 26. Normative v1 architecture contract — 2026-08-04
+
+This section supersedes earlier candidate lists and open recommendations where they conflict. It closes design questions that do not require target-device measurement. It does **not** authorize persistence, extraction, retrieval, sync, or UI implementation; the remaining gates are in §26.10.
+
+### 26.1 Scope and invariants
+
+V1 stores autobiographical and personally relevant structured memory only. It does not store arbitrary world knowledge.
+
+The source/evidence, situation, claim, and wiki layers remain distinct:
+
+1. **Source evidence:** what the user authored. It is primary evidence but may become unavailable through local deletion.
+2. **Situation:** a bounded, source-linked interpretation of an occurrence, state, or non-actual scene.
+3. **Claim:** a source-linked interpretation of one explicit durable proposition.
+4. **Projection:** deterministic current/historical state derived from immutable records and policy.
+5. **Wiki:** model-synthesized narrative and patterns; never factual authority.
+
+Normative invariants:
+
+- extraction is on-device, precision-first, versioned, and optional;
+- entry save never waits for or fails because of structured-memory extraction;
+- no wiki prose or assistant-authored message is evidence;
+- no situation role creates a permanent relationship or entity identity;
+- no plan, possibility, hypothetical, report, or imagined scene becomes an occurred event or current claim;
+- no model, timestamp, graph edge, embedding, or transport tie-break selects semantic truth;
+- rejected, retracted, superseded, conflicted, crisis-excluded, and prohibited-sensitive records cannot enter ordinary grounding;
+- all synchronized payloads remain opaque encrypted records; `origin_device_id` stays inside the encrypted payload;
+- source loss is tolerated and represented honestly;
+- concealment is not described as physical erasure.
+
+### 26.2 Situation registry
+
+#### Situation types
+
+| Type | Intended use | Claim-promotion rule |
+|---|---|---|
+| `social_interaction` | General interpersonal occurrence | Only a separate explicit durable proposition may promote |
+| `work_interaction` | Workplace occurrence | Event location/participant never implies employer or role |
+| `conflict` | Explicit disagreement or adverse interaction | No durable relationship judgment may promote |
+| `support_received` | Help, care, or assistance received | Helper role never implies permanent relationship |
+| `decision` | A decision the user explicitly made | Decision is not completed action unless separately stated |
+| `achievement` | Completed accomplishment | Only explicit durable consequence may promote |
+| `setback` | Completed failure, loss, or obstacle | No global ability/belief claim may promote |
+| `transition` | Explicit change of state or circumstance | May link explicit old/new claims under predicate policy |
+| `plan` | Explicit intended future action | Never promotes a current claim; must use `planned` actuality |
+| `routine_activity` | Explicit repeated or ordinary activity | May promote `regularly_does` only when durability is explicit |
+| `emotional_response` | Bounded emotional reaction | Remains reflective/event memory; never a diagnosis or trait claim |
+
+The extractor must abstain rather than invent a type. A source may produce zero or several situations.
+
+#### Actuality
+
+| Value | Meaning | Ordinary retrieval wording |
+|---|---|---|
+| `occurred` | User described it as having happened | “You wrote that … happened” |
+| `ongoing` | User described a currently continuing situation/state | “You wrote that … is ongoing” |
+| `planned` | User explicitly intends it | “You wrote that you plan to …” |
+| `possible` | User described uncertain possibility | “You wrote that … might happen” |
+| `hypothetical` | Conditional or counterfactual scene | “You considered what would happen if …” |
+| `reported` | Attributed to another speaker/source | Preserve the attribution explicitly |
+| `imagined` | Dreamed, fictional, or imagined scene | Preserve the imagined label explicitly |
+
+Actuality records the source framing, not objective verification. Negation, uncertainty, and attribution must be preserved in structured output; omission of any of them invalidates that record.
+
+#### Participant roles
+
+V1 roles are `actor`, `participant`, `speaker`, `listener`, `helper`, `recipient`, `affected_person`, and `observer`.
+
+- Roles are scoped to one situation.
+- A participant may have more than one explicit role.
+- Missing roles are valid.
+- Relationship labels such as sibling, partner, manager, or doctor are not situation roles. They require a separately eligible explicit claim.
+- The extractor must not infer a role from sentence order alone.
+
+#### Situation relations
+
+| Relation | Allowed basis |
+|---|---|
+| `before` | Explicit user statement or conservative source ordering |
+| `after` | Explicit user statement or conservative source ordering |
+| `during` | Explicit user statement |
+| `part_of` | Explicit containment in the source |
+| `responded_to` | Explicit response link |
+| `explicitly_caused_by` | User explicitly stated causality only |
+
+Every relation carries `basis = user_stated | derived_ordering`. `derived_ordering` is allowed only for `before` and `after`, is not causal, and may be omitted without making the situation invalid.
+
+### 26.3 Claim predicate registry
+
+Allowed subject types are `self`, `person`, `organization`, `place`, and `activity`. Automatic v1 capture focuses on claims about `self` and ordinary relationship links needed to describe personally relevant people. In the table, subject/object values describe semantic entity classes; storage still uses typed `object_type` plus normalized `object_value`, with `self` represented as a distinguished entity reference. Labels remain source-scoped, not global identities.
+
+| Predicate | Valid subject → object | Multiplicity | Temporal/current-state policy | Conflict/transition policy |
+|---|---|---|---|---|
+| `related_to` | `self/person → self/person` | Many | Current or historical | Coexists unless explicitly ended |
+| `partner_of` | `self/person → self/person` | Potentially many | Temporal | Never assume exclusivity or newest-wins |
+| `parent_of` | `self/person → self/person` | Many | Durable | Opposing extraction requires review; no inference from role |
+| `sibling_of` | `self/person → self/person` | Many | Durable | Opposing extraction requires review |
+| `works_at` | `self → organization` | Potentially many | Current, explicit validity only | `left_at`/explicit transition may supersede matching employment |
+| `previously_worked_at` | `self → organization` | Many | Historical only | Never becomes current employment |
+| `studies_at` | `self → organization` | Potentially many | Current, explicit validity only | Explicit completion/transition may supersede |
+| `studied_at` | `self → organization` | Many | Historical only | Never becomes current education |
+| `lives_in` | `self → place` | Potentially many | Current, explicit validity only | Multiple residences may coexist; `moved_to` alone does not silently close all others |
+| `previously_lived_in` | `self → place` | Many | Historical only | Never becomes current residence |
+| `likes` | `self → entity/text/activity` | Many | Current or historical | Does not inherently conflict with contextual avoidance |
+| `dislikes` | `self → entity/text/activity` | Many | Current or historical | Does not automatically retract `likes` |
+| `prefers` | `self → entity/text/activity` | Many | Current or historical | Requires explicit preference wording; comparison targets remain source context rather than a compound object |
+| `avoids` | `self → entity/text/activity` | Many | Current or historical | Context may coexist with `likes`/`prefers` |
+| `regularly_does` | `self → activity` | Many | Current or historical | Requires explicit recurrence; one occurrence is insufficient |
+| `owns` | `self → entity` | Many | Current or historical | Explicit disposal/loss may supersede matching ownership |
+| `has_pet` | `self → entity` | Many | Current or historical | Sensitive details about the animal/others are not inferred |
+| `moved_to` | `self → place` | Many | Historical transition | May nominate residence change only when source explicitly states it |
+| `started_at` | `self → organization/activity` | Many | Historical transition | Links only the explicitly named state |
+| `left_at` | `self → organization/activity/place` | Many | Historical transition | Supersedes only an explicitly matching prior state |
+
+Predicate policies, not the LLM, decide whether values can coexist or whether an explicit transition can supersede a prior claim. A model may nominate a relation, but ambiguous incompatibility projects as conflicted.
+
+The earlier candidate `role_at` is deferred from normative v1 because it is n-ary (`self + role + organization`) and does not fit the single typed-object assertion contract without inventing a compound object. V1 may preserve job-title wording in a work situation/source; a later contract may add a dedicated role assertion shape.
+
+### 26.4 Safety and sensitivity policy
+
+#### Crisis invariant
+
+The existing crisis assessment must run before automatic structured-memory eligibility is committed.
+
+- Tier 2, tier 3, and explicit crisis-keyword-triggered sources produce no automatically persisted structured-memory rows. Their encrypted source remains under existing journal/crisis lifecycle rules.
+- Self-harm, suicidal intent, self-injury, or equivalent predicates are prohibited in v1 structured memory regardless of confidence or origin.
+- Crisis-excluded source material cannot enter ordinary search, Reflect grounding, composed wiki claim sections, source previews, notifications, diagnostics, analytics, or logs.
+- The encrypted raw source remains available to the existing crisis flow. The safety gate must never block entry save or crisis intervention.
+- Tier 1 alone does not block otherwise eligible structured memory because the fast model can over-score ordinary distress. Prohibited content and predicate rules still apply.
+
+#### Sensitive-domain policy
+
+| Content class | Automatic structured capture | Manual structured capture | Raw encrypted source |
+|---|---|---|---|
+| Ordinary personal relationships, work, education, residence at city/region level, preferences, routines, pets | Allowed when explicit and eligible | Allowed after manual UX is designed | Preserved |
+| Medical condition, diagnosis, medication, or treatment | Prohibited in v1 | Deferred | Preserved |
+| Legal status, allegation, or criminal/legal proceeding | Prohibited in v1 | Deferred | Preserved |
+| Financial account, debt, income, or asset detail | Prohibited in v1 | Deferred | Preserved |
+| Precise home/work address or live location | Prohibited in v1 | Deferred | Preserved |
+| Minor-specific sensitive attributes | Prohibited in v1 | Deferred | Preserved |
+| Sexuality or sexual-life attributes | Prohibited in v1 | Deferred | Preserved |
+| Highly sensitive third-party health, legal, financial, sexuality, address, or allegation content | Prohibited in v1 | Deferred | Preserved |
+| Self-harm or suicidal proposition | Prohibited in v1 | Prohibited in v1 | Preserved only under existing source/safety rules |
+
+“Deferred” means no structured row is created. It does not prevent the user from journaling privately in the existing encrypted source store.
+
+### 26.5 Identity, deduplication, and source provenance
+
+#### Exact-key identity
+
+The v1 claim key is:
+
+```text
+subject_type + normalized source-scoped subject_label
++ predicate + object_type + normalized typed object
++ explicit temporal scope
+```
+
+Only exact-key matches reuse a visible claim. Evidence is a set keyed by canonical source identity, so retrying extraction or seeing the same logical source through two storage representations cannot increase support twice.
+
+No v1 mechanism merges aliases or semantic near-matches. In particular:
+
+- `Sarah`, `Sis`, and `my sister` are distinct labels;
+- two people named `Alex` are not assumed identical;
+- embeddings may nominate future review candidates but never establish identity;
+- graph nodes and `canonical_label` are not factual entity IDs;
+- future user-directed alias events must preserve original labels, assertions, and evidence.
+
+#### Reflect canonical source
+
+When one Reflect statement exists both as an original `chat_message` and a hidden `source = 'reflect'` entry:
+
+1. the user-authored `chat_message` is canonical evidence;
+2. the derivative entry is an indexing artifact and creates no second evidence row or support count;
+3. “View source” opens the visible conversation context;
+4. the derivative entry is fallback evidence only if the original message is unavailable;
+5. assistant text, summaries, and model restatements are never independent evidence.
+
+Example:
+
+```text
+chat_message m1: “I work at Acme.”
+reflect entry e1: model restatement of m1
+claim c1: self works_at Acme
+knowledge_claim_evidence: exactly one row referencing m1
+```
+
+Evidence stores source type, ID, field, and optional character offsets. It does not duplicate plaintext excerpts. If a source is missing, the reference remains and the UI states that the source is unavailable; remaining evidence may still be shown.
+
+### 26.6 Civil-time contract
+
+V1 separates:
+
+- source record time (`created_at` epoch);
+- claimed situation time;
+- claim validity time.
+
+`created_at` is never treated as the event date or source civil date.
+
+Claim validity accepts only explicit absolute civil values:
+
+```text
+kind: none | date | range
+start_date/end_date: YYYY | YYYY-MM | YYYY-MM-DD | null
+precision: year | month | day | null
+original_text: normalized explicit source phrase | null
+```
+
+Rules:
+
+- preserve the source’s year/month/day precision; do not fill missing month or day;
+- do not infer timezone or local civil date from the device epoch;
+- an explicit range may use different boundary precision only if the source does;
+- relative or ambiguous phrases remain situation-linked temporal text and cannot open, close, or supersede claim validity;
+- unresolved time is valid situation context and must be rendered as unresolved rather than discarded.
+
+Examples:
+
+| Source wording | V1 result |
+|---|---|
+| “I moved to Berlin in 2024.” | `moved_to`, `start_date = 2024`, `precision = year` |
+| “I started at Acme in 2024-06.” | `started_at`, `start_date = 2024-06`, `precision = month` |
+| “I left on 2024-06-18.” | `left_at`, `start_date = 2024-06-18`, `precision = day` |
+| “I moved last year.” | Situation temporal text `last year`; no exact claim validity |
+| “The meeting was Tuesday.” | Situation temporal text `Tuesday`; no date resolution |
+| “I recently left.” | Situation temporal text `recently`; no exact closure date |
+
+### 26.7 Deterministic lifecycle projection
+
+The projector is a pure, rebuildable, set-based function over immutable claims, evidence, lifecycle events, predicate policy, and situation-grouping events. It performs no LLM call.
+
+Timestamps are audit/display metadata only. Stable IDs may sort input for reproducible execution, but neither timestamp nor ID order chooses semantic truth.
+
+#### Claim statuses and events
+
+| Input/event set | Projected result |
+|---|---|
+| Eligible assertion with canonical evidence and no excluding event | `active_user_stated` |
+| Assertion whose explicit validity ended | `historical` |
+| `reject(claim)` | `rejected_masked`; audit only |
+| `retract(claim)` | `retracted_concealed`; absent from current memory |
+| `supersede(old, replacement)` | Old `superseded`; replacement active if otherwise eligible |
+| Incompatible unresolved terminal events | `conflicted`; no definitive grounding |
+| `resolve(target_claims, target_events, outcome)` | Apply only the explicitly named resolution |
+| Missing source | Preserve status plus `source_unavailable`; never fabricate provenance |
+
+`resolve` is itself an immutable user-origin lifecycle event. Its outcome is a bounded registry value (`accept_claims`, `reject_claims`, `retract_claims`, or `allow_coexistence`) plus explicitly named target claim/event IDs. It cannot introduce a new proposition; an update first creates a replacement claim with its own provenance.
+
+`reject` means the extraction was wrong. The encrypted assertion and reject event remain for audit and cross-device convergence, but the assertion is excluded from all normal views, counts, retrieval, embeddings, model context, and composed pages.
+
+`retract` means the user no longer wants a claim in current memory. It conceals the claim but does not assert that the source or remote ciphertext was erased.
+
+#### Race rules
+
+The same record/event set must project identically regardless of arrival order, timestamp equality, or device.
+
+1. **Concurrent reject and retract of one claim:** preserve both events. The visible result is concealed; the lifecycle is `conflicted` until a resolution event names the intended interpretation. Neither event is discarded.
+2. **Two concurrent replacements:** `supersede(A, B)` and `supersede(A, C)` preserve B and C and project the branch as conflicted. A later `resolve` names the accepted branch or coexistence.
+3. **Reject versus supersede:** `reject(A)` and `supersede(A, B)` do not use recency. A remains masked; B is not treated as established by the rejected extraction chain unless a resolution explicitly accepts B or B has independent eligible evidence.
+4. **Concurrent situation merge and split:** original source-scoped situations and mentions always remain. Grouping events change only a derived grouping view. Incompatible grouping events produce an unresolved grouping until a resolution names the included situations/events.
+5. **Duplicate/replayed event:** immutable event ID makes application idempotent.
+
+Situation grouping is source-scoped by default. V1 performs no automatic cross-source event merge or `same_as` assertion.
+
+### 26.8 Concealment, tombstones, deletion, and erasure
+
+These terms are not interchangeable:
+
+| Term | Meaning in v1 |
+|---|---|
+| `reject` | Wrong extraction; mask everywhere except encrypted audit/history |
+| `retract` | Exclude from current memory and grounding |
+| Concealment | Remove from active views without claiming byte deletion |
+| Synced tombstone | Encrypted upsert carrying deletion/concealment state across devices |
+| Local hard deletion | Remove a local row; does not prove remote or peer-device deletion |
+| Physical remote erasure | Delete all applicable R2 ciphertext and retained copies; not currently implemented |
+
+`deleteChallenge()` is the live precedent for synchronized concealment through `deleted_at`, an `updated_at` bump, and `enqueueUpsert()`. It is not a remote-erasure precedent.
+
+A source may be missing locally because `deleteEntry()` performs a local hard delete without sync deletion. Structured memory therefore must:
+
+- preserve the dangling evidence reference;
+- never crash or silently substitute synthesized text;
+- show remaining canonical evidence when available;
+- display “Source unavailable” when it is not;
+- avoid promising that “Remove,” “Wrong extraction,” or “Forget” erased remote ciphertext.
+
+Physical account/data erasure requires a separate server architecture for account deletion, R2 object enumeration/deletion, retention, retries, stale-device behavior, and recovery consequences.
+
+### 26.9 Extraction markers and sync migration
+
+Structured-memory extraction completion is device-local bookkeeping. Whether implemented as entry columns excluded from sync or a dedicated local table, markers must:
+
+- be versioned independently for situations and claims;
+- be written only after the full local transaction commits;
+- never update `entries.updated_at` or `tagged_at`;
+- never enqueue an entry solely because extraction finished;
+- be restart-safe and permit deliberate extractor-version backfill.
+
+This follows `markWikiIndexed()` / `markGraphIndexed()`, not `applyTags()`.
+
+All immutable structured-memory records still join the encrypted sync allowlists and table column maps. Because `sync:backfilled` is global and may already be set, migration requires a dedicated marker such as `sync:structured_memory_backfilled_v1` that:
+
+1. enumerates every new situation, mention, participant, relation, claim, evidence, bridge, and lifecycle/grouping row;
+2. enqueues each row once using ordinary encrypted upsert;
+3. is idempotent across interruption;
+4. is set only after enumeration completes;
+5. never resets global `sync:backfilled` or re-uploads unrelated historical tables.
+
+The existing resumable delta pull, quarantine, table allowlist parity, encrypted record IDs, and deterministic transport tie-break remain reusable transport mechanisms. Claim semantics still come only from the projector.
+
+### 26.10 Readiness matrix
+
+| Gate | Status | Remaining work before implementation |
+|---|---|---|
+| Scope and layered authority | **Specified** | None at architecture level |
+| Situation types, actuality, roles, relations | **Specified** | Validate extraction precision on target model/device |
+| Claim predicates and transition policy | **Specified** | Validate per-predicate precision and false-promotion rate |
+| Crisis/self-harm policy | **Contract specified; implementation blocked** | Implement and test tier/source propagation without logging content |
+| Sensitive and third-party policy | **Contract specified** | Product review before any future expansion |
+| Exact-key dedup and deferred aliases | **Contract specified; implementation blocked** | Test normalization; no v1 entity resolver |
+| Reflect canonical evidence/source routing | **Contract specified; UX blocked** | Detailed navigation and unavailable-source UX |
+| Explicit-date civil-time policy | **Contract specified; implementation blocked** | Validate schema/parser examples; relative resolution remains deferred |
+| Deterministic claim projection and races | **Contract specified; test gate open** | Formal test vectors and multi-device permutation tests |
+| Situation grouping | **Contract specified; UX/test gates open** | Detailed correction UX and test vectors |
+| Rejection retention/masking | **Contract specified; implementation blocked** | Verify every derived cache/view obeys exclusion |
+| Concealment versus erasure | **Terminology specified; erasure blocked** | Remote physical erasure remains blocked |
+| Device-local extraction markers | **Contract specified; implementation blocked** | Choose columns versus dedicated local table during SPARC design |
+| Dedicated structured-memory sync backfill | **Contract specified; implementation blocked** | Implement and interruption-test after schema exists |
+| Target-device extraction evaluation | **Blocked** | Build fixture corpus; measure segmentation, actuality, role, claim precision, abstention, regression, latency, battery, and thermal cost |
+| Remote account/data erasure | **Blocked** | Specify and verify account deletion, R2 deletion, retention, retries, and recovery behavior |
+| Correction/conflict/manual-capture UX | **Blocked** | Screen flows, copy, accessibility, source navigation, visibility; sensitive manual capture remains deferred |
+| Storage/query performance | **Open** | Expected volume, indexes, pagination, retrieval benchmark |
+| Combined versus dedicated completion | **Blocked** | Decide from shadow evaluation, not architectural preference |
+
+### 26.11 Implementation approval status
+
+The non-device v1 architecture contracts are now sufficiently specific for an extraction-evaluation specification and for formal projector test-vector design.
+
+They are **not** sufficient to implement the user-facing factual knowledge base. Implementation remains unapproved until:
+
+1. target-device extraction evaluation meets an agreed precision-first, near-zero-false-memory gate without material regression to existing extraction;
+2. remote account/data erasure and retention are designed and verified;
+3. correction, conflict, source-inspection, and manual-capture UX is approved;
+4. deterministic projector and grouping race vectors pass permutation and multi-device convergence tests;
+5. storage/query and device-cost budgets are established.
+
+Until those gates pass, no structured-memory records should ground Reflect or appear as factual product views.

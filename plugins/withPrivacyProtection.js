@@ -100,14 +100,18 @@ function setNetworkInspectorDisabled(properties) {
   return [...without, { type: 'property', key: 'EX_DEV_CLIENT_NETWORK_INSPECTOR', value: 'false' }]
 }
 
+function applyAndroidBackupProtection(application) {
+  application.$['android:allowBackup'] = 'false'
+  application.$['android:fullBackupContent'] = 'false'
+  delete application.$['android:dataExtractionRules']
+  application.$['tools:replace'] = 'android:allowBackup,android:fullBackupContent'
+}
+
 function withPrivacyProtection(config) {
   config = withAndroidManifest(config, (mod) => {
     const application = AndroidConfig.Manifest.getMainApplicationOrThrow(mod.modResults)
-    application.$['android:allowBackup'] = 'false'
-    application.$['android:fullBackupContent'] = 'false'
-    application.$['android:dataExtractionRules'] = 'false'
+    applyAndroidBackupProtection(application)
     mod.modResults.manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools'
-    application.$['tools:replace'] = 'android:allowBackup,android:fullBackupContent,android:dataExtractionRules'
     return mod
   })
   config = withMainActivity(config, (mod) => {
@@ -134,3 +138,4 @@ module.exports.addAndroidFlagSecure = addAndroidFlagSecure
 module.exports.addIosPrivacyOverlay = addIosPrivacyOverlay
 module.exports.hardenReleaseSigning = hardenReleaseSigning
 module.exports.setNetworkInspectorDisabled = setNetworkInspectorDisabled
+module.exports.applyAndroidBackupProtection = applyAndroidBackupProtection
