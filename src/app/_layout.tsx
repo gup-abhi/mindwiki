@@ -20,13 +20,14 @@ import { configureNotifications } from '@/services/notifications/scheduler'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
 import { handleNotificationCandidate, handleNotificationDelivered, recordAndReconcile, resumeNotificationReconciliation } from '@/services/notifications/orchestrator'
 import { createNotificationResponseHandler } from '@/services/notifications/response'
-import { hydrateAuth } from '@/services/auth/auth.service'
+import { canReturnToAccountFromDeletion, deleteAccount, hydrateAuth, returnToAccountFromDeletion } from '@/services/auth/auth.service'
 import { resetSessionStores } from '@/services/auth/session-reset'
 import { useAuthStore } from '@/store/auth.store'
 import { useLockStore } from '@/store/lock.store'
 import { useSync } from '@/hooks/useSync'
 import { useAppLock } from '@/hooks/useAppLock'
 import { AuthScreen } from '@/components/auth/AuthScreen'
+import { Button } from '@/components/ui'
 import { LockScreen } from '@/components/auth/LockScreen'
 import { CoverScreen } from '@/components/CoverScreen'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
@@ -120,6 +121,9 @@ function AppGate() {
   const styles = useThemedStyles(makeStyles)
   const [storage, setStorage] = useState<StorageStatus>('idle')
   const [message, setMessage] = useState('')
+  const [deletionError, setDeletionError] = useState<string | null>(null)
+  const [deletionAction, setDeletionAction] = useState<'retry' | 'return' | null>(null)
+  const [canReturnFromDeletion, setCanReturnFromDeletion] = useState(false)
   // Session-local: set once the new user dismisses the tour, so it doesn't
   // re-show while isNewAccount stays true for the rest of this session.
   const [carouselDone, setCarouselDone] = useState(false)
@@ -141,7 +145,7 @@ function AppGate() {
   // (case 12), and set storage 'idle' so the next sign-in re-runs initStorage on
   // a fresh handle keyed to that account.
   useEffect(() => {
-    if (authStatus === 'unauthenticated') {
+    if (authStatus === 'deleting' || authStatus === 'unauthenticated') {
       void cleanupNotifications()
       closeDb()
       resetSessionStores()
@@ -151,6 +155,20 @@ function AppGate() {
       // in on this same app session can still be routed through its first run.
       resetFirstRunRedirect()
     }
+  }, [authStatus])
+
+  // Only offer cancellation after the server confirms that remote deletion has
+  // not started. Unknown/unreachable status keeps the privacy-safe locked state.
+  useEffect(() => {
+    if (authStatus !== 'deleting') {
+      setCanReturnFromDeletion(false)
+      return
+    }
+    let active = true
+    void canReturnToAccountFromDeletion().then((result) => {
+      if (active) setCanReturnFromDeletion(result.success && result.data)
+    })
+    return () => { active = false }
   }, [authStatus])
 
   // Open the encrypted DB only after auth — so it's keyed with the correct
@@ -184,6 +202,55 @@ function AppGate() {
 
   if (authStatus === 'unauthenticated') {
     return <AuthScreen />
+  }
+
+  if (authStatus === 'deleting') {
+    return (
+      <View style={styles.center} testID="account-deletion-gate">
+        <ActivityIndicator size="large" color={theme.colors.accent} />
+        <Text style={styles.errTitle}>Deleting your account</Text>
+        <Text style={styles.errMsg}>
+          Your journal is locked while MindWiki removes the encrypted sync backup and account data.
+        </Text>
+        {deletionError && <Text style={styles.errMsg}>{deletionError}</Text>}
+        <View style={styles.deletionActions}>
+          <Button
+            title="Retry deletion"
+            fullWidth
+            loading={deletionAction === 'retry'}
+            disabled={deletionAction !== null}
+            onPress={() => {
+              setDeletionAction('retry')
+              setDeletionError(null)
+              void deleteAccount().then((result) => {
+                if (!result.success) setDeletionError('Could not finish deletion. Check your connection and retry.')
+              }).finally(() => setDeletionAction(null))
+            }}
+            testID="account-deletion-retry"
+          />
+          {canReturnFromDeletion && (
+            <Button
+              title="Return to account"
+              variant="secondary"
+              fullWidth
+              loading={deletionAction === 'return'}
+              disabled={deletionAction !== null}
+              onPress={() => {
+                setDeletionAction('return')
+                setDeletionError(null)
+                void returnToAccountFromDeletion().then((result) => {
+                  if (!result.success) {
+                    setCanReturnFromDeletion(false)
+                    setDeletionError(result.error.message)
+                  }
+                }).finally(() => setDeletionAction(null))
+              }}
+              testID="account-deletion-return"
+            />
+          )}
+        </View>
+      </View>
+    )
   }
 
   // Authenticated — gate on the encrypted DB opening.
@@ -273,4 +340,5 @@ const makeStyles = (t: Theme) =>
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.bg, padding: t.spacing['2xl'] },
     errTitle: { fontSize: 20, fontWeight: '700', color: t.colors.danger },
     errMsg: { fontSize: 14, color: t.colors.textSecondary, marginTop: t.spacing.sm, textAlign: 'center' },
+    deletionActions: { alignSelf: 'stretch', gap: t.spacing.md, marginTop: t.spacing.xl },
   })

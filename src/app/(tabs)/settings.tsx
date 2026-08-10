@@ -58,13 +58,46 @@ export default function Settings() {
     error: devicesError,
     logoutDevice,
   } = useDevices()
-  const { logout } = useAuth()
+  const { logout, deleteAccount, error: authError } = useAuth()
   const deviceIdentityReady = identityResolved === undefined ? currentDeviceId !== null : identityResolved
   const { preferences: notificationPreferences, permission: notificationPermission, busy: notificationBusy, update: updateNotifications, enable: enableNotifications, openSystemSettings } = useNotifications()
 
   // Logout is destructive (local wipe). Confirm first (R4), escalating the copy
   // when unsynced changes would be lost, and attempt one final flush online.
   const [loggingOut, setLoggingOut] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const confirmDeleteAccount = () => {
+    if (deletingAccount) return
+    Alert.alert(
+      'Delete account permanently?',
+      'Your account, encrypted sync backup, this-device journal, and unsynced entries will be permanently deleted. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Confirm permanent deletion',
+              'Tap Delete account again to erase this account and all of its remote data.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete account',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setDeletingAccount(true)
+                    const started = await deleteAccount()
+                    if (!started) setDeletingAccount(false)
+                  },
+                },
+              ]
+            )
+          },
+        },
+      ]
+    )
+  }
   const confirmLogout = () => {
     if (loggingOut) return
     const base =
@@ -402,6 +435,12 @@ export default function Settings() {
 
       <View style={styles.logout}>
         <Button title="Log out" variant="destructive" fullWidth loading={loggingOut} onPress={confirmLogout} testID="settings-logout" />
+        <Button title="Delete account" variant="destructive" fullWidth loading={deletingAccount} onPress={confirmDeleteAccount} testID="settings-delete-account" />
+        {authError && (
+          <Text variant="caption" color="danger" style={styles.error} testID="settings-delete-account-error">
+            {authError}
+          </Text>
+        )}
       </View>
     </Screen>
   )
@@ -427,5 +466,5 @@ const makeStyles = (t: Theme) =>
     error: { marginTop: t.spacing.sm },
     hint: { marginTop: t.spacing.xs },
     tourCard: { marginTop: t.spacing.lg },
-    logout: { marginTop: t.spacing.xl },
+    logout: { marginTop: t.spacing.xl, gap: t.spacing.md },
   })

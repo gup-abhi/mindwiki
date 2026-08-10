@@ -7,6 +7,9 @@ import {
   addRecoveryPhrase,
   hydrateAuth,
   logout,
+  canReturnToAccountFromDeletion,
+  deleteAccount,
+  returnToAccountFromDeletion,
 } from '@/services/auth/auth.service'
 import { wrapMasterKey } from '@/services/auth/crypto'
 import { generateRecoveryPhrase, recoveryKeyFromPhrase } from '@/services/auth/recovery'
@@ -14,12 +17,18 @@ import { saveTokens, getTokens, clearTokens } from '@/services/auth/token-store'
 import { deleteDatabase, beginWipe, endWipe } from '@/services/storage/db'
 import { resetSessionStores } from '@/services/auth/session-reset'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
-import { suspendNotificationReconciliation, waitForNotificationReconciliation } from '@/services/notifications/orchestrator'
+import { resumeNotificationReconciliation, suspendNotificationReconciliation, waitForNotificationReconciliation } from '@/services/notifications/orchestrator'
 import {
   setWipePending,
   clearWipePending,
   repairInterruptedWipe,
 } from '@/services/auth/wipe-marker'
+import {
+  clearAccountDeletionState,
+  getAccountDeletionState,
+  markAccountDeletionComplete,
+  setAccountDeletionPending,
+} from '@/services/auth/account-deletion-marker'
 import { CryptoModule } from '@/native/CryptoModule'
 import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
@@ -61,6 +70,12 @@ jest.mock('@/services/auth/wipe-marker', () => ({
   isWipePending: jest.fn(),
   repairInterruptedWipe: jest.fn(),
 }))
+jest.mock('@/services/auth/account-deletion-marker', () => ({
+  clearAccountDeletionState: jest.fn(),
+  getAccountDeletionState: jest.fn(),
+  markAccountDeletionComplete: jest.fn(),
+  setAccountDeletionPending: jest.fn(),
+}))
 // Session reset only needs to be invokable here; its behavior is unit-tested via
 // the stores. Mocking avoids importing the store graph into the auth service.
 jest.mock('@/services/auth/session-reset', () => ({
@@ -70,6 +85,7 @@ jest.mock('@/services/auth/session-reset', () => ({
 jest.mock('@/services/auth/device-id', () => ({ getDeviceId: jest.fn(() => Promise.resolve('dev-1')) }))
 jest.mock('@/services/notifications/cleanup', () => ({ cleanupNotifications: jest.fn() }))
 jest.mock('@/services/notifications/orchestrator', () => ({
+  resumeNotificationReconciliation: jest.fn(),
   suspendNotificationReconciliation: jest.fn(),
   waitForNotificationReconciliation: jest.fn(),
 }))
@@ -89,8 +105,13 @@ const mockEndWipe = endWipe as jest.Mock
 const mockSetWipePending = setWipePending as jest.Mock
 const mockClearWipePending = clearWipePending as jest.Mock
 const mockRepairWipe = repairInterruptedWipe as jest.Mock
+const mockGetDeletionState = getAccountDeletionState as jest.Mock
+const mockSetDeletionPending = setAccountDeletionPending as jest.Mock
+const mockMarkDeletionComplete = markAccountDeletionComplete as jest.Mock
+const mockClearDeletionState = clearAccountDeletionState as jest.Mock
 const mockResetSession = resetSessionStores as jest.Mock
 const mockCleanupNotifications = cleanupNotifications as jest.Mock
+const mockResumeNotifications = resumeNotificationReconciliation as jest.Mock
 const mockSuspendNotifications = suspendNotificationReconciliation as jest.Mock
 const mockWaitForNotifications = waitForNotificationReconciliation as jest.Mock
 
@@ -111,6 +132,7 @@ beforeEach(() => {
   mockDerive.mockResolvedValue(WRAP)
   mockCleanupNotifications.mockResolvedValue(ok(undefined))
   mockWaitForNotifications.mockResolvedValue(undefined)
+  mockGetDeletionState.mockResolvedValue(null)
 })
 
 describe('register', () => {
@@ -346,6 +368,176 @@ describe('hydrateAuth', () => {
     mockGetTokens.mockResolvedValue(null)
     await hydrateAuth()
     expect(useAuthStore.getState().status).toBe('unauthenticated')
+  })
+})
+
+describe('deleteAccount', () => {
+  it('deletes remotely before wiping local DB, key, and tokens', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(204))
+    const calls: string[] = []
+    ;(global.fetch as jest.Mock)
+      .mockImplementationOnce(async () => {
+        calls.push('readiness')
+        return resp(204)
+      })
+      .mockImplementationOnce(async () => {
+        calls.push('remote_delete')
+        return resp(204)
+      })
+    mockDeleteDb.mockImplementation(() => calls.push('delete_db'))
+    mockDeleteKey.mockImplementation(async () => { calls.push('delete_key') })
+    mockClear.mockImplementation(async () => { calls.push('clear_tokens') })
+
+    const result = await deleteAccount()
+
+    expect(result).toEqual({ success: true, data: true })
+    expect(calls.indexOf('remote_delete')).toBeLessThan(calls.indexOf('delete_db'))
+    expect(calls).toEqual(expect.arrayContaining(['remote_delete', 'delete_db', 'delete_key', 'clear_tokens']))
+    expect(mockSetDeletionPending).toHaveBeenCalledWith('acc1')
+    expect(mockMarkDeletionComplete).toHaveBeenCalledWith('acc1')
+    expect(mockClearDeletionState).toHaveBeenCalled()
+    expect(useAuthStore.getState().status).toBe('unauthenticated')
+  })
+
+  it('keeps the account usable when the readiness check cannot reach the server', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockRejectedValue(new Error('offline'))
+
+    const result = await deleteAccount()
+
+    expect(result.success).toBe(false)
+    expect(mockSetDeletionPending).not.toHaveBeenCalled()
+    expect(mockDeleteDb).not.toHaveBeenCalled()
+    expect(mockDeleteKey).not.toHaveBeenCalled()
+    expect(mockClear).not.toHaveBeenCalled()
+    expect(mockSuspendNotifications).not.toHaveBeenCalled()
+    expect(mockResumeNotifications).not.toHaveBeenCalled()
+    expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
+  })
+
+  it('preserves local state and keeps the deletion gate when deletion fails after readiness', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock)
+      .mockResolvedValueOnce(resp(204))
+      .mockRejectedValueOnce(new Error('connection lost'))
+
+    const result = await deleteAccount()
+
+    expect(result.success).toBe(false)
+    expect(mockSetDeletionPending).toHaveBeenCalledWith('acc1')
+    expect(mockDeleteDb).not.toHaveBeenCalled()
+    expect(mockDeleteKey).not.toHaveBeenCalled()
+    expect(mockClear).not.toHaveBeenCalled()
+    expect(useAuthStore.getState()).toMatchObject({ status: 'deleting', accountId: 'acc1' })
+  })
+
+  it('waits for an explicit choice instead of retrying pending deletion at launch', async () => {
+    mockGetDeletionState.mockResolvedValue({ accountId: 'acc1', remoteComplete: false })
+
+    await hydrateAuth()
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect(mockDeleteDb).not.toHaveBeenCalled()
+    expect(mockDeleteKey).not.toHaveBeenCalled()
+    expect(mockClear).not.toHaveBeenCalled()
+    expect(useAuthStore.getState()).toMatchObject({ status: 'deleting', accountId: 'acc1' })
+  })
+
+  it('finishes the local wipe at launch after remote deletion completed', async () => {
+    mockGetDeletionState.mockResolvedValue({ accountId: 'acc1', remoteComplete: true })
+
+    await hydrateAuth()
+
+    expect(mockDeleteDb).toHaveBeenCalled()
+    expect(mockDeleteKey).toHaveBeenCalled()
+    expect(mockClear).toHaveBeenCalled()
+    expect(mockClearDeletionState).toHaveBeenCalled()
+    expect(useAuthStore.getState().status).toBe('unauthenticated')
+  })
+})
+
+describe('canReturnToAccountFromDeletion', () => {
+  beforeEach(() => {
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+  })
+
+  it.each([204, 404])('allows return when readiness responds %i', async (status) => {
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(status))
+
+    await expect(canReturnToAccountFromDeletion()).resolves.toEqual({ success: true, data: true })
+  })
+
+  it('disallows return when remote deletion has started', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(409))
+
+    await expect(canReturnToAccountFromDeletion()).resolves.toEqual({ success: true, data: false })
+  })
+
+  it('does not allow return when status is unavailable', async () => {
+    ;(global.fetch as jest.Mock).mockRejectedValue(new Error('offline'))
+
+    const result = await canReturnToAccountFromDeletion()
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('returnToAccountFromDeletion', () => {
+  it('clears a stale local marker and restores the account when deletion never started remotely', async () => {
+    useAuthStore.setState({ status: 'deleting', accountId: 'acc1' })
+    mockGetDeletionState.mockResolvedValue({ accountId: 'acc1', remoteComplete: false })
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(204))
+
+    const result = await returnToAccountFromDeletion()
+
+    expect(result).toEqual({ success: true, data: true })
+    expect(mockClearDeletionState).toHaveBeenCalled()
+    expect(mockResumeNotifications).toHaveBeenCalled()
+    expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
+  })
+
+  it('restores the account when the undeployed server has no deletion endpoint', async () => {
+    useAuthStore.setState({ status: 'deleting', accountId: 'acc1' })
+    mockGetDeletionState.mockResolvedValue({ accountId: 'acc1', remoteComplete: false })
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(404))
+
+    const result = await returnToAccountFromDeletion()
+
+    expect(result).toEqual({ success: true, data: true })
+    expect(mockClearDeletionState).toHaveBeenCalled()
+    expect(mockResumeNotifications).toHaveBeenCalled()
+    expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
+  })
+
+  it('stays locked when remote deletion already started', async () => {
+    useAuthStore.setState({ status: 'deleting', accountId: 'acc1' })
+    mockGetDeletionState.mockResolvedValue({ accountId: 'acc1', remoteComplete: false })
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockResolvedValue(resp(409))
+
+    const result = await returnToAccountFromDeletion()
+
+    expect(result.success).toBe(false)
+    expect(mockClearDeletionState).not.toHaveBeenCalled()
+    expect(useAuthStore.getState().status).toBe('deleting')
+  })
+
+  it('stays locked when deletion status cannot be confirmed', async () => {
+    useAuthStore.setState({ status: 'deleting', accountId: 'acc1' })
+    mockGetDeletionState.mockResolvedValue({ accountId: 'acc1', remoteComplete: false })
+    mockGetTokens.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    ;(global.fetch as jest.Mock).mockRejectedValue(new Error('offline'))
+
+    const result = await returnToAccountFromDeletion()
+
+    expect(result.success).toBe(false)
+    expect(mockClearDeletionState).not.toHaveBeenCalled()
+    expect(useAuthStore.getState().status).toBe('deleting')
   })
 })
 

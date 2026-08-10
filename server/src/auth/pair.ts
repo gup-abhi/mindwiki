@@ -1,6 +1,7 @@
 import type { Env } from '../types'
 import { issueTokens } from './tokens'
 import { recordPairedDevice } from './devices'
+import { getAccountDeletionMarker } from './deletion-marker'
 
 const PAIR_TTL_SECONDS = 300 // 5 minutes — the QR is meant to be scanned in person, now
 
@@ -27,15 +28,19 @@ export async function handlePairStart(
  * can read ciphertext but cannot decrypt without the master key (carried in the QR).
  */
 export async function handlePairRedeem(req: Request, env: Env): Promise<Response> {
-  const { code, device_label, platform, device_id } = await req.json<{
+  const { code, device_label, platform, device_id } = (await req.json()) as {
     code: string
     device_label?: string
     platform?: string
     device_id?: string
-  }>()
+  }
 
   const rec = (await env.AUTH_KV.get(`pair:${code}`, 'json')) as { account_id: string } | null
   if (!rec) return new Response('Invalid or expired pairing code', { status: 401 })
+  if (await getAccountDeletionMarker(env, rec.account_id)) {
+    await env.AUTH_KV.delete(`pair:${code}`)
+    return new Response('Account unavailable', { status: 401 })
+  }
   await env.AUTH_KV.delete(`pair:${code}`) // one-time use
 
   const { accessToken, refreshToken, familyId } = await issueTokens(rec.account_id, env)

@@ -7,6 +7,7 @@ jest.mock('bcryptjs', () => ({
 }), { virtual: true })
 
 import { authMiddleware } from '../../server/src/middleware/auth'
+import { hashDeletionToken } from '../../server/src/auth/deletion-marker'
 import { handleRecover } from '../../server/src/auth/recover'
 import type { Env } from '../../server/src/types'
 
@@ -53,6 +54,27 @@ describe('server auth boundaries', () => {
     await kv.put('family:fam', JSON.stringify({ account_id: 'other', invalidated: false }))
     const token = `header.${Buffer.from(JSON.stringify({ sub: 'acc', fam: 'fam', exp: Math.floor(Date.now() / 1000) + 60, type: 'access' })).toString('base64url')}.signature`
     expect(await authMiddleware(new Request('https://example.test', { headers: { Authorization: `Bearer ${token}` } }), env(kv))).toEqual({ ok: false })
+  })
+
+  it('allows only the initiating token to retry deletion after access expiry', async () => {
+    const kv = new FakeKV()
+    const expired = `header.${Buffer.from(JSON.stringify({ sub: 'acc', fam: 'fam', exp: 1, type: 'access' })).toString('base64url')}.signature`
+    await kv.put('deleting:acc', JSON.stringify({
+      account_id: 'acc',
+      family_id: 'fam',
+      token_hash: await hashDeletionToken(expired),
+      status: 'pending',
+      updated_at: Date.now(),
+    }))
+    expect(await authMiddleware(new Request('https://example.test', { headers: { Authorization: `Bearer ${expired}` } }), env(kv))).toEqual({
+      ok: true,
+      accountId: 'acc',
+      familyId: 'fam',
+      deleting: true,
+    })
+
+    const other = `header.${Buffer.from(JSON.stringify({ sub: 'acc', fam: 'other', exp: 1, type: 'access' })).toString('base64url')}.signature`
+    expect(await authMiddleware(new Request('https://example.test', { headers: { Authorization: `Bearer ${other}` } }), env(kv))).toEqual({ ok: false })
   })
 
   it('records recovery session device metadata and family', async () => {

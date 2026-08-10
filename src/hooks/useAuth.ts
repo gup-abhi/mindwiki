@@ -6,6 +6,7 @@ import {
   recoverAccount,
   changePassword,
   logout as logoutAccount,
+  deleteAccount as deleteAccountService,
 } from '@/services/auth/auth.service'
 import { useAuthStore } from '@/store/auth.store'
 
@@ -78,5 +79,16 @@ export function useAuth() {
   /** Sign out: destructive local logout; DB, master key, and tokens are wiped. */
   const logout = useCallback(() => logoutAccount(), [])
 
-  return { submit, submitting, error, pendingPhrase, confirmPhrase, recover, logout }
+  const deleteAccount = useCallback(async (): Promise<boolean> => {
+    setSubmitting(true)
+    setError(null)
+    const result = await deleteAccountService()
+    if (useAuthStore.getState().status === 'authenticated') {
+      setSubmitting(false)
+      if (!result.success) setError(result.error.message)
+    }
+    return result.success
+  }, [])
+
+  return { submit, submitting, error, pendingPhrase, confirmPhrase, recover, logout, deleteAccount }
 }

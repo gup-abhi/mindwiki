@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react-native'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { AppState, type AppStateStatus } from 'react-native'
 
 import RootLayout from '@/app/_layout'
@@ -8,10 +8,16 @@ import { ok, err } from '@/types/result'
 
 jest.mock('@/services/storage/bootstrap', () => ({ initStorage: jest.fn() }))
 // hydrateAuth is exercised in auth.service.test; here we drive auth state directly.
+const mockCanReturnToAccount = jest.fn()
+const mockDeleteAccount = jest.fn()
+const mockReturnToAccount = jest.fn()
 jest.mock('@/services/auth/auth.service', () => ({
+  canReturnToAccountFromDeletion: (...args: unknown[]) => mockCanReturnToAccount(...args),
+  deleteAccount: (...args: unknown[]) => mockDeleteAccount(...args),
   hydrateAuth: jest.fn(),
-  register: jest.fn(),
   loginNewDevice: jest.fn(),
+  register: jest.fn(),
+  returnToAccountFromDeletion: (...args: unknown[]) => mockReturnToAccount(...args),
 }))
 jest.mock('@/hooks/useSync', () => ({ useSync: jest.fn() }))
 // The welcome tour + guided path are for brand-new accounts only, gated on the
@@ -60,6 +66,10 @@ describe('RootLayout — auth gate then DB open', () => {
   beforeEach(() => {
     mockInitStorage.mockReset()
     mockInitStorage.mockResolvedValue(ok(undefined))
+    mockCanReturnToAccount.mockReset()
+    mockCanReturnToAccount.mockResolvedValue(ok(false))
+    mockDeleteAccount.mockReset()
+    mockReturnToAccount.mockReset()
     useAuthStore.setState({ status: 'loading', accountId: null, isNewAccount: false })
   })
 
@@ -108,6 +118,35 @@ describe('RootLayout — auth gate then DB open', () => {
     render(<RootLayout />)
     await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())
     expect(screen.queryByTestId('onboarding')).toBeNull()
+  })
+
+  it('hides the return action when remote deletion already started', async () => {
+    useAuthStore.setState({ status: 'deleting', accountId: 'acc1' })
+    render(<RootLayout />)
+
+    await waitFor(() => expect(mockCanReturnToAccount).toHaveBeenCalledTimes(1))
+    expect(screen.queryByTestId('account-deletion-return')).toBeNull()
+    expect(screen.getByTestId('account-deletion-retry')).toBeTruthy()
+  })
+
+  it('offers a safe return action while deletion is stuck locally', async () => {
+    useAuthStore.setState({ status: 'deleting', accountId: 'acc1' })
+    mockCanReturnToAccount.mockResolvedValue(ok(true))
+    let finishReturn: (() => void) | undefined
+    mockReturnToAccount.mockReturnValue(
+      new Promise((resolve) => {
+        finishReturn = () => resolve(ok(true))
+      })
+    )
+    render(<RootLayout />)
+    await waitFor(() => expect(screen.getByTestId('account-deletion-return')).toBeTruthy())
+    fireEvent.press(screen.getByTestId('account-deletion-return'))
+    await waitFor(() => expect(mockReturnToAccount).toHaveBeenCalledTimes(1))
+    expect(mockDeleteAccount).not.toHaveBeenCalled()
+    expect(screen.getByText('Retry deletion')).toBeTruthy()
+    expect(screen.queryByText('Return to account')).toBeNull()
+    expect(mockInitStorage).not.toHaveBeenCalled()
+    await act(async () => finishReturn?.())
   })
 
   it('shows an error state when the DB fails to open', async () => {

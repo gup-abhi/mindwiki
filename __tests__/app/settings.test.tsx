@@ -49,6 +49,7 @@ const mockDevices = useDevices as jest.Mock
 const syncNow = jest.fn()
 const setup = jest.fn()
 const logout = jest.fn()
+const deleteAccount = jest.fn()
 const toggleLock = jest.fn()
 const recoveryBase = { needsSetup: false, phrase: null, busy: false, error: null, setup, done: jest.fn() }
 
@@ -56,7 +57,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockSyncStatus.mockReturnValue({ lastSynced: null, pending: 0, syncing: false, message: null, syncNow })
   mockRecovery.mockReturnValue(recoveryBase)
-  mockAuth.mockReturnValue({ logout })
+  mockAuth.mockReturnValue({ logout, deleteAccount, error: null })
   mockBiometric.mockReturnValue({ enabled: true, capable: true, toggle: toggleLock })
   mockDevices.mockReturnValue({
     devices: [],
@@ -143,6 +144,53 @@ describe('Settings', () => {
     fireEvent.press(screen.getByTestId('settings-logout'))
     chooseAlert('Cancel')
     expect(logout).not.toHaveBeenCalled()
+  })
+
+  it('deletes the account only after two destructive confirmations without syncing first', async () => {
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-delete-account'))
+    expect(alertTitle).toBe('Delete account permanently?')
+    expect(alertMessage).toMatch(/encrypted sync backup/)
+    chooseAlert('Delete account')
+    expect(alertTitle).toBe('Confirm permanent deletion')
+    deleteAccount.mockResolvedValue(true)
+    await act(async () => {
+      chooseAlert('Delete account')
+      await flushPromises()
+    })
+    expect(deleteAccount).toHaveBeenCalledTimes(1)
+    expect(syncNow).not.toHaveBeenCalled()
+  })
+
+  it('does not delete the account when either confirmation is cancelled', () => {
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-delete-account'))
+    chooseAlert('Delete account')
+    chooseAlert('Cancel')
+    expect(deleteAccount).not.toHaveBeenCalled()
+  })
+
+  it('returns the delete button to normal when deletion cannot start', async () => {
+    deleteAccount.mockResolvedValue(false)
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-delete-account'))
+    chooseAlert('Delete account')
+    await act(async () => {
+      chooseAlert('Delete account')
+      await flushPromises()
+    })
+    expect(screen.getByText('Delete account')).toBeTruthy()
+  })
+
+  it('shows a retry-later error while the account remains open', () => {
+    mockAuth.mockReturnValue({
+      logout,
+      deleteAccount,
+      error: 'Could not reach the server. Your account is unchanged — try again later.',
+    })
+    render(<Settings />)
+    expect(screen.getByTestId('settings-delete-account-error')).toBeTruthy()
+    expect(screen.getByText('Could not reach the server. Your account is unchanged — try again later.')).toBeTruthy()
   })
 
   it('opens the pair-a-device screen', () => {

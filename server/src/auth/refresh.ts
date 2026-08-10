@@ -1,5 +1,6 @@
 import type { Env } from '../types'
 import { issueTokens, sha256 } from './tokens'
+import { getAccountDeletionMarker } from './deletion-marker'
 
 // Marker retention matches the refresh-token lifetime so a rotated token can be
 // recognized as a replay for as long as the token itself would have been valid.
@@ -17,6 +18,9 @@ export async function handleRefresh(req: Request, env: Env): Promise<Response> {
   } | null
 
   if (!stored) return new Response('Invalid refresh token', { status: 401 })
+  if (await getAccountDeletionMarker(env, stored.account_id)) {
+    return new Response('Account unavailable', { status: 401 })
+  }
 
   if (stored.used) {
     // A rotated token presented again = replay of a stolen/leaked session.

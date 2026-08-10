@@ -22,6 +22,15 @@ describe('auth.store', () => {
     expect(useAuthStore.getState().isNewAccount).toBe(true)
   })
 
+  it('setDeleting locks the app to the account being removed', () => {
+    useAuthStore.getState().setDeleting('acc1')
+    expect(useAuthStore.getState()).toMatchObject({
+      status: 'deleting',
+      accountId: 'acc1',
+      isNewAccount: false,
+    })
+  })
+
   it('setUnauthenticated clears the account and the new-account flag', () => {
     useAuthStore.getState().setAuthenticated('acc1', true)
     useAuthStore.getState().setUnauthenticated()

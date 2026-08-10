@@ -45,6 +45,11 @@ describe('Worker sync routes', () => {
     expect(response.status).toBe(404)
   })
 
+  it('exposes authenticated account deletion readiness without starting deletion', async () => {
+    const response = await worker.fetch(new Request('https://example.test/auth/account/deletion-readiness'), env)
+    expect(response.status).toBe(204)
+  })
+
   it('exposes only authenticated count-only audit dry run', async () => {
     expect((await worker.fetch(new Request('https://example.test/sync/acc/audit'), env)).status).toBe(400)
     expect((await worker.fetch(new Request('https://example.test/sync/acc/audit?dry_run=true'), env)).status).toBe(200)

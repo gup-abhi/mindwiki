@@ -121,7 +121,6 @@ import { handleChangePassword } from './auth/change-password'
 import { handleDeleteAccount } from './auth/delete-account'
 import { handleUpload } from './storage/upload'
 import { handleDelta } from './storage/delta'
-import { handleStorageDelete } from './storage/delete'
 import { authMiddleware } from './middleware/auth'
 
 export interface Env {
@@ -156,10 +155,9 @@ export default {
     if (method === 'GET'    && path === '/auth/recovery')         return handleRecoveryStatus(req, env, accountId)
     if (method === 'POST'   && path === '/auth/recovery')         return handleSetRecovery(req, env, accountId)
     if (method === 'POST'   && path === '/auth/pair/start')       return handlePairStart(req, env, accountId)
-    if (method === 'DELETE' && path === '/auth/account')          return handleDeleteAccount(req, env, accountId)
+    if (method === 'DELETE' && path === '/auth/account')          return handleDeleteAccount(req, env, accountId, familyId)
     if (method === 'PUT'    && path.startsWith('/sync/'))         return handleUpload(req, env, accountId, path)
     if (method === 'GET'    && path.endsWith('/delta'))           return handleDelta(req, env, accountId, url)
-    if (method === 'DELETE' && path.startsWith('/sync/'))         return handleStorageDelete(req, env, accountId)
 
     return new Response('Not Found', { status: 404 })
   }
@@ -205,6 +203,18 @@ export async function authMiddleware(req: Request, env: Env): Promise<AuthResult
 revocation uses `DELETE /auth/devices/:deviceId`; account-scoped lookup rejects
 missing devices and rejects caller family with 409. Recovery records supplied
 device metadata and family like login/register/pairing.
+
+`GET /auth/account/deletion-readiness` performs a non-destructive R2 reachability
+check. The client calls it before locking the account; a failure leaves the
+account unchanged so deletion can be retried later.
+
+`DELETE /auth/account` is the only remote deletion operation. It writes an
+account deletion marker first, blocks every non-deletion route and all new
+login/recovery/refresh/pairing sessions, deletes every R2 object under the
+account prefix (v2 and legacy), then deletes account-owned KV records. A pending
+marker binds retries to the exact bearer token that initiated deletion and is
+retained until the purge completes; a completed marker returns idempotent 204
+for 24 hours. There is no record-level `DELETE /sync/...` endpoint.
 
 Pre-production security backlog: KV rotation is not strongly transactional, so
 strict refresh replay detection requires Durable Object or D1 coordination;

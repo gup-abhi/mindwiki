@@ -3,6 +3,7 @@ import { compare } from 'bcryptjs'
 import type { Env } from '../types'
 import { issueTokens } from './tokens'
 import { recordPairedDevice } from './devices'
+import { getAccountDeletionMarker } from './deletion-marker'
 
 /**
  * Account recovery via the recovery phrase (used when the password is lost).
@@ -23,6 +24,9 @@ export async function handleRecover(req: Request, env: Env): Promise<Response> {
     account_id: string
   } | null
   if (!emailRecord) return new Response('Invalid credentials', { status: 401 })
+  if (await getAccountDeletionMarker(env, emailRecord.account_id)) {
+    return new Response('Account unavailable', { status: 401 })
+  }
 
   const recovery = (await env.AUTH_KV.get(`recovery:${emailRecord.account_id}`, 'json')) as {
     recovery_bcrypt: string

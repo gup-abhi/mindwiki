@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/auth.store'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
-import { suspendNotificationReconciliation, waitForNotificationReconciliation } from '@/services/notifications/orchestrator'
+import { resumeNotificationReconciliation, suspendNotificationReconciliation, waitForNotificationReconciliation } from '@/services/notifications/orchestrator'
 
 import { authenticatedFetch } from './api-client'
 import { API_URL } from './config'
@@ -21,7 +21,7 @@ import {
   isValidRecoveryPhrase,
 } from './recovery'
 import { resetSessionStores } from './session-reset'
-import { invalidateSessionWork, waitForSessionWork } from './session-work'
+import { invalidateSessionWork, resumeSessionWork, waitForSessionWork } from './session-work'
 import { clearAccountTransition, repairAccountTransition, setAccountTransition } from './account-transition'
 import { getTokens, saveTokens, clearTokens } from './token-store'
 import * as tokenStore from './token-store'
@@ -30,11 +30,19 @@ import {
   repairInterruptedWipe,
   setWipePending,
 } from './wipe-marker'
+import {
+  clearAccountDeletionState,
+  getAccountDeletionState,
+  markAccountDeletionComplete,
+  setAccountDeletionPending,
+} from './account-deletion-marker'
 
 // Hard cap on the best-effort server logout call so a hung network never blocks
 // the local wipe (R1 step 3). On timeout we proceed to wipe regardless.
 const SERVER_LOGOUT_TIMEOUT_MS = 5_000
+const SERVER_DELETE_READINESS_TIMEOUT_MS = 5_000
 let logoutFlight: Promise<void> | null = null
+let deleteAccountFlight: Promise<Result<true>> | null = null
 
 async function randomHex(bytes: number): Promise<string> {
   const arr = await getRandomBytesAsync(bytes)
@@ -252,6 +260,14 @@ export async function hydrateAuth(): Promise<void> {
   // Finish an interrupted logout wipe before reading the session (R2), so a kill
   // mid-wipe can't relaunch into a half-torn-down authenticated state.
   await repairInterruptedWipe()
+  const deletionState = await getAccountDeletionState()
+  if (deletionState) {
+    useAuthStore.getState().setDeleting(deletionState.accountId)
+    if (deletionState.remoteComplete) await finishDeletedAccountWipe()
+    // A pending remote deletion requires an explicit retry. Auto-retrying here
+    // would remove the user's chance to cancel a stale, local-only marker.
+    return
+  }
   await repairAccountTransition()
   const tokens = await getTokens()
   if (tokens) useAuthStore.getState().setAuthenticated(tokens.accountId)
@@ -353,12 +369,191 @@ export async function logout(): Promise<void> {
   return logoutFlight
 }
 
+export async function deleteAccount(): Promise<Result<true>> {
+  if (deleteAccountFlight) return deleteAccountFlight
+  deleteAccountFlight = deleteAccountImpl().finally(() => {
+    deleteAccountFlight = null
+  })
+  return deleteAccountFlight
+}
+
+export async function canReturnToAccountFromDeletion(): Promise<Result<boolean>> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SERVER_DELETE_READINESS_TIMEOUT_MS)
+  try {
+    const readiness = await authenticatedFetch('/auth/account/deletion-readiness', {
+      method: 'GET',
+      signal: controller.signal,
+    })
+    if (!readiness.success) {
+      return err(
+        'ACCOUNT_DELETE_STATUS_UNAVAILABLE',
+        'Could not confirm whether deletion started. Check your connection and try again.',
+        readiness.error
+      )
+    }
+    if (readiness.data.status === 409) return ok(false)
+    // A Worker version without account-deletion routes returns 404. It cannot
+    // have accepted this deletion, so the durable marker exists only locally.
+    if (readiness.data.status === 204 || readiness.data.status === 404) return ok(true)
+    return err(
+      'ACCOUNT_DELETE_STATUS_UNAVAILABLE',
+      'Could not confirm whether deletion started. Try again after the server is updated.'
+    )
+  } catch (e) {
+    return err(
+      'ACCOUNT_DELETE_STATUS_UNAVAILABLE',
+      'Could not confirm whether deletion started. Check your connection and try again.',
+      e
+    )
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function returnToAccountFromDeletion(): Promise<Result<true>> {
+  const deletionState = await getAccountDeletionState()
+  const accountId = deletionState?.accountId ?? useAuthStore.getState().accountId
+  if (!accountId) return err('NOT_AUTHENTICATED', 'No account to restore')
+
+  const canReturn = await canReturnToAccountFromDeletion()
+  if (!canReturn.success) return canReturn
+  if (!canReturn.data) {
+    return err(
+      'ACCOUNT_DELETE_STARTED',
+      'Remote deletion already started. Retry deletion to finish safely.'
+    )
+  }
+
+  await clearAccountDeletionState()
+  resumeNotificationReconciliation()
+  resumeSessionWork()
+  useAuthStore.getState().setAuthenticated(accountId)
+  return ok(true)
+}
+
+async function finishDeletedAccountWipe(): Promise<void> {
+  await setWipePending()
+  beginWipe()
+  let completed = false
+  try {
+    if (deleteDatabase() === false) throw new Error('Database deletion failed')
+    await CryptoModule.deleteKeyFromKeychain()
+    await CryptoModule.deleteKeyOwner()
+    await clearTokens()
+    await clearWipePending()
+    await clearAccountDeletionState()
+    completed = true
+  } finally {
+    endWipe()
+    resetSessionStores()
+    if (completed) useAuthStore.getState().setUnauthenticated()
+  }
+}
+
+async function deleteAccountImpl(): Promise<Result<true>> {
+  let deletionLocked = false
+  let deletionFinished = false
+  let workQuiesced = false
+  let resumeWork = true
+  let accountId: string | null = useAuthStore.getState().accountId
+  try {
+    if (!accountId) return err('NOT_AUTHENTICATED', 'No active account')
+    const deletionState = await getAccountDeletionState()
+    if (!deletionState) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), SERVER_DELETE_READINESS_TIMEOUT_MS)
+      try {
+        const readiness = await authenticatedFetch('/auth/account/deletion-readiness', {
+          method: 'GET',
+          signal: controller.signal,
+        })
+        if (!readiness.success) {
+          if (readiness.error.code === 'NOT_AUTHENTICATED' || readiness.error.code === 'SESSION_EXPIRED') {
+            return readiness
+          }
+          return err(
+            'ACCOUNT_DELETE_UNAVAILABLE',
+            'Could not reach the server. Your account is unchanged — try again later.',
+            readiness.error
+          )
+        }
+        if (!readiness.data.ok) {
+          return err(
+            'ACCOUNT_DELETE_UNAVAILABLE',
+            'Account deletion is unavailable. Your account is unchanged — try again later.'
+          )
+        }
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
+    tokenStore.invalidateTokenMutations?.()
+    suspendNotificationReconciliation()
+    invalidateSessionWork()
+    workQuiesced = true
+    await waitForNotificationReconciliation()
+    await waitForSessionWork(SERVER_LOGOUT_TIMEOUT_MS)
+    try { await cleanupNotifications() } catch { /* best-effort; local wipe remains authoritative */ }
+
+    if (!deletionState) await setAccountDeletionPending(accountId)
+    deletionLocked = true
+    useAuthStore.getState().setDeleting(accountId)
+    if (deletionState?.remoteComplete) {
+      await finishDeletedAccountWipe()
+      deletionFinished = true
+      return ok(true)
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), SERVER_LOGOUT_TIMEOUT_MS)
+    let remote: Result<Response>
+    try {
+      remote = await authenticatedFetch('/auth/account', { method: 'DELETE', signal: controller.signal })
+    } catch (e) {
+      return err('ACCOUNT_DELETE_FAILED', 'Account deletion failed', e)
+    } finally {
+      clearTimeout(timer)
+    }
+    if (!remote.success) {
+      if (remote.error.code === 'NOT_AUTHENTICATED' || remote.error.code === 'SESSION_EXPIRED') {
+        await clearAccountDeletionState()
+        deletionLocked = false
+      } else {
+        resumeWork = false
+      }
+      return remote
+    }
+    if (!remote.data.ok) {
+      resumeWork = false
+      return err('ACCOUNT_DELETE_FAILED', `Account deletion failed (${remote.data.status})`)
+    }
+
+    await markAccountDeletionComplete(accountId)
+    await finishDeletedAccountWipe()
+    deletionFinished = true
+    return ok(true)
+  } catch (e) {
+    if (deletionLocked) resumeWork = false
+    return err('ACCOUNT_DELETE_FAILED', 'Account deletion failed', e)
+  } finally {
+    if (deletionLocked && !deletionFinished && accountId) {
+      useAuthStore.getState().setDeleting(accountId)
+    }
+    if (workQuiesced && resumeWork && !deletionFinished) {
+      resumeNotificationReconciliation()
+      resumeSessionWork()
+    }
+  }
+}
+
 async function logoutImpl(): Promise<void> {
   // 1. Durable marker: survives a kill so the wipe is always completable.
   await setWipePending()
   // 2. Quiesce before native cleanup. Generation invalidation makes every
   //    in-flight reconciler checkpoint fail; a schedule resolving late cancels
-  //    its own identifier instead of writing into the wiped account.
+  // its own identifier instead of writing into the wiped account.
   suspendNotificationReconciliation()
   invalidateSessionWork()
   beginWipe()

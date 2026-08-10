@@ -3,20 +3,24 @@ import { compare } from 'bcryptjs'
 import type { Env } from '../types'
 import { issueTokens } from './tokens'
 import { recordPairedDevice } from './devices'
+import { getAccountDeletionMarker } from './deletion-marker'
 
 export async function handleLogin(req: Request, env: Env): Promise<Response> {
-  const { email, password_hash, device_label, platform, device_id } = await req.json<{
+  const { email, password_hash, device_label, platform, device_id } = (await req.json()) as {
     email: string
     password_hash: string
     device_label?: string
     platform?: string
     device_id?: string
-  }>()
+  }
 
   const emailRecord = (await env.AUTH_KV.get(`email:${email.toLowerCase()}`, 'json')) as {
     account_id: string
   } | null
   if (!emailRecord) return new Response('Invalid credentials', { status: 401 })
+  if (await getAccountDeletionMarker(env, emailRecord.account_id)) {
+    return new Response('Account unavailable', { status: 401 })
+  }
 
   const account = (await env.AUTH_KV.get(`account:${emailRecord.account_id}`, 'json')) as {
     password_bcrypt: string

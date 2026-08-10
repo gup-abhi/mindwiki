@@ -2,6 +2,7 @@ import { handleRegister } from './auth/register'
 import { handleChangePassword } from './auth/change-password'
 import { handleLogin } from './auth/login'
 import { handleLogout } from './auth/logout'
+import { handleAccountDeletionReadiness, handleDeleteAccount } from './auth/delete-account'
 import { handlePairStart, handlePairRedeem } from './auth/pair'
 import { handleListDevices, handleRevokeDevice } from './auth/devices'
 import { handleRecover } from './auth/recover'
@@ -88,12 +89,22 @@ export default {
     if (!auth.ok) return new Response('Unauthorized', { status: 401 })
     const accountId = auth.accountId
     const familyId = auth.familyId
+    if (auth.deleting) {
+      if (method === 'DELETE' && path === '/auth/account') {
+        return handleDeleteAccount(req, env, accountId, familyId)
+      }
+      return new Response('Account deletion in progress', { status: 409 })
+    }
 
     if (method === 'POST' && path === '/auth/change-password')
       return handleChangePassword(req, env, accountId)
     if (method === 'GET' && path === '/auth/recovery') return handleRecoveryStatus(req, env, accountId)
     if (method === 'POST' && path === '/auth/recovery') return handleSetRecovery(req, env, accountId)
     if (method === 'POST' && path === '/auth/logout') return handleLogout(req, env, accountId, familyId)
+    if (method === 'GET' && path === '/auth/account/deletion-readiness') {
+      return handleAccountDeletionReadiness(env, accountId)
+    }
+    if (method === 'DELETE' && path === '/auth/account') return handleDeleteAccount(req, env, accountId, familyId)
     if (method === 'DELETE' && path.startsWith('/auth/devices/')) {
       let deviceId: string
       try {
