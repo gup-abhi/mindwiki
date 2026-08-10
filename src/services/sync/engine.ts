@@ -204,13 +204,13 @@ export async function pushPending(
   for (const item of pend.data) {
     if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
     if (!isSyncTable(item.table_name)) {
-      await markSynced(item.id, Date.now(), db) // unknown table — drop from queue
+      await markSynced(item.id, Date.now(), db, item.created_at) // unknown table — drop this generation
       continue
     }
     const res = await db.execute(`SELECT * FROM ${item.table_name} WHERE id = ?`, [item.record_id])
     const row = res.rows[0]
     if (!row) {
-      await markSynced(item.id, Date.now(), db) // gone locally — nothing to upload
+      await markSynced(item.id, Date.now(), db, item.created_at) // gone locally — drop this generation
       continue
     }
 
@@ -240,7 +240,7 @@ export async function pushPending(
     if (!put.success || !put.data.ok) continue // keep pending
 
     if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
-    await markSynced(item.id, Date.now(), db)
+    await markSynced(item.id, Date.now(), db, item.created_at)
     pushed++
   }
   return ok(pushed)

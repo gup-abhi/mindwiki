@@ -41,16 +41,67 @@ describe('useSyncStatus', () => {
     await waitFor(() => expect(result.current.pending).toBe(2))
 
     mockPending.mockResolvedValue({ success: true, data: [] }) // queue drained after sync
+    let synced = false
     await act(async () => {
-      await result.current.syncNow()
+      synced = await result.current.syncNow()
     })
 
     expect(mockSync).toHaveBeenCalledTimes(1)
     expect(result.current.pending).toBe(0)
+    expect(synced).toBe(true)
+  })
+
+  it('runs another pass when the pull creates a pending upload', async () => {
+    mockPending
+      .mockResolvedValueOnce({ success: true, data: [] })
+      .mockResolvedValueOnce({ success: true, data: [{ id: 'local-winner' }] })
+      .mockResolvedValueOnce({ success: true, data: [] })
+    mockSync
+      .mockResolvedValueOnce({ success: true, data: { pushed: 0, pulled: 1 } })
+      .mockResolvedValueOnce({ success: true, data: { pushed: 1, pulled: 0 } })
+    const { result } = renderHook(() => useSyncStatus())
+    await waitFor(() => expect(mockPending).toHaveBeenCalledTimes(1))
+
+    let synced = false
+    await act(async () => {
+      synced = await result.current.syncNow()
+    })
+
+    expect(mockSync).toHaveBeenCalledTimes(2)
+    expect(synced).toBe(true)
+    expect(result.current.pending).toBe(0)
+  })
+
+  it('returns false when repeated sync passes make no upload progress', async () => {
+    const { result } = renderHook(() => useSyncStatus())
+    await waitFor(() => expect(result.current.pending).toBe(2))
+
+    let synced = true
+    await act(async () => {
+      synced = await result.current.syncNow()
+    })
+
+    expect(mockSync).toHaveBeenCalledTimes(2)
+    expect(synced).toBe(false)
+    expect(result.current.pending).toBe(2)
+  })
+
+  it('returns false when the sync fails', async () => {
+    mockSync.mockResolvedValue({ success: false, error: { code: 'X', message: 'no' } })
+    mockPending.mockResolvedValue({ success: true, data: [] })
+    const { result } = renderHook(() => useSyncStatus())
+
+    let synced = true
+    await act(async () => {
+      synced = await result.current.syncNow()
+    })
+
+    expect(synced).toBe(false)
   })
 
   it('reports "already synced" when nothing changed', async () => {
     mockSync.mockResolvedValue({ success: true, data: { pushed: 0, pulled: 0 } })
+    mockPending.mockResolvedValue({ success: true, data: [] })
     const { result } = renderHook(() => useSyncStatus())
     await act(async () => {
       await result.current.syncNow()
@@ -60,6 +111,7 @@ describe('useSyncStatus', () => {
 
   it('reports counts when changes were synced', async () => {
     mockSync.mockResolvedValue({ success: true, data: { pushed: 2, pulled: 1 } })
+    mockPending.mockResolvedValue({ success: true, data: [] })
     const { result } = renderHook(() => useSyncStatus())
     await act(async () => {
       await result.current.syncNow()

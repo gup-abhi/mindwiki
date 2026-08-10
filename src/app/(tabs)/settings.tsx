@@ -62,9 +62,10 @@ export default function Settings() {
   const deviceIdentityReady = identityResolved === undefined ? currentDeviceId !== null : identityResolved
   const { preferences: notificationPreferences, permission: notificationPermission, busy: notificationBusy, update: updateNotifications, enable: enableNotifications, openSystemSettings } = useNotifications()
 
-  // Logout is destructive (local wipe). Confirm first (R4), escalating the copy
-  // when unsynced changes would be lost, and attempt one final flush online.
+  // Logout is destructive (local wipe). Confirm first (R4), then require a
+  // successful sync with an empty upload queue before deleting local data.
   const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
   const [deletingAccount, setDeletingAccount] = useState(false)
   const confirmDeleteAccount = () => {
     if (deletingAccount) return
@@ -101,25 +102,30 @@ export default function Settings() {
   const confirmLogout = () => {
     if (loggingOut) return
     const base =
-      'Your journal on this device will be removed. Your account data stays encrypted in your sync backup.'
-    const warning =
-      pending > 0 ? `${pending} ${pending === 1 ? 'entry hasn’t' : 'entries haven’t'} synced yet and will be lost. ` : ''
+      'MindWiki will sync any waiting changes, then remove this device’s journal. Your account data stays encrypted in your sync backup.'
+    const warning = pending > 0
+      ? `${pending} ${pending === 1 ? 'change is' : 'changes are'} waiting to upload. `
+      : ''
     Alert.alert('Log out?', `${warning}${base}`, [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Log out',
+        text: 'Sync and log out',
         style: 'destructive',
         onPress: async () => {
           setLoggingOut(true)
-          // Best-effort final flush so pending entries reach the backup before the
-          // wipe; ignore the result — logout proceeds regardless (offline is fine).
-          if (pending > 0) {
-            await Promise.race([
-              syncNow(),
-              new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-            ])
+          setLogoutError(null)
+          const fullySynced = await syncNow()
+          if (!fullySynced) {
+            setLogoutError('We couldn’t confirm that all changes are synced. Your account and journal remain on this device. Check your connection and try again.')
+            setLoggingOut(false)
+            return
           }
-          await logout()
+          try {
+            await logout()
+          } catch {
+            setLogoutError('Log out couldn’t finish. Please try again.')
+            setLoggingOut(false)
+          }
         },
       },
     ])
@@ -435,6 +441,11 @@ export default function Settings() {
 
       <View style={styles.logout}>
         <Button title="Log out" variant="destructive" fullWidth loading={loggingOut} onPress={confirmLogout} testID="settings-logout" />
+        {logoutError && (
+          <Text variant="caption" color="danger" style={styles.error} testID="settings-logout-error">
+            {logoutError}
+          </Text>
+        )}
         <Button title="Delete account" variant="destructive" fullWidth loading={deletingAccount} onPress={confirmDeleteAccount} testID="settings-delete-account" />
         {authError && (
           <Text variant="caption" color="danger" style={styles.error} testID="settings-delete-account-error">

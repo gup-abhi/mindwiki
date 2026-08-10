@@ -106,14 +106,24 @@ export async function pendingUploads(db: SqliteDatabase = getDb()): Promise<Resu
   }
 }
 
-/** Stamp a queue row as uploaded so it drops out of pendingUploads. */
+/** Stamp a queue row as uploaded so it drops out of pendingUploads. When the
+ * uploaded generation is supplied, a newer edit that re-queued the same record
+ * remains pending instead of being acknowledged by the older in-flight PUT. */
 export async function markSynced(
   id: string,
   syncedAt: number,
-  db: SqliteDatabase = getDb()
+  db: SqliteDatabase = getDb(),
+  uploadedGeneration?: number
 ): Promise<Result<void>> {
   try {
-    await db.execute('UPDATE sync_queue SET synced_at = ? WHERE id = ?', [syncedAt, id])
+    if (uploadedGeneration === undefined) {
+      await db.execute('UPDATE sync_queue SET synced_at = ? WHERE id = ?', [syncedAt, id])
+    } else {
+      await db.execute(
+        'UPDATE sync_queue SET synced_at = ? WHERE id = ? AND created_at = ?',
+        [syncedAt, id, uploadedGeneration]
+      )
+    }
     return ok(undefined)
   } catch (e) {
     return err('SYNC_QUEUE_MARK_FAILED', 'Failed to mark record synced', e)

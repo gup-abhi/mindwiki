@@ -32,9 +32,9 @@ function createFakeDb() {
         return { rows: pending, rowsAffected: 0 }
       }
       if (/^UPDATE sync_queue SET synced_at/.test(sql)) {
-        const [synced_at, id] = params
+        const [synced_at, id, created_at] = params
         const row = rows.get(String(id))
-        if (row) row.synced_at = synced_at
+        if (row && (created_at == null || row.created_at === created_at)) row.synced_at = synced_at
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       throw new Error(`unhandled SQL: ${sql}`)
@@ -86,6 +86,23 @@ describe('storage/sync-queue', () => {
     // A later edit re-enqueues the same id and clears synced_at.
     await enqueueUpsert('entries', 'e1', db)
     pending = await pendingUploads(db)
+    expect(pending.success && pending.data).toHaveLength(1)
+  })
+
+  it('does not let an older upload acknowledge a newer queued edit', async () => {
+    const { db, rows } = createFakeDb()
+    await enqueueUpsert('entries', 'e1', db)
+    const uploadedGeneration = Number(rows.get('entries:e1')?.created_at)
+
+    // The record changes while the previous PUT is in flight.
+    const queued = rows.get('entries:e1')
+    if (!queued) throw new Error('missing queue row')
+    queued.created_at = uploadedGeneration + 1
+    queued.synced_at = null
+
+    await markSynced('entries:e1', Date.now(), db, uploadedGeneration)
+
+    const pending = await pendingUploads(db)
     expect(pending.success && pending.data).toHaveLength(1)
   })
 

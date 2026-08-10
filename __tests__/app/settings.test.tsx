@@ -109,34 +109,49 @@ describe('Settings', () => {
     expect(screen.getByText('Save your recovery phrase')).toBeTruthy()
   })
 
-  it('logs out after the confirmation dialog is confirmed (no pending entries)', async () => {
+  it('verifies sync before logging out even when the displayed pending count is zero', async () => {
+    syncNow.mockResolvedValue(true)
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-logout'))
     expect(alertTitle).toBe('Log out?')
-    // No pending entries → the unsynced-loss line is omitted.
-    expect(alertMessage).not.toMatch(/haven’t synced/)
-    expect(alertMessage).toMatch(/will be removed/)
+    expect(alertMessage).toMatch(/sync any waiting changes/i)
     logout.mockResolvedValue(undefined)
     await act(async () => {
-      chooseAlert('Log out')
+      chooseAlert('Sync and log out')
       await flushPromises()
     })
-    expect(logout).toHaveBeenCalled()
-    expect(syncNow).not.toHaveBeenCalled() // nothing to flush
+    expect(syncNow).toHaveBeenCalledTimes(1)
+    expect(logout).toHaveBeenCalledTimes(1)
   })
 
-  it('warns about unsynced entries and flushes before wiping when confirmed online', async () => {
+  it('syncs pending changes before wiping when confirmed online', async () => {
+    syncNow.mockResolvedValue(true)
     mockSyncStatus.mockReturnValue({ lastSynced: null, pending: 2, syncing: false, message: null, syncNow })
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-logout'))
-    expect(alertMessage).toMatch(/2 entries haven’t synced yet and will be lost/)
+    expect(alertMessage).toMatch(/2 changes are waiting to upload/i)
     logout.mockResolvedValue(undefined)
     await act(async () => {
-      chooseAlert('Log out')
+      chooseAlert('Sync and log out')
       await flushPromises()
     })
-    expect(syncNow).toHaveBeenCalled() // final flush attempted
-    expect(logout).toHaveBeenCalled()
+    expect(syncNow).toHaveBeenCalledTimes(1)
+    expect(logout).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the account and local data when sync cannot be verified', async () => {
+    syncNow.mockResolvedValue(false)
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-logout'))
+    await act(async () => {
+      chooseAlert('Sync and log out')
+      await flushPromises()
+    })
+
+    expect(syncNow).toHaveBeenCalledTimes(1)
+    expect(logout).not.toHaveBeenCalled()
+    expect(screen.getByTestId('settings-logout-error')).toBeTruthy()
+    expect(screen.getByText(/couldn’t confirm that all changes are synced/i)).toBeTruthy()
   })
 
   it('does not log out when the dialog is cancelled', () => {
