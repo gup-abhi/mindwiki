@@ -6,7 +6,7 @@ import { issueTokens, sha256 } from './tokens'
 const REFRESH_TTL_SECONDS = 90 * 24 * 60 * 60
 
 export async function handleRefresh(req: Request, env: Env): Promise<Response> {
-  const { refresh_token } = await req.json<{ refresh_token: string }>()
+  const { refresh_token } = (await req.json()) as { refresh_token: string }
 
   const tokenHash = await sha256(refresh_token)
   const stored = (await env.AUTH_KV.get(`refresh:${tokenHash}`, 'json')) as {
