@@ -5222,10 +5222,10 @@ image-size@^1.0.2:
   dependencies:
     queue "6.0.2"
 
-immer@^11.1.8:
-  version "11.1.8"
-  resolved "https://registry.yarnpkg.com/immer/-/immer-11.1.8.tgz#08a6426f7019dbce8d6dff8c4a43bb25c550a575"
-  integrity sha512-/tbkHMW7y10Lx6i1crLjD4/OhNkRG+Fo7byZHtah0547nIeXYcpIXaUh0IAQY6gO5459qpGGYapcEOHtFXkIuA==
+immer@^11.1.16:
+  version "11.1.16"
+  resolved "https://registry.yarnpkg.com/immer/-/immer-11.1.16.tgz#66702b60de57fda6a0b57eef52c84258cc4aac9b"
+  integrity sha512-Xs7H9rBc+kti1J6RueUvbEBkmOz7jqj11XYgf+YMXAYzu8EeE7hwZ9poLXdVfVnGmJu7QAf41T7H2KuF6QoK6Q==
 
 import-fresh@^2.0.0:
   version "2.0.0"
