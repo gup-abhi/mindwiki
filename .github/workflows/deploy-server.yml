@@ -1,9 +1,7 @@
 name: Deploy Server
 
 on:
-  push:
-    branches: [main]
-    paths: ['server/**']
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
