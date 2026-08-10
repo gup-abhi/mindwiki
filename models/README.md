@@ -43,3 +43,10 @@ adb push models/deep-model.gguf /storage/emulated/0/Android/data/com.mindwiki.de
 These paths are hardcoded in `demo/native/LLMBridge.ts`. If a model is missing, the
 Fast/Deep model check fails with a "did you adb push it?" message.
 
+## Developer-only Qwen3 4B comparison
+
+The Qwen3-4B-Instruct-2507 candidate must remain a separately named benchmark
+artifact. Never overwrite `deep-model.gguf` or add it to normal model downloads.
+See [`docs/QWEN3_4B_BENCHMARK.md`](../docs/QWEN3_4B_BENCHMARK.md) for the pinned-artifact,
+checksum, sideload, and physical-device A/B procedure.
+

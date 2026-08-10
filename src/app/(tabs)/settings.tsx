@@ -12,6 +12,7 @@ import { DevReGround } from '@/components/DevReGround'
 import { DevConnectionCleanup } from '@/components/DevConnectionCleanup'
 import { DevEmotionPlaceholderBackfill } from '@/components/DevEmotionPlaceholderBackfill'
 import { DevEmbedProbe } from '@/components/DevEmbedProbe'
+import { DevModelBenchmark } from '@/components/DevModelBenchmark'
 import { DevWikiAudit } from '@/components/DevWikiAudit'
 import { DevLegacyWikiBackfill } from '@/components/DevLegacyWikiBackfill'
 import { DevGraphAudit } from '@/components/DevGraphAudit'
@@ -394,7 +395,8 @@ export default function Settings() {
           <DevConnectionCleanup />
           <DevEmotionPlaceholderBackfill />
           <DevEmbedProbe />
-<DevWikiAudit />
+          <DevModelBenchmark />
+          <DevWikiAudit />
           <DevLegacyWikiBackfill />
           <DevGraphAudit />
         </>
