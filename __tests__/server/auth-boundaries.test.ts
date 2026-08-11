@@ -3,7 +3,10 @@ jest.mock('@tsndr/cloudflare-worker-jwt', () => ({
   sign: jest.fn(async () => 'header.' + Buffer.from(JSON.stringify({ sub: 'acc', fam: 'family-1', type: 'access' })).toString('base64url') + '.signature'),
 }), { virtual: true })
 jest.mock('bcryptjs', () => ({
-  compare: jest.fn(async () => true),
+  compare: jest.fn(async (value: string, hash: string) => {
+    if (hash === '$2a$04$pROX6Ae0nF2RCLo46x2DF.r0mLTYSYDyAr04yXs8PbHCdW4ak0.Fe') return value === 'phrase-hash'
+    return true
+  }),
 }), { virtual: true })
 
 import { authMiddleware } from '../../server/src/middleware/auth'
@@ -80,7 +83,11 @@ describe('server auth boundaries', () => {
   it('records recovery session device metadata and family', async () => {
     const kv = new FakeKV()
     await kv.put('email:user@example.com', JSON.stringify({ account_id: 'acc' }))
-    await kv.put('recovery:acc', JSON.stringify({ recovery_bcrypt: 'fixture', encrypted_key: 'cipher' }))
+    // Keep this fixture valid even if the bcrypt mock is unavailable in a CI worker.
+    await kv.put('recovery:acc', JSON.stringify({
+      recovery_bcrypt: '$2a$04$pROX6Ae0nF2RCLo46x2DF.r0mLTYSYDyAr04yXs8PbHCdW4ak0.Fe',
+      encrypted_key: 'cipher',
+    }))
     const response = await handleRecover(
       new Request('https://example.test/auth/recover', {
         method: 'POST',
