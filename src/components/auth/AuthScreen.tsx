@@ -18,10 +18,10 @@ const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())
  * (email optional) and escrows the master key; Login recovers it on a known
  * device. On success the auth store flips to 'authenticated' and the app mounts.
  */
-export function AuthScreen() {
+export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMode }) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
-  const [mode, setMode] = useState<AuthMode>('register')
+  const [mode, setMode] = useState<AuthMode>(initialMode)
   const [recovering, setRecovering] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [email, setEmail] = useState('')

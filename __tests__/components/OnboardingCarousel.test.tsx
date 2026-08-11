@@ -3,16 +3,24 @@ import { fireEvent, render, screen } from '@testing-library/react-native'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
 
 describe('OnboardingCarousel', () => {
-  it('opens on the first slide with Skip and Next', () => {
-    render(<OnboardingCarousel onDone={jest.fn()} />)
+  it('opens on the first slide with Sign in, Skip, and Next', () => {
+    render(<OnboardingCarousel onDone={jest.fn()} onSignIn={jest.fn()} />)
     expect(screen.getByText('A journal that thinks with you')).toBeTruthy()
+    expect(screen.getByTestId('onboarding-sign-in')).toBeTruthy()
     expect(screen.getByTestId('onboarding-skip')).toBeTruthy()
     expect(screen.getByText('Next')).toBeTruthy()
   })
 
+  it('opens returning-user authentication from Sign in', () => {
+    const onSignIn = jest.fn()
+    render(<OnboardingCarousel onDone={jest.fn()} onSignIn={onSignIn} />)
+    fireEvent.press(screen.getByTestId('onboarding-sign-in'))
+    expect(onSignIn).toHaveBeenCalledTimes(1)
+  })
+
   it('shows the inline confirm when Skip is pressed, then calls onDone on Continue', () => {
     const onDone = jest.fn()
-    render(<OnboardingCarousel onDone={onDone} />)
+    render(<OnboardingCarousel onDone={onDone} onSignIn={jest.fn()} />)
     fireEvent.press(screen.getByTestId('onboarding-skip'))
     // Confirm dialog appears — Cancel and Continue visible.
     expect(screen.getByTestId('onboarding-skip-cancel')).toBeTruthy()
@@ -25,11 +33,11 @@ describe('OnboardingCarousel', () => {
 
   it('advances through the 6 slides and completes from the final CTA', () => {
     const onDone = jest.fn()
-    render(<OnboardingCarousel onDone={onDone} />)
+    render(<OnboardingCarousel onDone={onDone} onSignIn={jest.fn()} />)
 
-    // Five Next presses walk from slide 0 → 5 (6 slides total); the CTA then reads "Begin".
+    // Five Next presses walk from slide 0 → 5 (6 slides total).
     for (let i = 0; i < 5; i++) fireEvent.press(screen.getByTestId('onboarding-next'))
-    expect(screen.getByText('Begin')).toBeTruthy()
+    expect(screen.getByText('Create your account')).toBeTruthy()
     expect(onDone).not.toHaveBeenCalled()
 
     fireEvent.press(screen.getByTestId('onboarding-next'))

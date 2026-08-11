@@ -57,9 +57,13 @@ const SLIDES: readonly Slide[] = [
   },
 ]
 
-/** One-time full-screen welcome tour. `onDone` fires on Skip (after consent) or
- *  the final CTA. */
-export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
+interface OnboardingCarouselProps {
+  onDone: () => void
+  onSignIn?: () => void
+}
+
+/** One-time full-screen welcome tour shown before account registration. */
+export function OnboardingCarousel({ onDone, onSignIn }: OnboardingCarouselProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const { width } = useWindowDimensions()
@@ -67,6 +71,7 @@ export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
   const [index, setIndex] = useState(0)
   const [confirmSkip, setConfirmSkip] = useState(false)
   const isLast = index === SLIDES.length - 1
+  const isAccountEntry = onSignIn !== undefined
 
   const goNext = () => {
     if (isLast) return onDone()
@@ -89,7 +94,7 @@ export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
         {confirmSkip ? (
           <View style={styles.confirmRow}>
             <Text variant="caption" color="textMuted" style={styles.confirmCopy}>
-              This downloads the on-device AI (~2.8 GB). Best on Wi-Fi.
+              {isAccountEntry ? 'This starts setup of the on-device AI (~2.8 GB). Best on Wi-Fi.' : 'Close the introduction?'}
             </Text>
             <Pressable onPress={() => { setConfirmSkip(false) }} hitSlop={8} testID="onboarding-skip-cancel">
               <Text variant="label" color="textMuted">
@@ -102,14 +107,23 @@ export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
               </Text>
             </Pressable>
           </View>
-        ) : isLast ? (
-          <View /> /* last slide hides the Skip area */
         ) : (
-          <Pressable onPress={() => setConfirmSkip(true)} hitSlop={8} testID="onboarding-skip">
-            <Text variant="label" color="textMuted">
-              Skip
-            </Text>
-          </Pressable>
+          <View style={styles.topActions}>
+            {onSignIn && (
+              <Pressable onPress={onSignIn} hitSlop={8} testID="onboarding-sign-in">
+                <Text variant="label" color="accent">
+                  Sign in
+                </Text>
+              </Pressable>
+            )}
+            {!isLast && (
+              <Pressable onPress={() => setConfirmSkip(true)} hitSlop={8} testID="onboarding-skip">
+                <Text variant="label" color="textMuted">
+                  Skip
+                </Text>
+              </Pressable>
+            )}
+          </View>
         )}
       </View>
 
@@ -144,13 +158,13 @@ export function OnboardingCarousel({ onDone }: { onDone: () => void }) {
       </View>
 
       <View style={styles.footer}>
-        {isLast && (
+        {isLast && isAccountEntry && (
           <Text variant="caption" color="textMuted" style={styles.consent}>
-            Tapping below downloads the on-device AI (~2.8 GB). Best on Wi-Fi.
+            Creating an account starts setup of the on-device AI (~2.8 GB). Best on Wi-Fi.
           </Text>
         )}
         <Button
-          title={isLast ? 'Begin' : 'Next'}
+          title={isLast ? (isAccountEntry ? 'Create your account' : 'Done') : 'Next'}
           onPress={goNext}
           fullWidth
           testID="onboarding-next"
@@ -164,6 +178,7 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: t.colors.bg },
     skipRow: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, minHeight: 28 },
+    topActions: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.xl },
     confirmRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md, flex: 1, justifyContent: 'flex-end' },
     confirmCopy: { flex: 1 },
     slide: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: t.spacing['2xl'] },

@@ -28,16 +28,13 @@ import { useSync } from '@/hooks/useSync'
 import { useAppLock } from '@/hooks/useAppLock'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { Button } from '@/components/ui'
+import type { AuthMode } from '@/hooks/useAuth'
 import { LockScreen } from '@/components/auth/LockScreen'
 import { CoverScreen } from '@/components/CoverScreen'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
 import { useFirstRunRedirect, resetFirstRunRedirect } from '@/hooks/useFirstRunRedirect'
-import {
-  beginOnboardingModelDownload,
-  isFirstRunTourDone,
-  isOnboardingIncomplete,
-  markFirstRunTourDone,
-} from '@/services/onboarding/first-run'
+import { beginOnboardingModelDownload, isOnboardingIncomplete } from '@/services/onboarding/first-run'
+import { isIntroOnboardingDone, markIntroOnboardingDone } from '@/services/onboarding/intro'
 import { ThemeProvider, type Theme, useTheme, useThemedStyles } from '@/theme'
 
 // Hold the native splash until our custom fonts are ready (best-effort).
@@ -57,14 +54,13 @@ function AppRoot() {
   }, [])
 
   const router = useRouter()
-  // One-time first-run redirect: after the carousel, route the user through a
-  // guided path so they produce entries and see their first wiki page.
+  // One-time post-registration redirect through a guided writing path so the
+  // new user produces entries and sees their first wiki page.
   useFirstRunRedirect()
 
-  // Decoupled model-download kick (P3): the carousel's onDone kicks the download
-  // on consent, but a user whose carousel was killed mid-way (tour-done unset),
-  // or whose download stalled and was relaunched, also needs the kick on launch.
-  // Onboarding-incomplete + models-missing → start it. Idempotent per session.
+  // Decoupled model-download kick: after the new account opens its encrypted DB,
+  // onboarding-incomplete + models-missing starts the download. Relaunches also
+  // resume stalled downloads. Idempotent per session.
   useEffect(() => {
     void (async () => {
       if (!(await isOnboardingIncomplete())) return
@@ -113,10 +109,6 @@ function AppRoot() {
 /** Auth + encrypted-DB gate. Rendered inside the theme + safe-area providers. */
 function AppGate() {
   const authStatus = useAuthStore((s) => s.status)
-  // The welcome tour + guided first run are for brand-new accounts only. This is
-  // true solely on the register→confirm-phrase path this session; login,
-  // recovery, device pairing, and a returning session all leave it false.
-  const isNewAccount = useAuthStore((s) => s.isNewAccount)
   const theme = useTheme()
   const styles = useThemedStyles(makeStyles)
   const [storage, setStorage] = useState<StorageStatus>('idle')
@@ -124,19 +116,26 @@ function AppGate() {
   const [deletionError, setDeletionError] = useState<string | null>(null)
   const [deletionAction, setDeletionAction] = useState<'retry' | 'return' | null>(null)
   const [canReturnFromDeletion, setCanReturnFromDeletion] = useState(false)
-  // Session-local: set once the new user dismisses the tour, so it doesn't
-  // re-show while isNewAccount stays true for the rest of this session.
-  const [carouselDone, setCarouselDone] = useState(false)
-  // Durable tour-done marker (read from per-account settings once the DB is open).
-  // null while pending; true → a prior session dismissed the tour, so a kill during
-  // this relaunch should NOT re-show it (resume the guided path instead).
-  const [tourDone, setTourDone] = useState<boolean | null>(null)
+  const [introDone, setIntroDone] = useState<boolean | null>(null)
+  const [authMode, setAuthMode] = useState<AuthMode>('register')
 
-  // Launch: configure notifications + resolve the session. No DB access yet.
+  // Launch: configure notifications, resolve the install-level introduction, and
+  // hydrate auth in parallel. The encrypted account DB remains closed.
   useEffect(() => {
     configureNotifications()
+    void isIntroOnboardingDone().then(setIntroDone)
     void hydrateAuth()
   }, [])
+
+  // Existing installs may already have an authenticated session but no intro
+  // marker because the pre-auth introduction was added later. Backfill it so a
+  // future logout does not make a returning user replay the introduction.
+  useEffect(() => {
+    if (authStatus === 'authenticated' && introDone === false) {
+      void markIntroOnboardingDone()
+      setIntroDone(true)
+    }
+  }, [authStatus, introDone])
 
   // The session ended. Two paths reach here: logout (which already wiped the DB +
   // key + stores) and session expiry (which keeps key + DB on disk, R5). Handle
@@ -150,7 +149,6 @@ function AppGate() {
       closeDb()
       resetSessionStores()
       setStorage('idle')
-      setTourDone(null)
       // Clear the session-global first-run guard so a different account signing
       // in on this same app session can still be routed through its first run.
       resetFirstRunRedirect()
@@ -175,15 +173,11 @@ function AppGate() {
   // master key (a fresh DB on a new-device login, the existing DB for a
   // returning user). Opening before auth would create it with a throwaway
   // device key and orphan it on login (see ADR/CLAUDE.md privacy model).
-  // Resolves the durable tour-done marker atomically with storage readiness so
-  // the carousel gate never sees a null tourDone on the first render (P3).
   useEffect(() => {
     if (authStatus !== 'authenticated' || storage !== 'idle') return
     setStorage('loading')
-    initStorage().then(async (result) => {
+    initStorage().then((result) => {
       if (result.success) {
-        const done = await isFirstRunTourDone().catch(() => false)
-        setTourDone(done)
         setStorage('ready')
       } else {
         setMessage(result.error.message)
@@ -192,7 +186,7 @@ function AppGate() {
     })
   }, [authStatus, storage])
 
-  if (authStatus === 'loading') {
+  if (authStatus === 'loading' || introDone === null) {
     return (
       <View testID="storage-loading" style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.accent} />
@@ -201,7 +195,20 @@ function AppGate() {
   }
 
   if (authStatus === 'unauthenticated') {
-    return <AuthScreen />
+    if (!introDone) {
+      const finishIntro = async (mode: AuthMode) => {
+        await markIntroOnboardingDone()
+        setAuthMode(mode)
+        setIntroDone(true)
+      }
+      return (
+        <OnboardingCarousel
+          onDone={() => { void finishIntro('register') }}
+          onSignIn={() => { void finishIntro('login') }}
+        />
+      )
+    }
+    return <AuthScreen initialMode={authMode} />
   }
 
   if (authStatus === 'deleting') {
@@ -267,27 +274,6 @@ function AppGate() {
       <View testID="storage-loading" style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.accent} />
       </View>
-    )
-  }
-
-  // Brand-new account (register→confirm this session): show the welcome tour
-  // once, then enter the app. A kill DURING the tour (tourDone=false) re-shows it
-  // on relaunch; a kill AFTER it resumes the guided path directly (P3).
-  // tourDone===null while we check the durable marker (not yet resolved from the
-  // DB) — during that render beat we fall through to AppRoot, which is fine since
-  // useFirstRunRedirect won't route until storage is consistently loaded too.
-  if (isNewAccount && !carouselDone && tourDone === false) {
-    return (
-      <OnboardingCarousel
-        onDone={async () => {
-          // Consent point: start the ~2.8 GB model download in the background so
-          // the models arrive while the user completes the guided path.
-          // Fire-and-forget; the Home ModelDownloadCard remains as retry.
-          await markFirstRunTourDone()
-          beginOnboardingModelDownload()
-          setCarouselDone(true)
-        }}
-      />
     )
   }
 

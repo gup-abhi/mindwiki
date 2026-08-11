@@ -9,10 +9,6 @@ import { useAuthStore } from '@/store/auth.store'
 const FIRST_RUN_FLAG = 'onboarding:first_run_complete'
 const FIRST_RUN_STARTED = 'onboarding:first_run_started'
 const FIRST_RUN_ENTRY_IDS = 'onboarding:first_run_entry_ids'
-// Set once the welcome tour is dismissed, so a kill DURING the carousel re-shows
-// the tour on relaunch (this marker stays unset), while a kill AFTER it resumes
-// the guided path directly (FIRST_RUN_STARTED is set by then).
-export const FIRST_RUN_TOUR_DONE = 'onboarding:first_run_tour_done'
 // One-shot marker carrying the first synthesized wiki page's {id,title} so Home
 // can surface a deferred "your first insight page is ready" banner/notification
 // after the deep model finishes — the aha moment, deferred not lost.
@@ -49,8 +45,8 @@ export async function hasExistingEntries(): Promise<boolean> {
 }
 
 /**
- * Check the first-run status after the carousel is dismissed. Returns whether
- * a first-run path should run and which path to use.
+ * Check whether the post-registration writing flow should run and which guided
+ * path to use.
  *
  * A first run should run when EITHER:
  *  - This session just registered a fresh account (isNewAccount), OR
@@ -115,24 +111,9 @@ export async function markFirstRunComplete(entryIds: string[]): Promise<void> {
   await setSetting(FIRST_RUN_ENTRY_IDS, JSON.stringify(entryIds))
 }
 
-/**
- * Mark the welcome tour as dismissed. Durable (per-account DB setting) so a kill
- * AFTER dismissing the carousel doesn't re-show the tour on relaunch — only a
- * kill DURING the carousel (before this is set) does. Best-effort, never throws.
- */
-export async function markFirstRunTourDone(): Promise<void> {
-  await setSetting(FIRST_RUN_TOUR_DONE, '1').catch(() => undefined)
-}
-
-/** True once the welcome tour has been dismissed this account. Best-effort. */
-export async function isFirstRunTourDone(): Promise<boolean> {
-  const res = await getSetting(FIRST_RUN_TOUR_DONE)
-  return res.success && res.data === '1'
-}
-
-/** True iff the first-run funnel hasn't marked complete — the gate the decoupled
- *  download kick (AppRoot) uses to start models on launch even if the carousel
- *  was skipped mid-way. Best-effort: treats read failure as "incomplete". */
+/** True iff the post-registration writing flow hasn't marked complete — the gate
+ *  the decoupled download kick (AppRoot) uses on launch. Best-effort: treats read
+ *  failure as "incomplete". */
 export async function isOnboardingIncomplete(): Promise<boolean> {
   const res = await getSetting(FIRST_RUN_FLAG)
   return !(res.success && res.data === '1')
@@ -269,14 +250,14 @@ export async function firstWikiPage(
   return null
 }
 
-// Once-per-session guard: the carousel's onDone may fire more than once across
-// re-renders, and we must not start two concurrent downloads of the same file.
+// Once-per-session guard: the launch kick may re-run across renders, and we must
+// not start two concurrent downloads of the same file.
 let _onboardingDownloadStarted = false
 
 /**
- * Kick off the model download from the onboarding carousel's consent step, so
- * a fresh-install user's models arrive in the background while they complete
- * the guided path. Fire-and-forget: never awaited, never throws.
+ * Kick off model download after registration, so a fresh user's models arrive
+ * in the background while they complete the guided path. Fire-and-forget: never
+ * awaited, never throws.
  *
  * Staged to mirror useModelDownload.download() (the Home ModelDownloadCard) but
  * without React state — the fast model unblocks journaling, then the deep model

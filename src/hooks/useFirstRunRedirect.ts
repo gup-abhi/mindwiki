@@ -16,8 +16,8 @@ export function resetFirstRunRedirect(): void {
 }
 
 /**
- * Redirect the user through the first-run guided path once per device install.
- * Called from AppRoot after the onboarding carousel is dismissed. Detects
+ * Redirect a newly registered user through the guided writing path. Called from
+ * AppRoot after authentication and encrypted storage initialization. Detects
  * whether a first run is pending and, if so, replaces the current route with
  * the first-run path. Idempotent — only fires once per session.
  *

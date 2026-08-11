@@ -3,6 +3,7 @@ import { AppState, type AppStateStatus } from 'react-native'
 
 import RootLayout from '@/app/_layout'
 import { initStorage } from '@/services/storage/bootstrap'
+import { isIntroOnboardingDone, markIntroOnboardingDone } from '@/services/onboarding/intro'
 import { useAuthStore } from '@/store/auth.store'
 import { ok, err } from '@/types/result'
 
@@ -20,14 +21,16 @@ jest.mock('@/services/auth/auth.service', () => ({
   returnToAccountFromDeletion: (...args: unknown[]) => mockReturnToAccount(...args),
 }))
 jest.mock('@/hooks/useSync', () => ({ useSync: jest.fn() }))
-// The welcome tour + guided path are for brand-new accounts only, gated on the
-// auth store's isNewAccount. beginOnboardingModelDownload is fired from the
-// carousel CTA; stub it so the gate tests don't touch the model manager.
+// Intro onboarding is install-level because it runs before an account DB exists.
+jest.mock('@/services/onboarding/intro', () => ({
+  isIntroOnboardingDone: jest.fn().mockResolvedValue(false),
+  markIntroOnboardingDone: jest.fn().mockResolvedValue(undefined),
+}))
+// The guided writing path remains account-level. Stub its model download so gate
+// tests don't touch the model manager.
 jest.mock('@/services/onboarding/first-run', () => ({
   beginOnboardingModelDownload: jest.fn(),
-  isFirstRunTourDone: jest.fn().mockResolvedValue(false),
   isOnboardingIncomplete: jest.fn().mockResolvedValue(false),
-  markFirstRunTourDone: jest.fn().mockResolvedValue(undefined),
 }))
 jest.mock('@/services/llm/model-manager', () => ({
   areModelsReady: jest.fn().mockResolvedValue(true),
@@ -53,6 +56,8 @@ jest.mock('@/hooks/useFirstRunRedirect', () => ({
 }))
 
 const mockInitStorage = initStorage as jest.Mock
+const mockIsIntroOnboardingDone = isIntroOnboardingDone as jest.Mock
+const mockMarkIntroOnboardingDone = markIntroOnboardingDone as jest.Mock
 let appStateHandler: ((state: AppStateStatus) => void) | null = null
 
 describe('RootLayout — auth gate then DB open', () => {
@@ -70,12 +75,14 @@ describe('RootLayout — auth gate then DB open', () => {
     mockCanReturnToAccount.mockResolvedValue(ok(false))
     mockDeleteAccount.mockReset()
     mockReturnToAccount.mockReset()
+    mockIsIntroOnboardingDone.mockReset().mockResolvedValue(true)
+    mockMarkIntroOnboardingDone.mockReset().mockResolvedValue(undefined)
     useAuthStore.setState({ status: 'loading', accountId: null, isNewAccount: false })
   })
 
-  it('shows a spinner while the session is resolving', () => {
+  it('shows a spinner while the session is resolving', async () => {
     render(<RootLayout />)
-    expect(screen.getByTestId('storage-loading')).toBeTruthy()
+    await waitFor(() => expect(screen.getByTestId('storage-loading')).toBeTruthy())
   })
 
   it('covers every route while inactive or backgrounded', async () => {
@@ -92,11 +99,45 @@ describe('RootLayout — auth gate then DB open', () => {
     expect(screen.queryByTestId('privacy-cover')).toBeNull()
   })
 
-  it('shows the auth screen when unauthenticated — and does NOT open the DB', async () => {
+  it('shows the auth screen when unauthenticated after intro — and does NOT open the DB', async () => {
     useAuthStore.setState({ status: 'unauthenticated', accountId: null })
     render(<RootLayout />)
     await waitFor(() => expect(screen.getByTestId('auth-submit')).toBeTruthy())
     expect(mockInitStorage).not.toHaveBeenCalled() // DB stays closed until auth
+  })
+
+  it('shows intro onboarding before registration on a fresh install', async () => {
+    mockIsIntroOnboardingDone.mockResolvedValue(false)
+    useAuthStore.setState({ status: 'unauthenticated', accountId: null })
+    render(<RootLayout />)
+
+    await waitFor(() => expect(screen.getByTestId('onboarding')).toBeTruthy())
+    expect(screen.queryByTestId('auth-submit')).toBeNull()
+    expect(mockInitStorage).not.toHaveBeenCalled()
+  })
+
+  it('continues from intro onboarding to registration and persists completion', async () => {
+    mockIsIntroOnboardingDone.mockResolvedValue(false)
+    useAuthStore.setState({ status: 'unauthenticated', accountId: null })
+    render(<RootLayout />)
+    await waitFor(() => expect(screen.getByTestId('onboarding')).toBeTruthy())
+
+    for (let i = 0; i < 6; i++) fireEvent.press(screen.getByTestId('onboarding-next'))
+
+    await waitFor(() => expect(screen.getByText('Create your account')).toBeTruthy())
+    expect(mockMarkIntroOnboardingDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens login from intro onboarding for returning users', async () => {
+    mockIsIntroOnboardingDone.mockResolvedValue(false)
+    useAuthStore.setState({ status: 'unauthenticated', accountId: null })
+    render(<RootLayout />)
+    await waitFor(() => expect(screen.getByTestId('onboarding-sign-in')).toBeTruthy())
+
+    fireEvent.press(screen.getByTestId('onboarding-sign-in'))
+
+    await waitFor(() => expect(screen.getByText('Welcome back')).toBeTruthy())
+    expect(mockMarkIntroOnboardingDone).toHaveBeenCalledTimes(1)
   })
 
   it('opens the DB and renders the app once authenticated', async () => {
@@ -106,14 +147,23 @@ describe('RootLayout — auth gate then DB open', () => {
     expect(mockInitStorage).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the welcome tour for a brand-new account, before the app', async () => {
-    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1', isNewAccount: true })
+  it('backfills intro completion for an existing authenticated install', async () => {
+    mockIsIntroOnboardingDone.mockResolvedValue(false)
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
     render(<RootLayout />)
-    await waitFor(() => expect(screen.getByTestId('onboarding')).toBeTruthy())
-    expect(screen.queryByText('stack-rendered')).toBeNull()
+
+    await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())
+    await waitFor(() => expect(mockMarkIntroOnboardingDone).toHaveBeenCalledTimes(1))
   })
 
-  it('skips the welcome tour for an existing account (login/returning session)', async () => {
+  it('enters the app directly after a brand-new account so the writing redirect can run', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1', isNewAccount: true })
+    render(<RootLayout />)
+    await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())
+    expect(screen.queryByTestId('onboarding')).toBeNull()
+  })
+
+  it('enters the app directly for an existing account (login/returning session)', async () => {
     useAuthStore.setState({ status: 'authenticated', accountId: 'acc1', isNewAccount: false })
     render(<RootLayout />)
     await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())

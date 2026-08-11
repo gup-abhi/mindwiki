@@ -45,6 +45,12 @@ describe('AuthScreen', () => {
     expect(screen.getByText('Welcome back')).toBeTruthy()
   })
 
+  it('can open directly in login mode from onboarding', () => {
+    render(<AuthScreen initialMode="login" />)
+    expect(screen.getByText('Welcome back')).toBeTruthy()
+    expect(screen.queryByTestId('auth-password-confirm')).toBeNull()
+  })
+
   it('requires a valid email and an 8+ char password before submitting', () => {
     render(<AuthScreen />)
 
