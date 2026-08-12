@@ -79,7 +79,6 @@ export default function Home() {
 
   // Offer to save an at-risk streak once per launch.
   const [rescueOpen, setRescueOpen] = useState(false)
-  const [actionMenuOpen, setActionMenuOpen] = useState(false)
   useEffect(() => {
     if (rescue.atRisk && !rescuePromptShown) {
       rescuePromptShown = true
@@ -157,7 +156,39 @@ export default function Home() {
                 Synthesizing your insights…
               </Text>
             )}
-            <View style={[styles.recentHeader, reshaped && styles.recentHeaderCompact]}>
+            <View style={styles.pathActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Guided reflection"
+                style={({ pressed }) => [styles.pathAction, pressed && styles.fabPressed]}
+                onPress={() => router.push('/paths')}
+                testID="home-action-guided-reflection"
+              >
+                <View style={styles.pathActionTitle}>
+                  <Ionicons name="compass-outline" size={18} color={theme.colors.accent} />
+                  <Text variant="label" color="accent">Guided reflection</Text>
+                </View>
+                <Text variant="caption" color="textMuted">
+                  Work through gentle prompts, one step at a time.
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Untangle a thought"
+                style={({ pressed }) => [styles.pathAction, pressed && styles.fabPressed]}
+                onPress={() => router.push('/untangle')}
+                testID="home-action-untangle"
+              >
+                <View style={styles.pathActionTitle}>
+                  <Text variant="label" color="accent">🧩</Text>
+                  <Text variant="label" color="accent">Untangle a thought</Text>
+                </View>
+                <Text variant="caption" color="textMuted">
+                  Untangle a difficult thought, one step at a time.
+                </Text>
+              </Pressable>
+            </View>
+            <View style={styles.recentHeader}>
               <View>
                 <Text variant="subtitle">Recent entries</Text>
                 <Text variant="caption" color="textMuted">{journalCount} journal {journalCount === 1 ? 'entry' : 'entries'}</Text>
@@ -179,49 +210,13 @@ export default function Home() {
         />
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="New"
-        accessibilityState={{ expanded: actionMenuOpen }}
+        accessibilityLabel="New entry"
         testID="home-new-entry"
-        onPress={() => setActionMenuOpen((open) => !open)}
+        onPress={() => router.push('/entry')}
         style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
       >
         <Ionicons name="add" size={30} color={theme.colors.primaryText} />
       </Pressable>
-
-      {actionMenuOpen && (
-        <View style={styles.actionMenu} testID="home-action-menu">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Guided reflection"
-            onPress={() => { setActionMenuOpen(false); router.push('/paths') }}
-            style={({ pressed }) => [styles.actionButton, pressed && styles.fabPressed]}
-            testID="home-action-guided-reflection"
-          >
-            <Ionicons name="compass-outline" size={22} color={theme.colors.primaryText} />
-            <Text variant="bodyStrong" color="primaryText">Guided reflection</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Untangle a thought"
-            onPress={() => { setActionMenuOpen(false); router.push('/untangle') }}
-            style={({ pressed }) => [styles.actionButton, pressed && styles.fabPressed]}
-            testID="home-action-untangle"
-          >
-            <Ionicons name="bulb-outline" size={22} color={theme.colors.primaryText} />
-            <Text variant="bodyStrong" color="primaryText">Untangle a thought</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="New entry"
-            onPress={() => { setActionMenuOpen(false); router.push('/entry') }}
-            style={({ pressed }) => [styles.actionButton, pressed && styles.fabPressed]}
-            testID="home-action-new-entry"
-          >
-            <Ionicons name="create-outline" size={22} color={theme.colors.primaryText} />
-            <Text variant="bodyStrong" color="primaryText">New entry</Text>
-          </Pressable>
-        </View>
-      )}
 
       <StreakRescueModal
         visible={rescueOpen}
@@ -242,8 +237,7 @@ const makeStyles = (t: Theme) =>
     // extra bottom space so the last entry clears the floating button
     listContent: { paddingBottom: t.spacing['3xl'] + t.spacing['2xl'] },
     header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.sm, paddingHorizontal: t.spacing.xl },
-    recentHeader: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: t.spacing['2xl'] },
-    recentHeaderCompact: { marginTop: 0 },
+    recentHeader: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: t.spacing.md },
     fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
     challengeBar: { marginTop: t.spacing.md },
     challengeAction: { flexDirection: 'row', marginTop: t.spacing.md },
@@ -251,6 +245,14 @@ const makeStyles = (t: Theme) =>
     digestSub: { marginTop: t.spacing.xs },
     surfaceText: { marginTop: t.spacing.xs },
     synth: { marginTop: t.spacing.md },
+    pathActions: { alignSelf: 'stretch', gap: t.spacing.sm, marginTop: t.spacing.sm, marginBottom: t.spacing.sm },
+    pathAction: {
+      padding: t.spacing.md,
+      backgroundColor: t.colors.accent + '0F',
+      borderRadius: t.radii.md,
+      gap: t.spacing.xs,
+    },
+    pathActionTitle: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.xs },
 
     fab: {
       position: 'absolute',
@@ -269,6 +271,4 @@ const makeStyles = (t: Theme) =>
       elevation: 6,
     },
     fabPressed: { opacity: 0.85 },
-    actionMenu: { position: 'absolute', left: 0, right: 0, bottom: t.spacing.xl + 64, alignItems: 'center', gap: t.spacing.sm },
-    actionButton: { minWidth: 220, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: t.spacing.md, paddingHorizontal: t.spacing.lg, borderRadius: 24, backgroundColor: t.colors.primary, ...t.shadows.low },
   })

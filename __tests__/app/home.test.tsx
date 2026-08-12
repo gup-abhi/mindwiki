@@ -181,23 +181,25 @@ describe('Home dashboard', () => {
     expect(mockPush).toHaveBeenCalledWith('/entries')
   })
 
-  it('opens creation actions from the floating plus menu', async () => {
+  it('opens new entry directly from plus and shows the two reflection paths above recent entries', async () => {
     mockList.mockResolvedValue(ok([entry()]))
     render(<Home />)
     await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
 
+    expect(screen.getByText('Guided reflection')).toBeTruthy()
+    expect(screen.getByText('Work through gentle prompts, one step at a time.')).toBeTruthy()
+    expect(screen.getByText('Untangle a thought')).toBeTruthy()
+    expect(screen.getByText('Untangle a difficult thought, one step at a time.')).toBeTruthy()
+    expect(screen.getByText('Recent entries')).toBeTruthy()
+
     fireEvent.press(screen.getByTestId('home-new-entry'))
-    expect(screen.getByTestId('home-action-menu')).toBeTruthy()
+    expect(mockPush).toHaveBeenCalledWith('/entry')
+    expect(screen.queryByTestId('home-action-menu')).toBeNull()
 
     fireEvent.press(screen.getByTestId('home-action-guided-reflection'))
     expect(mockPush).toHaveBeenCalledWith('/paths')
 
-    fireEvent.press(screen.getByTestId('home-new-entry'))
     fireEvent.press(screen.getByTestId('home-action-untangle'))
     expect(mockPush).toHaveBeenCalledWith('/untangle')
-
-    fireEvent.press(screen.getByTestId('home-new-entry'))
-    fireEvent.press(screen.getByTestId('home-action-new-entry'))
-    expect(mockPush).toHaveBeenCalledWith('/entry')
   })
 })

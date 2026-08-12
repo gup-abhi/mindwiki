@@ -93,9 +93,9 @@ describe('policy — multi-horizon selection', () => {
   it('picks at most one candidate per local day, higher priority wins', () => {
     const day = 86_400_000
     const hour = 3_600_000
-    const now = Date.now()
-    // Both candidates on the same local day (now + 24h ± 1h). Using a 1-hour
-    // offset ensures they share a localDay in every timezone.
+    // Fixed midday anchor keeps both candidates on the same local calendar day
+    // in every supported timezone, regardless of when the suite runs.
+    const now = Date.UTC(2026, 6, 15, 12, 0, 0, 0)
     const morning = candidate({ id: 'm', kind: 'challenge', eligibleAt: now + day, priority: 60 })
     const afternoon = candidate({ id: 'a', kind: 'journal', eligibleAt: now + day + hour, priority: 30 })
     const result = chooseCandidates([morning, afternoon], ctx({ now, pendingIds: new Set() }))
