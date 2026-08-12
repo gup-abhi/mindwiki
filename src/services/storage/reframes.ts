@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
-import { enqueueUpsert } from './sync-queue'
+import { enqueueUpsertInTransaction, notifySyncPending } from './sync-queue'
 import { incrementSourceGeneration } from './maintenance-state'
 
 // A user-authored CBT thought-record challenging a recurring belief. Keyed by the
@@ -57,21 +57,24 @@ export async function createReframe(
     updated_at: now,
   }
   try {
-    await db.execute(
-      `INSERT INTO belief_reframes
-         (id, belief, evidence_for, evidence_against, balanced_thought, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        reframe.id,
-        reframe.belief,
-        reframe.evidence_for,
-        reframe.evidence_against,
-        reframe.balanced_thought,
-        now,
-        now,
-      ]
-    )
-    await enqueueUpsert('belief_reframes', reframe.id, db)
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        `INSERT INTO belief_reframes
+           (id, belief, evidence_for, evidence_against, balanced_thought, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          reframe.id,
+          reframe.belief,
+          reframe.evidence_for,
+          reframe.evidence_against,
+          reframe.balanced_thought,
+          now,
+          now,
+        ]
+      )
+      await enqueueUpsertInTransaction('belief_reframes', reframe.id, tx)
+    })
+    notifySyncPending()
     // F-02C — bump belief maintenance source generation for a NEW user-authored
     // reframe so the historical repair pass eventually retargets it to the
     // canonical belief identity. (Best-effort: bump failure never fails write.)
@@ -114,21 +117,22 @@ export async function retargetReframeBelief(
   const canon = toCanonical.trim()
   if (!canon) return err('REFRAME_RETARGET_INVALID', 'canonical label must be non-empty')
   try {
-    const now = Date.now()
-    const upd = await db.execute(
-      'UPDATE belief_reframes SET belief = ?, updated_at = ? WHERE belief = ? COLLATE NOCASE',
-      [canon, now, fromRaw.trim()]
-    )
-    const n = Number(upd.rowsAffected ?? 0)
-    if (n > 0) {
-      // Enqueue every retargeted row — read by old-belief match since we just
-      // rewrote the belief column.
-      const res = await db.execute(
+    let n = 0
+    await db.transaction(async (tx) => {
+      const now = Date.now()
+      const oldRows = await tx.execute(
         'SELECT id FROM belief_reframes WHERE belief = ? COLLATE NOCASE',
-        [canon]
+        [fromRaw.trim()]
       )
-      for (const r of res.rows) await enqueueUpsert('belief_reframes', String(r.id), db)
-    }
+      const ids = oldRows.rows.map((r) => String(r.id))
+      const upd = await tx.execute(
+        'UPDATE belief_reframes SET belief = ?, updated_at = ? WHERE belief = ? COLLATE NOCASE',
+        [canon, now, fromRaw.trim()]
+      )
+      n = Number(upd.rowsAffected ?? 0)
+      for (const id of ids) await enqueueUpsertInTransaction('belief_reframes', id, tx)
+    })
+    if (n > 0) notifySyncPending()
     return ok(n)
   } catch (e) {
     return err('REFRAME_RETARGET_FAILED', 'Failed to retarget reframes', e)

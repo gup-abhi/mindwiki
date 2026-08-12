@@ -7,6 +7,8 @@ import { rebuildGraph } from '@/services/graph/engine'
 jest.mock('@/services/storage/wiki', () => ({ listPages: jest.fn() }))
 jest.mock('@/services/storage/sync-queue', () => ({
   enqueueUpsert: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
+  enqueueUpsertInTransaction: jest.fn(() => Promise.resolve()),
+  notifySyncPending: jest.fn(),
 }))
 jest.mock('@/services/graph/engine', () => ({
   rebuildGraph: jest.fn(() => Promise.resolve({ success: true, data: undefined })),

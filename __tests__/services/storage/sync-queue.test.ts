@@ -1,9 +1,11 @@
 import { type SqliteDatabase } from '@/services/storage/db'
 import {
   enqueueUpsert,
+  enqueueUpsertInTransaction,
   pendingUploads,
   markSynced,
   backfillSyncQueue,
+  reconcileSyncQueue,
 } from '@/services/storage/sync-queue'
 import { useSyncStore } from '@/store/sync.store'
 
@@ -119,6 +121,32 @@ describe('storage/sync-queue', () => {
     const res = await enqueueUpsert('entries', 'e1', db)
     expect(res.success).toBe(false)
   })
+
+  it('transactional enqueue throws to abort the caller transaction without notifying', async () => {
+    let rolledBack = false
+    const db: SqliteDatabase = {
+      async execute() {
+        throw new Error('queue unavailable')
+      },
+      async transaction(fn) {
+        try {
+          await fn(db)
+        } catch {
+          rolledBack = true
+          throw new Error('rollback')
+        }
+      },
+      close() {},
+    }
+    useSyncStore.setState({ pendingSignal: 0 })
+
+    await expect(db.transaction(async (tx) => {
+      await enqueueUpsertInTransaction('entries', 'e1', tx)
+    })).rejects.toThrow('rollback')
+
+    expect(rolledBack).toBe(true)
+    expect(useSyncStore.getState().pendingSignal).toBe(0)
+  })
 })
 
 function createBackfillDb(entryIds: string[], pageIds: string[]) {
@@ -133,6 +161,12 @@ function createBackfillDb(entryIds: string[], pageIds: string[]) {
       if (/^INSERT INTO settings/.test(sql)) {
         settings.set(String(params[0]), String(params[1]))
         return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT source.id FROM entries source/.test(sql)) {
+        return { rows: entryIds.map((id) => ({ id })), rowsAffected: 0 }
+      }
+      if (/^SELECT source.id FROM wiki_pages source/.test(sql)) {
+        return { rows: pageIds.map((id) => ({ id })), rowsAffected: 0 }
       }
       if (/^SELECT id FROM entries/.test(sql)) {
         return { rows: entryIds.map((id) => ({ id })), rowsAffected: 0 }
@@ -157,6 +191,126 @@ function createBackfillDb(entryIds: string[], pageIds: string[]) {
   }
   return { db, syncQueue, settings }
 }
+
+function createReconciliationDb() {
+  const source = new Map<string, Map<string, Record<string, unknown>>>([
+    ['entries', new Map([['e1', { id: 'e1' }], ['e2', { id: 'e2' }]])],
+    ['wiki_pages', new Map([['p1', { id: 'p1' }]])],
+  ])
+  const queue = new Map<string, Record<string, unknown>>()
+  const settings = new Map<string, string>()
+  let failMarker = false
+
+  const db: SqliteDatabase = {
+    async execute(sql, params = []) {
+      const normalized = sql.trim().replace(/\s+/g, ' ')
+      if (/^SELECT value FROM settings WHERE key = \?/.test(normalized)) {
+        const value = settings.get(String(params[0]))
+        return { rows: value == null ? [] : [{ value }], rowsAffected: 0 }
+      }
+      if (/^INSERT INTO settings/.test(normalized)) {
+        if (failMarker) throw new Error('settings unavailable')
+        settings.set(String(params[0]), String(params[1]))
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT id, table_name, record_id, operation, created_at, synced_at FROM sync_queue/.test(normalized)) {
+        return { rows: [...queue.values()].filter((row) => String(row.id).startsWith('sq:')), rowsAffected: 0 }
+      }
+      if (/^SELECT synced_at, created_at FROM sync_queue WHERE id = \?/.test(normalized)) {
+        const row = queue.get(String(params[0]))
+        return { rows: row ? [row] : [], rowsAffected: 0 }
+      }
+      if (/^UPDATE sync_queue SET operation =/.test(normalized)) {
+        const [operation, createdAt, id] = params
+        const row = queue.get(String(id))
+        if (row) {
+          row.operation = operation
+          row.created_at = createdAt
+          row.synced_at = null
+        }
+        return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^DELETE FROM sync_queue WHERE id =/.test(normalized)) {
+        queue.delete(String(params[0]))
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT source.id FROM (\w+) source/.test(normalized)) {
+        const table = normalized.match(/^SELECT source.id FROM (\w+) source/)![1]
+        const rows = [...(source.get(table)?.values() ?? [])]
+          .filter((row) => !queue.has(`${table}:${String(row.id)}`))
+          .map((row) => ({ id: row.id }))
+        return { rows, rowsAffected: 0 }
+      }
+      if (/^INSERT INTO sync_queue/.test(normalized)) {
+        const [id, tableName, recordId, operation, createdAt, syncedAt] = params
+        queue.set(String(id), {
+          id,
+          table_name: tableName,
+          record_id: recordId,
+          operation: operation ?? 'upsert',
+          created_at: createdAt,
+          synced_at: syncedAt ?? null,
+        })
+        return { rows: [], rowsAffected: 1 }
+      }
+      throw new Error(`unhandled SQL: ${normalized}`)
+    },
+    async transaction(fn) {
+      const queueSnapshot = new Map([...queue].map(([id, row]) => [id, { ...row }]))
+      const settingsSnapshot = new Map(settings)
+      try {
+        await fn(db)
+      } catch (error) {
+        queue.clear()
+        for (const [id, row] of queueSnapshot) queue.set(id, row)
+        settings.clear()
+        for (const [key, value] of settingsSnapshot) settings.set(key, value)
+        throw error
+      }
+    },
+    close() {},
+  }
+
+  return { db, queue, settings, setFailMarker: (value: boolean) => { failMarker = value } }
+}
+
+describe('reconcileSyncQueue', () => {
+  it('folds legacy rows, preserves canonical state, and queues missing source rows', async () => {
+    const { db, queue, settings } = createReconciliationDb()
+    queue.set('entries:e1', {
+      id: 'entries:e1', table_name: 'entries', record_id: 'e1', operation: 'upsert', created_at: 10, synced_at: 100,
+    })
+    queue.set('wiki_pages:p1', {
+      id: 'wiki_pages:p1', table_name: 'wiki_pages', record_id: 'p1', operation: 'upsert', created_at: 20, synced_at: null,
+    })
+    queue.set('sq:entries:e1', {
+      id: 'sq:entries:e1', table_name: 'entries', record_id: 'e1', operation: 'upsert', created_at: 30, synced_at: null,
+    })
+
+    const result = await reconcileSyncQueue(db)
+
+    expect(result.success && result.data).toBe(1)
+    expect(queue.has('sq:entries:e1')).toBe(false)
+    expect(queue.get('entries:e1')?.synced_at).toBeNull()
+    expect(queue.get('wiki_pages:p1')?.synced_at).toBeNull()
+    expect(queue.has('entries:e2')).toBe(true)
+    expect(settings.get('sync:outbox_reconciled_v1')).toBe('1')
+
+    const again = await reconcileSyncQueue(db)
+    expect(again.success && again.data).toBe(0)
+  })
+
+  it('rolls back queue repairs and leaves the marker retryable when marker write fails', async () => {
+    const { db, queue, settings, setFailMarker } = createReconciliationDb()
+    setFailMarker(true)
+
+    const result = await reconcileSyncQueue(db)
+
+    expect(result.success).toBe(false)
+    expect(queue.size).toBe(0)
+    expect(settings.has('sync:outbox_reconciled_v1')).toBe(false)
+  })
+})
 
 describe('backfillSyncQueue', () => {
   it('enqueues every existing entry + wiki page once and sets the flag', async () => {

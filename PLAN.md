@@ -360,7 +360,6 @@ Full spec in `docs/SERVER.md`. Local Miniflare (`wrangler dev`), curl- + device-
 - [x] `src/hooks/useSync.ts` — triggers: auth-transition, app-foreground, post-save, connectivity-regained (NetInfo)
 - [x] `src/services/sync/pairing.ts` — QR pairing (one-time code + E2E master-key handoff); device-A `app/pair.tsx` (QR + retry/reload), device-B `PairScanScreen` (expo-camera)
 - [x] Sync settings screen (`app/settings.tsx` via `useSyncStatus` — last pull, pending count, Sync now with result message)
-- [ ] Delete-sync — deferred: `deleteEntry` exists but isn't wired to any UI, so propagating deletes would be speculative
 - [ ] WiFi-only toggle — deferred
 
 ### Track E: Wrangler deployment — server-agent

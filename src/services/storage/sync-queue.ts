@@ -3,8 +3,11 @@ import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
 import { getSetting, setSetting } from './settings'
+import { SYNCED_TABLES } from '@/services/sync/conflict'
 
 const BACKFILL_KEY = 'sync:backfilled'
+const OUTBOX_RECONCILED_KEY = 'sync:outbox_reconciled_v1'
+const SYNC_TABLE_SET = new Set<string>(SYNCED_TABLES)
 
 export type SyncOperation = 'upsert' | 'delete'
 
@@ -30,8 +33,8 @@ function rowToItem(row: Record<string, unknown>): QueueItem {
  * Mark a record as pending E2E-encrypted upload. One pending row per
  * (table, record): the id is deterministic and a re-enqueue resets synced_at,
  * so repeated edits collapse to a single pending upload of the latest state.
- * Best-effort — a queue failure must never fail the underlying write (the engine
- * also has the local row, so a missed enqueue only delays sync, never loses data).
+ * Direct callers receive a best-effort Result; transactional callers should use
+ * enqueueUpsertInTransaction so a queue failure rolls back the source mutation.
  */
 export async function enqueueUpsert(
   tableName: string,
@@ -53,6 +56,16 @@ export async function enqueueUpsert(
   } catch (e) {
     return err('SYNC_ENQUEUE_FAILED', 'Failed to enqueue record for sync', e)
   }
+}
+
+/** Enqueue within a caller-owned transaction; queue failure aborts that transaction. */
+export async function enqueueUpsertInTransaction(
+  tableName: string,
+  recordId: string,
+  tx: SqliteDatabase
+): Promise<void> {
+  const queued = await enqueueUpsert(tableName, recordId, tx, false)
+  if (!queued.success) throw new Error(queued.error.code)
 }
 
 /** Wake sync after a committed local write. Kept separate from transactional
@@ -80,17 +93,80 @@ export async function backfillSyncQueue(
     if (done.success && done.data === '1') return ok(0)
 
     let queued = 0
-    for (const table of tables) {
-      const res = await db.execute(`SELECT id FROM ${table}`)
-      for (const row of res.rows) {
-        const r = await enqueueUpsert(table, String(row.id), db)
-        if (r.success) queued++
+    await db.transaction(async (tx) => {
+      for (const table of tables) {
+        const rows = await tx.execute(
+          `SELECT source.id FROM ${table} source
+           WHERE NOT EXISTS (SELECT 1 FROM sync_queue q WHERE q.id = ? || source.id)`,
+          [table + ':']
+        )
+        for (const row of rows.rows) {
+          await enqueueUpsertInTransaction(table, String(row.id), tx)
+          queued++
+        }
       }
-    }
-    await setSetting(BACKFILL_KEY, '1', db)
+      const marked = await setSetting(BACKFILL_KEY, '1', tx)
+      if (!marked.success) throw new Error(marked.error.code)
+    })
+    if (queued > 0) notifySyncPending()
     return ok(queued)
   } catch (e) {
     return err('SYNC_BACKFILL_FAILED', 'Failed to backfill sync queue', e)
+  }
+}
+
+/** Repair source rows that predate or missed the transactional outbox. */
+export async function reconcileSyncQueue(
+  db: SqliteDatabase = getDb()
+): Promise<Result<number>> {
+  try {
+    const done = await getSetting(OUTBOX_RECONCILED_KEY, db)
+    if (done.success && done.data === '1') return ok(0)
+
+    let queued = 0
+    await db.transaction(async (tx) => {
+      const legacy = await tx.execute(
+        "SELECT id, table_name, record_id, operation, created_at, synced_at FROM sync_queue WHERE id LIKE 'sq:%'"
+      )
+      for (const row of legacy.rows) {
+        const table = String(row.table_name)
+        const recordId = String(row.record_id)
+        if (!SYNC_TABLE_SET.has(table)) continue
+        const canonicalId = `${table}:${recordId}`
+        const current = await tx.execute('SELECT synced_at, created_at FROM sync_queue WHERE id = ?', [canonicalId])
+        if (current.rows.length === 0) {
+          await tx.execute(
+            `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [canonicalId, table, recordId, String(row.operation), Number(row.created_at), row.synced_at == null ? null : Number(row.synced_at)]
+          )
+        } else if (row.synced_at == null && current.rows[0].synced_at != null) {
+          await tx.execute(
+            'UPDATE sync_queue SET operation = ?, created_at = ?, synced_at = NULL WHERE id = ?',
+            [String(row.operation), Number(row.created_at), canonicalId]
+          )
+        }
+        await tx.execute('DELETE FROM sync_queue WHERE id = ?', [String(row.id)])
+      }
+
+      for (const table of SYNCED_TABLES) {
+        const rows = await tx.execute(
+          `SELECT source.id FROM ${table} source
+           WHERE NOT EXISTS (SELECT 1 FROM sync_queue q WHERE q.id = ? || source.id)`,
+          [table + ':']
+        )
+        for (const row of rows.rows) {
+          await enqueueUpsertInTransaction(table, String(row.id), tx)
+          queued++
+        }
+      }
+      const marked = await setSetting(OUTBOX_RECONCILED_KEY, '1', tx)
+      if (!marked.success) throw new Error(marked.error.code)
+    })
+    if (queued > 0) notifySyncPending()
+    return ok(queued)
+  } catch (e) {
+    return err('SYNC_RECONCILE_FAILED', 'Failed to reconcile sync outbox', e)
   }
 }
 

@@ -9,6 +9,7 @@ import { dedupeTopics } from '@/services/wiki/dedupe'
 import { isGraphRebuildRequired, clearGraphRebuildMarker } from '@/services/wiki/merge'
 import { maybeRefreshEmotionPages } from '@/services/wiki/engine'
 import { backfillLegacyWikiPages } from '@/services/wiki/legacy-backfill'
+import { reconcileSyncQueue } from '@/services/storage/sync-queue'
 import { ok, err } from '@/types/result'
 
 jest.mock('@/native/CryptoModule', () => ({
@@ -47,6 +48,9 @@ jest.mock('@/services/wiki/engine', () => ({
 jest.mock('@/services/wiki/legacy-backfill', () => ({
   backfillLegacyWikiPages: jest.fn(() => Promise.resolve({ success: true, data: 0 })),
 }))
+jest.mock('@/services/storage/sync-queue', () => ({
+  reconcileSyncQueue: jest.fn(() => Promise.resolve({ success: true, data: 0 })),
+}))
 
 const mockGetKey = CryptoModule.getKeyFromKeychain as jest.Mock
 const mockKeyOwner = CryptoModule.getKeyOwner as jest.Mock
@@ -64,6 +68,7 @@ const mockIsGraphRebuildRequired = isGraphRebuildRequired as jest.Mock
 const mockClearGraphRebuildMarker = clearGraphRebuildMarker as jest.Mock
 const mockMaybeRefreshEmotionPages = maybeRefreshEmotionPages as jest.Mock
 const mockBackfillLegacyWikiPages = backfillLegacyWikiPages as jest.Mock
+const mockReconcileSyncQueue = reconcileSyncQueue as jest.Mock
 
 /** Flush pending microtasks so fire-and-forget async work resolves. */
 function flushMicrotasks(): Promise<void> {
@@ -87,6 +92,7 @@ describe('initStorage', () => {
     mockIsGraphRebuildRequired.mockReset().mockResolvedValue(false)
     mockClearGraphRebuildMarker.mockReset().mockResolvedValue(undefined)
     mockBackfillLegacyWikiPages.mockReset().mockResolvedValue(ok(0))
+    mockReconcileSyncQueue.mockReset().mockResolvedValue(ok(0))
   })
 
   it('fetches the key, opens the db, and runs migrations', async () => {

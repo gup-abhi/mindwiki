@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
-import { enqueueUpsert, notifySyncPending } from './sync-queue'
+import { enqueueUpsert, enqueueUpsertInTransaction, notifySyncPending } from './sync-queue'
 import { insertContribution, insertMissingReceipts } from './wiki-contributions'
 
 export interface WikiPageVersion {
@@ -173,13 +173,16 @@ export async function createPage(
     merged_into: null,
   }
   try {
-    await db.execute(
-      `INSERT INTO wiki_pages
-         (id, title, category, content, entry_count, version, version_history, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [page.id, page.title, page.category, page.content, entryCount, 1, '[]', now, now]
-    )
-    await enqueueUpsert('wiki_pages', page.id, db) // best-effort; never blocks
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        `INSERT INTO wiki_pages
+           (id, title, category, content, entry_count, version, version_history, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [page.id, page.title, page.category, page.content, entryCount, 1, '[]', now, now]
+      )
+      await enqueueUpsertInTransaction('wiki_pages', page.id, tx)
+    })
+    notifySyncPending()
     return ok(page)
   } catch (e) {
     // A concurrent indexer may have created the same live title after the
@@ -286,20 +289,27 @@ export async function ticklePageCount(
   db: SqliteDatabase = getDb()
 ): Promise<Result<WikiPage>> {
   try {
-    const now = Date.now()
-    // SQLite performs the increment under its write lock. A read-modify-write
-    // pair loses one count when background indexers overlap.
-    const changed = await db.execute(
-      'UPDATE wiki_pages SET entry_count = entry_count + 1, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
-      [now, id]
-    )
-    if ((changed.rowsAffected ?? 0) === 0) return err('WIKI_NOT_FOUND', 'Wiki page not found')
-    const current = await getPage(id, db)
-    if (!current.success) return current
-    if (current.data == null) return err('WIKI_NOT_FOUND', 'Wiki page not found')
-    await enqueueUpsert('wiki_pages', id, db)
-    return ok(current.data)
+    let current: WikiPage | null = null
+    await db.transaction(async (tx) => {
+      const now = Date.now()
+      // SQLite performs the increment under its write lock. A read-modify-write
+      // pair loses one count when background indexers overlap.
+      const changed = await tx.execute(
+        'UPDATE wiki_pages SET entry_count = entry_count + 1, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+        [now, id]
+      )
+      if ((changed.rowsAffected ?? 0) === 0) throw new Error('WIKI_NOT_FOUND')
+      const got = await getPage(id, tx)
+      if (!got.success) throw new Error(got.error.code)
+      if (got.data == null) throw new Error('WIKI_NOT_FOUND')
+      current = got.data
+      await enqueueUpsertInTransaction('wiki_pages', id, tx)
+    })
+    notifySyncPending()
+    if (!current) return err('WIKI_NOT_FOUND', 'Wiki page not found')
+    return ok(current)
   } catch (e) {
+    if (e instanceof Error && e.message === 'WIKI_NOT_FOUND') return err('WIKI_NOT_FOUND', 'Wiki page not found')
     return err('WIKI_TICKLE_FAILED', 'Failed to tickle wiki page entry count', e)
   }
 }
@@ -426,15 +436,19 @@ export async function dismissPage(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    const now = Date.now()
-    const res = await db.execute(
-      'UPDATE wiki_pages SET dismissed_at = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
-      [now, now, id]
-    )
-    if ((res.rowsAffected ?? 0) === 0) return err('WIKI_NOT_FOUND', 'Wiki page not found')
-    await enqueueUpsert('wiki_pages', id, db)
+    await db.transaction(async (tx) => {
+      const now = Date.now()
+      const res = await tx.execute(
+        'UPDATE wiki_pages SET dismissed_at = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+        [now, now, id]
+      )
+      if ((res.rowsAffected ?? 0) === 0) throw new Error('WIKI_NOT_FOUND')
+      await enqueueUpsertInTransaction('wiki_pages', id, tx)
+    })
+    notifySyncPending()
     return ok(undefined)
   } catch (e) {
+    if (e instanceof Error && e.message === 'WIKI_NOT_FOUND') return err('WIKI_NOT_FOUND', 'Wiki page not found')
     return err('WIKI_DISMISS_FAILED', 'Failed to dismiss wiki page', e)
   }
 }
@@ -445,15 +459,19 @@ export async function restorePage(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    const now = Date.now()
-    const res = await db.execute(
-      'UPDATE wiki_pages SET dismissed_at = NULL, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
-      [now, id]
-    )
-    if ((res.rowsAffected ?? 0) === 0) return err('WIKI_NOT_FOUND', 'Wiki page not found')
-    await enqueueUpsert('wiki_pages', id, db)
+    await db.transaction(async (tx) => {
+      const now = Date.now()
+      const res = await tx.execute(
+        'UPDATE wiki_pages SET dismissed_at = NULL, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+        [now, id]
+      )
+      if ((res.rowsAffected ?? 0) === 0) throw new Error('WIKI_NOT_FOUND')
+      await enqueueUpsertInTransaction('wiki_pages', id, tx)
+    })
+    notifySyncPending()
     return ok(undefined)
   } catch (e) {
+    if (e instanceof Error && e.message === 'WIKI_NOT_FOUND') return err('WIKI_NOT_FOUND', 'Wiki page not found')
     return err('WIKI_RESTORE_FAILED', 'Failed to restore wiki page', e)
   }
 }
@@ -468,45 +486,49 @@ export async function updatePage(
   db: SqliteDatabase = getDb()
 ): Promise<Result<WikiPage>> {
   try {
-    const current = await getPage(id, db)
-    if (!current.success) return current
-    if (current.data == null) {
-      return err('WIKI_NOT_FOUND', 'Wiki page not found')
-    }
+    let next: WikiPage | null = null
+    await db.transaction(async (tx) => {
+      const current = await getPage(id, tx)
+      if (!current.success) throw new Error(current.error.code)
+      if (current.data == null) throw new Error('WIKI_NOT_FOUND')
 
-    const prev = current.data
-    const rawHistory: WikiPageVersion[] = [
-      ...prev.version_history,
-      { version: prev.version, content: prev.content, updated_at: prev.updated_at },
-    ]
-    const history = capVersionHistory(rawHistory)
-    const now = Date.now()
-    const updatedAt = Math.max(prev.updated_at + 1, now)
-    const next: WikiPage = {
-      ...prev,
-      content,
-      version: prev.version + 1,
-      version_history: history,
-      entry_count: prev.entry_count + 1,
-      updated_at: updatedAt,
-      // A fresh synthesis heals a previously-dropped page: clear the flag so it
-      // rejoins retrieval (the engine regenerates its content from scratch). It
-      // also supersedes a user correction — the content now folds in a new entry,
-      // so it's no longer purely the user's words.
-      dismissed_at: null,
-      corrected_at: null,
-    }
+      const prev = current.data
+      const rawHistory: WikiPageVersion[] = [
+        ...prev.version_history,
+        { version: prev.version, content: prev.content, updated_at: prev.updated_at },
+      ]
+      const history = capVersionHistory(rawHistory)
+      const now = Date.now()
+      const updatedAt = Math.max(prev.updated_at + 1, now)
+      next = {
+        ...prev,
+        content,
+        version: prev.version + 1,
+        version_history: history,
+        entry_count: prev.entry_count + 1,
+        updated_at: updatedAt,
+        // A fresh synthesis heals a previously-dropped page: clear the flag so it
+        // rejoins retrieval (the engine regenerates its content from scratch). It
+        // also supersedes a user correction — the content now folds in a new entry,
+        // so it's no longer purely the user's words.
+        dismissed_at: null,
+        corrected_at: null,
+      }
 
-    await db.execute(
-      `UPDATE wiki_pages
-         SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?,
-             dismissed_at = NULL, corrected_at = NULL
-       WHERE id = ?`,
-      [next.content, next.version, JSON.stringify(history), next.entry_count, updatedAt, id]
-    )
-    await enqueueUpsert('wiki_pages', id, db) // content changed → re-sync
+      await tx.execute(
+        `UPDATE wiki_pages
+           SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?,
+               dismissed_at = NULL, corrected_at = NULL
+         WHERE id = ?`,
+        [next.content, next.version, JSON.stringify(history), next.entry_count, updatedAt, id]
+      )
+      await enqueueUpsertInTransaction('wiki_pages', id, tx)
+    })
+    notifySyncPending()
+    if (!next) return err('WIKI_NOT_FOUND', 'Wiki page not found')
     return ok(next)
   } catch (e) {
+    if (e instanceof Error && e.message === 'WIKI_NOT_FOUND') return err('WIKI_NOT_FOUND', 'Wiki page not found')
     return err('WIKI_UPDATE_FAILED', 'Failed to update wiki page', e)
   }
 }
@@ -634,40 +656,51 @@ export async function updatePageCAS(
   fields: WikiPageCASFields,
   db: SqliteDatabase = getDb()
 ): Promise<Result<WikiPageCASResult>> {
+  let stale = false
+  let next: WikiPage | null = null
   try {
-    const current = await getPage(id, db)
-    if (!current.success) return current
-    if (current.data == null) return err('WIKI_NOT_FOUND', 'Wiki page not found')
-    const prev = current.data
-    const history = capVersionHistory([
-      ...prev.version_history,
-      { version: prev.version, content: prev.content, updated_at: prev.updated_at },
-    ])
-    const now = Date.now()
-    const updatedAt = Math.max(prev.updated_at + 1, now)
-    const nextEntryCount = fields.entry_count ?? prev.entry_count + 1
-    const next = {
-      ...prev,
-      content,
-      version: prev.version + 1,
-      version_history: history,
-      entry_count: nextEntryCount,
-      regrounded_upto: fields.regrounded_upto ?? prev.regrounded_upto,
-      updated_at: updatedAt,
-      dismissed_at: null,
-      corrected_at: null,
-    }
-    const res = await db.execute(
-      `UPDATE wiki_pages
-         SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?,
-             dismissed_at = NULL, corrected_at = NULL
-       WHERE id = ? AND version = ?`,
-      [next.content, next.version, JSON.stringify(history), next.entry_count, updatedAt, id, baseVersion]
-    )
-    if (Number(res.rowsAffected ?? 0) === 0) return ok({ page: null, affected: 0 })
-    await enqueueUpsert('wiki_pages', id, db)
+    await db.transaction(async (tx) => {
+      const current = await getPage(id, tx)
+      if (!current.success) throw new Error(current.error.code)
+      if (current.data == null) throw new Error('WIKI_NOT_FOUND')
+      const prev = current.data
+      const history = capVersionHistory([
+        ...prev.version_history,
+        { version: prev.version, content: prev.content, updated_at: prev.updated_at },
+      ])
+      const now = Date.now()
+      const updatedAt = Math.max(prev.updated_at + 1, now)
+      const nextEntryCount = fields.entry_count ?? prev.entry_count + 1
+      next = {
+        ...prev,
+        content,
+        version: prev.version + 1,
+        version_history: history,
+        entry_count: nextEntryCount,
+        regrounded_upto: fields.regrounded_upto ?? prev.regrounded_upto,
+        updated_at: updatedAt,
+        dismissed_at: null,
+        corrected_at: null,
+      }
+      const res = await tx.execute(
+        `UPDATE wiki_pages
+           SET content = ?, version = ?, version_history = ?, entry_count = ?, updated_at = ?,
+               dismissed_at = NULL, corrected_at = NULL
+         WHERE id = ? AND version = ?`,
+        [next.content, next.version, JSON.stringify(history), next.entry_count, updatedAt, id, baseVersion]
+      )
+      if (Number(res.rowsAffected ?? 0) === 0) {
+        stale = true
+        throw new Error('WIKI_CAS_STALE')
+      }
+      await enqueueUpsertInTransaction('wiki_pages', id, tx)
+    })
+    if (stale || !next) return ok({ page: null, affected: 0 })
+    notifySyncPending()
     return ok({ page: next, affected: 1 })
   } catch (e) {
+    if (stale || isWikiCASStale(e)) return ok({ page: null, affected: 0 })
+    if (e instanceof Error && e.message === 'WIKI_NOT_FOUND') return err('WIKI_NOT_FOUND', 'Wiki page not found')
     return err('WIKI_UPDATE_FAILED', 'Failed to CAS-update wiki page', e)
   }
 }
@@ -712,12 +745,18 @@ export async function updatePageRegroundedUpto(
   db: SqliteDatabase = getDb()
 ): Promise<Result<{ affected: number }>> {
   try {
-    const res = await db.execute(
-      `UPDATE wiki_pages SET regrounded_upto = ?, updated_at = MAX(updated_at + 1, ?), version = version + 1
-       WHERE id = ? AND version = ?`,
-      [newCount, Date.now(), id, baseVersion]
-    )
-    return ok({ affected: Number(res.rowsAffected ?? 0) > 0 ? 1 : 0 })
+    let affected = 0
+    await db.transaction(async (tx) => {
+      const res = await tx.execute(
+        `UPDATE wiki_pages SET regrounded_upto = ?, updated_at = MAX(updated_at + 1, ?), version = version + 1
+         WHERE id = ? AND version = ?`,
+        [newCount, Date.now(), id, baseVersion]
+      )
+      affected = Number(res.rowsAffected ?? 0) > 0 ? 1 : 0
+      if (affected) await enqueueUpsertInTransaction('wiki_pages', id, tx)
+    })
+    if (affected) notifySyncPending()
+    return ok({ affected })
   } catch (e) {
     return err('WIKI_UPDATE_FAILED', 'Failed to update regrounded_upto', e)
   }
@@ -761,14 +800,17 @@ export async function correctPage(
       dismissed_at: null,
     }
 
-    await db.execute(
-      `UPDATE wiki_pages
-         SET content = ?, version = ?, version_history = ?, updated_at = ?,
-             corrected_at = ?, dismissed_at = NULL
-       WHERE id = ?`,
-      [next.content, next.version, JSON.stringify(history), updatedAt, updatedAt, id]
-    )
-    await enqueueUpsert('wiki_pages', id, db) // content changed → re-sync
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        `UPDATE wiki_pages
+           SET content = ?, version = ?, version_history = ?, updated_at = ?,
+               corrected_at = ?, dismissed_at = NULL
+         WHERE id = ?`,
+        [next.content, next.version, JSON.stringify(history), updatedAt, updatedAt, id]
+      )
+      await enqueueUpsertInTransaction('wiki_pages', id, tx)
+    })
+    notifySyncPending()
     return ok(next)
   } catch (e) {
     return err('WIKI_CORRECT_FAILED', 'Failed to correct wiki page', e)
@@ -810,13 +852,16 @@ export async function regeneratePageContent(
       corrected_at: null,
     }
 
-    await db.execute(
-      `UPDATE wiki_pages
-         SET content = ?, version = ?, version_history = ?, updated_at = ?, corrected_at = NULL
-       WHERE id = ?`,
-      [next.content, next.version, JSON.stringify(history), updatedAt, id]
-    )
-    await enqueueUpsert('wiki_pages', id, db) // content changed → re-sync
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        `UPDATE wiki_pages
+           SET content = ?, version = ?, version_history = ?, updated_at = ?, corrected_at = NULL
+         WHERE id = ?`,
+        [next.content, next.version, JSON.stringify(history), updatedAt, id]
+      )
+      await enqueueUpsertInTransaction('wiki_pages', id, tx)
+    })
+    notifySyncPending()
     return ok(next)
   } catch (e) {
     return err('WIKI_REGEN_FAILED', 'Failed to regenerate wiki page', e)

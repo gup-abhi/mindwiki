@@ -127,6 +127,9 @@ function createFakeDb(seed: Challenge) {
         if (row) cols.forEach((c, i) => { row[c] = params[i] })
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
+      if (/^INSERT INTO sync_queue/.test(sql)) {
+        return { rows: [], rowsAffected: 1 }
+      }
       throw new Error(`unhandled SQL: ${sql}`)
     },
     async transaction(fn) {

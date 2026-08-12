@@ -21,8 +21,16 @@ jest.mock('expo-crypto', () => ({
 function createFakeDb() {
   const conversations = new Map<string, Record<string, unknown>>()
   const messages = new Map<string, Record<string, unknown>>()
+  const queue = new Map<string, Record<string, unknown>>()
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
+      if (/^INSERT INTO sync_queue/.test(sql)) {
+        const [id, table_name, record_id, created_at] = params
+        queue.set(String(id), { id, table_name, record_id, operation: 'upsert', created_at, synced_at: null })
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT \* FROM sync_queue/.test(sql)) return { rows: [...queue.values()], rowsAffected: 0 }
+      if (/^UPDATE sync_queue/.test(sql)) return { rows: [], rowsAffected: 1 }
       if (/^INSERT INTO conversations/.test(sql)) {
         const [id, title, created_at, updated_at] = params
         conversations.set(String(id), { id, title, created_at, updated_at })
@@ -39,11 +47,12 @@ function createFakeDb() {
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
       if (/^UPDATE conversations SET summary/.test(sql)) {
-        const [summary, summary_count, id] = params
+        const [summary, summary_count, updated_at, id] = params
         const row = conversations.get(String(id))
         if (row) {
           row.summary = summary
           row.summary_count = summary_count
+          row.updated_at = updated_at
         }
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }

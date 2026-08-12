@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, type SqlParam, getDb } from './db'
-import { enqueueUpsert } from './sync-queue'
+import { enqueueUpsertInTransaction, notifySyncPending } from './sync-queue'
 
 export type ChallengeStatus = 'active' | 'completed'
 
@@ -90,18 +90,21 @@ export async function createChallenge(
     completed_at: null,
   }
   try {
-    await db.execute(
-      `INSERT INTO challenges
-         (id, title, details, target_days, current_streak, last_checkin_date,
-          status, affirmation, created_at, updated_at, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        challenge.id, challenge.title, challenge.details, challenge.target_days,
-        challenge.current_streak, challenge.last_checkin_date, challenge.status,
-        challenge.affirmation, now, now, null,
-      ]
-    )
-    await enqueueUpsert('challenges', challenge.id, db) // best-effort; never blocks
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        `INSERT INTO challenges
+           (id, title, details, target_days, current_streak, last_checkin_date,
+            status, affirmation, created_at, updated_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          challenge.id, challenge.title, challenge.details, challenge.target_days,
+          challenge.current_streak, challenge.last_checkin_date, challenge.status,
+          challenge.affirmation, now, now, null,
+        ]
+      )
+      await enqueueUpsertInTransaction('challenges', challenge.id, tx)
+    })
+    notifySyncPending()
     return ok(challenge)
   } catch (e) {
     return err('CHALLENGE_CREATE_FAILED', 'Failed to create challenge', e)
@@ -161,12 +164,17 @@ export async function deleteChallenge(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    const res = await db.execute(
-      'UPDATE challenges SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL',
-      [Date.now(), Date.now(), id]
-    )
-    if ((res.rowsAffected ?? 0) === 0) return ok(undefined) // already gone / never existed
-    await enqueueUpsert('challenges', id, db) // tombstone must sync
+    let changed = false
+    await db.transaction(async (tx) => {
+      const now = Date.now()
+      const res = await tx.execute(
+        'UPDATE challenges SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL',
+        [now, now, id]
+      )
+      changed = (res.rowsAffected ?? 0) > 0
+      if (changed) await enqueueUpsertInTransaction('challenges', id, tx)
+    })
+    if (changed) notifySyncPending()
     return ok(undefined)
   } catch (e) {
     return err('CHALLENGE_DELETE_FAILED', 'Failed to delete challenge', e)
@@ -198,14 +206,21 @@ export async function updateChallenge(
   params.push(id)
 
   try {
-    const res = await db.execute(`UPDATE challenges SET ${sets.join(', ')} WHERE id = ? AND deleted_at IS NULL`, params)
-    if ((res.rowsAffected ?? 0) === 0) return err('CHALLENGE_NOT_FOUND', 'Challenge not found')
-    await enqueueUpsert('challenges', id, db)
-    const got = await getChallenge(id, db)
-    if (!got.success) return got
-    if (got.data == null) return err('CHALLENGE_NOT_FOUND', 'Challenge not found')
-    return ok(got.data)
+    let updated: Challenge | null = null
+    await db.transaction(async (tx) => {
+      const res = await tx.execute(`UPDATE challenges SET ${sets.join(', ')} WHERE id = ? AND deleted_at IS NULL`, params)
+      if ((res.rowsAffected ?? 0) === 0) throw new Error('CHALLENGE_NOT_FOUND')
+      await enqueueUpsertInTransaction('challenges', id, tx)
+      const got = await getChallenge(id, tx)
+      if (!got.success) throw new Error(got.error.code)
+      if (got.data == null) throw new Error('CHALLENGE_NOT_FOUND')
+      updated = got.data
+    })
+    notifySyncPending()
+    if (!updated) return err('CHALLENGE_NOT_FOUND', 'Challenge not found')
+    return ok(updated)
   } catch (e) {
+    if (e instanceof Error && e.message === 'CHALLENGE_NOT_FOUND') return err('CHALLENGE_NOT_FOUND', 'Challenge not found')
     return err('CHALLENGE_UPDATE_FAILED', 'Failed to update challenge', e)
   }
 }

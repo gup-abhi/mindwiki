@@ -26,8 +26,17 @@ jest.mock('expo-crypto', () => ({
 // real round-trip semantics (create -> read -> update -> delete).
 function createFakeDb() {
   const rows = new Map<string, Record<string, unknown>>()
+  const queue = new Map<string, Record<string, unknown>>()
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
+      if (/^INSERT INTO sync_queue/.test(sql)) {
+        const [id, table_name, record_id, created_at] = params
+        queue.set(String(id), { id, table_name, record_id, operation: 'upsert', created_at, synced_at: null })
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT \* FROM sync_queue/.test(sql)) return { rows: [...queue.values()], rowsAffected: 0 }
+      if (/^UPDATE sync_queue/.test(sql)) return { rows: [], rowsAffected: 1 }
+      if (/^DELETE FROM sync_queue/.test(sql)) return { rows: [], rowsAffected: 1 }
       if (/^INSERT INTO entries/.test(sql)) {
         const [id, created_at, updated_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source] = params
         rows.set(String(id), {
@@ -471,7 +480,9 @@ describe('storage/entries CRUD', () => {
       async execute() {
         throw new Error('disk full')
       },
-      async transaction() {},
+      async transaction(fn) {
+        await fn(failing)
+      },
       close() {},
     }
     const result = await createEntry({ mood: 3, situation: 's', thought: 't' }, failing)

@@ -2,6 +2,7 @@ import { type Result, ok, err } from '@/types/result'
 import type { SqliteDatabase } from '@/services/storage/db'
 import { getDb } from '@/services/storage/db'
 import { getMaintenanceState, updateMaintenanceState } from '@/services/storage/maintenance-state'
+import { enqueueUpsertInTransaction } from '@/services/storage/sync-queue'
 import { listEntityEmbeddings, type EntityEmbedding } from '@/services/storage/entity-embeddings'
 import { getSetting } from '@/services/storage/settings'
 import { rebuildGraph as defaultRebuildGraph } from '@/services/graph/engine'
@@ -436,11 +437,7 @@ export async function consolidateClusterPages(
             'UPDATE wiki_pages SET merged_into = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
             [survivor.id, now, p.id]
           )
-          await tx.execute(
-            `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
-             VALUES (?, ?, ?, 'upsert', ?)`,
-            [`sq:wiki_pages:${p.id}`, 'wiki_pages', p.id, now]
-          )
+          await enqueueUpsertInTransaction('wiki_pages', p.id, tx)
         }
         // Set survivor's entry_count and regrounded_upto so maintenance
         // doesn't immediately overwrite the corrected content.
@@ -448,11 +445,7 @@ export async function consolidateClusterPages(
           'UPDATE wiki_pages SET entry_count = ?, regrounded_upto = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
           [totalEntryCount, totalEntryCount, now, survivor.id]
         )
-        await tx.execute(
-          `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
-           VALUES (?, ?, ?, 'upsert', ?)`,
-          [`sq:wiki_pages:${survivor.id}`, 'wiki_pages', survivor.id, now]
-        )
+        await enqueueUpsertInTransaction('wiki_pages', survivor.id, tx)
       })
 
       return ok({ survivorId: survivor.id })
@@ -485,19 +478,11 @@ export async function consolidateClusterPages(
             'UPDATE wiki_pages SET merged_into = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
             [survivor.id, now, p.id]
           )
-          await tx.execute(
-            `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
-             VALUES (?, ?, ?, 'upsert', ?)`,
-            [`sq:wiki_pages:${p.id}`, 'wiki_pages', p.id, now]
-          )
+          await enqueueUpsertInTransaction('wiki_pages', p.id, tx)
         }
         // Enqueue survivor after rename/merge so remote devices converge on
         // canonical title and merged lineage together.
-        await tx.execute(
-          `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
-           VALUES (?, ?, ?, 'upsert', ?)`,
-          [`sq:wiki_pages:${survivor.id}`, 'wiki_pages', survivor.id, now]
-        )
+        await enqueueUpsertInTransaction('wiki_pages', survivor.id, tx)
       })
 
       return ok({ survivorId: survivor.id })
@@ -671,12 +656,7 @@ export async function runBeliefMaintenance(
                   'UPDATE entry_entities SET canonical_label = ?, updated_at = MAX(updated_at, ?) WHERE id = ?',
                   [canonical, Date.now(), rowId]
                 )
-                // Enqueue inside the same tx so a rollback unrolls the enqueue too.
-                await tx.execute(
-                  `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
-                   VALUES (?, ?, ?, 'upsert', ?)`,
-                  [`sq:entry_entities:${rowId}`, 'entry_entities', rowId, Date.now()]
-                )
+                await enqueueUpsertInTransaction('entry_entities', rowId, tx)
               }
             }
             // Retarget any reframe rows under a retired alias to the canonical.
@@ -696,11 +676,7 @@ export async function runBeliefMaintenance(
                 )
                 for (const r of re.rows) {
                   const rid = String(r.id)
-                  await tx.execute(
-                    `INSERT OR REPLACE INTO sync_queue (id, table_name, record_id, operation, created_at)
-                     VALUES (?, ?, ?, 'upsert', ?)`,
-                    [`sq:belief_reframes:${rid}`, 'belief_reframes', rid, Date.now()]
-                  )
+                  await enqueueUpsertInTransaction('belief_reframes', rid, tx)
                 }
               }
             }

@@ -9,8 +9,11 @@ jest.mock('expo-crypto', () => ({
 
 jest.mock('@/services/storage/sync-queue', () => ({
   enqueueUpsert: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
+  enqueueUpsertInTransaction: jest.fn(() => Promise.resolve()),
+  notifySyncPending: jest.fn(),
 }))
 const mockEnqueue = enqueueUpsert as jest.Mock
+const mockEnqueueInTransaction = jest.requireMock('@/services/storage/sync-queue').enqueueUpsertInTransaction as jest.Mock
 
 // In-memory fake backing the exact queries reframes.ts issues.
 function createFakeDb() {
@@ -63,7 +66,7 @@ describe('storage/reframes', () => {
       expect(res.data.balanced_thought).toBe('I can be nervous and still capable.')
       expect(res.data.evidence_for).toBe('I froze in the meeting')
     }
-    expect(mockEnqueue).toHaveBeenCalledWith('belief_reframes', 'uuid-1', db)
+    expect(mockEnqueueInTransaction).toHaveBeenCalledWith('belief_reframes', 'uuid-1', expect.anything())
   })
 
   it('lists reframes for a belief (case-insensitive), newest first', async () => {

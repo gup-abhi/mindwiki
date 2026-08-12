@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
-import { enqueueUpsert } from './sync-queue'
+import { enqueueUpsertInTransaction, notifySyncPending } from './sync-queue'
 
 export type ChatRole = 'user' | 'assistant'
 
@@ -107,11 +107,14 @@ export async function createConversation(
     summary_count: 0,
   }
   try {
-    await db.execute(
-      'INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)',
-      [conversation.id, conversation.title, now, now]
-    )
-    await enqueueUpsert('conversations', conversation.id, db) // best-effort; never blocks
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        'INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)',
+        [conversation.id, conversation.title, now, now]
+      )
+      await enqueueUpsertInTransaction('conversations', conversation.id, tx)
+    })
+    notifySyncPending()
     return ok(conversation)
   } catch (e) {
     return err('CHAT_CREATE_FAILED', 'Failed to create conversation', e)
@@ -152,12 +155,14 @@ export async function setConversationSummary(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    await db.execute('UPDATE conversations SET summary = ?, summary_count = ? WHERE id = ?', [
-      summary,
-      summaryCount,
-      id,
-    ])
-    await enqueueUpsert('conversations', id, db) // summary changed → re-sync
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        'UPDATE conversations SET summary = ?, summary_count = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+        [summary, summaryCount, Date.now(), id]
+      )
+      await enqueueUpsertInTransaction('conversations', id, tx)
+    })
+    notifySyncPending()
     return ok(undefined)
   } catch (e) {
     return err('CHAT_SUMMARY_FAILED', 'Failed to save conversation summary', e)
@@ -206,9 +211,10 @@ export async function appendMessage(
          WHERE id = ?`,
         [now, conversationTitle(message.content), message.conversation_id]
       )
+      await enqueueUpsertInTransaction('chat_messages', message.id, tx)
+      await enqueueUpsertInTransaction('conversations', message.conversation_id, tx)
     })
-    await enqueueUpsert('chat_messages', message.id, db)
-    await enqueueUpsert('conversations', message.conversation_id, db)
+    notifySyncPending()
     return ok(message)
   } catch (e) {
     return err('CHAT_APPEND_FAILED', 'Failed to append message', e)

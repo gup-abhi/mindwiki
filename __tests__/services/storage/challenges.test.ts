@@ -17,8 +17,15 @@ jest.mock('expo-crypto', () => ({
 // inserts are intentionally unhandled — enqueueUpsert swallows the error.
 function createFakeDb() {
   const challenges = new Map<string, Record<string, unknown>>()
+  const queue = new Map<string, Record<string, unknown>>()
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
+      if (/^INSERT INTO sync_queue/.test(sql)) {
+        const [id, table_name, record_id, created_at] = params
+        queue.set(String(id), { id, table_name, record_id, operation: 'upsert', created_at, synced_at: null })
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^UPDATE sync_queue/.test(sql)) return { rows: [], rowsAffected: 1 }
       if (/^INSERT INTO challenges/.test(sql)) {
         const [id, title, details, target_days, current_streak, last_checkin_date,
           status, affirmation, created_at, updated_at, completed_at] = params

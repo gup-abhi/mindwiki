@@ -207,11 +207,14 @@ export function createFakeDb(initial: Partial<FakeState> = {}) {
         return { rows: [], rowsAffected: 1 }
       }
 
-      // sync_queue
-      if (/^INSERT OR REPLACE INTO sync_queue \(/i.test(s) && /VALUES/i.test(s)) {
+      // sync_queue: support both the legacy fixture SQL and the canonical
+      // enqueueUpsert statement used by transactional callers.
+      if (/^INSERT (OR REPLACE )?INTO sync_queue \(/i.test(s) && /VALUES/i.test(s)) {
         const cols = s.match(/\(([\w_, ]+)\)\s*VALUES/i)![1].split(',').map((c) => c.trim())
         const row: Record<string, unknown> = {}
         for (let i = 0; i < cols.length; i++) row[cols[i]] = params[i]
+        if (cols.includes('operation') && row.operation == null) row.operation = 'upsert'
+        if (cols.includes('synced_at') && row.synced_at == null) row.synced_at = null
         const composite = `${row.table_name}:${row.record_id}`
         state.sync_queue.set(composite, row)
         enqueueLog.push({ table: String(row.table_name), id: String(row.record_id) })

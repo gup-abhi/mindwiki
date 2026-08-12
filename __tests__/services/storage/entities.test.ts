@@ -11,9 +11,12 @@ import { enqueueUpsert } from '@/services/storage/sync-queue'
 
 jest.mock('@/services/storage/sync-queue', () => ({
   enqueueUpsert: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
+  enqueueUpsertInTransaction: jest.fn(() => Promise.resolve()),
+  notifySyncPending: jest.fn(),
 }))
 
 const mockEnqueue = enqueueUpsert as jest.Mock
+const mockEnqueueInTransaction = jest.requireMock('@/services/storage/sync-queue').enqueueUpsertInTransaction as jest.Mock
 
 function createFakeDb() {
   let rows: Record<string, unknown>[] = []
@@ -103,8 +106,8 @@ describe('storage/entities', () => {
     expect(list.success && list.data).toHaveLength(2)
     // deterministic id: `${entryId}:${type}:${labelLower}`
     expect(list.success && list.data.map((e) => e.id)).toEqual(['e1:person:alice', 'e1:place:office'])
-    expect(mockEnqueue).toHaveBeenCalledTimes(2)
-    expect(mockEnqueue).toHaveBeenCalledWith('entry_entities', 'e1:person:alice', db)
+    expect(mockEnqueueInTransaction).toHaveBeenCalledTimes(2)
+    expect(mockEnqueueInTransaction).toHaveBeenCalledWith('entry_entities', 'e1:person:alice', expect.anything())
   })
 
   it('replaces the prior set (delete-then-insert) and drops blanks/dupes', async () => {

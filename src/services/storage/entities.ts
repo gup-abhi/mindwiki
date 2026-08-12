@@ -1,7 +1,7 @@
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
-import { enqueueUpsert } from './sync-queue'
+import { enqueueUpsertInTransaction, notifySyncPending } from './sync-queue'
 import { incrementSourceGeneration } from './maintenance-state'
 
 // Signals pulled from an entry by the deep model. A subset of the graph NodeType
@@ -119,9 +119,10 @@ export async function setEntitiesForEntry(
           'INSERT INTO entry_entities (id, entry_id, type, label, canonical_label, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
           [r.id, r.entry_id, r.type, r.label, canon, r.created_at, r.updated_at]
         )
+        await enqueueUpsertInTransaction('entry_entities', r.id, tx)
       }
     })
-    for (const r of rows) await enqueueUpsert('entry_entities', r.id, db)
+    if (rows.length > 0) notifySyncPending()
     // F-02C — raw belief ingestion bumps the maintenance source generation so
     // an idempotent historical-repair pass eventually catches this entry. Do
     // NOT bump from setCanonicalLabel / reframe-retarget (maintenance's own
@@ -206,13 +207,16 @@ export async function setCanonicalLabel(
   const canon = canonicalLabel.trim()
   if (!canon) return err('ENTITY_CANON_INVALID', 'canonical label must be non-empty')
   try {
-    await db.execute(
-      `UPDATE entry_entities
-        SET canonical_label = ?, updated_at = MAX(updated_at, ?)
-        WHERE id = ?`,
-      [canon, Date.now(), rowId]
-    )
-    await enqueueUpsert('entry_entities', rowId, db)
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        `UPDATE entry_entities
+          SET canonical_label = ?, updated_at = MAX(updated_at, ?)
+          WHERE id = ?`,
+        [canon, Date.now(), rowId]
+      )
+      await enqueueUpsertInTransaction('entry_entities', rowId, tx)
+    })
+    notifySyncPending()
     return ok(undefined)
   } catch (e) {
     return err('ENTITY_CANON_FAILED', 'Failed to set canonical label', e)

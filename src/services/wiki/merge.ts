@@ -2,7 +2,7 @@ import { type SqliteDatabase, getDb } from '@/services/storage/db'
 import { rebuildGraph } from '@/services/graph/engine'
 import { type WikiPage } from '@/services/storage/wiki'
 import { setSetting } from '@/services/storage/settings'
-import { notifySyncPending } from '@/services/storage/sync-queue'
+import { enqueueUpsertInTransaction, notifySyncPending } from '@/services/storage/sync-queue'
 import { type Result, ok, err } from '@/types/result'
 
 import { cosine } from './search'
@@ -198,28 +198,14 @@ export async function mergePages(
       )
 
       // Queue exactly the rows selected above.
-      for (const id of ids) {
-        const queueId = `entries:${id}`
-        await tx.execute(
-          `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
-           VALUES (?, 'entries', ?, 'upsert', ?, NULL)
-           ON CONFLICT(id) DO UPDATE SET operation = 'upsert', created_at = excluded.created_at, synced_at = NULL`,
-          [queueId, id, now]
-        )
-      }
+      for (const id of ids) await enqueueUpsertInTransaction('entries', id, tx)
 
       // 4. Flag the loser page as merged into the survivor.
       await tx.execute(
         'UPDATE wiki_pages SET merged_into = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
         [survivor.id, now, loser.id]
       )
-      // Enqueue loser page
-      await tx.execute(
-        `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
-         VALUES (?, 'wiki_pages', ?, 'upsert', ?, NULL)
-         ON CONFLICT(id) DO UPDATE SET operation = 'upsert', created_at = excluded.created_at, synced_at = NULL`,
-        [`wiki_pages:${loser.id}`, loser.id, now]
-      )
+      await enqueueUpsertInTransaction('wiki_pages', loser.id, tx)
 
       // 5. Recompute the survivor's entry_count from distinct entries that now
       //    reference it, rather than blindly summing stale caller counts.
@@ -232,13 +218,7 @@ export async function mergePages(
         'UPDATE wiki_pages SET entry_count = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
         [newCount, now, survivor.id]
       )
-      // Enqueue survivor page
-      await tx.execute(
-        `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
-         VALUES (?, 'wiki_pages', ?, 'upsert', ?, NULL)
-         ON CONFLICT(id) DO UPDATE SET operation = 'upsert', created_at = excluded.created_at, synced_at = NULL`,
-        [`wiki_pages:${survivor.id}`, survivor.id, now]
-      )
+      await enqueueUpsertInTransaction('wiki_pages', survivor.id, tx)
 
       // 6. Set the graph-rebuild repair marker inside the transaction. If the
       //    app is killed after commit but before the post-commit rebuild, this

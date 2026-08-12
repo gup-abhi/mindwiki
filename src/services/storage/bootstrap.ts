@@ -17,6 +17,7 @@ import { resumeSessionWork, startSessionWork } from '@/services/auth/session-wor
 import { beginWipe, endWipe, initDb, deleteDatabase } from './db'
 import { migrate } from './migrations'
 import { getSetting, setSetting } from './settings'
+import { reconcileSyncQueue } from './sync-queue'
 
 /**
  * True when opening the DB failed because the file can't be decrypted with the
@@ -116,6 +117,9 @@ export async function initStorage(): Promise<Result<void>> {
 
   const migrated = await migrate()
   if (!migrated.success) return migrated
+
+  const reconciled = await reconcileSyncQueue(opened.data)
+  if (!reconciled.success) return reconciled
 
   // Migrations 003 and 028 recreate the derived graph tables (003 widened the
   // node-type CHECK; 028 made `label` COLLATE NOCASE), which empties them. Rebuild

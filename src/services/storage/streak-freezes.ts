@@ -1,7 +1,7 @@
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
-import { enqueueUpsert } from './sync-queue'
+import { enqueueUpsertInTransaction, notifySyncPending } from './sync-queue'
 
 /**
  * Days the user has deliberately frozen to save a streak after a missed day.
@@ -29,17 +29,21 @@ export async function freezeDays(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
+    const uniqueDays = [...new Set(dayIndices)]
     const now = Date.now()
-    for (const day of dayIndices) {
-      const id = String(day)
-      await db.execute(
-        `INSERT INTO streak_freezes (id, day_index, frozen_at, updated_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at`,
-        [id, day, now, now]
-      )
-      await enqueueUpsert('streak_freezes', id, db)
-    }
+    await db.transaction(async (tx) => {
+      for (const day of uniqueDays) {
+        const id = String(day)
+        await tx.execute(
+          `INSERT INTO streak_freezes (id, day_index, frozen_at, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at`,
+          [id, day, now, now]
+        )
+        await enqueueUpsertInTransaction('streak_freezes', id, tx)
+      }
+    })
+    if (uniqueDays.length > 0) notifySyncPending()
     return ok(undefined)
   } catch (e) {
     return err('STREAK_FREEZE_WRITE_FAILED', 'Failed to freeze days', e)

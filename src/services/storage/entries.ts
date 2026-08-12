@@ -4,7 +4,7 @@ import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
 import { type EntityType } from './entities'
-import { enqueueUpsert } from './sync-queue'
+import { enqueueUpsertInTransaction, notifySyncPending } from './sync-queue'
 
 /** Where an entry came from: the CBT journal flow, a Reflect-chat message, or a
  * guided-path answer. Only 'journal' shows in the timeline; the rest feed the
@@ -129,25 +129,28 @@ export async function createEntry(
   }
   entry.updated_at = entry.created_at
   try {
-    await db.execute(
-      `INSERT INTO entries (id, created_at, updated_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        entry.id,
-        entry.created_at,
-        entry.updated_at,
-        entry.mood,
-        entry.situation,
-        entry.thought,
-        entry.behavior,
-        entry.closing_note,
-        entry.named_emotion,
-        entry.energy,
-        entry.raw_text,
-        entry.source,
-      ]
-    )
-    await enqueueUpsert('entries', entry.id, db) // best-effort; never blocks the save
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        `INSERT INTO entries (id, created_at, updated_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          entry.id,
+          entry.created_at,
+          entry.updated_at ?? entry.created_at,
+          entry.mood,
+          entry.situation,
+          entry.thought,
+          entry.behavior,
+          entry.closing_note,
+          entry.named_emotion,
+          entry.energy ?? null,
+          entry.raw_text,
+          entry.source,
+        ]
+      )
+      await enqueueUpsertInTransaction('entries', entry.id, tx)
+    })
+    notifySyncPending()
     return ok(entry)
   } catch (e) {
     return err('ENTRY_CREATE_FAILED', 'Failed to create entry', e)
@@ -499,12 +502,15 @@ export async function applyTags(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
-    const now = Date.now()
-    await db.execute(
-      'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, topic2 = ?, tagged_at = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
-      [tags.emotion, tags.distortion, tags.mood_score, tags.topic, tags.topic2, now, now, id]
-    )
-    await enqueueUpsert('entries', id, db) // tagging changes the row → re-sync
+    await db.transaction(async (tx) => {
+      const now = Date.now()
+      await tx.execute(
+        'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, topic2 = ?, tagged_at = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
+        [tags.emotion, tags.distortion, tags.mood_score, tags.topic, tags.topic2, now, now, id]
+      )
+      await enqueueUpsertInTransaction('entries', id, tx)
+    })
+    notifySyncPending()
     return ok(undefined)
   } catch (e) {
     return err('ENTRY_TAG_FAILED', 'Failed to apply tags', e)
