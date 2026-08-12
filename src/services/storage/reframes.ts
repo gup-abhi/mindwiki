@@ -73,13 +73,10 @@ export async function createReframe(
         ]
       )
       await enqueueUpsertInTransaction('belief_reframes', reframe.id, tx)
+      const bump = await incrementSourceGeneration('belief', tx)
+      if (!bump.success) throw new Error(bump.error.code)
     })
     notifySyncPending()
-    // F-02C — bump belief maintenance source generation for a NEW user-authored
-    // reframe so the historical repair pass eventually retargets it to the
-    // canonical belief identity. (Best-effort: bump failure never fails write.)
-    const bump = await incrementSourceGeneration('belief', db)
-    if (!bump.success) console.warn('createReframe: source-gen bump failed (reframe still saved)', bump.error)
     return ok(reframe)
   } catch (e) {
     return err('REFRAME_CREATE_FAILED', 'Failed to save reframe', e)
@@ -107,8 +104,7 @@ export async function listReframesForBelief(
  *  by the historical belief-maintenance pass when a raw alias retires under a
  *  chosen canonical identity. NEVER bumps the maintenance source generation
  *  (maintenance's own writes do not self-increment — that's what prevents a
- *  self-trigger loop). Best-effort enqueue — a queue failure never fails the
- *  write. Returns the number of reframes retargeted. */
+ *  self-trigger loop). Returns the number of reframes retargeted. */
 export async function retargetReframeBelief(
   fromRaw: string,
   toCanonical: string,

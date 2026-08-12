@@ -2,7 +2,7 @@ import { type Result, ok, err } from '@/types/result'
 import type { SqliteDatabase } from '@/services/storage/db'
 import { getDb } from '@/services/storage/db'
 import { getMaintenanceState, updateMaintenanceState } from '@/services/storage/maintenance-state'
-import { enqueueUpsertInTransaction } from '@/services/storage/sync-queue'
+import { enqueueUpsertInTransaction, notifySyncPending } from '@/services/storage/sync-queue'
 import { listEntityEmbeddings, type EntityEmbedding } from '@/services/storage/entity-embeddings'
 import { getSetting } from '@/services/storage/settings'
 import { rebuildGraph as defaultRebuildGraph } from '@/services/graph/engine'
@@ -393,9 +393,9 @@ export async function consolidateClusterPages(
   cluster: AliasCluster,
   pages: Map<string, WikiPage>,
   db: SqliteDatabase
-): Promise<Result<{ survivorId: string }>> {
+): Promise<Result<{ survivorId: string; queued: boolean }>> {
   if (cluster.deferred || cluster.canonical == null) {
-    return ok({ survivorId: '' })
+    return ok({ survivorId: '', queued: false })
   }
 
   // Find all wiki pages whose title matches any alias in the cluster.
@@ -408,14 +408,14 @@ export async function consolidateClusterPages(
       matches.push(page)
     }
   }
-  if (matches.length === 0) return ok({ survivorId: '' })
+  if (matches.length === 0) return ok({ survivorId: '', queued: false })
 
   const corrected = matches.filter((p) => p.corrected_at != null)
   const aiPages = matches.filter((p) => p.corrected_at == null)
 
   if (corrected.length > 1) {
     // Deferred cluster (should be skipped upstream, but guard here too).
-    return ok({ survivorId: '' })
+    return ok({ survivorId: '', queued: false })
   }
 
   try {
@@ -423,7 +423,7 @@ export async function consolidateClusterPages(
       // ONE corrected page — preserve byte-for-byte, mark AI losers.
       const survivor = corrected[0]
       const losers = aiPages.filter((p) => p.id !== survivor.id)
-      if (losers.length === 0) return ok({ survivorId: survivor.id })
+      if (losers.length === 0) return ok({ survivorId: survivor.id, queued: false })
 
       // Compute approximate total distinct entry count.
       let totalEntryCount = survivor.entry_count
@@ -448,7 +448,7 @@ export async function consolidateClusterPages(
         await enqueueUpsertInTransaction('wiki_pages', survivor.id, tx)
       })
 
-      return ok({ survivorId: survivor.id })
+      return ok({ survivorId: survivor.id, queued: true })
     } else {
       // 0 corrected pages — the canonical-title page always wins. If it does
       // not exist, retain the richest AI page but rename it to canonical so
@@ -458,13 +458,13 @@ export async function consolidateClusterPages(
         return (a.updated_at ?? 0) - (b.updated_at ?? 0)
       })
       const survivor = matches.find((p) => p.title.toLowerCase() === cluster.canonical!.toLowerCase()) ?? aiPages[0]
-      if (!survivor) return ok({ survivorId: '' })
+      if (!survivor) return ok({ survivorId: '', queued: false })
       const losers = aiPages.filter((p) => p.id !== survivor.id)
       const needsRename = survivor.title.toLowerCase() !== cluster.canonical.toLowerCase()
-      if (losers.length === 0 && !needsRename) return ok({ survivorId: survivor.id })
+      if (losers.length === 0 && !needsRename) return ok({ survivorId: survivor.id, queued: false })
 
       const canonicalTitle = cluster.canonical
-      if (!canonicalTitle) return ok({ survivorId: survivor.id })
+      if (!canonicalTitle) return ok({ survivorId: survivor.id, queued: false })
       const now = Date.now()
       await db.transaction(async (tx) => {
         if (needsRename) {
@@ -485,7 +485,7 @@ export async function consolidateClusterPages(
         await enqueueUpsertInTransaction('wiki_pages', survivor.id, tx)
       })
 
-      return ok({ survivorId: survivor.id })
+      return ok({ survivorId: survivor.id, queued: true })
     }
   } catch {
     return err('CONSOLIDATION_FAILED', 'Failed to consolidate cluster pages')
@@ -637,6 +637,7 @@ export async function runBeliefMaintenance(
         const canonical = cluster.canonical
         // 4) ONE transaction per approved cluster:
         let clusterCommitted = false
+        let clusterQueued = false
         try {
           await db.transaction(async (tx: SqliteDatabase) => {
             // For each alias to retire: write canonical_label + bumped updated_at
@@ -657,27 +658,25 @@ export async function runBeliefMaintenance(
                   [canonical, Date.now(), rowId]
                 )
                 await enqueueUpsertInTransaction('entry_entities', rowId, tx)
+                clusterQueued = true
               }
             }
             // Retarget any reframe rows under a retired alias to the canonical.
             for (const alias of cluster.effectiveAliases) {
+              const re = await tx.execute(
+                'SELECT id FROM belief_reframes WHERE belief = ? COLLATE NOCASE',
+                [alias]
+              )
+              const ids = re.rows.map((r) => String(r.id))
+              if (ids.length === 0) continue
               const now = Date.now()
-              const upd = await tx.execute(
+              await tx.execute(
                 'UPDATE belief_reframes SET belief = ?, updated_at = ? WHERE belief = ? COLLATE NOCASE',
                 [canonical, now, alias]
               )
-              const n = Number(upd.rowsAffected ?? 0)
-              if (n > 0) {
-                // Enqueue the retargeted reframes (read-after-write by belief=canonical
-                // — same as the storage helper).
-                const re = await tx.execute(
-                  'SELECT id FROM belief_reframes WHERE belief = ? COLLATE NOCASE',
-                  [canonical]
-                )
-                for (const r of re.rows) {
-                  const rid = String(r.id)
-                  await enqueueUpsertInTransaction('belief_reframes', rid, tx)
-                }
+              for (const rid of ids) {
+                await enqueueUpsertInTransaction('belief_reframes', rid, tx)
+                clusterQueued = true
               }
             }
             // Set the graph-rebuild marker IN the same transaction — survives
@@ -691,6 +690,7 @@ export async function runBeliefMaintenance(
           repaired++
           clusterCommitted = true
           sourceChanged = true
+          if (clusterQueued) notifySyncPending()
         } catch (e: unknown) {
           // Tx rolled back: NO canonical_label leak for this cluster.
           if (!firstError) firstError = { code: 'BELIEF_MAINTENANCE_TX_FAILED', message: errorMessage(e) }
@@ -702,8 +702,9 @@ export async function runBeliefMaintenance(
         if (clusterCommitted) {
           try {
             const consRes = await consolidateClusterPages(cluster, pages, db)
-            if (consRes.success && consRes.data.survivorId) {
-              consolidated++
+            if (consRes.success) {
+              if (consRes.data.survivorId) consolidated++
+              if (consRes.data.queued) notifySyncPending()
             }
           } catch {
             // Best-effort — next pass retries consolidation.

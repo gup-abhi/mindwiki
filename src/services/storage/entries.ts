@@ -504,10 +504,11 @@ export async function applyTags(
   try {
     await db.transaction(async (tx) => {
       const now = Date.now()
-      await tx.execute(
+      const updated = await tx.execute(
         'UPDATE entries SET emotion = ?, distortion = ?, mood_score = ?, topic = ?, topic2 = ?, tagged_at = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
         [tags.emotion, tags.distortion, tags.mood_score, tags.topic, tags.topic2, now, now, id]
       )
+      if (updated.rowsAffected !== 1) throw new Error('ENTRY_NOT_FOUND')
       await enqueueUpsertInTransaction('entries', id, tx)
     })
     notifySyncPending()

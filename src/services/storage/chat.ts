@@ -156,10 +156,11 @@ export async function setConversationSummary(
 ): Promise<Result<void>> {
   try {
     await db.transaction(async (tx) => {
-      await tx.execute(
+      const updated = await tx.execute(
         'UPDATE conversations SET summary = ?, summary_count = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
         [summary, summaryCount, Date.now(), id]
       )
+      if (updated.rowsAffected !== 1) throw new Error('CHAT_CONVERSATION_NOT_FOUND')
       await enqueueUpsertInTransaction('conversations', id, tx)
     })
     notifySyncPending()

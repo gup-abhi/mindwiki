@@ -46,7 +46,10 @@ export async function enqueueUpsert(
     await db.execute(
       `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
        VALUES (?, ?, ?, 'upsert', ?, NULL)
-       ON CONFLICT(id) DO UPDATE SET operation = 'upsert', created_at = excluded.created_at, synced_at = NULL`,
+       ON CONFLICT(id) DO UPDATE SET
+         operation = 'upsert',
+         created_at = MAX(sync_queue.created_at + 1, excluded.created_at),
+         synced_at = NULL`,
       [`${tableName}:${recordId}`, tableName, recordId, Date.now()]
     )
     // Wake the debounced background sync (useSync) so this change uploads on its
@@ -82,15 +85,19 @@ export function notifySyncPending(): void {
  * One-time backfill: enqueue every existing row of the given tables so data
  * written before sync existed gets uploaded on the first sync. Guarded by a
  * settings flag — it runs once, because re-running would reset synced_at and
- * re-upload everything. Best-effort per row; returns the number queued.
+ * re-upload everything. Source scans and queue rows commit with the marker.
  */
 export async function backfillSyncQueue(
   tables: readonly string[],
   db: SqliteDatabase = getDb()
 ): Promise<Result<number>> {
   try {
+    if (tables.some((table) => !SYNC_TABLE_SET.has(table))) {
+      return err('SYNC_BACKFILL_FAILED', 'Unsupported sync table')
+    }
     const done = await getSetting(BACKFILL_KEY, db)
-    if (done.success && done.data === '1') return ok(0)
+    if (!done.success) return err('SYNC_BACKFILL_FAILED', 'Failed to read sync backfill state', done.error)
+    if (done.data === '1') return ok(0)
 
     let queued = 0
     await db.transaction(async (tx) => {
@@ -121,29 +128,42 @@ export async function reconcileSyncQueue(
 ): Promise<Result<number>> {
   try {
     const done = await getSetting(OUTBOX_RECONCILED_KEY, db)
-    if (done.success && done.data === '1') return ok(0)
+    if (!done.success) return err('SYNC_RECONCILE_FAILED', 'Failed to read sync reconciliation state', done.error)
+    if (done.data === '1') return ok(0)
 
     let queued = 0
+    let terminallyAccounted = 0
     await db.transaction(async (tx) => {
       const legacy = await tx.execute(
         "SELECT id, table_name, record_id, operation, created_at, synced_at FROM sync_queue WHERE id LIKE 'sq:%'"
       )
       for (const row of legacy.rows) {
+        const operation = String(row.operation)
+        if (operation !== 'upsert') throw new Error('SYNC_QUEUE_OPERATION_UNSUPPORTED')
         const table = String(row.table_name)
         const recordId = String(row.record_id)
-        if (!SYNC_TABLE_SET.has(table)) continue
+        if (!SYNC_TABLE_SET.has(table)) {
+          await tx.execute(
+            'UPDATE sync_queue SET synced_at = ? WHERE id = ? AND created_at = ?',
+            [Date.now(), String(row.id), Number(row.created_at)]
+          )
+          terminallyAccounted++
+          continue
+        }
         const canonicalId = `${table}:${recordId}`
         const current = await tx.execute('SELECT synced_at, created_at FROM sync_queue WHERE id = ?', [canonicalId])
+        const legacyGeneration = Number(row.created_at)
         if (current.rows.length === 0) {
           await tx.execute(
             `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [canonicalId, table, recordId, String(row.operation), Number(row.created_at), row.synced_at == null ? null : Number(row.synced_at)]
+             VALUES (?, ?, ?, 'upsert', ?, ?)`,
+            [canonicalId, table, recordId, legacyGeneration, row.synced_at == null ? null : Number(row.synced_at)]
           )
         } else if (row.synced_at == null && current.rows[0].synced_at != null) {
+          const nextGeneration = Math.max(Number(current.rows[0].created_at) + 1, legacyGeneration)
           await tx.execute(
-            'UPDATE sync_queue SET operation = ?, created_at = ?, synced_at = NULL WHERE id = ?',
-            [String(row.operation), Number(row.created_at), canonicalId]
+            'UPDATE sync_queue SET operation = \'upsert\', created_at = ?, synced_at = NULL WHERE id = ?',
+            [nextGeneration, canonicalId]
           )
         }
         await tx.execute('DELETE FROM sync_queue WHERE id = ?', [String(row.id)])

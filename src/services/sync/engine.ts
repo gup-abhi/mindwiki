@@ -4,7 +4,7 @@ import { getTokens } from '@/services/auth/token-store'
 import { rebuildGraph } from '@/services/graph/engine'
 import { type SqliteDatabase, getDb, isWiping } from '@/services/storage/db'
 import { getSetting, setSetting } from '@/services/storage/settings'
-import { pendingUploads, markSynced, backfillSyncQueue, enqueueUpsert } from '@/services/storage/sync-queue'
+import { pendingUploads, markSynced, backfillSyncQueue, enqueueUpsert, notifySyncPending } from '@/services/storage/sync-queue'
 import { incrementSourceGeneration } from '@/services/storage/maintenance-state'
 import { useSyncStore } from '@/store/sync.store'
 import { type Result, ok, err } from '@/types/result'
@@ -52,6 +52,16 @@ const MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1_000
 const MAX_LEGACY_RECORD_ID_BYTES = 2_048
 
 type Row = Record<string, unknown>
+
+class SyncDurabilityError extends Error {
+  readonly cause?: unknown
+
+  constructor(readonly code: string, cause?: unknown) {
+    super(code)
+    this.name = 'SyncDurabilityError'
+    this.cause = cause
+  }
+}
 
 // Per-table sync config: which columns make up a record and how to read its
 // effective last-modified time.
@@ -118,46 +128,63 @@ function isSyncTable(t: string): t is SyncTable {
   return (SYNCED_TABLES as string[]).includes(t)
 }
 
-/** INSERT OR REPLACE a remote row directly. Normal remote rows bypass storage
- * write helpers and do not re-enqueue; repaired legacy wiki rows are queued by
- * pullDelta so canonicalization propagates to older devices. */
-async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Promise<boolean> {
-  // Canonicalize rows from older devices before storage. Repaired rows are
-  // re-uploaded below so older devices cannot reintroduce the legacy shape.
-  let repaired = false
+interface PreparedRemoteRow {
+  row: Row
+  needsCanonicalUpload: boolean
+}
+
+/** Normalize a decrypted remote row without mutating the caller's object. */
+function prepareRemoteRow(table: SyncTable, input: Row): PreparedRemoteRow {
+  const row = { ...input }
+  let needsCanonicalUpload = false
+
   if (table === 'wiki_pages') {
     const canonical = repairLegacyRow(row)
     if (canonical) {
       Object.assign(row, canonical)
       row.updated_at = Math.max((Number(row.updated_at) || 0) + 1, Date.now())
-      repaired = true
+      needsCanonicalUpload = true
     }
   }
-  // Devices upgraded from pre-029 may send an entry row without the new
-  // watermark. Derive the legacy value on receipt so the NOT NULL column stays
-  // valid and the row remains syncable.
   if (table === 'entries' && row.updated_at == null) {
     row.updated_at = Math.max(Number(row.created_at) || 0, Number(row.tagged_at) || 0)
+    needsCanonicalUpload = true
   }
-  // F-01: legacy wiki_pages payloads (pre-migration-030) lack regrounded_upto.
-  // Default it to 0 so the NOT NULL column stays valid on receipt.
   if (table === 'wiki_pages' && row.regrounded_upto == null) {
     row.regrounded_upto = 0
+    needsCanonicalUpload = true
   }
-  // F-02B — a pre-030 device sends an entity row without canonical_label /
-  // updated_at. Backfill both so the NOT NULL updated_at stays valid and the
-  // row is treated as its own raw identity (canonical_label = null).
   if (table === 'entry_entities') {
-    if (row.updated_at == null) row.updated_at = Number(row.created_at) || 0
-    if (row.canonical_label === undefined) row.canonical_label = null
+    if (row.updated_at == null) {
+      row.updated_at = Number(row.created_at) || 0
+      needsCanonicalUpload = true
+    }
+    if (row.canonical_label === undefined) {
+      row.canonical_label = null
+      needsCanonicalUpload = true
+    }
   }
+  return { row, needsCanonicalUpload }
+}
+
+/** INSERT OR REPLACE a prepared remote row directly. */
+async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Promise<void> {
   const cols = TABLES[table].columns
   const placeholders = cols.map(() => '?').join(', ')
   await db.execute(
     `INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`,
     cols.map((c) => (row[c] === undefined ? null : (row[c] as never)))
   )
-  return repaired
+}
+
+function durabilityFailure(error: unknown): SyncDurabilityError {
+  return error instanceof SyncDurabilityError
+    ? error
+    : new SyncDurabilityError('SYNC_DURABILITY_FAILED', error)
+}
+
+function isDurabilityFailure(error: unknown): error is SyncDurabilityError {
+  return error instanceof SyncDurabilityError
 }
 
 /** Local updated_at for a set of record ids (missing ids are simply absent). */
@@ -203,14 +230,19 @@ export async function pushPending(
   let pushed = 0
   for (const item of pend.data) {
     if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
+    if (item.operation !== 'upsert') {
+      return err('SYNC_QUEUE_OPERATION_UNSUPPORTED', 'Unsupported sync queue operation')
+    }
     if (!isSyncTable(item.table_name)) {
-      await markSynced(item.id, Date.now(), db, item.created_at) // unknown table — drop this generation
+      const marked = await markSynced(item.id, Date.now(), db, item.created_at)
+      if (!marked.success) return marked
       continue
     }
     const res = await db.execute(`SELECT * FROM ${item.table_name} WHERE id = ?`, [item.record_id])
     const row = res.rows[0]
     if (!row) {
-      await markSynced(item.id, Date.now(), db, item.created_at) // gone locally — drop this generation
+      const marked = await markSynced(item.id, Date.now(), db, item.created_at)
+      if (!marked.success) return marked
       continue
     }
 
@@ -240,7 +272,8 @@ export async function pushPending(
     if (!put.success || !put.data.ok) continue // keep pending
 
     if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
-    await markSynced(item.id, Date.now(), db, item.created_at)
+    const marked = await markSynced(item.id, Date.now(), db, item.created_at)
+    if (!marked.success) return marked
     pushed++
   }
   return ok(pushed)
@@ -511,7 +544,7 @@ export async function pullDelta(
     if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
     // Decrypt this table's records first; skip any that don't decrypt (tamper /
     // wrong key) rather than failing the whole pull.
-    const decoded: (Versioned & { row: Row; legacy: boolean })[] = []
+    const decoded: (Versioned & { row: Row; legacy: boolean; needsCanonicalUpload: boolean })[] = []
     for (const r of remote) {
       if (r.table !== table) continue
       const dec = r.version === 2
@@ -539,12 +572,14 @@ export async function pullDelta(
         await quarantineRecord(table, r.sync_id, r.updated_at, db)
         continue
       }
+      const prepared = prepareRemoteRow(table, row)
       decoded.push({
         record_id: recordId,
         updated_at: r.updated_at,
-        content: projectContent(table, row),
-        row,
+        content: projectContent(table, prepared.row),
+        row: prepared.row,
         legacy: r.version === 1,
+        needsCanonicalUpload: prepared.needsCanonicalUpload,
       })
     }
     if (decoded.length === 0) continue
@@ -556,36 +591,43 @@ export async function pullDelta(
     // This migrates identity/ciphertext without deleting legacy R2 objects.
     for (const d of decoded) {
       if (d.legacy && local.has(d.record_id) && (local.get(d.record_id)?.updated_at ?? 0) >= d.updated_at) {
-        await enqueueUpsert(table, d.record_id, db)
+        const queued = await enqueueUpsert(table, d.record_id, db, false)
+        if (!queued.success) return err('SYNC_PULL_FAILED', 'Failed to queue legacy local winner', queued.error)
+        notifySyncPending()
       }
     }
     for (const d of recordsToApply(decoded, (id) => local.get(id) ?? null)) {
       if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
       try {
         if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
-        const repaired = await applyRemote(table, d.row, db)
-        if (repaired || d.legacy) await enqueueUpsert(table, d.record_id, db)
-        // F-02C — a remote entity/reframe apply is an external raw write into the
-        // maintenance source pool; bump generation so a later pass catches up.
-        // Best-effort: failure never aborts the pull. Bump is outside db.transaction
-        // (applyRemote runs outside any explicit tx) so it survives POST-COMMIT.
-        if (table === 'entry_entities' || table === 'belief_reframes') {
-          const bump = await incrementSourceGeneration('belief', db)
-          if (!bump.success) console.warn('sync: source-gen bump failed', bump.error)
-        }
-        // A synced entry's wiki is handled by the origin device (wiki pages sync
-        // on their own), and INSERT OR REPLACE just wiped the local-only
-        // wiki_indexed_at to NULL. Stamp it = tagged_at so the wiki catch-up
-        // never re-synthesizes a synced entry. (Left NULL when untagged — those
-        // still flow through the tagged-catch-up like any un-indexed entry.)
-        if (table === 'entries') {
-          await db.execute(
-            'UPDATE entries SET wiki_indexed_at = tagged_at WHERE id = ?',
-            [d.record_id]
-          )
-        }
+        let queuedForSync = false
+        await db.transaction(async (tx) => {
+          await applyRemote(table, d.row, tx)
+          if (table === 'entry_entities' || table === 'belief_reframes') {
+            const bump = await incrementSourceGeneration('belief', tx)
+            if (!bump.success) throw new SyncDurabilityError('SYNC_SOURCE_GENERATION_FAILED', bump.error)
+          }
+          if (table === 'entries') {
+            const stamped = await tx.execute(
+              'UPDATE entries SET wiki_indexed_at = tagged_at WHERE id = ?',
+              [d.record_id]
+            )
+            if (stamped.rowsAffected !== 1) {
+              throw new SyncDurabilityError('SYNC_ENTRY_LOCAL_STAMP_FAILED')
+            }
+          }
+          if (d.legacy || d.needsCanonicalUpload) {
+            const queued = await enqueueUpsert(table, d.record_id, tx, false)
+            if (!queued.success) throw new SyncDurabilityError('SYNC_REPAIR_ENQUEUE_FAILED', queued.error)
+            queuedForSync = true
+          }
+        })
+        if (queuedForSync) notifySyncPending()
         await clearQuarantine(table, d.record_id, db)
-      } catch {
+      } catch (error) {
+        if (isDurabilityFailure(error)) {
+          return err(error.code, 'Failed to commit remote sync repair', error.cause)
+        }
         // A single malformed/constraint-violating row must not abort the whole
         // pull — that would also block every table applied after it (entries is
         // first) and leave the cursor un-advanced, wedging sync permanently on
@@ -685,7 +727,8 @@ export async function sync(): Promise<Result<{ pushed: number; pulled: number }>
     if (!lease.checkpoint()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
     // One-time: enqueue any data written before sync existed, so the first sync
     // uploads the existing journal (not just new entries).
-    await backfillSyncQueue(SYNCED_TABLES, db)
+    const backfilled = await backfillSyncQueue(SYNCED_TABLES, db)
+    if (!backfilled.success) return backfilled
     const pushed = await pushPending(masterKeyHex, tokens.accountId, db, lease.checkpoint)
     if (!pushed.success) return pushed
     if (!lease.checkpoint()) return err('SESSION_WORK_STOPPED', 'Session work stopped')

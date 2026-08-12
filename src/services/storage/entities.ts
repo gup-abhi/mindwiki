@@ -121,17 +121,12 @@ export async function setEntitiesForEntry(
         )
         await enqueueUpsertInTransaction('entry_entities', r.id, tx)
       }
+      if (rows.some((r) => r.type === 'belief')) {
+        const bump = await incrementSourceGeneration('belief', tx)
+        if (!bump.success) throw new Error(bump.error.code)
+      }
     })
     if (rows.length > 0) notifySyncPending()
-    // F-02C — raw belief ingestion bumps the maintenance source generation so
-    // an idempotent historical-repair pass eventually catches this entry. Do
-    // NOT bump from setCanonicalLabel / reframe-retarget (maintenance's own
-    // writes never self-increment — that's what prevents a self-trigger loop).
-    // Best-effort: a bump failure does not fail the entity save.
-    if (rows.some((r) => r.type === 'belief')) {
-      const bump = await incrementSourceGeneration('belief', db)
-      if (!bump.success) console.warn('setEntitiesForEntry: source-gen bump failed (entry still saved)', bump.error)
-    }
     return ok(undefined)
   } catch (e) {
     return err('ENTITY_SET_FAILED', 'Failed to set entry entities', e)
@@ -198,7 +193,7 @@ export async function countEntriesForEntity(
  *  watermark so the change reaches other devices. Used by belief maintenance
  *  (F-02C) to retire a raw alias without deleting the source row; never used by
  *  the re-tag replace-set helper (which preserves but does not write
- *  canonical_label). Best-effort enqueue — a queue failure never fails the write. */
+ *  canonical_label). The source update and queue row commit together. */
 export async function setCanonicalLabel(
   rowId: string,
   canonicalLabel: string,
@@ -208,12 +203,13 @@ export async function setCanonicalLabel(
   if (!canon) return err('ENTITY_CANON_INVALID', 'canonical label must be non-empty')
   try {
     await db.transaction(async (tx) => {
-      await tx.execute(
+      const updated = await tx.execute(
         `UPDATE entry_entities
           SET canonical_label = ?, updated_at = MAX(updated_at, ?)
           WHERE id = ?`,
         [canon, Date.now(), rowId]
       )
+      if (updated.rowsAffected !== 1) throw new Error('ENTITY_NOT_FOUND')
       await enqueueUpsertInTransaction('entry_entities', rowId, tx)
     })
     notifySyncPending()

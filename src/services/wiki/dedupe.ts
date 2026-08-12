@@ -54,7 +54,8 @@ export async function dedupeTopics(
       for (const id of changedEntryIds) await enqueueUpsertInTransaction('entries', id, tx)
 
       const pr = await listPages(tx)
-      if (pr.success) {
+      if (!pr.success) throw new Error(pr.error.code)
+      {
         const groups = new Map<string, typeof pr.data>()
         for (const p of pr.data) {
           if (p.category !== 'theme') continue

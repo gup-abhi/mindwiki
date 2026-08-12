@@ -17,12 +17,15 @@ function createFakeDb() {
     async execute(sql, params = []) {
       if (/^INSERT INTO sync_queue/.test(sql)) {
         const [id, table_name, record_id, created_at] = params
+        const existing = rows.get(String(id))
         rows.set(String(id), {
           id,
           table_name,
           record_id,
           operation: 'upsert',
-          created_at,
+          created_at: existing
+            ? Math.max(Number(existing.created_at) + 1, Number(created_at))
+            : created_at,
           synced_at: null, // ON CONFLICT also resets synced_at to NULL
         })
         return { rows: [], rowsAffected: 1 }
@@ -67,14 +70,44 @@ describe('storage/sync-queue', () => {
     expect(useSyncStore.getState().pendingSignal).toBe(1)
   })
 
-  it('collapses repeated edits of one record into a single pending row', async () => {
+  it('collapses repeated edits of one record into a single pending row with a newer generation', async () => {
     const { db, rows } = createFakeDb()
+    const now = Date.now()
+    jest.spyOn(Date, 'now').mockReturnValue(now)
     await enqueueUpsert('wiki_pages', 'p1', db)
+    const firstGeneration = Number(rows.get('wiki_pages:p1')?.created_at)
     await enqueueUpsert('wiki_pages', 'p1', db)
+    const secondGeneration = Number(rows.get('wiki_pages:p1')?.created_at)
+    jest.restoreAllMocks()
+
     expect(rows.size).toBe(1)
+    expect(secondGeneration).toBe(firstGeneration + 1)
 
     const pending = await pendingUploads(db)
     expect(pending.success && pending.data).toHaveLength(1)
+  })
+
+  it('keeps queue generations monotonic when the wall clock moves backward', async () => {
+    const { db, rows } = createFakeDb()
+    jest.spyOn(Date, 'now').mockReturnValueOnce(2000).mockReturnValueOnce(1000)
+    await enqueueUpsert('entries', 'e1', db)
+    await enqueueUpsert('entries', 'e1', db)
+    jest.restoreAllMocks()
+
+    expect(rows.get('entries:e1')?.created_at).toBe(2001)
+  })
+
+  it('returns an error when marking synced cannot write', async () => {
+    const db: SqliteDatabase = {
+      async execute() { throw new Error('db down') },
+      async transaction(fn) { await fn(db) },
+      close() {},
+    }
+
+    const result = await markSynced('entries:e1', Date.now(), db, 1)
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.code).toBe('SYNC_QUEUE_MARK_FAILED')
   })
 
   it('drops a record from pending once marked synced, and re-enqueue revives it', async () => {
@@ -220,11 +253,17 @@ function createReconciliationDb() {
         const row = queue.get(String(params[0]))
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
-      if (/^UPDATE sync_queue SET operation =/.test(normalized)) {
-        const [operation, createdAt, id] = params
+      if (/^UPDATE sync_queue SET synced_at =/.test(normalized)) {
+        const [syncedAt, id, createdAt] = params
+        const row = queue.get(String(id))
+        if (row && Number(row.created_at) === Number(createdAt)) row.synced_at = syncedAt
+        return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^UPDATE sync_queue SET operation = 'upsert'/.test(normalized)) {
+        const [createdAt, id] = params
         const row = queue.get(String(id))
         if (row) {
-          row.operation = operation
+          row.operation = 'upsert'
           row.created_at = createdAt
           row.synced_at = null
         }

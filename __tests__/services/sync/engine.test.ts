@@ -45,6 +45,7 @@ function fakeDb() {
   const entries = new Map<string, Record<string, unknown>>()
   const entityRows = new Map<string, Record<string, unknown>>()
   const settings = new Map<string, string>()
+  const maintenanceState = new Map<string, Record<string, unknown>>()
   // Minimal wiki_pages backing for pull tests — only the columns applyRemote
   // writes matter, but we persist everything received so test assertions can
   // read back the applied row.
@@ -55,6 +56,7 @@ function fakeDb() {
 
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
+      sql = sql.trim().replace(/\s+/g, ' ')
       if (/^SELECT \* FROM sync_queue WHERE synced_at IS NULL/.test(sql)) {
         const pending = [...syncQueue.values()].filter((r) => r.synced_at == null)
         return { rows: pending, rowsAffected: 0 }
@@ -122,6 +124,21 @@ function fakeDb() {
         entityRows.set(String(row.id), row)
         return { rows: [], rowsAffected: 1 }
       }
+      if (/^INSERT INTO belief_maintenance_state \(key, source_generation\)/.test(sql)) {
+        if (!maintenanceState.has('belief')) {
+          maintenanceState.set('belief', { key: 'belief', source_generation: 0 })
+        }
+        return { rows: [], rowsAffected: 1 }
+      }
+      if (/^UPDATE belief_maintenance_state SET source_generation = source_generation \+ 1/.test(sql)) {
+        const row = maintenanceState.get(String(params[0]))
+        if (row) row.source_generation = Number(row.source_generation) + 1
+        return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^SELECT source_generation FROM belief_maintenance_state/.test(sql)) {
+        const row = maintenanceState.get(String(params[0]))
+        return { rows: row ? [row] : [], rowsAffected: 0 }
+      }
       if (/^INSERT INTO sync_skipped/.test(sql)) {
         // Real SQL: (table_name, record_id, updated_at, failures=1, last_attempt)
         // — four bound params; failures is a literal 1, bumped on conflict.
@@ -170,7 +187,7 @@ function fakeDb() {
     },
     close() {},
   }
-  return { db, syncQueue, entries, settings, entityRows, wikiPages, skipped }
+  return { db, syncQueue, entries, settings, entityRows, wikiPages, skipped, maintenanceState }
 }
 
 const deltaPage = (json: unknown): unknown => {
