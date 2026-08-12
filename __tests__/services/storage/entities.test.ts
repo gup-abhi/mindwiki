@@ -7,16 +7,13 @@ import {
   setCanonicalLabel,
   type EntryEntity,
 } from '@/services/storage/entities'
-import { enqueueUpsert } from '@/services/storage/sync-queue'
-
 jest.mock('@/services/storage/sync-queue', () => ({
-  enqueueUpsert: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
   enqueueUpsertInTransaction: jest.fn(() => Promise.resolve()),
   notifySyncPending: jest.fn(),
 }))
 
-const mockEnqueue = enqueueUpsert as jest.Mock
 const mockEnqueueInTransaction = jest.requireMock('@/services/storage/sync-queue').enqueueUpsertInTransaction as jest.Mock
+const mockNotify = jest.requireMock('@/services/storage/sync-queue').notifySyncPending as jest.Mock
 
 function createFakeDb() {
   let rows: Record<string, unknown>[] = []
@@ -34,13 +31,22 @@ function createFakeDb() {
       }
       // F-02B: setEntitiesForEntry pre-reads existing rows so canonical_label
       // survives a replace-set.
-      if (/^SELECT id, canonical_label FROM entry_entities WHERE entry_id/.test(sql)) {
+      if (/^SELECT id, canonical_label, created_at, updated_at FROM entry_entities WHERE entry_id/.test(sql)) {
         return {
           rows: rows
             .filter((r) => r.entry_id === params[0])
-            .map((r) => ({ id: r.id, canonical_label: r.canonical_label ?? null })),
+            .map((r) => ({
+              id: r.id,
+              canonical_label: r.canonical_label ?? null,
+              created_at: r.created_at,
+              updated_at: r.updated_at,
+            })),
           rowsAffected: 0,
         }
+      }
+      if (/^SELECT canonical_label FROM entry_entities WHERE id/.test(sql)) {
+        const row = rows.find((r) => r.id === params[0])
+        return { rows: row ? [{ canonical_label: row.canonical_label ?? null }] : [], rowsAffected: 0 }
       }
       if (/^SELECT \* FROM entry_entities WHERE entry_id/.test(sql)) {
         return { rows: rows.filter((r) => r.entry_id === params[0]), rowsAffected: 0 }
@@ -60,10 +66,12 @@ function createFakeDb() {
         return { rows: [{ n: ids.size }], rowsAffected: 0 }
       }
       if (/^UPDATE entry_entities[\s\S]*SET canonical_label/.test(sql)) {
-        // setCanonicalLabel: SET canonical_label = ?, updated_at = MAX(updated_at, ?) WHERE id = ?
-        const [canon, , id] = params
+        const [canon, now, id] = params
         const row = rows.find((r) => r.id === id)
-        if (row) row.canonical_label = canon
+        if (row) {
+          row.canonical_label = canon
+          row.updated_at = Math.max(Number(row.updated_at) + 1, Number(now))
+        }
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       throw new Error(`unhandled SQL: ${sql}`)
@@ -77,7 +85,10 @@ function createFakeDb() {
 }
 
 describe('storage/entities', () => {
-  beforeEach(() => mockEnqueue.mockClear())
+  beforeEach(() => {
+    mockEnqueueInTransaction.mockClear()
+    mockNotify.mockClear()
+  })
 
   it('F-02B: effectiveLabel returns trimmed canonical when set, else raw label', () => {
     const base = (over: Partial<EntryEntity> = {}): EntryEntity => ({
@@ -154,6 +165,32 @@ describe('storage/entities', () => {
       success: true,
       data: 0,
     })
+  })
+
+  it('does not rewrite, enqueue, or notify an already-canonical entity', async () => {
+    const { db } = createFakeDb()
+    await setEntitiesForEntry('e1', [{ type: 'belief', label: 'I am unlovable' }], db)
+    await setCanonicalLabel('e1:belief:i am unlovable', 'I am unworthy', db)
+    mockEnqueueInTransaction.mockClear()
+    mockNotify.mockClear()
+
+    const res = await setCanonicalLabel('e1:belief:i am unlovable', 'I am unworthy', db)
+
+    expect(res.success).toBe(true)
+    expect(mockEnqueueInTransaction).not.toHaveBeenCalled()
+    expect(mockNotify).not.toHaveBeenCalled()
+  })
+
+  it('strictly advances surviving entity timestamps when the clock moves backward', async () => {
+    const { db } = createFakeDb()
+    jest.spyOn(Date, 'now').mockReturnValueOnce(2000).mockReturnValueOnce(1000)
+    await setEntitiesForEntry('e1', [{ type: 'belief', label: 'I am unlovable' }], db)
+    await setEntitiesForEntry('e1', [{ type: 'belief', label: 'I am unlovable' }], db)
+    jest.restoreAllMocks()
+
+    const list = await listEntitiesForEntry('e1', db)
+    expect(list.success && list.data[0].created_at).toBe(2000)
+    expect(list.success && list.data[0].updated_at).toBe(2001)
   })
 
   it("F-02B: setCanonicalLabel rejects an empty canonical", async () => {

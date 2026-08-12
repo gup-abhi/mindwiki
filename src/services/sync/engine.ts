@@ -63,6 +63,28 @@ class SyncDurabilityError extends Error {
   }
 }
 
+/** Only a decrypted source row rejected by a recognized SQLite schema
+ * constraint may be quarantined. All other SQL and transaction failures are
+ * local durability failures and abort the pull before cursor persistence. */
+class SourceConstraintError extends Error {
+  readonly cause: unknown
+
+  constructor(cause: unknown) {
+    super('Remote source row violates a local schema constraint')
+    this.name = 'SourceConstraintError'
+    this.cause = cause
+  }
+}
+
+function isSourceConstraintError(error: unknown): error is SourceConstraintError {
+  return error instanceof SourceConstraintError
+}
+
+function isConstraintCause(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /(?:SQLITE_(?:CONSTRAINT|CONSTRAINT_[A-Z]+)|SQLITE[^\n]*constraint failed|(?:NOT NULL|FOREIGN KEY|CHECK|UNIQUE) constraint failed)/i.test(message)
+}
+
 // Per-table sync config: which columns make up a record and how to read its
 // effective last-modified time.
 export const TABLES: Record<SyncTable, { columns: string[]; updatedAt: (row: Row) => number }> = {
@@ -171,10 +193,15 @@ function prepareRemoteRow(table: SyncTable, input: Row): PreparedRemoteRow {
 async function applyRemote(table: SyncTable, row: Row, db: SqliteDatabase): Promise<void> {
   const cols = TABLES[table].columns
   const placeholders = cols.map(() => '?').join(', ')
-  await db.execute(
-    `INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`,
-    cols.map((c) => (row[c] === undefined ? null : (row[c] as never)))
-  )
+  try {
+    await db.execute(
+      `INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`,
+      cols.map((c) => (row[c] === undefined ? null : (row[c] as never)))
+    )
+  } catch (cause: unknown) {
+    if (isConstraintCause(cause)) throw new SourceConstraintError(cause)
+    throw cause
+  }
 }
 
 function durabilityFailure(error: unknown): SyncDurabilityError {
@@ -399,26 +426,44 @@ async function readPullState(db: SqliteDatabase): Promise<PullState> {
   return { since, cursor: null, windowMax: 0 }
 }
 
-/** Persist the pull state (and the legacy key for older builds / rollback). */
-async function persistPullState(db: SqliteDatabase, state: PullState): Promise<void> {
-  await setSetting(PULL_STATE_KEY, JSON.stringify(state), db)
-  await setSetting(LAST_PULL_KEY, String(state.since), db)
+/** Persist the pull state (and the legacy key for older builds / rollback).
+ * A drained window clears terminal/stale quarantine rows in the same transaction
+ * so a cursor write failure cannot lose retry bookkeeping. */
+async function persistPullState(
+  db: SqliteDatabase,
+  state: PullState,
+  clearQuarantineThrough: number | null
+): Promise<Result<void>> {
+  try {
+    await db.transaction(async (tx) => {
+      if (clearQuarantineThrough != null) {
+        await tx.execute('DELETE FROM sync_skipped WHERE updated_at <= ?', [clearQuarantineThrough])
+      }
+      const pullState = await setSetting(PULL_STATE_KEY, JSON.stringify(state), tx)
+      if (!pullState.success) throw new SyncDurabilityError('SYNC_PULL_STATE_FAILED', pullState.error)
+      const legacy = await setSetting(LAST_PULL_KEY, String(state.since), tx)
+      if (!legacy.success) throw new SyncDurabilityError('SYNC_PULL_STATE_FAILED', legacy.error)
+    })
+    return ok(undefined)
+  } catch (cause: unknown) {
+    const failure = durabilityFailure(cause)
+    return err(failure.code, 'Failed to persist pull cursor', failure.cause)
+  }
 }
 
 interface QuarantineRow {
-  table: string
-  recordId: string
   updatedAt: number
   failures: number
 }
 
-/** Record a pull failure. Best-effort — quarantine must never fail the pull. */
+/** Quarantine state is part of pull durability: if it cannot persist, the pull
+ * aborts and must not advance its cursor. */
 async function quarantineRecord(
   table: SyncTable,
   recordId: string,
   updatedAt: number,
   db: SqliteDatabase
-): Promise<void> {
+): Promise<Result<void>> {
   try {
     await db.execute(
       `INSERT INTO sync_skipped (table_name, record_id, updated_at, failures, last_attempt)
@@ -429,36 +474,27 @@ async function quarantineRecord(
          last_attempt = excluded.last_attempt`,
       [table, recordId, updatedAt, Date.now()]
     )
-  } catch {
-    // never abort the pull over quarantine bookkeeping
+    return ok(undefined)
+  } catch (cause: unknown) {
+    return err('SYNC_QUARANTINE_FAILED', 'Failed to record quarantined sync row', cause)
   }
 }
 
-async function clearQuarantine(table: SyncTable, recordId: string, db: SqliteDatabase): Promise<void> {
+async function clearQuarantine(table: SyncTable, recordId: string, db: SqliteDatabase): Promise<Result<void>> {
   try {
     await db.execute('DELETE FROM sync_skipped WHERE table_name = ? AND record_id = ?', [table, recordId])
-  } catch {
-    // best-effort
+    return ok(undefined)
+  } catch (cause: unknown) {
+    return err('SYNC_QUARANTINE_CLEAR_FAILED', 'Failed to clear sync quarantine', cause)
   }
 }
 
 async function listQuarantine(db: SqliteDatabase): Promise<QuarantineRow[]> {
   const res = await db.execute('SELECT table_name, record_id, updated_at, failures FROM sync_skipped')
   return res.rows.map((r) => ({
-    table: String(r.table_name),
-    recordId: String(r.record_id),
     updatedAt: Number(r.updated_at) || 0,
     failures: Number(r.failures) || 0,
   }))
-}
-
-/** Drop quarantine rows that can no longer be re-fetched (below the cursor). */
-async function purgeQuarantine(db: SqliteDatabase, since: number): Promise<void> {
-  try {
-    await db.execute('DELETE FROM sync_skipped WHERE updated_at <= ?', [since])
-  } catch {
-    // best-effort
-  }
 }
 
 /**
@@ -555,21 +591,25 @@ export async function pullDelta(
         // keyed by the wire identity (sync_id for V2, record_id for legacy). If
         // it ever decrypts, apply clears the row by the real id and the purge
         // below drops any stale entry.
-        await quarantineRecord(table, r.version === 2 ? r.sync_id : r.record_id, r.updated_at, db)
+        const quarantine = await quarantineRecord(table, r.version === 2 ? r.sync_id : r.record_id, r.updated_at, db)
+        if (!quarantine.success) return quarantine
         continue
       }
       const row = parseRow(dec.data)
       if (!row || typeof row.id !== 'string' || !row.id) {
-        await quarantineRecord(table, r.version === 2 ? r.sync_id : r.record_id, r.updated_at, db)
+        const quarantine = await quarantineRecord(table, r.version === 2 ? r.sync_id : r.record_id, r.updated_at, db)
+        if (!quarantine.success) return quarantine
         continue
       }
       const recordId = String(row.id)
       if (r.version === 1 && recordId !== r.record_id) {
-        await quarantineRecord(table, r.record_id, r.updated_at, db)
+        const quarantine = await quarantineRecord(table, r.record_id, r.updated_at, db)
+        if (!quarantine.success) return quarantine
         continue
       }
       if (r.version === 2 && createSyncId(masterKeyHex, accountId, table, recordId) !== r.sync_id) {
-        await quarantineRecord(table, r.sync_id, r.updated_at, db)
+        const quarantine = await quarantineRecord(table, r.sync_id, r.updated_at, db)
+        if (!quarantine.success) return quarantine
         continue
       }
       const prepared = prepareRemoteRow(table, row)
@@ -602,7 +642,12 @@ export async function pullDelta(
         if (!isCurrent()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
         let queuedForSync = false
         await db.transaction(async (tx) => {
-          await applyRemote(table, d.row, tx)
+          try {
+            await applyRemote(table, d.row, tx)
+          } catch (cause: unknown) {
+            if (isSourceConstraintError(cause)) throw cause
+            throw durabilityFailure(cause)
+          }
           if (table === 'entry_entities' || table === 'belief_reframes') {
             const bump = await incrementSourceGeneration('belief', tx)
             if (!bump.success) throw new SyncDurabilityError('SYNC_SOURCE_GENERATION_FAILED', bump.error)
@@ -623,20 +668,20 @@ export async function pullDelta(
           }
         })
         if (queuedForSync) notifySyncPending()
-        await clearQuarantine(table, d.record_id, db)
+        const cleared = await clearQuarantine(table, d.record_id, db)
+        if (!cleared.success) return cleared
       } catch (error) {
         if (isDurabilityFailure(error)) {
           return err(error.code, 'Failed to commit remote sync repair', error.cause)
         }
-        // A single malformed/constraint-violating row must not abort the whole
-        // pull — that would also block every table applied after it (entries is
-        // first) and leave the cursor un-advanced, wedging sync permanently on
-        // the same row. Quarantine it for a bounded number of retries instead.
-        // Count/type only: some synced record IDs contain user-derived labels.
-        await quarantineRecord(table, d.record_id, d.updated_at, db)
-        failed.add(`${table}:${d.record_id}`)
-        console.warn(`sync_apply_skipped table=${table}`)
-        continue
+        if (isSourceConstraintError(error)) {
+          const quarantine = await quarantineRecord(table, d.record_id, d.updated_at, db)
+          if (!quarantine.success) return quarantine
+          failed.add(`${table}:${d.record_id}`)
+          console.warn(`sync_apply_skipped table=${table}`)
+          continue
+        }
+        return err('SYNC_PULL_FAILED', 'Failed to apply remote sync record', error)
       }
       applied++
       // Graph rebuilds only ever read entries + entry_entities; skip the full
@@ -650,10 +695,14 @@ export async function pullDelta(
     for (const d of decoded) {
       const localRow = local.get(d.record_id)
       if (!localRow || localRow.updated_at !== d.updated_at) { continue }
-      if (localRow.content === null || d.content === null || localRow.content === d.content) { continue }
-      if (localRow.content === null || d.content === null || localRow.content === d.content) continue
-      const apply = shouldApplyRemote(localRow.updated_at, localRow.content, d.updated_at, d.content ?? null)
-      if (!apply) await enqueueUpsert(table, d.record_id, db)
+      const remoteContent = d.content ?? null
+      if (localRow.content === null || remoteContent === null || localRow.content === remoteContent) continue
+      const apply = shouldApplyRemote(localRow.updated_at, localRow.content, d.updated_at, remoteContent)
+      if (!apply) {
+        const queued = await enqueueUpsert(table, d.record_id, db, false)
+        if (!queued.success) return err('SYNC_PULL_FAILED', 'Failed to queue equal-timestamp local winner', queued.error)
+        notifySyncPending()
+      }
     }
   }
 
@@ -673,20 +722,18 @@ export async function pullDelta(
     nextState.since = Math.max(since, state.windowMax, windowMax)
     nextState.cursor = null
     nextState.windowMax = 0
-    // Rows that exhausted their retry budget are dropped permanently: count them
-    // toward the cursor (never re-fetched) and clear them. Stale rows below the
-    // cursor can never be re-fetched either — clear those too.
+    // Rows that exhausted their retry budget are counted toward the cursor. Their
+    // deletion commits atomically with cursor persistence below.
     for (const q of await listQuarantine(db)) {
       if (q.failures >= QUARANTINE_MAX_ATTEMPTS) {
         nextState.since = Math.max(nextState.since, q.updatedAt)
-        await db.execute('DELETE FROM sync_skipped WHERE table_name = ? AND record_id = ?', [q.table, q.recordId])
       }
     }
-    await purgeQuarantine(db, nextState.since)
     // The first fully-drained window after a login/pair is the restore boundary.
     useSyncStore.getState().endRestore()
   }
-  await persistPullState(db, nextState)
+  const persisted = await persistPullState(db, nextState, paused ? null : nextState.since)
+  if (!persisted.success) return persisted
 
   // Tell data hooks to refetch so a first-login pull shows up immediately
   // (and rebuild the derived graph only when the window touched graph tables).

@@ -238,7 +238,7 @@ export async function dismissNode(
       await tx.execute(
         `INSERT INTO graph_node_dismissals (id, type, label, dismissed_at, updated_at)
          VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET dismissed_at = excluded.dismissed_at, updated_at = excluded.updated_at`,
+         ON CONFLICT(id) DO UPDATE SET dismissed_at = excluded.dismissed_at, updated_at = MAX(graph_node_dismissals.updated_at + 1, excluded.updated_at)`,
         [id, type, label, now, now]
       )
       // Remove the live node(s) + their edges so the change shows immediately.
@@ -276,7 +276,7 @@ export async function restoreNodeDismissal(
     let found = false
     await db.transaction(async (tx) => {
       const res = await tx.execute(
-        'UPDATE graph_node_dismissals SET dismissed_at = NULL, updated_at = ? WHERE id = ?',
+        'UPDATE graph_node_dismissals SET dismissed_at = NULL, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
         [Date.now(), id]
       )
       found = (res.rowsAffected ?? 0) > 0

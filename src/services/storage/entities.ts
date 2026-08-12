@@ -98,26 +98,33 @@ export async function setEntitiesForEntry(
   }
   try {
     await db.transaction(async (tx) => {
-      // Carry forward any canonical_label previously stamped on a row whose id
-      // survives this replace-set (same entry+type+raw label → same deterministic
-      // id). The original created_at is preserved so historical timestamps stay
-      // meaningful; updated_at is bumped to record the re-write.
+      // Carry forward canonical identity, original creation time, and a strictly
+      // newer watermark for surviving rows.
       const survived = new Set(rows.map((r) => r.id))
       const existing = await tx.execute(
-        'SELECT id, canonical_label FROM entry_entities WHERE entry_id = ?',
+        'SELECT id, canonical_label, created_at, updated_at FROM entry_entities WHERE entry_id = ?',
         [entryId]
       )
-      const preserved = new Map<string, string | null>()
+      const preserved = new Map<string, { canonical: string | null; created: number; updated: number }>()
       for (const r of existing.rows) {
         const id = String(r.id)
-        if (survived.has(id)) preserved.set(id, r.canonical_label == null ? null : String(r.canonical_label))
+        if (survived.has(id)) {
+          preserved.set(id, {
+            canonical: r.canonical_label == null ? null : String(r.canonical_label),
+            created: Number(r.created_at) || now,
+            updated: Number(r.updated_at) || Number(r.created_at) || 0,
+          })
+        }
       }
       await tx.execute('DELETE FROM entry_entities WHERE entry_id = ?', [entryId])
       for (const r of rows) {
-        const canon = preserved.get(r.id) ?? null
+        const old = preserved.get(r.id)
+        const canonical = old?.canonical ?? null
+        const created = old?.created ?? r.created_at
+        const updated = old ? Math.max(old.updated + 1, now) : r.updated_at
         await tx.execute(
           'INSERT INTO entry_entities (id, entry_id, type, label, canonical_label, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [r.id, r.entry_id, r.type, r.label, canon, r.created_at, r.updated_at]
+          [r.id, r.entry_id, r.type, r.label, canonical, created, updated]
         )
         await enqueueUpsertInTransaction('entry_entities', r.id, tx)
       }
@@ -202,17 +209,22 @@ export async function setCanonicalLabel(
   const canon = canonicalLabel.trim()
   if (!canon) return err('ENTITY_CANON_INVALID', 'canonical label must be non-empty')
   try {
+    let changed = false
     await db.transaction(async (tx) => {
+      const current = await tx.execute('SELECT canonical_label FROM entry_entities WHERE id = ?', [rowId])
+      if (current.rows.length === 0) throw new Error('ENTITY_NOT_FOUND')
+      if (current.rows[0].canonical_label != null && String(current.rows[0].canonical_label) === canon) return
       const updated = await tx.execute(
         `UPDATE entry_entities
-          SET canonical_label = ?, updated_at = MAX(updated_at, ?)
+          SET canonical_label = ?, updated_at = MAX(updated_at + 1, ?)
           WHERE id = ?`,
         [canon, Date.now(), rowId]
       )
       if (updated.rowsAffected !== 1) throw new Error('ENTITY_NOT_FOUND')
       await enqueueUpsertInTransaction('entry_entities', rowId, tx)
+      changed = true
     })
-    notifySyncPending()
+    if (changed) notifySyncPending()
     return ok(undefined)
   } catch (e) {
     return err('ENTITY_CANON_FAILED', 'Failed to set canonical label', e)

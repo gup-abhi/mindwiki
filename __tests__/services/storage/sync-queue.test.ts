@@ -6,6 +6,7 @@ import {
   markSynced,
   backfillSyncQueue,
   reconcileSyncQueue,
+  isDevSeedRecordId,
 } from '@/services/storage/sync-queue'
 import { useSyncStore } from '@/store/sync.store'
 
@@ -227,7 +228,13 @@ function createBackfillDb(entryIds: string[], pageIds: string[]) {
 
 function createReconciliationDb() {
   const source = new Map<string, Map<string, Record<string, unknown>>>([
-    ['entries', new Map([['e1', { id: 'e1' }], ['e2', { id: 'e2' }]])],
+    ['entries', new Map([
+      ['e1', { id: 'e1' }],
+      ['e2', { id: 'e2' }],
+      ['e3', { id: 'e3' }],
+      ['seed-demo', { id: 'seed-demo' }],
+      ['seed-trend-demo', { id: 'seed-trend-demo' }],
+    ])],
     ['wiki_pages', new Map([['p1', { id: 'p1' }]])],
   ])
   const queue = new Map<string, Record<string, unknown>>()
@@ -249,46 +256,30 @@ function createReconciliationDb() {
       if (/^SELECT id, table_name, record_id, operation, created_at, synced_at FROM sync_queue/.test(normalized)) {
         return { rows: [...queue.values()].filter((row) => String(row.id).startsWith('sq:')), rowsAffected: 0 }
       }
-      if (/^SELECT synced_at, created_at FROM sync_queue WHERE id = \?/.test(normalized)) {
-        const row = queue.get(String(params[0]))
-        return { rows: row ? [row] : [], rowsAffected: 0 }
-      }
-      if (/^UPDATE sync_queue SET synced_at =/.test(normalized)) {
-        const [syncedAt, id, createdAt] = params
-        const row = queue.get(String(id))
-        if (row && Number(row.created_at) === Number(createdAt)) row.synced_at = syncedAt
-        return { rows: [], rowsAffected: row ? 1 : 0 }
-      }
-      if (/^UPDATE sync_queue SET operation = 'upsert'/.test(normalized)) {
-        const [createdAt, id] = params
-        const row = queue.get(String(id))
-        if (row) {
-          row.operation = 'upsert'
-          row.created_at = createdAt
-          row.synced_at = null
-        }
-        return { rows: [], rowsAffected: row ? 1 : 0 }
-      }
       if (/^DELETE FROM sync_queue WHERE id =/.test(normalized)) {
         queue.delete(String(params[0]))
         return { rows: [], rowsAffected: 1 }
       }
-      if (/^SELECT source.id FROM (\w+) source/.test(normalized)) {
-        const table = normalized.match(/^SELECT source.id FROM (\w+) source/)![1]
-        const rows = [...(source.get(table)?.values() ?? [])]
-          .filter((row) => !queue.has(`${table}:${String(row.id)}`))
-          .map((row) => ({ id: row.id }))
-        return { rows, rowsAffected: 0 }
+      if (/^SELECT source.id, q.id AS queue_id, q.synced_at FROM (\w+) source/.test(normalized)) {
+        const table = normalized.match(/^SELECT source.id, q.id AS queue_id, q.synced_at FROM (\w+) source/)![1]
+        return {
+          rows: [...(source.get(table)?.values() ?? [])].map((row) => {
+            const q = queue.get(`${table}:${String(row.id)}`)
+            return { id: row.id, queue_id: q?.id ?? null, synced_at: q?.synced_at ?? null }
+          }),
+          rowsAffected: 0,
+        }
       }
       if (/^INSERT INTO sync_queue/.test(normalized)) {
-        const [id, tableName, recordId, operation, createdAt, syncedAt] = params
+        const [id, tableName, recordId, createdAt] = params
+        const existing = queue.get(String(id))
         queue.set(String(id), {
           id,
           table_name: tableName,
           record_id: recordId,
-          operation: operation ?? 'upsert',
-          created_at: createdAt,
-          synced_at: syncedAt ?? null,
+          operation: 'upsert',
+          created_at: existing ? Math.max(Number(existing.created_at) + 1, Number(createdAt)) : createdAt,
+          synced_at: null,
         })
         return { rows: [], rowsAffected: 1 }
       }
@@ -314,29 +305,41 @@ function createReconciliationDb() {
 }
 
 describe('reconcileSyncQueue', () => {
-  it('folds legacy rows, preserves canonical state, and queues missing source rows', async () => {
+  it('folds legacy input, preserves pending rows, revives acknowledged rows, and queues missing sources once', async () => {
     const { db, queue, settings } = createReconciliationDb()
     queue.set('entries:e1', {
       id: 'entries:e1', table_name: 'entries', record_id: 'e1', operation: 'upsert', created_at: 10, synced_at: 100,
     })
-    queue.set('wiki_pages:p1', {
-      id: 'wiki_pages:p1', table_name: 'wiki_pages', record_id: 'p1', operation: 'upsert', created_at: 20, synced_at: null,
+    queue.set('entries:e2', {
+      id: 'entries:e2', table_name: 'entries', record_id: 'e2', operation: 'upsert', created_at: 20, synced_at: null,
     })
     queue.set('sq:entries:e1', {
       id: 'sq:entries:e1', table_name: 'entries', record_id: 'e1', operation: 'upsert', created_at: 30, synced_at: null,
     })
+    queue.set('entries:seed-demo', {
+      id: 'entries:seed-demo', table_name: 'entries', record_id: 'seed-demo', operation: 'upsert', created_at: 40, synced_at: null,
+    })
 
     const result = await reconcileSyncQueue(db)
 
-    expect(result.success && result.data).toBe(1)
+    expect(result.success && result.data).toBe(3) // revived e1; missing e3 + p1
     expect(queue.has('sq:entries:e1')).toBe(false)
     expect(queue.get('entries:e1')?.synced_at).toBeNull()
-    expect(queue.get('wiki_pages:p1')?.synced_at).toBeNull()
-    expect(queue.has('entries:e2')).toBe(true)
-    expect(settings.get('sync:outbox_reconciled_v1')).toBe('1')
+    expect(queue.get('entries:e2')?.created_at).toBe(20) // pending generation preserved
+    expect(queue.has('entries:e3')).toBe(true)
+    expect(queue.has('wiki_pages:p1')).toBe(true)
+    expect(queue.has('entries:seed-demo')).toBe(false)
+    expect(queue.has('entries:seed-trend-demo')).toBe(false)
+    expect(settings.get('sync:outbox_reconciled_v2')).toBe('1')
 
     const again = await reconcileSyncQueue(db)
     expect(again.success && again.data).toBe(0)
+  })
+
+  it('recognizes only reserved development seed id prefixes', () => {
+    expect(isDevSeedRecordId('seed-demo')).toBe(true)
+    expect(isDevSeedRecordId('seed-trend-demo')).toBe(true)
+    expect(isDevSeedRecordId('user-seed-demo')).toBe(false)
   })
 
   it('rolls back queue repairs and leaves the marker retryable when marker write fails', async () => {
@@ -347,7 +350,7 @@ describe('reconcileSyncQueue', () => {
 
     expect(result.success).toBe(false)
     expect(queue.size).toBe(0)
-    expect(settings.has('sync:outbox_reconciled_v1')).toBe(false)
+    expect(settings.has('sync:outbox_reconciled_v2')).toBe(false)
   })
 })
 

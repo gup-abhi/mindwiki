@@ -1,14 +1,12 @@
 import { type SqliteDatabase } from '@/services/storage/db'
 import { clearFrozenDays, freezeDays, listFrozenDays } from '@/services/storage/streak-freezes'
-import { enqueueUpsert } from '@/services/storage/sync-queue'
+import { enqueueUpsertInTransaction } from '@/services/storage/sync-queue'
 
 jest.mock('@/services/storage/sync-queue', () => ({
-  enqueueUpsert: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
   enqueueUpsertInTransaction: jest.fn(() => Promise.resolve()),
   notifySyncPending: jest.fn(),
 }))
-const mockEnqueue = enqueueUpsert as jest.Mock
-const mockEnqueueInTransaction = jest.requireMock('@/services/storage/sync-queue').enqueueUpsertInTransaction as jest.Mock
+const mockEnqueue = enqueueUpsertInTransaction as jest.Mock
 
 // In-memory fake backing the exact queries streak-freezes.ts issues.
 function createFakeDb() {
@@ -47,8 +45,8 @@ describe('streak-freezes storage', () => {
     const { db } = createFakeDb()
     const res = await freezeDays([19_900, 19_901], db)
     expect(res.success).toBe(true)
-    expect(mockEnqueueInTransaction).toHaveBeenCalledTimes(2)
-    expect(mockEnqueueInTransaction).toHaveBeenCalledWith('streak_freezes', '19900', expect.anything())
+    expect(mockEnqueue).toHaveBeenCalledTimes(2)
+    expect(mockEnqueue).toHaveBeenCalledWith('streak_freezes', '19900', db)
 
     const list = await listFrozenDays(db)
     expect(list.success && list.data).toEqual(new Set([19_900, 19_901]))

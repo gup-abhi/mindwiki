@@ -198,13 +198,16 @@ export async function mergePages(
       )
 
       // Queue exactly the rows selected above.
-      for (const id of ids) await enqueueUpsertInTransaction('entries', id, tx)
+      for (const id of ids) {
+        await enqueueUpsertInTransaction('entries', id, tx)
+      }
 
       // 4. Flag the loser page as merged into the survivor.
       await tx.execute(
         'UPDATE wiki_pages SET merged_into = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
         [survivor.id, now, loser.id]
       )
+      // Enqueue loser page
       await enqueueUpsertInTransaction('wiki_pages', loser.id, tx)
 
       // 5. Recompute the survivor's entry_count from distinct entries that now
@@ -218,6 +221,7 @@ export async function mergePages(
         'UPDATE wiki_pages SET entry_count = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
         [newCount, now, survivor.id]
       )
+      // Enqueue survivor page
       await enqueueUpsertInTransaction('wiki_pages', survivor.id, tx)
 
       // 6. Set the graph-rebuild repair marker inside the transaction. If the

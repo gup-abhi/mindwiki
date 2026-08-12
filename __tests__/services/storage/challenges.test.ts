@@ -13,19 +13,14 @@ jest.mock('expo-crypto', () => ({
   randomUUID: () => `id-${++mockUuidCounter}`,
 }))
 
-// In-memory fake backing the exact queries challenges.ts issues. sync_queue
-// inserts are intentionally unhandled — enqueueUpsert swallows the error.
+// In-memory fake backing the exact queries challenges.ts issues.
 function createFakeDb() {
   const challenges = new Map<string, Record<string, unknown>>()
-  const queue = new Map<string, Record<string, unknown>>()
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
       if (/^INSERT INTO sync_queue/.test(sql)) {
-        const [id, table_name, record_id, created_at] = params
-        queue.set(String(id), { id, table_name, record_id, operation: 'upsert', created_at, synced_at: null })
         return { rows: [], rowsAffected: 1 }
       }
-      if (/^UPDATE sync_queue/.test(sql)) return { rows: [], rowsAffected: 1 }
       if (/^INSERT INTO challenges/.test(sql)) {
         const [id, title, details, target_days, current_streak, last_checkin_date,
           status, affirmation, created_at, updated_at, completed_at] = params
@@ -63,7 +58,11 @@ function createFakeDb() {
         const cols = setPart.split(',').map((s) => s.trim().split(' ')[0])
         const id = params[params.length - 1]
         const row = challenges.get(String(id))
-        if (row) cols.forEach((c, i) => { row[c] = params[i] })
+        if (row) cols.forEach((c, i) => {
+          row[c] = c === 'updated_at'
+            ? Math.max(Number(row.updated_at) + 1, Number(params[i]))
+            : params[i]
+        })
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
       throw new Error(`unhandled SQL: ${sql}`)
@@ -171,6 +170,22 @@ describe('storage/challenges CRUD', () => {
       expect(updated.data.title).toBe('Meditate')
       expect(updated.data.target_days).toBe(30)
     }
+  })
+
+  it('strictly advances update and delete timestamps when the wall clock moves backward', async () => {
+    const { db } = createFakeDb()
+    jest.spyOn(Date, 'now').mockReturnValue(2000)
+    const created = await createChallenge({ title: 'Clock test' }, db)
+    if (!created.success) throw new Error('setup failed')
+    jest.spyOn(Date, 'now').mockReturnValue(1000)
+
+    const updated = await updateChallenge(created.data.id, { current_streak: 1 }, db)
+    expect(updated.success && updated.data.updated_at).toBe(2001)
+    await deleteChallenge(created.data.id, db)
+    jest.restoreAllMocks()
+
+    const hidden = await getChallenge(created.data.id, db)
+    expect(hidden.success && hidden.data).toBeNull()
   })
 
   it('returns CHALLENGE_NOT_FOUND when updating a missing row', async () => {

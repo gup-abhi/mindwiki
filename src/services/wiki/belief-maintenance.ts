@@ -648,13 +648,13 @@ export async function runBeliefMaintenance(
               // Using setCanonicalLabel per row keeps the storage helper contract
               // (one enqueue per row, best-effort). Both paths must enqueue in-tx.
               const rows = await tx.execute(
-                "SELECT id FROM entry_entities WHERE type = 'belief' AND LOWER(label) = ?",
-                [alias.toLowerCase()]
+                "SELECT id FROM entry_entities WHERE type = 'belief' AND LOWER(label) = ? AND (canonical_label IS NULL OR LOWER(canonical_label) <> ?)",
+                [alias.toLowerCase(), canonical.toLowerCase()]
               )
               for (const r of rows.rows) {
                 const rowId = String(r.id)
                 await tx.execute(
-                  'UPDATE entry_entities SET canonical_label = ?, updated_at = MAX(updated_at, ?) WHERE id = ?',
+                  'UPDATE entry_entities SET canonical_label = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
                   [canonical, Date.now(), rowId]
                 )
                 await enqueueUpsertInTransaction('entry_entities', rowId, tx)
@@ -664,33 +664,37 @@ export async function runBeliefMaintenance(
             // Retarget any reframe rows under a retired alias to the canonical.
             for (const alias of cluster.effectiveAliases) {
               const re = await tx.execute(
-                'SELECT id FROM belief_reframes WHERE belief = ? COLLATE NOCASE',
-                [alias]
+                'SELECT id FROM belief_reframes WHERE belief = ? COLLATE NOCASE AND belief <> ? COLLATE NOCASE',
+                [alias, canonical]
               )
               const ids = re.rows.map((r) => String(r.id))
               if (ids.length === 0) continue
               const now = Date.now()
               await tx.execute(
-                'UPDATE belief_reframes SET belief = ?, updated_at = ? WHERE belief = ? COLLATE NOCASE',
-                [canonical, now, alias]
+                'UPDATE belief_reframes SET belief = ?, updated_at = MAX(updated_at + 1, ?) WHERE belief = ? COLLATE NOCASE AND belief <> ? COLLATE NOCASE',
+                [canonical, now, alias, canonical]
               )
               for (const rid of ids) {
                 await enqueueUpsertInTransaction('belief_reframes', rid, tx)
                 clusterQueued = true
               }
             }
-            // Set the graph-rebuild marker IN the same transaction — survives
-            // crash and (together with the source writes) is unrolled if tx fails.
-            await tx.execute(
-              `INSERT INTO settings (key, value) VALUES (?, ?)
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-              [MAINTENANCE_GRAPH_PENDING_KEY, '1']
-            )
+            // Set the graph-rebuild marker only when source rows actually changed.
+            // It commits atomically with those source writes and queue rows.
+            if (clusterQueued) {
+              await tx.execute(
+                `INSERT INTO settings (key, value) VALUES (?, ?)
+                   ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+                [MAINTENANCE_GRAPH_PENDING_KEY, '1']
+              )
+            }
           })
-          repaired++
           clusterCommitted = true
-          sourceChanged = true
-          if (clusterQueued) notifySyncPending()
+          if (clusterQueued) {
+            repaired++
+            sourceChanged = true
+            notifySyncPending()
+          }
         } catch (e: unknown) {
           // Tx rolled back: NO canonical_label leak for this cluster.
           if (!firstError) firstError = { code: 'BELIEF_MAINTENANCE_TX_FAILED', message: errorMessage(e) }

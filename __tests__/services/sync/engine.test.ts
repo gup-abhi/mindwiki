@@ -51,6 +51,11 @@ function fakeDb() {
   // read back the applied row.
   const wikiPages = new Map<string, Record<string, unknown>>()
   const skipped = new Map<string, Record<string, unknown>>()
+  let failQueueWrite = false
+  let failQuarantineWrite = false
+  let failQuarantineClear = false
+  let failCommit = false
+  let failSettingKey: string | null = null
 
   const ENTITY_COLS = ['id', 'entry_id', 'type', 'label', 'canonical_label', 'created_at', 'updated_at']
 
@@ -62,9 +67,11 @@ function fakeDb() {
         return { rows: pending, rowsAffected: 0 }
       }
       if (/^INSERT INTO sync_queue/.test(sql)) {
+        if (failQueueWrite) throw new Error('queue unavailable')
+        const existing = syncQueue.get(String(params[0]))
         syncQueue.set(String(params[0]), {
           id: params[0], table_name: params[1], record_id: params[2], operation: 'upsert',
-          created_at: params[3], synced_at: null,
+          created_at: existing ? Math.max(Number(existing.created_at) + 1, Number(params[3])) : params[3], synced_at: null,
         })
         return { rows: [], rowsAffected: 1 }
       }
@@ -91,7 +98,8 @@ function fakeDb() {
         ENTRY_COLS.forEach((c, i) => (row[c] = params[i]))
         // Simulate a single malformed row that the DB rejects (constraint / bind
         // failure), so the pull's per-record resilience can be exercised.
-        if (row.id === 'poison') throw new Error('SQLITE constraint failed')
+        if (row.id === 'poison') throw new Error('SQLITE_CONSTRAINT_NOTNULL: NOT NULL constraint failed')
+        if (row.id === 'io-failure') throw new Error('SQLITE_IOERR: disk I/O error')
         entries.set(String(row.id), row)
         return { rows: [], rowsAffected: 1 }
       }
@@ -140,6 +148,7 @@ function fakeDb() {
         return { rows: row ? [row] : [], rowsAffected: 0 }
       }
       if (/^INSERT INTO sync_skipped/.test(sql)) {
+        if (failQuarantineWrite) throw new Error('quarantine unavailable')
         // Real SQL: (table_name, record_id, updated_at, failures=1, last_attempt)
         // — four bound params; failures is a literal 1, bumped on conflict.
         const [table, recordId, updatedAt, lastAttempt] = params
@@ -161,6 +170,7 @@ function fakeDb() {
         return { rows: [...skipped.values()], rowsAffected: 0 }
       }
       if (/^DELETE FROM sync_skipped WHERE table_name = \? AND record_id/.test(sql)) {
+        if (failQuarantineClear) throw new Error('quarantine clear unavailable')
         const [table, recordId] = params
         skipped.delete(`${table}:${recordId}`)
         return { rows: [], rowsAffected: 1 }
@@ -177,17 +187,61 @@ function fakeDb() {
         return { rows: v == null ? [] : [{ value: v }], rowsAffected: 0 }
       }
       if (/^INSERT INTO settings/.test(sql)) {
+        if (failSettingKey === String(params[0])) throw new Error('settings unavailable')
         settings.set(String(params[0]), String(params[1]))
         return { rows: [], rowsAffected: 0 }
       }
       throw new Error(`unhandled SQL: ${sql}`)
     },
     async transaction(fn) {
-      await fn(db)
+      const cloneMap = (map: Map<string, Record<string, unknown>>) =>
+        new Map([...map].map(([id, row]) => [id, { ...row }]))
+      const snapshots = {
+        syncQueue: cloneMap(syncQueue),
+        entries: cloneMap(entries),
+        entityRows: cloneMap(entityRows),
+        wikiPages: cloneMap(wikiPages),
+        maintenanceState: cloneMap(maintenanceState),
+        settings: new Map(settings),
+      }
+      try {
+        await fn(db)
+        if (failCommit) throw new Error('commit failed')
+      } catch (error) {
+        const restore = (
+          target: Map<string, Record<string, unknown>>,
+          snapshot: Map<string, Record<string, unknown>>
+        ) => {
+          target.clear()
+          for (const [id, row] of snapshot) target.set(id, row)
+        }
+        restore(syncQueue, snapshots.syncQueue)
+        restore(entries, snapshots.entries)
+        restore(entityRows, snapshots.entityRows)
+        restore(wikiPages, snapshots.wikiPages)
+        restore(maintenanceState, snapshots.maintenanceState)
+        settings.clear()
+        for (const [key, value] of snapshots.settings) settings.set(key, value)
+        throw error
+      }
     },
     close() {},
   }
-  return { db, syncQueue, entries, settings, entityRows, wikiPages, skipped, maintenanceState }
+  return {
+    db,
+    syncQueue,
+    entries,
+    settings,
+    entityRows,
+    wikiPages,
+    skipped,
+    maintenanceState,
+    setFailQueueWrite: (value: boolean) => { failQueueWrite = value },
+    setFailQuarantineWrite: (value: boolean) => { failQuarantineWrite = value },
+    setFailQuarantineClear: (value: boolean) => { failQuarantineClear = value },
+    setFailCommit: (value: boolean) => { failCommit = value },
+    setFailSettingKey: (value: string | null) => { failSettingKey = value },
+  }
 }
 
 const deltaPage = (json: unknown): unknown => {
@@ -395,6 +449,35 @@ describe('sync/engine pullDelta', () => {
     expect(entries.get('ok2')?.situation).toBe('third')
     expect(entries.has('poison')).toBe(false)
     expect(settings.get('sync:last_pull')).toBe('6000')
+  })
+
+  it('aborts on a generic local SQL failure without advancing the cursor', async () => {
+    const { db, entries, settings } = fakeDb()
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'entries', record_id: 'io-failure', ciphertext: JSON.stringify(entryRow('io-failure', { updated_at: 5000 })), updated_at: 5000 },
+    ]))
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success).toBe(false)
+    expect(entries.has('io-failure')).toBe(false)
+    expect(settings.get('sync:last_pull')).toBeUndefined()
+    expect(settings.get('sync:pull_state')).toBeUndefined()
+  })
+
+  it('rolls back a remote source write when transaction commit fails', async () => {
+    const { db, entries, settings, syncQueue, setFailCommit } = fakeDb()
+    setFailCommit(true)
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'entries', record_id: 'commit-failure', ciphertext: JSON.stringify(entryRow('commit-failure', { updated_at: 5000 })), updated_at: 5000 },
+    ]))
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success).toBe(false)
+    expect(entries.has('commit-failure')).toBe(false)
+    expect(syncQueue.has('entries:commit-failure')).toBe(false)
+    expect(settings.get('sync:last_pull')).toBeUndefined()
   })
 
   it('applies a post-merge entry update after the original cursor', async () => {
@@ -677,6 +760,56 @@ describe('sync/engine pullDelta resume + quarantine', () => {
     expect(settings.get('sync:last_pull')).toBe('9000')
   })
 
+  it('treats quarantine persistence failure as fatal and keeps the cursor unchanged', async () => {
+    const { db, settings, setFailQuarantineWrite } = fakeDb()
+    setFailQuarantineWrite(true)
+    ;(decryptRecord as jest.Mock).mockResolvedValue({ success: false, error: { code: 'DECRYPT_FAILED', message: 'x' } })
+    mockFetch.mockResolvedValue(okResp([
+      { version: 2, table: 'entries', sync_id: 'a'.repeat(64), ciphertext: 'a'.repeat(56), updated_at: 9000 },
+    ]))
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('SYNC_QUARANTINE_FAILED')
+    expect(settings.get('sync:last_pull')).toBeUndefined()
+  })
+
+  it('treats quarantine clearing failure as fatal and keeps the cursor unchanged', async () => {
+    const { db, skipped, settings, setFailQuarantineClear } = fakeDb()
+    skipped.set('entries:flaky', {
+      table_name: 'entries', record_id: 'flaky', updated_at: 9000, failures: 1, last_attempt: 1,
+    })
+    setFailQuarantineClear(true)
+    ;(decryptRecord as jest.Mock).mockImplementation(async (blob: string) => ({
+      success: true,
+      data: mockUnwire(blob),
+    }))
+    mockFetch.mockResolvedValue(okResp([
+      { table: 'entries', record_id: 'flaky', ciphertext: JSON.stringify(entryRow('flaky', { updated_at: 9000 })), updated_at: 9000 },
+    ]))
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('SYNC_QUARANTINE_CLEAR_FAILED')
+    expect(settings.get('sync:last_pull')).toBeUndefined()
+  })
+
+  it('rolls back pull-state persistence when the legacy cursor write fails', async () => {
+    const { db, settings, setFailSettingKey } = fakeDb()
+    settings.set('sync:last_pull', '1000')
+    setFailSettingKey('sync:last_pull')
+    mockFetch.mockResolvedValue(okResp({ records: [], next_cursor: null }))
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.code).toBe('SYNC_PULL_STATE_FAILED')
+    expect(settings.get('sync:last_pull')).toBe('1000')
+    expect(settings.get('sync:pull_state')).toBeUndefined()
+  })
+
   it('seeds the pull state from the legacy sync:last_pull cursor', async () => {
     const { db, settings } = fakeDb()
     settings.set('sync:last_pull', '1000')
@@ -882,6 +1015,23 @@ describe('sync/engine pullDelta equal-timestamp LWW (6e)', () => {
     expect(res.success && res.data).toBe(1)
     expect(entries.get('e1')?.situation).toBe('zzz other device')
     expect(settings.get('sync:last_pull')).toBe('1000')
+  })
+
+  it('aborts before cursor persistence when equal-timestamp local-winner enqueue fails', async () => {
+    const { db, entries, settings, setFailQueueWrite } = fakeDb()
+    entries.set('e1', entryRow('e1', { updated_at: 1000, situation: 'zzz local winner' }))
+    setFailQueueWrite(true)
+    mockFetch.mockResolvedValue(
+      okResp([
+        { version: 2, table: 'entries', sync_id: 'a'.repeat(64), ciphertext: mockWire(JSON.stringify(entryRow('e1', { updated_at: 1000, situation: 'a' }))), updated_at: 1000 },
+      ])
+    )
+
+    const res = await pullDelta('mk', 'acc', db)
+
+    expect(res.success).toBe(false)
+    expect(settings.get('sync:last_pull')).toBeUndefined()
+    expect(settings.get('sync:pull_state')).toBeUndefined()
   })
 
   it('re-pushes the local winner so the server converges on it', async () => {

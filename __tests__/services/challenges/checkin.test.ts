@@ -115,6 +115,9 @@ function createFakeDb(seed: Challenge) {
   const rows = new Map<string, Record<string, unknown>>([[seed.id, { ...seed }]])
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
+      if (/^INSERT INTO sync_queue/.test(sql)) {
+        return { rows: [], rowsAffected: 1 }
+      }
       if (/^SELECT \* FROM challenges WHERE id/.test(sql)) {
         const row = rows.get(String(params[0]))
         return { rows: row ? [row] : [], rowsAffected: 0 }
@@ -126,9 +129,6 @@ function createFakeDb(seed: Challenge) {
         const row = rows.get(String(id))
         if (row) cols.forEach((c, i) => { row[c] = params[i] })
         return { rows: [], rowsAffected: row ? 1 : 0 }
-      }
-      if (/^INSERT INTO sync_queue/.test(sql)) {
-        return { rows: [], rowsAffected: 1 }
       }
       throw new Error(`unhandled SQL: ${sql}`)
     },

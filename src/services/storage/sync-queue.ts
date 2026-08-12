@@ -6,8 +6,12 @@ import { getSetting, setSetting } from './settings'
 import { SYNCED_TABLES } from '@/services/sync/conflict'
 
 const BACKFILL_KEY = 'sync:backfilled'
-const OUTBOX_RECONCILED_KEY = 'sync:outbox_reconciled_v1'
+const OUTBOX_RECONCILED_KEY = 'sync:outbox_reconciled_v2'
 const SYNC_TABLE_SET = new Set<string>(SYNCED_TABLES)
+
+export function isDevSeedRecordId(recordId: string): boolean {
+  return recordId.startsWith('seed-') || recordId.startsWith('seed-trend-')
+}
 
 export type SyncOperation = 'upsert' | 'delete'
 
@@ -42,6 +46,7 @@ export async function enqueueUpsert(
   db: SqliteDatabase = getDb(),
   notify = true
 ): Promise<Result<void>> {
+  if (isDevSeedRecordId(recordId)) return ok(undefined)
   try {
     await db.execute(
       `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
@@ -108,7 +113,9 @@ export async function backfillSyncQueue(
           [table + ':']
         )
         for (const row of rows.rows) {
-          await enqueueUpsertInTransaction(table, String(row.id), tx)
+          const recordId = String(row.id)
+          if (isDevSeedRecordId(recordId)) continue
+          await enqueueUpsertInTransaction(table, recordId, tx)
           queued++
         }
       }
@@ -132,51 +139,29 @@ export async function reconcileSyncQueue(
     if (done.data === '1') return ok(0)
 
     let queued = 0
-    let terminallyAccounted = 0
     await db.transaction(async (tx) => {
       const legacy = await tx.execute(
         "SELECT id, table_name, record_id, operation, created_at, synced_at FROM sync_queue WHERE id LIKE 'sq:%'"
       )
       for (const row of legacy.rows) {
-        const operation = String(row.operation)
-        if (operation !== 'upsert') throw new Error('SYNC_QUEUE_OPERATION_UNSUPPORTED')
-        const table = String(row.table_name)
-        const recordId = String(row.record_id)
-        if (!SYNC_TABLE_SET.has(table)) {
-          await tx.execute(
-            'UPDATE sync_queue SET synced_at = ? WHERE id = ? AND created_at = ?',
-            [Date.now(), String(row.id), Number(row.created_at)]
-          )
-          terminallyAccounted++
-          continue
-        }
-        const canonicalId = `${table}:${recordId}`
-        const current = await tx.execute('SELECT synced_at, created_at FROM sync_queue WHERE id = ?', [canonicalId])
-        const legacyGeneration = Number(row.created_at)
-        if (current.rows.length === 0) {
-          await tx.execute(
-            `INSERT INTO sync_queue (id, table_name, record_id, operation, created_at, synced_at)
-             VALUES (?, ?, ?, 'upsert', ?, ?)`,
-            [canonicalId, table, recordId, legacyGeneration, row.synced_at == null ? null : Number(row.synced_at)]
-          )
-        } else if (row.synced_at == null && current.rows[0].synced_at != null) {
-          const nextGeneration = Math.max(Number(current.rows[0].created_at) + 1, legacyGeneration)
-          await tx.execute(
-            'UPDATE sync_queue SET operation = \'upsert\', created_at = ?, synced_at = NULL WHERE id = ?',
-            [nextGeneration, canonicalId]
-          )
-        }
+        if (String(row.operation) !== 'upsert') throw new Error('SYNC_QUEUE_OPERATION_UNSUPPORTED')
         await tx.execute('DELETE FROM sync_queue WHERE id = ?', [String(row.id)])
       }
 
       for (const table of SYNCED_TABLES) {
         const rows = await tx.execute(
-          `SELECT source.id FROM ${table} source
-           WHERE NOT EXISTS (SELECT 1 FROM sync_queue q WHERE q.id = ? || source.id)`,
+          `SELECT source.id, q.id AS queue_id, q.synced_at FROM ${table} source
+           LEFT JOIN sync_queue q ON q.id = ? || source.id`,
           [table + ':']
         )
         for (const row of rows.rows) {
-          await enqueueUpsertInTransaction(table, String(row.id), tx)
+          const recordId = String(row.id)
+          if (isDevSeedRecordId(recordId)) {
+            if (row.queue_id != null) await tx.execute('DELETE FROM sync_queue WHERE id = ?', [String(row.queue_id)])
+            continue
+          }
+          if (row.queue_id != null && row.synced_at == null) continue
+          await enqueueUpsertInTransaction(table, recordId, tx)
           queued++
         }
       }

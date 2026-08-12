@@ -37,7 +37,7 @@ export async function freezeDays(
         await tx.execute(
           `INSERT INTO streak_freezes (id, day_index, frozen_at, updated_at)
            VALUES (?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at`,
+           ON CONFLICT(id) DO UPDATE SET updated_at = MAX(streak_freezes.updated_at + 1, excluded.updated_at)`,
           [id, day, now, now]
         )
         await enqueueUpsertInTransaction('streak_freezes', id, tx)

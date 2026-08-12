@@ -26,17 +26,8 @@ jest.mock('expo-crypto', () => ({
 // real round-trip semantics (create -> read -> update -> delete).
 function createFakeDb() {
   const rows = new Map<string, Record<string, unknown>>()
-  const queue = new Map<string, Record<string, unknown>>()
   const db: SqliteDatabase = {
     async execute(sql, params = []) {
-      if (/^INSERT INTO sync_queue/.test(sql)) {
-        const [id, table_name, record_id, created_at] = params
-        queue.set(String(id), { id, table_name, record_id, operation: 'upsert', created_at, synced_at: null })
-        return { rows: [], rowsAffected: 1 }
-      }
-      if (/^SELECT \* FROM sync_queue/.test(sql)) return { rows: [...queue.values()], rowsAffected: 0 }
-      if (/^UPDATE sync_queue/.test(sql)) return { rows: [], rowsAffected: 1 }
-      if (/^DELETE FROM sync_queue/.test(sql)) return { rows: [], rowsAffected: 1 }
       if (/^INSERT INTO entries/.test(sql)) {
         const [id, created_at, updated_at, mood, situation, thought, behavior, closing_note, named_emotion, energy, raw_text, source] = params
         rows.set(String(id), {
@@ -151,6 +142,9 @@ function createFakeDb() {
           updated_at: Math.max(Number(row.updated_at ?? 0) + 1, Number(updated_at)),
         })
         return { rows: [], rowsAffected: row ? 1 : 0 }
+      }
+      if (/^INSERT INTO sync_queue/.test(sql)) {
+        return { rows: [], rowsAffected: 1 }
       }
       if (/^DELETE FROM entries WHERE id/.test(sql)) {
         const existed = rows.delete(String(params[0]))
@@ -481,7 +475,7 @@ describe('storage/entries CRUD', () => {
         throw new Error('disk full')
       },
       async transaction(fn) {
-        await fn(failing)
+        await fn(this)
       },
       close() {},
     }

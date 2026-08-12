@@ -16,8 +16,7 @@ jest.mock('expo-crypto', () => ({
   randomUUID: () => `id-${++mockUuidCounter}`,
 }))
 
-// In-memory fake backing the exact queries chat.ts issues. sync_queue inserts
-// are intentionally unhandled — enqueueUpsert swallows the error (best-effort).
+// In-memory fake backing the exact queries chat.ts issues.
 function createFakeDb() {
   const conversations = new Map<string, Record<string, unknown>>()
   const messages = new Map<string, Record<string, unknown>>()
@@ -52,7 +51,7 @@ function createFakeDb() {
         if (row) {
           row.summary = summary
           row.summary_count = summary_count
-          row.updated_at = updated_at
+          row.updated_at = Math.max(Number(row.updated_at) + 1, Number(updated_at))
         }
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
@@ -73,7 +72,7 @@ function createFakeDb() {
         const [updated_at, titleSlice, id] = params
         const row = conversations.get(String(id))
         if (row) {
-          row.updated_at = updated_at
+          row.updated_at = Math.max(Number(row.updated_at) + 1, Number(updated_at))
           if (row.title == null) row.title = titleSlice // first message of any role
         }
         return { rows: [], rowsAffected: row ? 1 : 0 }
@@ -154,6 +153,21 @@ describe('storage/chat CRUD', () => {
 
     const list = await listConversations(db)
     expect(list.success && list.data[0].title).toBe('How is the marathon training going?')
+  })
+
+  it('strictly advances the parent conversation while message created_at stays append-only', async () => {
+    const { db } = createFakeDb()
+    jest.spyOn(Date, 'now').mockReturnValue(2000)
+    const conv = await createConversation(db)
+    const convId = conv.success ? conv.data.id : ''
+    jest.spyOn(Date, 'now').mockReturnValue(1000)
+
+    const appended = await appendMessage({ conversation_id: convId, role: 'user', content: 'backward clock' }, db)
+    jest.restoreAllMocks()
+
+    expect(appended.success && appended.data.created_at).toBe(1000)
+    const got = await getConversation(convId, db)
+    expect(got.success && got.data?.updated_at).toBe(2001)
   })
 
   it('persists the crisis tier on a user message', async () => {

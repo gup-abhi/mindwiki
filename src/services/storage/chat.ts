@@ -155,12 +155,12 @@ export async function setConversationSummary(
   db: SqliteDatabase = getDb()
 ): Promise<Result<void>> {
   try {
+    const now = Date.now()
     await db.transaction(async (tx) => {
-      const updated = await tx.execute(
+      await tx.execute(
         'UPDATE conversations SET summary = ?, summary_count = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ?',
-        [summary, summaryCount, Date.now(), id]
+        [summary, summaryCount, now, id]
       )
-      if (updated.rowsAffected !== 1) throw new Error('CHAT_CONVERSATION_NOT_FOUND')
       await enqueueUpsertInTransaction('conversations', id, tx)
     })
     notifySyncPending()
@@ -207,7 +207,7 @@ export async function appendMessage(
       )
       await tx.execute(
         `UPDATE conversations
-           SET updated_at = ?,
+           SET updated_at = MAX(updated_at + 1, ?),
                title = COALESCE(title, ?)
          WHERE id = ?`,
         [now, conversationTitle(message.content), message.conversation_id]

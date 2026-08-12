@@ -61,13 +61,13 @@ export function createFakeDb(initial: Partial<FakeState> = {}) {
         state.entry_entities.set(id, row)
         return { rows: [row], rowsAffected: 1 }
       }
-      if (/^UPDATE entry_entities SET canonical_label = \?, updated_at = MAX\(updated_at, \?\) WHERE id = \?/i.test(s)) {
+      if (/^UPDATE entry_entities SET canonical_label = \?, updated_at = MAX\(updated_at \+ 1, \?\) WHERE id = \?/i.test(s)) {
         maybeThrow('entry_entities')
         const [canon, now, rowId] = params
         const row = state.entry_entities.get(String(rowId))
         if (row) {
           row.canonical_label = canon
-          row.updated_at = Math.max(Number(row.updated_at) || 0, Number(now) || 0)
+          row.updated_at = Math.max((Number(row.updated_at) || 0) + 1, Number(now) || 0)
         }
         return { rows: [], rowsAffected: row ? 1 : 0 }
       }
@@ -123,9 +123,19 @@ export function createFakeDb(initial: Partial<FakeState> = {}) {
         return { rows: [...state.entry_entities.values()].filter((r) => r.canonical_label != null), rowsAffected: 0 }
       }
       // Runner: lookup id of belief entities by lowercase label.
-      if (/^SELECT id FROM entry_entities WHERE type = 'belief' AND LOWER\(label\) = \?/i.test(s)) {
+      if (/^SELECT id FROM entry_entities WHERE type = 'belief' AND LOWER\(label\) = \? AND \(canonical_label IS NULL OR LOWER\(canonical_label\) <> \?\)/i.test(s)) {
         const label = String(params[0]).toLowerCase()
-        return { rows: [...state.entry_entities.values()].filter((r) => r.type === 'belief' && String(r.label).toLowerCase() === label).map((r) => ({ id: r.id })), rowsAffected: 0 }
+        const canonical = String(params[1]).toLowerCase()
+        return {
+          rows: [...state.entry_entities.values()]
+            .filter((r) =>
+              r.type === 'belief' &&
+              String(r.label).toLowerCase() === label &&
+              (r.canonical_label == null || String(r.canonical_label).toLowerCase() !== canonical)
+            )
+            .map((r) => ({ id: r.id })),
+          rowsAffected: 0,
+        }
       }
 
       // belief_reframes
@@ -136,14 +146,17 @@ export function createFakeDb(initial: Partial<FakeState> = {}) {
         state.belief_reframes.set(String(row.id), row)
         return { rows: [row], rowsAffected: 1 }
       }
-      if (/^UPDATE belief_reframes SET belief = \?, updated_at = \? WHERE belief = \? COLLATE NOCASE/i.test(s)) {
+      if (/^UPDATE belief_reframes SET belief = \?, updated_at = MAX\(updated_at \+ 1, \?\) WHERE belief = \? COLLATE NOCASE AND belief <> \? COLLATE NOCASE/i.test(s)) {
         maybeThrow('belief_reframes')
         const [canon, now, fromRaw] = params
         let n = 0
         for (const r of state.belief_reframes.values()) {
-          if (String(r.belief).toLowerCase() === String(fromRaw).toLowerCase()) {
+          if (
+            String(r.belief).toLowerCase() === String(fromRaw).toLowerCase() &&
+            String(r.belief).toLowerCase() !== String(canon).toLowerCase()
+          ) {
             r.belief = canon
-            r.updated_at = Math.max(Number(r.updated_at) || 0, Number(now) || 0)
+            r.updated_at = Math.max((Number(r.updated_at) || 0) + 1, Number(now) || 0)
             n++
           }
         }
@@ -155,9 +168,14 @@ export function createFakeDb(initial: Partial<FakeState> = {}) {
           rowsAffected: 0,
         }
       }
-      if (/^SELECT id FROM belief_reframes WHERE belief = \? COLLATE NOCASE/i.test(s)) {
+      if (/^SELECT id FROM belief_reframes WHERE belief = \? COLLATE NOCASE AND belief <> \? COLLATE NOCASE/i.test(s)) {
         return {
-          rows: [...state.belief_reframes.values()].filter((r) => String(r.belief).toLowerCase() === String(params[0]).toLowerCase()).map((r) => ({ id: r.id })),
+          rows: [...state.belief_reframes.values()]
+            .filter((r) =>
+              String(r.belief).toLowerCase() === String(params[0]).toLowerCase() &&
+              String(r.belief).toLowerCase() !== String(params[1]).toLowerCase()
+            )
+            .map((r) => ({ id: r.id })),
           rowsAffected: 0,
         }
       }
@@ -207,15 +225,17 @@ export function createFakeDb(initial: Partial<FakeState> = {}) {
         return { rows: [], rowsAffected: 1 }
       }
 
-      // sync_queue: support both the legacy fixture SQL and the canonical
-      // enqueueUpsert statement used by transactional callers.
+      // sync_queue
       if (/^INSERT (OR REPLACE )?INTO sync_queue \(/i.test(s) && /VALUES/i.test(s)) {
         const cols = s.match(/\(([\w_, ]+)\)\s*VALUES/i)![1].split(',').map((c) => c.trim())
         const row: Record<string, unknown> = {}
         for (let i = 0; i < cols.length; i++) row[cols[i]] = params[i]
-        if (cols.includes('operation') && row.operation == null) row.operation = 'upsert'
-        if (cols.includes('synced_at') && row.synced_at == null) row.synced_at = null
         const composite = `${row.table_name}:${row.record_id}`
+        const previous = state.sync_queue.get(composite)
+        if (previous && /ON CONFLICT\(id\) DO UPDATE SET/i.test(s)) {
+          row.created_at = Math.max(Number(previous.created_at) + 1, Number(row.created_at))
+          row.synced_at = null
+        }
         state.sync_queue.set(composite, row)
         enqueueLog.push({ table: String(row.table_name), id: String(row.record_id) })
         return { rows: [], rowsAffected: 1 }

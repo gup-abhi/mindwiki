@@ -168,7 +168,7 @@ export async function deleteChallenge(
     await db.transaction(async (tx) => {
       const now = Date.now()
       const res = await tx.execute(
-        'UPDATE challenges SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL',
+        'UPDATE challenges SET deleted_at = ?, updated_at = MAX(updated_at + 1, ?) WHERE id = ? AND deleted_at IS NULL',
         [now, now, id]
       )
       changed = (res.rowsAffected ?? 0) > 0
@@ -201,7 +201,7 @@ export async function updateChallenge(
     }
   }
   const now = Date.now()
-  sets.push('updated_at = ?')
+  sets.push('updated_at = MAX(updated_at + 1, ?)')
   params.push(now)
   params.push(id)
 

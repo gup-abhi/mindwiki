@@ -117,13 +117,14 @@ export async function retargetReframeBelief(
     await db.transaction(async (tx) => {
       const now = Date.now()
       const oldRows = await tx.execute(
-        'SELECT id FROM belief_reframes WHERE belief = ? COLLATE NOCASE',
-        [fromRaw.trim()]
+        'SELECT id FROM belief_reframes WHERE belief = ? COLLATE NOCASE AND belief <> ? COLLATE NOCASE',
+        [fromRaw.trim(), canon]
       )
       const ids = oldRows.rows.map((r) => String(r.id))
+      if (ids.length === 0) return
       const upd = await tx.execute(
-        'UPDATE belief_reframes SET belief = ?, updated_at = ? WHERE belief = ? COLLATE NOCASE',
-        [canon, now, fromRaw.trim()]
+        'UPDATE belief_reframes SET belief = ?, updated_at = MAX(updated_at + 1, ?) WHERE belief = ? COLLATE NOCASE AND belief <> ? COLLATE NOCASE',
+        [canon, now, fromRaw.trim(), canon]
       )
       n = Number(upd.rowsAffected ?? 0)
       for (const id of ids) await enqueueUpsertInTransaction('belief_reframes', id, tx)
