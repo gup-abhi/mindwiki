@@ -108,7 +108,7 @@ export default function Home() {
               freezesAvailable={journalStreak.freezesAvailable}
               onPress={() => router.push('/trends')}
             />
-            <WhatChangedCard pages={reshaped} />
+            <WhatChangedCard pages={reshaped} pending={synthesizing} />
             <FirstPageReadyBanner />
             <ModelDownloadCard />
             <RecoverySetupCard />
@@ -150,11 +150,6 @@ export default function Home() {
                   </View>
                 )}
               </Card>
-            )}
-            {synthesizing && (
-              <Text variant="caption" color="accent" style={styles.synth}>
-                Synthesizing your insights…
-              </Text>
             )}
             <View style={styles.pathActions}>
               <Pressable

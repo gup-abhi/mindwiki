@@ -286,6 +286,7 @@ export async function getPageByTitle(
  */
 export async function ticklePageCount(
   id: string,
+  entryId?: string,
   db: SqliteDatabase = getDb()
 ): Promise<Result<WikiPage>> {
   try {
@@ -302,6 +303,10 @@ export async function ticklePageCount(
       const loaded = await getPage(id, tx)
       if (!loaded.success || loaded.data == null) throw new Error(loaded.success ? 'WIKI_NOT_FOUND' : loaded.error.code)
       current = loaded.data
+      if (entryId) {
+        const receipt = await insertContribution(entryId, id, tx)
+        if (!receipt.success) throw new Error(receipt.error.code)
+      }
       await enqueueUpsertInTransaction('wiki_pages', id, tx)
     })
     if (!current) return err('WIKI_NOT_FOUND', 'Wiki page not found')

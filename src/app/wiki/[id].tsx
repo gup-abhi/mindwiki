@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Alert, Pressable, StyleSheet, View } from 'react-native'
 
@@ -9,6 +9,7 @@ import { WikiConnections } from '@/components/wiki/WikiConnections'
 import { PageTrendView, TrendLegend } from '@/components/wiki/PageTrendView'
 import { useWikiPage, usePageTrend } from '@/hooks/useWiki'
 import { useReframes } from '@/hooks/useReframes'
+import { getContributionSummary, type ContributionSummary } from '@/services/storage/wiki-contributions'
 
 const RICHNESS_TARGET = 10 // entries at which the richness bar is full
 
@@ -20,9 +21,24 @@ export default function WikiPageScreen() {
   const trend = usePageTrend(page)
   const [draft, setDraft] = useState<string | null>(null) // non-null while editing
   const [showEarlier, setShowEarlier] = useState(false) // expand older reframes
+  const [contributionSummary, setContributionSummary] = useState<ContributionSummary | null>(null)
   // Beliefs can be challenged with a CBT reframe; only beliefs surface that flow.
   const isBelief = page?.category === 'belief'
   const { reframes } = useReframes(isBelief ? (page?.title ?? null) : null)
+
+  useEffect(() => {
+    let active = true
+    if (!page) {
+      setContributionSummary(null)
+      return
+    }
+    void getContributionSummary(page.id).then((res) => {
+      if (active) setContributionSummary(res.success ? res.data : null)
+    })
+    return () => {
+      active = false
+    }
+  }, [page?.id, page?.updated_at])
 
   const onRegenerate = async () => {
     const error = await regenerate()
@@ -84,6 +100,13 @@ export default function WikiPageScreen() {
         {page.category ?? 'page'} · v{page.version} · {page.entry_count}{' '}
         {page.entry_count === 1 ? 'entry' : 'entries'}
       </Text>
+      {contributionSummary && contributionSummary.count > 0 && (
+        <Text variant="caption" color="textMuted" style={styles.provenance} testID="wiki-provenance">
+          Shaped by {contributionSummary.count}{' '}
+          {contributionSummary.count === 1 ? 'reflection' : 'reflections'} · last updated{' '}
+          {new Date(page.updated_at).toLocaleDateString()}
+        </Text>
+      )}
 
       <View style={styles.richness}>
         <ProgressBar progress={richness} />
@@ -275,7 +298,8 @@ export default function WikiPageScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    meta: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
+    meta: { marginTop: t.spacing.xs },
+    provenance: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
     firstRunCard: { marginBottom: t.spacing.xl },
     richness: { marginBottom: t.spacing.xl },
     trendSection: { marginTop: t.spacing['2xl'], gap: t.spacing.md },

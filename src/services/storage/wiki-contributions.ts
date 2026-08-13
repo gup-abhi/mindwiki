@@ -63,7 +63,32 @@ export async function hasContribution(
   }
 }
 
-/** List the live page ids this entry has actually contributed to. */
+/** List the page ids this entry has actually contributed to. */
+export interface ContributionSummary {
+  count: number
+  lastCreatedAt: number | null
+}
+
+export async function getContributionSummary(
+  pageId: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<ContributionSummary>> {
+  try {
+    const res = await db.execute(
+      'SELECT COUNT(*) AS count, MAX(created_at) AS last_created_at FROM wiki_page_contributions WHERE page_id = ?',
+      [pageId]
+    )
+    const row = res.rows[0]
+    return ok({
+      count: Number(row?.count ?? 0),
+      lastCreatedAt: row?.last_created_at == null ? null : Number(row.last_created_at),
+    })
+  } catch (e) {
+    return err('WIKI_CONTRIBUTION_SUMMARY_FAILED', 'Failed to summarize wiki contributions', e)
+  }
+}
+
+/** List the page ids this entry has actually contributed to. */
 export async function listContributions(
   entryId: string,
   db: SqliteDatabase = getDb()

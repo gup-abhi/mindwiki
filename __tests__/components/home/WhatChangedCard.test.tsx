@@ -19,15 +19,34 @@ describe('WhatChangedCard', () => {
     expect(screen.queryByTestId('what-changed-card')).toBeNull()
   })
 
-  it('shows "Your last entry reshaped" and the page titles', () => {
+  it('shows the confirmed contribution and page titles', () => {
     const pages: LineagePage[] = [
       { id: 'p1', title: 'Anxiety', category: 'emotion' },
       { id: 'p2', title: 'Work stress', category: 'situation' },
     ]
     render(<WhatChangedCard pages={pages} />)
-    expect(screen.getByText('Your last entry reshaped')).toBeTruthy()
+    expect(screen.getByText('This reflection contributed to…')).toBeTruthy()
     expect(screen.getByText('Anxiety')).toBeTruthy()
     expect(screen.getByText('Work stress')).toBeTruthy()
+  })
+
+  it('shows pending synthesis without a causal claim', () => {
+    render(<WhatChangedCard pages={[]} pending />)
+    expect(screen.getByTestId('what-changed-pending')).toBeTruthy()
+    expect(screen.getByText('Private synthesis in progress')).toBeTruthy()
+    expect(screen.queryByText('This reflection contributed to…')).toBeNull()
+  })
+
+  it('renders no card when there is no receipt-backed page', () => {
+    render(<WhatChangedCard pages={[]} />)
+    expect(screen.queryByTestId('what-changed-card')).toBeNull()
+    expect(screen.queryByTestId('what-changed-pending')).toBeNull()
+  })
+
+  it('renders no card for null lineage unless synthesis is pending', () => {
+    render(<WhatChangedCard pages={null} />)
+    expect(screen.queryByTestId('what-changed-card')).toBeNull()
+    expect(screen.queryByTestId('what-changed-pending')).toBeNull()
   })
 
   it('navigates to a page when tapped', () => {
