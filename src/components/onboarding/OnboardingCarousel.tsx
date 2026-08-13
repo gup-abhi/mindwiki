@@ -94,7 +94,7 @@ export function OnboardingCarousel({ onDone, onSignIn }: OnboardingCarouselProps
         {confirmSkip ? (
           <View style={styles.confirmRow}>
             <Text variant="caption" color="textMuted" style={styles.confirmCopy}>
-              {isAccountEntry ? 'This starts setup of the on-device AI (~2.8 GB). Best on Wi-Fi.' : 'Close the introduction?'}
+              {isAccountEntry ? 'You can choose later whether to download private on-device AI.' : 'Close the introduction?'}
             </Text>
             <Pressable onPress={() => { setConfirmSkip(false) }} hitSlop={8} testID="onboarding-skip-cancel">
               <Text variant="label" color="textMuted">
@@ -160,7 +160,7 @@ export function OnboardingCarousel({ onDone, onSignIn }: OnboardingCarouselProps
       <View style={styles.footer}>
         {isLast && isAccountEntry && (
           <Text variant="caption" color="textMuted" style={styles.consent}>
-            Creating an account starts setup of the on-device AI (~2.8 GB). Best on Wi-Fi.
+            Your account keeps encrypted sync available. On-device AI is optional and can be downloaded later; journal writing works without it.
           </Text>
         )}
         <Button

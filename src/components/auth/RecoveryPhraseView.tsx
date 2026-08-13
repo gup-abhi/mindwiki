@@ -20,8 +20,9 @@ export function RecoveryPhraseView({ phrase, onConfirm }: { phrase: string; onCo
     <ScrollView style={styles.container} contentContainerStyle={styles.body}>
       <Text variant="heading">Save your recovery phrase</Text>
       <Text variant="body" color="textSecondary" style={styles.subtitle}>
-        These 12 words are the only way back into your journal if you forget your password. We can't
-        reset it for you. Write them down and keep them somewhere safe — never share them.
+        Your password protects this device. These 12 words are the only way to recover your encrypted
+        journal if you forget it. We can't reset them for you. Write them down and keep them somewhere
+        safe — never share them.
       </Text>
 
       <View style={styles.grid} testID="recovery-phrase-grid">

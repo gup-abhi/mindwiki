@@ -9,6 +9,20 @@ import { useAuthStore } from '@/store/auth.store'
 const FIRST_RUN_FLAG = 'onboarding:first_run_complete'
 const FIRST_RUN_STARTED = 'onboarding:first_run_started'
 const FIRST_RUN_ENTRY_IDS = 'onboarding:first_run_entry_ids'
+const MODEL_DOWNLOAD_PREFERENCE = 'onboarding:model_download_preference'
+export type ModelDownloadPreference = 'undecided' | 'deferred' | 'consented'
+
+export async function getModelDownloadPreference(): Promise<ModelDownloadPreference> {
+  const res = await getSetting(MODEL_DOWNLOAD_PREFERENCE)
+  if (!res.success) return 'undecided'
+  if (res.data === 'deferred' || res.data === 'consented') return res.data
+  return 'undecided'
+}
+
+export async function setModelDownloadPreference(preference: Exclude<ModelDownloadPreference, 'undecided'>): Promise<void> {
+  await setSetting(MODEL_DOWNLOAD_PREFERENCE, preference).catch(() => undefined)
+}
+
 // One-shot marker carrying the first synthesized wiki page's {id,title} so Home
 // can surface a deferred "your first insight page is ready" banner/notification
 // after the deep model finishes — the aha moment, deferred not lost.

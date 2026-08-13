@@ -13,7 +13,7 @@
  * by construction once both are individually verified.
  */
 
-import { firstRunStatus, markFirstRunComplete, firstWikiPage, hasExistingEntries, beginOnboardingModelDownload } from '@/services/onboarding/first-run'
+import { firstRunStatus, markFirstRunComplete, firstWikiPage, hasExistingEntries, beginOnboardingModelDownload, getModelDownloadPreference, setModelDownloadPreference } from '@/services/onboarding/first-run'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
 import { getEntry } from '@/services/storage/entries'
@@ -79,6 +79,30 @@ const FIRST_RUN_ENTRY_IDS = 'onboarding:first_run_entry_ids'
 
 const lineagePage = (id: string, title: string) => ({ id, title, category: 'emotion' as const })
 const flush = () => new Promise<void>((r) => setImmediate(r))
+
+describe('model download preference', () => {
+  beforeEach(() => {
+    mockGetSetting.mockReset()
+    mockSetSetting.mockReset().mockResolvedValue(ok(undefined))
+  })
+
+  it('defaults to undecided when no preference is stored', async () => {
+    mockGetSetting.mockResolvedValue(ok(null))
+    await expect(getModelDownloadPreference()).resolves.toBe('undecided')
+  })
+
+  it('accepts only persisted deferred or consented values', async () => {
+    mockGetSetting.mockResolvedValueOnce(ok('deferred')).mockResolvedValueOnce(ok('consented')).mockResolvedValueOnce(ok('other'))
+    await expect(getModelDownloadPreference()).resolves.toBe('deferred')
+    await expect(getModelDownloadPreference()).resolves.toBe('consented')
+    await expect(getModelDownloadPreference()).resolves.toBe('undecided')
+  })
+
+  it('persists the user choice in encrypted settings', async () => {
+    await setModelDownloadPreference('consented')
+    expect(mockSetSetting).toHaveBeenCalledWith('onboarding:model_download_preference', 'consented')
+  })
+})
 
 // ─── P1: First-run guided path ───────────────────────────────────────────────
 
