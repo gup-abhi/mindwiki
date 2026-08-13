@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 
 import { Text } from '@/components/ui'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { type Theme, useThemedStyles } from '@/theme'
 
 interface Props {
@@ -18,13 +19,22 @@ interface Props {
  */
 export function AffirmationCover({ affirmation, onDismiss }: Props) {
   const styles = useThemedStyles(makeStyles)
-  const opacity = useSharedValue(0)
+  const reducedMotion = useReducedMotion()
+  const opacity = useSharedValue(reducedMotion ? 1 : 0)
 
   useEffect(() => {
-    opacity.value = withTiming(1, { duration: 600 })
-  }, [opacity])
+    if (reducedMotion) {
+      opacity.value = 1
+    } else {
+      opacity.value = withTiming(1, { duration: 600 })
+    }
+  }, [opacity, reducedMotion])
 
   const dismiss = () => {
+    if (reducedMotion) {
+      onDismiss()
+      return
+    }
     opacity.value = withTiming(0, { duration: 350 }, (finished) => {
       if (finished) runOnJS(onDismiss)()
     })
@@ -39,7 +49,7 @@ export function AffirmationCover({ affirmation, onDismiss }: Props) {
         <View style={[styles.blob, styles.blobTR]} />
         <View style={[styles.blob, styles.blobBL]} />
         <View style={[styles.blob, styles.blobBR]} />
-        <View style={styles.content}>
+        <View style={styles.content} accessibilityViewIsModal accessibilityLabel="Affirmation">
           <Text variant="label" style={styles.eyebrow}>
             YOU EARNED THIS
           </Text>

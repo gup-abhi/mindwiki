@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Button, Text } from '@/components/ui'
 import { haptics } from '@/lib/haptics'
 import { CYCLES, START_SCALE, stepAt, totalSteps } from '@/services/breathing/pattern'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 
 const CIRCLE = 220
@@ -19,6 +20,7 @@ export default function BreatheScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
+  const reducedMotion = useReducedMotion()
 
   const [index, setIndex] = useState(0)
   const [running, setRunning] = useState(true)
@@ -35,10 +37,14 @@ export default function BreatheScreen() {
     }
     const { step } = stepAt(index)
     if (haptic) haptics.light()
-    scale.value = withTiming(step.scale, { duration: step.seconds * 1000 })
+    if (reducedMotion) {
+      scale.value = step.scale
+    } else {
+      scale.value = withTiming(step.scale, { duration: step.seconds * 1000 })
+    }
     const t = setTimeout(() => setIndex((i) => i + 1), step.seconds * 1000)
     return () => clearTimeout(t)
-  }, [index, running, haptic, scale])
+  }, [index, running, haptic, reducedMotion, scale])
 
   const circleStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }))
 

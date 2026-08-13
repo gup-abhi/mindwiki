@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 
 import { Button, Text } from '@/components/ui'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 
 interface Slide {
@@ -66,6 +67,7 @@ interface OnboardingCarouselProps {
 export function OnboardingCarousel({ onDone, onSignIn }: OnboardingCarouselProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
+  const reducedMotion = useReducedMotion()
   const { width } = useWindowDimensions()
   const listRef = useRef<FlatList<Slide>>(null)
   const [index, setIndex] = useState(0)
@@ -77,7 +79,7 @@ export function OnboardingCarousel({ onDone, onSignIn }: OnboardingCarouselProps
     if (isLast) return onDone()
     const next = index + 1
     setIndex(next)
-    listRef.current?.scrollToIndex({ index: next, animated: true })
+    listRef.current?.scrollToIndex({ index: next, animated: !reducedMotion })
   }
 
   const onScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {

@@ -4,6 +4,7 @@ import Animated, { FadeIn } from 'react-native-reanimated'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context'
 
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { type Theme, useThemedStyles, useTheme } from '@/theme'
 
 interface ScreenProps {
@@ -39,6 +40,8 @@ export function Screen({
 }: ScreenProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
+  const reducedMotion = useReducedMotion()
+  const showAnimation = animated && !reducedMotion
   return (
     <SafeAreaView style={styles.safe} edges={edges}>
       <StatusBar style={theme.statusBar} />
@@ -48,13 +51,13 @@ export function Screen({
           contentContainerStyle={padded ? styles.scrollContent : undefined}
           keyboardShouldPersistTaps="handled"
         >
-          {animated ? (
+          {showAnimation ? (
             <Animated.View entering={FadeIn.duration(250)}>{children}</Animated.View>
           ) : (
             children
           )}
         </ScrollView>
-      ) : animated ? (
+      ) : showAnimation ? (
         <Animated.View style={[styles.flex, padded && styles.padded]} entering={FadeIn.duration(250)}>
           {children}
         </Animated.View>
