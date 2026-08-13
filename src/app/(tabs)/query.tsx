@@ -188,7 +188,7 @@ export default function QueryScreen() {
           {isEmpty ? (
             <View>
               <Text variant="body" color="textSecondary" style={styles.intro}>
-                A private space to talk things through — grounded only in your own insights.
+                A private space to talk things through. When a reply draws on your wiki, its source pages appear below the reply.
               </Text>
 
               {reflectHint === false && (

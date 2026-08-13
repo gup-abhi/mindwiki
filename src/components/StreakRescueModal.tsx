@@ -16,9 +16,8 @@ interface Props {
 const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'}`
 
 /**
- * Popup shown on opening the app when a missed day has put the streak at risk and
- * the user holds enough freezes to save it. Spending is the user's choice — they
- * can let the streak break instead and keep their freezes for later.
+ * Lets the user choose whether to spend freezes after a missed day.
+ * Spending is optional, and the freezes remain available if they dismiss it.
  */
 export function StreakRescueModal({ visible, streakLength, freezesNeeded, onUse, onDismiss }: Props) {
   const styles = useThemedStyles(makeStyles)
@@ -30,11 +29,11 @@ export function StreakRescueModal({ visible, streakLength, freezesNeeded, onUse,
             ❄
           </Text>
           <Text variant="subtitle" style={styles.title}>
-            Your {streakLength}-day streak is at risk
+            Your {streakLength}-day reflection rhythm has a pause
           </Text>
           <Text variant="body" color="textSecondary" style={styles.body}>
-            You missed {plural(freezesNeeded, 'day')}. Use {plural(freezesNeeded, 'freeze')} to keep
-            your streak alive?
+            You missed {plural(freezesNeeded, 'day')}. Use {plural(freezesNeeded, 'freeze')} to mark
+            those days as a pause?
           </Text>
           <View style={styles.actions}>
             <Button title={`Use ${plural(freezesNeeded, 'freeze')}`} onPress={onUse} testID="rescue-use" />

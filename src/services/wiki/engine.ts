@@ -21,7 +21,7 @@ import {
 } from '@/services/storage/wiki'
 import { buildEmotionAggregate } from '@/services/wiki/aggregates'
 import { stripConnectionProse } from '@/services/wiki/cleanup'
-import { hasContribution, insertMissingReceipts } from '@/services/storage/wiki-contributions'
+import { hasContribution, insertMissingReceipts, listContributions } from '@/services/storage/wiki-contributions'
 import { type Result, ok, err } from '@/types/result'
 import { startSessionWork } from '@/services/auth/session-work'
 
@@ -597,6 +597,10 @@ export interface LineagePage {
  * compounding knowledge the entry fed. Best-effort; never throws.
  */
 export async function lineageForEntry(entry: Entry): Promise<Result<LineagePage[]>> {
+  const receiptRes = await listContributions(entry.id)
+  if (!receiptRes.success) return ok([])
+  const receiptPageIds = new Set(receiptRes.data)
+
   // Build topic list from primary + secondary themes, both persisted on entry.
   const themes = [entry.topic, entry.topic2].filter((t): t is string => !!t && t.trim().length > 0)
   const topics = candidateTopics(entry, themes)
@@ -614,7 +618,12 @@ export async function lineageForEntry(entry: Entry): Promise<Result<LineagePage[
     if (!res.success) continue
     // Resolve merged topics to their survivor so lineage points at the live page.
     const page = await resolveSurvivor(res.data)
-    if (page && page.dismissed_at == null && !seenPageIds.has(page.id)) {
+    if (
+      page &&
+      receiptPageIds.has(page.id) &&
+      page.dismissed_at == null &&
+      !seenPageIds.has(page.id)
+    ) {
       seenPageIds.add(page.id)
       out.push({ id: page.id, title: page.title, category: page.category })
     }
@@ -692,7 +701,7 @@ async function tickleEmotionPage(
   }
 
   // Increment the counter without rewriting content
-  const tickled = await ticklePageCount(pageId)
+  const tickled = await ticklePageCount(pageId, entry.id)
   if (!tickled.success) return
 
   // Global tally: every AGGREGATE_INTERVAL_TAGS emotion taggings (any emotion)

@@ -17,8 +17,9 @@ describe('StreakRescueModal', () => {
 
   it('shows the at-risk streak and singular freeze copy', () => {
     render(<StreakRescueModal {...base} />)
-    expect(screen.getByText('Your 12-day streak is at risk')).toBeTruthy()
-    expect(screen.getByText(/You missed 1 day\. Use 1 freeze/)).toBeTruthy()
+    expect(screen.getByText('Your 12-day reflection rhythm has a pause')).toBeTruthy()
+    expect(screen.getByText(/You missed 1 day\. Use 1 freeze to mark those days as a pause/)).toBeTruthy()
+    expect(screen.queryByText(/keep your streak alive/i)).toBeNull()
   })
 
   it('pluralizes for a multi-day gap', () => {

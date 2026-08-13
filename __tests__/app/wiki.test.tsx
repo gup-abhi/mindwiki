@@ -19,6 +19,9 @@ jest.mock('expo-router', () => ({
 jest.mock('@/services/storage/wiki', () => ({
   listPages: jest.fn(() => Promise.resolve({ success: true, data: [] })),
 }))
+jest.mock('@/services/storage/wiki-contributions', () => ({
+  getContributionSummary: jest.fn(() => Promise.resolve({ success: true, data: { count: 0, lastCreatedAt: null } })),
+}))
 jest.mock('@/hooks/useEntries', () => ({ useEntries: () => ({ entries: [] }) }))
 jest.mock('@/hooks/useStreakFreezes', () => ({
   useStreakFreezes: () => ({ frozenDays: new Set<number>() }),
@@ -212,6 +215,17 @@ describe('WikiPageScreen', () => {
     expect(
       screen.getByText('Anxiety has been coming up less often than it did a month ago.')
     ).toBeTruthy()
+  })
+
+  it('shows receipt-backed provenance on a wiki page', async () => {
+    const { getContributionSummary } = require('@/services/storage/wiki-contributions') as { getContributionSummary: jest.Mock }
+    getContributionSummary.mockResolvedValue({ success: true, data: { count: 3, lastCreatedAt: 1700000000000 } })
+    mockUseWikiPage.mockReturnValue(
+      pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 2, entry_count: 3, updated_at: 1700000000000, content: 'c', dismissed_at: null })
+    )
+    render(<WikiPageScreen />)
+    await waitFor(() => expect(screen.getByTestId('wiki-provenance')).toBeTruthy())
+    expect(screen.getByText(/Shaped by 3 reflections/)).toBeTruthy()
   })
 
   it('shows a "This is your wiki" card with a "Take me home" button when firstRun=1', () => {

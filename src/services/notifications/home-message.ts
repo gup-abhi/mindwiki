@@ -50,14 +50,14 @@ export function homeMessage(
 
   // 4. Wrote today.
   if (wroteToday) {
-    if (current >= 7) return `That’s today done — ${current}-day streak. 🔥`
-    return `That’s today written — ${activeThisWeek} ${activeThisWeek === 1 ? 'day' : 'days'} this week. 🌱`
+    if (current >= 7) return `Today is recorded — ${current} days in a row.`
+    return `Today is recorded — ${activeThisWeek} ${activeThisWeek === 1 ? 'day' : 'days'} this week.`
   }
 
   // 5. Away a while — has history, but no entry today or yesterday.
-  if (current === 0) return 'It’s been a little while — today’s a good day to write.'
+  if (current === 0) return 'No entry today yet — write whenever it suits you.'
 
-  // 6. Streak alive, just not written yet today.
-  if (current >= 7) return `${current}-day streak going — a few minutes to keep it alive?`
-  return `Day ${current} — a moment to write today?`
+  // 6. Rhythm is open today.
+  if (current >= 7) return `${current} days in a row so far. Today is still open.`
+  return `Day ${current} is recorded. Today is still open.`
 }

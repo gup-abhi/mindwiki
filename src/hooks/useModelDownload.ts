@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { type ModelKind } from '@/native/LLMBridge'
 import { areModelsReady, canStart, downloadModel } from '@/services/llm/model-manager'
+import { getModelDownloadPreference, setModelDownloadPreference, type ModelDownloadPreference } from '@/services/onboarding/first-run'
 import { triggerCatchUp } from '@/services/pipeline'
 
 // Required models block app readiness; the embed model is optional (Reflect
@@ -23,22 +24,31 @@ export function useModelDownload() {
   const [progress, setProgress] = useState(0)
   const [deepProgress, setDeepProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [preference, setPreference] = useState<ModelDownloadPreference | null>(null)
 
   // Guard against setState after unmount (the readiness check is async).
   useEffect(() => {
     let cancelled = false
-    void areModelsReady().then((r) => {
-      if (!cancelled) setReady(r)
+    void Promise.all([areModelsReady(), canStart(), getModelDownloadPreference()]).then(([modelsReady, canStartValue, storedPreference]) => {
+      if (cancelled) return
+      setReady(modelsReady)
+      setCanStartNow(canStartValue)
+      setPreference(storedPreference)
     })
-    void canStart().then((r) => {
-      if (!cancelled) setCanStartNow(r)
-    })
+
     return () => {
       cancelled = true
     }
   }, [])
 
+  const defer = useCallback(async () => {
+    await setModelDownloadPreference('deferred')
+    setPreference('deferred')
+  }, [])
+
   const download = useCallback(async () => {
+    await setModelDownloadPreference('consented')
+    setPreference('consented')
     setDownloading(true)
     setError(null)
     setProgress(0)
@@ -78,5 +88,5 @@ export function useModelDownload() {
     })
   }, [])
 
-  return { ready, canStart: canStartNow, downloading, progress, deepProgress, error, download }
+  return { ready, canStart: canStartNow, downloading, progress, deepProgress, error, preference, download, defer }
 }

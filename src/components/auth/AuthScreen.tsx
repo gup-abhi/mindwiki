@@ -54,8 +54,8 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
         <Text variant="title">{isRegister ? 'Create your account' : 'Welcome back'}</Text>
         <Text variant="body" color="textSecondary" style={styles.subtitle}>
           {isRegister
-            ? 'Your journal stays encrypted on this device. An account only syncs it across your own devices.'
-            : 'Sign in to restore your encrypted journal on this device.'}
+            ? 'Your journal and on-device AI stay private. An account only carries encrypted sync data across your own devices.'
+            : 'Sign in to restore your encrypted journal and continue on this device.'}
         </Text>
 
         <TextInput

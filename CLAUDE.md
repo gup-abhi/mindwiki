@@ -71,6 +71,22 @@ Wrangler 3             Graphify (codebase graph)
 
 ---
 
+## Ethical product-design lens
+
+Use the user-approved video-informed design context in [`ethical-product-design-video-context.md`](../.claude/projects/-home-mr-robot-Desktop-code-mindwiki/memory/ethical-product-design-video-context.md) for all future design changes and new feature work:
+
+- Build trust before commitment; explain privacy, local processing, encrypted sync, model downloads, and recovery progressively and plainly.
+- Make consent explicit, with an equally available “not now” and truthful progress, capability, and failure states.
+- Separate guaranteed persistence, best-effort processing, and evidence-backed wiki changes in the UI.
+- Ground personalization in local, inspectable evidence; keep synthesis tentative, editable, dismissible, and non-diagnostic.
+- Use anticipation, reveal, and afterglow only for real local events—never fabricate progress, identity, certainty, or rewards.
+- Preserve meaningful user-controlled continuity, but avoid loss aversion, urgency, rankings, social pressure, variable rewards, and compulsive loops.
+- Prioritize the next helpful action and confirmed value over competing dashboard cards; use progressive discovery.
+- Treat motion as optional: support reduced motion, static equivalents, readable focus order, font scaling, and accessible labels.
+- Keep the privacy promise on every surface: raw journal text must never enter network payloads, logs, notifications, route parameters, telemetry, or accessibility labels.
+
+---
+
 ## SPARC methodology
 
 All development follows SPARC. For every task:

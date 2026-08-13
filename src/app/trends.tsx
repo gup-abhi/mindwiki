@@ -1,8 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { Pressable, StyleSheet, View } from 'react-native'
 
-import { Card, Screen, Text } from '@/components/ui'
+import { Button, Card, Screen, Text } from '@/components/ui'
 import { PageTrendView, TrendLegend } from '@/components/wiki/PageTrendView'
 import { AffectMapView } from '@/components/insights/AffectMapView'
 import { DistortionTrendView } from '@/components/insights/DistortionTrendView'
@@ -20,6 +20,9 @@ import {
 } from '@/services/insights/mood-stats'
 import { computeAffectMap } from '@/services/insights/affect-map'
 import { computeDistortionTrend } from '@/services/insights/distortion-trend'
+import { streakRescue } from '@/services/notifications/streak'
+import { StreakRescueModal } from '@/components/StreakRescueModal'
+import { useStreakTimestamps } from '@/hooks/useStreakTimestamps'
 import { type Theme, moodColorKey, useTheme, useThemedStyles } from '@/theme'
 
 const TREND_DAYS = 14
@@ -28,10 +31,13 @@ export default function TrendsScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
   const { entries } = useEntries()
-  const { frozenDays } = useStreakFreezes()
+  const { timestamps } = useStreakTimestamps()
+  const { frozenDays, applyFreezes } = useStreakFreezes()
+  const [rescueOpen, setRescueOpen] = useState(false)
 
   const trending = useTrendingPages()
   const now = Date.now()
+  const rescue = useMemo(() => streakRescue(timestamps, now, frozenDays), [timestamps, now, frozenDays])
   const series = useMemo(() => moodByDay(entries, now, TREND_DAYS), [entries, now])
   const affect = useMemo(() => computeAffectMap(entries, now), [entries, now])
   const distortions = useMemo(() => computeDistortionTrend(entries, now), [entries, now])
@@ -49,8 +55,26 @@ export default function TrendsScreen() {
         ← Back
       </Text>
       <Text variant="title" style={styles.h1}>
-        Trends
+        Reflection rhythm
       </Text>
+      <Text variant="body" color="textSecondary" style={styles.intro}>
+        Your writing pattern over time. Today is always open.
+      </Text>
+
+      {rescue.atRisk && (
+        <Card style={styles.card} testID="streak-rescue-card">
+          <Text variant="subtitle">A missed day can be marked as a pause</Text>
+          <Text variant="body" color="textSecondary" style={styles.rescueBody}>
+            You have {rescue.freezesNeeded} {rescue.freezesNeeded === 1 ? 'freeze' : 'freezes'} available to mark the pause.
+          </Text>
+          <Button
+            title="Review pause option"
+            variant="secondary"
+            onPress={() => setRescueOpen(true)}
+            testID="open-streak-rescue"
+          />
+        </Card>
+      )}
 
       {entries.length === 0 ? (
         <Text variant="body" color="textMuted" style={styles.empty}>
@@ -121,6 +145,17 @@ export default function TrendsScreen() {
           )}
         </>
       )}
+
+      <StreakRescueModal
+        visible={rescueOpen}
+        streakLength={rescue.streakLength}
+        freezesNeeded={rescue.freezesNeeded}
+        onUse={() => {
+          void applyFreezes(rescue.daysToFreeze)
+          setRescueOpen(false)
+        }}
+        onDismiss={() => setRescueOpen(false)}
+      />
     </Screen>
   )
 }
@@ -262,7 +297,9 @@ function MoodRhythm({ data }: { data: WeekdayTimeMood }) {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     h1: { marginTop: t.spacing.sm },
+    intro: { marginTop: t.spacing.xs },
     card: { marginTop: t.spacing.lg },
+    rescueBody: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
     cardTitle: { marginBottom: t.spacing.md },
     rhythmRow: { flexDirection: 'row', alignItems: 'center', marginBottom: t.spacing.xs },
     rhythmLabel: { width: 72 },

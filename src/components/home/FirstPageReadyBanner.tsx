@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Card, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { getFirstRunPageReady } from '@/services/onboarding/first-run'
+import { haptics } from '@/lib/haptics'
 
 type ReadyPage = { id: string; title: string }
 
@@ -38,21 +39,30 @@ export function FirstPageReadyBanner() {
   if (!page) return null
 
   const view = () => {
+    haptics.light()
     router.push({ pathname: `/wiki/${page.id}`, params: { firstRun: '1' } })
     setPage(null)
   }
 
   return (
     <Card variant="accent" style={styles.card} testID="first-page-ready-banner">
-      <Pressable accessibilityRole="button" onPress={view} testID="first-page-ready-open">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Review the early insight page ${page.title}`}
+        onPress={view}
+        testID="first-page-ready-open"
+      >
         <Text variant="label" color="accentText">
-          Your first insight page is ready
+          An early insight from your reflections
         </Text>
         <Text variant="body" color="accentText" style={styles.title}>
           {page.title}
         </Text>
+        <Text variant="caption" color="accentText" style={styles.explanation}>
+          This is a tentative synthesis you can correct or drop anytime.
+        </Text>
         <Text variant="caption" color="accentText" style={styles.cta}>
-          See what emerged from what you wrote →
+          Open and review →
         </Text>
       </Pressable>
       <View style={styles.dismissRow}>
@@ -73,6 +83,7 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     card: { marginTop: t.spacing.lg, alignSelf: 'stretch' },
     title: { marginTop: t.spacing.xs },
+    explanation: { marginTop: t.spacing.sm },
     cta: { marginTop: t.spacing.sm },
     dismissRow: { position: 'absolute', top: t.spacing.sm, right: t.spacing.sm },
   })

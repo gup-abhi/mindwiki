@@ -131,7 +131,13 @@ export default function EntryScreen() {
       })
     } else {
       // Pass the mood so the confirmation can gently offer a breather on a low day.
-      router.replace({ pathname: '/saved', params: { mood: String(result.data.entry.mood) } })
+      router.replace({
+        pathname: '/saved',
+        params: {
+          id: result.data.entry.id,
+          mood: String(result.data.entry.mood),
+        },
+      })
     }
   }
 

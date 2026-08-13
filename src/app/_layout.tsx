@@ -15,7 +15,6 @@ import { Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold } from '@expo-goo
 
 import { initStorage } from '@/services/storage/bootstrap'
 import { closeDb } from '@/services/storage/db'
-import { areModelsReady } from '@/services/llm/model-manager'
 import { configureNotifications } from '@/services/notifications/scheduler'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
 import { handleNotificationCandidate, handleNotificationDelivered, recordAndReconcile, resumeNotificationReconciliation } from '@/services/notifications/orchestrator'
@@ -33,7 +32,6 @@ import { LockScreen } from '@/components/auth/LockScreen'
 import { CoverScreen } from '@/components/CoverScreen'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
 import { useFirstRunRedirect, resetFirstRunRedirect } from '@/hooks/useFirstRunRedirect'
-import { beginOnboardingModelDownload, isOnboardingIncomplete } from '@/services/onboarding/first-run'
 import { isIntroOnboardingDone, markIntroOnboardingDone } from '@/services/onboarding/intro'
 import { ThemeProvider, type Theme, useTheme, useThemedStyles } from '@/theme'
 
@@ -57,17 +55,6 @@ function AppRoot() {
   // One-time post-registration redirect through a guided writing path so the
   // new user produces entries and sees their first wiki page.
   useFirstRunRedirect()
-
-  // Decoupled model-download kick: after the new account opens its encrypted DB,
-  // onboarding-incomplete + models-missing starts the download. Relaunches also
-  // resume stalled downloads. Idempotent per session.
-  useEffect(() => {
-    void (async () => {
-      if (!(await isOnboardingIncomplete())) return
-      if (await areModelsReady()) return
-      beginOnboardingModelDownload()
-    })()
-  }, [])
 
   useEffect(() => {
     const sub = Notifications.addNotificationReceivedListener((notification) => {

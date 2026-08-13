@@ -6,7 +6,9 @@ import { type SqliteDatabase } from '@/services/storage/db'
 import {
   insertContribution,
   hasContribution,
+  listContributions,
   insertMissingReceipts,
+  getContributionSummary,
 } from '@/services/storage/wiki-contributions'
 
 function createFakeDb() {
@@ -20,6 +22,24 @@ function createFakeDb() {
         if (contributions.has(key)) return { rows: [], rowsAffected: 0 }
         contributions.set(key, { entry_id: String(entryId), page_id: String(pageId), created_at: Number(createdAt) })
         return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT COUNT\(\*\) AS count, MAX\(created_at\) AS last_created_at FROM wiki_page_contributions WHERE page_id = \?/.test(s)) {
+        const pageId = String(params[0])
+        const rows = [...contributions.values()].filter((c) => c.page_id === pageId)
+        return {
+          rows: [{ count: rows.length, last_created_at: rows.length > 0 ? Math.max(...rows.map((r) => r.created_at)) : null }],
+          rowsAffected: 0,
+        }
+      }
+      if (/^SELECT page_id FROM wiki_page_contributions WHERE entry_id = \? ORDER BY created_at ASC/.test(s)) {
+        const entryId = String(params[0])
+        return {
+          rows: [...contributions.values()]
+            .filter((c) => c.entry_id === entryId)
+            .sort((a, b) => a.created_at - b.created_at)
+            .map((c) => ({ page_id: c.page_id })),
+          rowsAffected: 0,
+        }
       }
       if (/^SELECT entry_id FROM wiki_page_contributions WHERE entry_id = \? AND page_id = \?/.test(s)) {
         const key = `${String(params[0])}::${String(params[1])}`
@@ -84,6 +104,35 @@ describe('wiki_page_contributions — receipt module', () => {
       await insertContribution('e1', 'p1', db)
       const r = await hasContribution('e1', 'p1', db)
       expect(r.success && r.data).toBe(true)
+    })
+  })
+
+  describe('listContributions', () => {
+    it('lists receipt-backed page ids in insertion order', async () => {
+      const { db } = createFakeDb()
+      await insertContribution('e1', 'p1', db)
+      await insertContribution('e1', 'p2', db)
+      const r = await listContributions('e1', db)
+      expect(r.success && r.data).toEqual(['p1', 'p2'])
+    })
+  })
+
+  describe('getContributionSummary', () => {
+    it('summarizes receipt count and latest receipt time for a page', async () => {
+      const { db } = createFakeDb()
+      await insertContribution('e1', 'p1', db)
+      await insertContribution('e2', 'p1', db)
+      const result = await getContributionSummary('p1', db)
+      expect(result).toEqual({
+        success: true,
+        data: expect.objectContaining({ count: 2, lastCreatedAt: expect.any(Number) }),
+      })
+    })
+
+    it('returns an empty summary for a page without receipts', async () => {
+      const { db } = createFakeDb()
+      const result = await getContributionSummary('p1', db)
+      expect(result).toEqual({ success: true, data: { count: 0, lastCreatedAt: null } })
     })
   })
 

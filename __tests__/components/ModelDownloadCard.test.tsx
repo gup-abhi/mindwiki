@@ -6,7 +6,7 @@ import { useModelDownload } from '@/hooks/useModelDownload'
 jest.mock('@/hooks/useModelDownload', () => ({ useModelDownload: jest.fn() }))
 
 const mockHook = useModelDownload as jest.Mock
-const base = { ready: false, canStart: false, downloading: false, progress: 0, deepProgress: null, error: null, download: jest.fn() }
+const base = { ready: false, canStart: false, downloading: false, progress: 0, deepProgress: null, error: null, preference: 'undecided', download: jest.fn(), defer: jest.fn() }
 
 beforeEach(() => jest.clearAllMocks())
 
@@ -18,12 +18,34 @@ describe('ModelDownloadCard', () => {
     expect(render(<ModelDownloadCard />).toJSON()).toBeNull()
   })
 
-  it('shows the prompt and triggers download', () => {
+  it('shows an explicit private-AI choice and starts only after consent', () => {
     const download = jest.fn()
-    mockHook.mockReturnValue({ ...base, ready: false, canStart: false, download })
+    const defer = jest.fn()
+    mockHook.mockReturnValue({ ...base, ready: false, canStart: false, download, defer })
     render(<ModelDownloadCard />)
-    expect(screen.getByText('Download AI models')).toBeTruthy()
-    fireEvent.press(screen.getByTestId('model-download-card'))
+    expect(screen.getByText('Private on-device AI')).toBeTruthy()
+    expect(screen.getByText(/about 3.2 GB/)).toBeTruthy()
+    fireEvent.press(screen.getByTestId('model-download-start'))
+    expect(download).toHaveBeenCalled()
+    fireEvent.press(screen.getByTestId('model-download-defer'))
+    expect(defer).toHaveBeenCalled()
+  })
+
+  it('does not make the deferred choice disappear from the re-entry surface', () => {
+    const defer = jest.fn()
+    mockHook.mockReturnValue({ ...base, preference: 'deferred', defer })
+    render(<ModelDownloadCard />)
+    expect(screen.getByText('Private on-device AI')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('model-download-defer'))
+    expect(defer).toHaveBeenCalled()
+  })
+
+  it('shows a retry action after a failed download', () => {
+    const download = jest.fn()
+    mockHook.mockReturnValue({ ...base, preference: 'consented', error: 'Download failed', download })
+    render(<ModelDownloadCard />)
+    expect(screen.getByText('AI setup needs attention')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('model-download-retry'))
     expect(download).toHaveBeenCalled()
   })
 
@@ -31,7 +53,7 @@ describe('ModelDownloadCard', () => {
     const download = jest.fn()
     mockHook.mockReturnValue({ ...base, ready: false, canStart: false, downloading: true, progress: 0.42, download })
     render(<ModelDownloadCard />)
-    expect(screen.getByText('Downloading… 42%')).toBeTruthy()
+    expect(screen.getByText('Downloading on-device models… 42%')).toBeTruthy()
     fireEvent.press(screen.getByTestId('model-download-card'))
     expect(download).not.toHaveBeenCalled() // disabled mid-download
   })

@@ -56,6 +56,7 @@ jest.mock('@/services/storage/wiki-contributions', () => ({
   insertContribution: jest.fn(),
   insertMissingReceipts: jest.fn(),
   hasContribution: jest.fn(),
+  listContributions: jest.fn(),
 }))
 jest.mock('@/services/storage/entities', () => ({
   listEntitiesForEntry: jest.fn(),
@@ -90,7 +91,8 @@ const mockSetAggUpto = setAggregatedUpto as jest.Mock
 const mockListEntities = listEntitiesForEntry as jest.Mock
 const mockCountEntity = countEntriesForEntity as jest.Mock
 const mockListReframes = listReframesForBelief as jest.Mock
-import { insertContribution, insertMissingReceipts } from '@/services/storage/wiki-contributions'
+import { insertContribution, insertMissingReceipts, listContributions } from '@/services/storage/wiki-contributions'
+const mockListContributions = listContributions as jest.Mock
 const mockUpdateCAS = updatePageCAS as jest.Mock
 const mockListNodes = listNodes as jest.Mock
 const mockListEdges = listEdges as jest.Mock
@@ -300,7 +302,7 @@ describe('updateWikiForEntry', () => {
       category: 'emotion',
       content: expect.stringContaining("started noticing anxiety"),
     })
-    expect(mockTickleCount).toHaveBeenCalledWith('emotion-page')
+    expect(mockTickleCount).toHaveBeenCalledWith('emotion-page', 'e1')
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
@@ -814,6 +816,7 @@ describe('lineageForEntry', () => {
     mockGetByTitle.mockReset()
     mockListEntities.mockReset()
     mockCountEntity.mockReset()
+    mockListContributions.mockReset().mockResolvedValue(ok(['p1']))
     mockListEntities.mockResolvedValue(ok([]))
   })
 
@@ -834,6 +837,7 @@ describe('lineageForEntry', () => {
   })
 
   it('includes a recurring entity page the entry contributed to', async () => {
+    mockListContributions.mockResolvedValue(ok(['pa']))
     mockListEntities.mockResolvedValue(ok([{ id: 'x', entry_id: 'e1', type: 'activity', label: 'App' }]))
     mockCountEntity.mockResolvedValue(ok(2)) // recurred → has a page
     mockGetByTitle.mockImplementation((title: string) =>
@@ -850,6 +854,41 @@ describe('lineageForEntry', () => {
   it('returns an empty list when the entry has touched no live pages', async () => {
     mockGetByTitle.mockResolvedValue(ok(null))
     const res = await lineageForEntry(entry())
+    expect(res.success && res.data).toEqual([])
+  })
+
+  it('excludes a matching page without a durable contribution receipt', async () => {
+    mockListContributions.mockResolvedValue(ok([]))
+    mockGetByTitle.mockResolvedValue(ok(page({ id: 'p1', title: 'Anxiety' })))
+
+    const res = await lineageForEntry(entry({ emotion: 'anxiety' }))
+
+    expect(res.success && res.data).toEqual([])
+  })
+
+  it('returns only receipt-backed pages when topic names match multiple pages', async () => {
+    mockListContributions.mockResolvedValue(ok(['p2']))
+    mockGetByTitle.mockImplementation((title: string) =>
+      title === 'Anxiety'
+        ? Promise.resolve(ok(page({ id: 'p1', title: 'Anxiety' })))
+        : title === 'Catastrophizing'
+          ? Promise.resolve(ok(page({ id: 'p2', title: 'Catastrophizing', category: 'distortion' })))
+          : Promise.resolve(ok(null))
+    )
+
+    const res = await lineageForEntry(entry({ emotion: 'anxiety' }))
+
+    expect(res.success && res.data).toEqual([
+      { id: 'p2', title: 'Catastrophizing', category: 'distortion' },
+    ])
+  })
+
+  it('does not claim lineage when receipt lookup fails', async () => {
+    mockListContributions.mockResolvedValue(err('WIKI_CONTRIBUTION_LIST_FAILED', 'down'))
+    mockGetByTitle.mockResolvedValue(ok(page({ id: 'p1', title: 'Anxiety' })))
+
+    const res = await lineageForEntry(entry({ emotion: 'anxiety' }))
+
     expect(res.success && res.data).toEqual([])
   })
 })
