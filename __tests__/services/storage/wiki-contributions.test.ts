@@ -6,6 +6,7 @@ import { type SqliteDatabase } from '@/services/storage/db'
 import {
   insertContribution,
   hasContribution,
+  listContributions,
   insertMissingReceipts,
 } from '@/services/storage/wiki-contributions'
 
@@ -20,6 +21,16 @@ function createFakeDb() {
         if (contributions.has(key)) return { rows: [], rowsAffected: 0 }
         contributions.set(key, { entry_id: String(entryId), page_id: String(pageId), created_at: Number(createdAt) })
         return { rows: [], rowsAffected: 1 }
+      }
+      if (/^SELECT page_id FROM wiki_page_contributions WHERE entry_id = \? ORDER BY created_at ASC/.test(s)) {
+        const entryId = String(params[0])
+        return {
+          rows: [...contributions.values()]
+            .filter((c) => c.entry_id === entryId)
+            .sort((a, b) => a.created_at - b.created_at)
+            .map((c) => ({ page_id: c.page_id })),
+          rowsAffected: 0,
+        }
       }
       if (/^SELECT entry_id FROM wiki_page_contributions WHERE entry_id = \? AND page_id = \?/.test(s)) {
         const key = `${String(params[0])}::${String(params[1])}`
@@ -84,6 +95,16 @@ describe('wiki_page_contributions — receipt module', () => {
       await insertContribution('e1', 'p1', db)
       const r = await hasContribution('e1', 'p1', db)
       expect(r.success && r.data).toBe(true)
+    })
+  })
+
+  describe('listContributions', () => {
+    it('lists receipt-backed page ids in insertion order', async () => {
+      const { db } = createFakeDb()
+      await insertContribution('e1', 'p1', db)
+      await insertContribution('e1', 'p2', db)
+      const r = await listContributions('e1', db)
+      expect(r.success && r.data).toEqual(['p1', 'p2'])
     })
   })
 

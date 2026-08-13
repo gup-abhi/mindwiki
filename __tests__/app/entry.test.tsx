@@ -74,7 +74,7 @@ describe('EntryScreen (free-write)', () => {
       })
     )
     await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith({ pathname: '/saved', params: { mood: '4' } })
+      expect(mockReplace).toHaveBeenCalledWith({ pathname: '/saved', params: { id: 'e1', mood: '4' } })
     )
   })
 
@@ -239,7 +239,7 @@ describe('EntryScreen (free-write)', () => {
     fireEvent.press(screen.getByTestId('entry-save'))
 
     await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith({ pathname: '/saved', params: { mood: '2' } })
+      expect(mockReplace).toHaveBeenCalledWith({ pathname: '/saved', params: { id: 'e1', mood: '2' } })
     )
     expect(mockReplace).not.toHaveBeenCalledWith(
       expect.objectContaining({ pathname: '/crisis' })

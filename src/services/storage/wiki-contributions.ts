@@ -63,6 +63,22 @@ export async function hasContribution(
   }
 }
 
+/** List the live page ids this entry has actually contributed to. */
+export async function listContributions(
+  entryId: string,
+  db: SqliteDatabase = getDb()
+): Promise<Result<string[]>> {
+  try {
+    const res = await db.execute(
+      'SELECT page_id FROM wiki_page_contributions WHERE entry_id = ? ORDER BY created_at ASC',
+      [entryId]
+    )
+    return ok(res.rows.map((row) => String(row.page_id)))
+  } catch (e) {
+    return err('WIKI_CONTRIBUTION_LIST_FAILED', 'Failed to list wiki contributions', e)
+  }
+}
+
 /**
  * Bulk-insert missing receipts for a set of (entry_id, page_id) pairs — used by
  * re-ground maintenance to record every local matching source now represented by
