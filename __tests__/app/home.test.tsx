@@ -125,7 +125,7 @@ describe('Home dashboard', () => {
     mockList.mockResolvedValue(ok([]))
     useWikiStore.setState({ pending: 1 })
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('Synthesizing your insights…')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Private synthesis in progress')).toBeTruthy())
   })
 
   it('shows the weekly digest card once enough recent entries exist', async () => {
@@ -191,6 +191,7 @@ describe('Home dashboard', () => {
     expect(screen.getByText('Untangle a thought')).toBeTruthy()
     expect(screen.getByText('Untangle a difficult thought, one step at a time.')).toBeTruthy()
     expect(screen.getByText('Recent entries')).toBeTruthy()
+    expect(screen.queryByTestId('streak-rescue')).toBeNull()
 
     fireEvent.press(screen.getByTestId('home-new-entry'))
     expect(mockPush).toHaveBeenCalledWith('/entry')

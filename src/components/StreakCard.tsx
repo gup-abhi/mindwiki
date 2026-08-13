@@ -33,13 +33,13 @@ export function StreakCard({ current, longest, week, headline, entries, insights
       <View style={styles.topRow}>
         <View>
           {current > 0 ? (
-            <Text variant="display">🔥 {current}</Text>
+            <Text variant="display">{current}</Text>
           ) : (
-            <Text variant="subtitle">Start your streak</Text>
+            <Text variant="subtitle">Start a reflection rhythm</Text>
           )}
           {current > 0 ? (
             <Text variant="caption" color="textMuted">
-              day streak
+              days in a row
             </Text>
           ) : null}
         </View>
