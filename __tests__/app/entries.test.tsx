@@ -84,10 +84,20 @@ describe('Entries archive screen', () => {
     expect(mockBack).toHaveBeenCalled()
   })
 
-  it('routes row and compose actions, and loads more at list end', () => {
+  it('routes every visible row, including entries after the first three', () => {
+    mockArchive.mockReturnValue(state({
+      entries: [entry('e1'), entry('e2'), entry('e3'), entry('e4')],
+      total: 4,
+    }))
     render(<EntriesScreen />)
-    fireEvent.press(screen.getByText('situation e1'))
-    expect(mockPush).toHaveBeenCalledWith('/entries/e1')
+
+    fireEvent.press(screen.getByText('situation e4'))
+
+    expect(mockPush).toHaveBeenCalledWith('/entries/e4')
+  })
+
+  it('routes compose actions and loads more at list end', () => {
+    render(<EntriesScreen />)
     fireEvent.press(screen.getByTestId('entries-new'))
     expect(mockPush).toHaveBeenCalledWith('/entry')
     const list = screen.UNSAFE_getByType(require('react-native').SectionList)

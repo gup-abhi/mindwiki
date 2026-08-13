@@ -1,5 +1,5 @@
-import { memo } from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import { memo, useRef } from 'react'
+import { Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native'
 
 import { Text } from '@/components/ui'
 import { type Entry } from '@/services/storage/entries'
@@ -18,7 +18,61 @@ interface EntryCardProps {
  * tags, and a short preview of what was written. Memoized — lists re-render. */
 function EntryCardBase({ entry, onPress }: EntryCardProps) {
   const styles = useThemedStyles(makeStyles)
+  const androidPressStart = useRef<{ pageX: number; pageY: number } | null>(null)
+  const androidPressMoved = useRef(false)
+  const androidPressHandled = useRef(false)
   const moodOnly = entry.situation.trim() === '' && entry.thought.trim() === ''
+
+  const handlePressIn = (event: GestureResponderEvent) => {
+    if (Platform.OS !== 'android') return
+    androidPressHandled.current = false
+    androidPressMoved.current = false
+    androidPressStart.current = {
+      pageX: event.nativeEvent.pageX,
+      pageY: event.nativeEvent.pageY,
+    }
+  }
+
+  const handlePressMove = (event: GestureResponderEvent) => {
+    if (Platform.OS !== 'android') return
+    const start = androidPressStart.current
+    if (start == null) return
+    const moved = Math.hypot(
+      event.nativeEvent.pageX - start.pageX,
+      event.nativeEvent.pageY - start.pageY
+    )
+    if (moved > 8) androidPressMoved.current = true
+  }
+
+  const handlePressOut = (event: GestureResponderEvent) => {
+    if (Platform.OS !== 'android') return
+    const start = androidPressStart.current
+    const movedDuringPress = androidPressMoved.current
+    androidPressStart.current = null
+    androidPressMoved.current = false
+    if (start == null) return
+    if (movedDuringPress) return
+
+    const moved = Math.hypot(
+      event.nativeEvent.pageX - start.pageX,
+      event.nativeEvent.pageY - start.pageY
+    )
+    if (moved > 8) return
+
+    androidPressHandled.current = true
+    onPress()
+    setTimeout(() => {
+      androidPressHandled.current = false
+    }, 0)
+  }
+
+  const handleNativePress = () => {
+    if (Platform.OS === 'android' && (androidPressHandled.current || androidPressStart.current != null)) {
+      androidPressHandled.current = false
+      return
+    }
+    onPress()
+  }
   const preview = entry.situation.trim() || entry.thought.trim() || 'Mood check-in.'
   const metadata = [
     moodLabel(entry.mood),
@@ -40,7 +94,10 @@ function EntryCardBase({ entry, onPress }: EntryCardProps) {
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={onPress}
+      onPressIn={handlePressIn}
+      onTouchMove={handlePressMove}
+      onPressOut={handlePressOut}
+      onPress={handleNativePress}
       accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
