@@ -13,6 +13,11 @@ jest.mock('@/services/pipeline', () => ({
   triggerCatchUp: jest.fn(),
 }))
 
+jest.mock('@/services/onboarding/first-run', () => ({
+  getModelDownloadPreference: jest.fn(() => Promise.resolve('undecided')),
+  setModelDownloadPreference: jest.fn(() => Promise.resolve()),
+}))
+
 const mockReady = areModelsReady as jest.Mock
 const mockCanStart = canStart as jest.Mock
 const mockDownload = downloadModel as jest.Mock

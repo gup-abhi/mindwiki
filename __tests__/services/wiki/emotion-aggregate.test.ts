@@ -205,7 +205,7 @@ describe('updateWikiForEntry — emotion routing', () => {
 
     const res = await updateWikiForEntry(entry())
 
-    expect(mockTickle).toHaveBeenCalledWith('p1')
+    expect(mockTickle).toHaveBeenCalledWith('p1', 'e1')
     // The emotion page is silently tickled — it is not in the returned titles.
     expect(res.success && res.data).toEqual([])
   })
@@ -223,7 +223,7 @@ describe('updateWikiForEntry — emotion routing', () => {
       category: 'emotion',
       content: expect.stringContaining('anxiety'),
     })
-    expect(mockTickle).toHaveBeenCalledWith('new-p')
+    expect(mockTickle).toHaveBeenCalledWith('new-p', 'e1')
   })
 })
 

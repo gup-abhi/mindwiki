@@ -9,6 +9,10 @@ jest.mock('expo-router', () => ({
 jest.mock('@/services/storage/entries', () => ({
   listEntries: jest.fn().mockResolvedValue({ success: true, data: [] }),
 }))
+jest.mock('@/services/onboarding/first-run', () => ({
+  getModelDownloadPreference: jest.fn().mockResolvedValue('undecided'),
+  setModelDownloadPreference: jest.fn().mockResolvedValue(undefined),
+}))
 
 describe('Home screen', () => {
   it('renders the home screen', async () => {

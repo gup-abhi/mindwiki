@@ -25,8 +25,12 @@
       "/node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|zustand|immer|@scure/.*|@noble/.*)",
       "/node_modules/react-native-reanimated/plugin/"
     ],
+    "modulePathIgnorePatterns": [
+      "<rootDir>/.claude/worktrees/"
+    ],
     "testPathIgnorePatterns": [
       "/node_modules/",
+      "<rootDir>/.claude/worktrees/",
       "fixtures/"
     ]
   },
