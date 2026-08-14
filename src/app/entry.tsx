@@ -15,7 +15,7 @@ import { useJournalEntry } from '@/hooks/useJournalEntry'
 
 // The written text is the only thing worth protecting as a draft — losing it to
 // an app switch or restart is the real cost. A bare grid/feeling pick isn't.
-const hasText = (d: EntryDraft): boolean => !!d.body.trim()
+const hasText = (d: EntryDraft): boolean => !!d.body.trim() || !!d.thought.trim()
 // Anything at all has been entered (controls the "Clear" affordance).
 const hasAnything = (d: EntryDraft): boolean =>
   d.mood != null || d.energy != null || !!d.emotion || !!d.body.trim() || !!d.thought.trim()

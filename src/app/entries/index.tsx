@@ -77,6 +77,9 @@ export default function EntriesScreen() {
             size={20}
             color={searchOpen ? theme.colors.accent : theme.colors.textSecondary}
           />
+          <Text variant="label" color={searchOpen ? 'accent' : 'textSecondary'}>
+            {searchOpen ? 'Close' : 'Search'}
+          </Text>
         </Pressable>
         <ScrollView
           horizontal
@@ -185,7 +188,7 @@ const makeStyles = (t: Theme) =>
     content: { paddingBottom: t.spacing['3xl'] },
     header: { paddingTop: t.spacing.lg, paddingHorizontal: t.spacing.xl, paddingBottom: t.spacing.md, gap: t.spacing.md },
     filterBar: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
-    searchBtn: { paddingVertical: t.spacing.xs },
+    searchBtn: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.xs, paddingVertical: t.spacing.xs },
     searchField: { marginTop: -t.spacing.xs },
     topRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
     back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },

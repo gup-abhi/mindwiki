@@ -7,6 +7,7 @@ import { type Theme, moodColorKey, moodLabel, useThemedStyles } from '@/theme'
 import { useEntries, useEntry, useEntryNeighbors } from '@/hooks/useEntries'
 import { useGraph } from '@/hooks/useGraph'
 import { useEntryLineage } from '@/hooks/useWiki'
+import { entryPreview } from '@/lib/entry-display'
 
 function formatShortDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -140,7 +141,6 @@ export default function EntryDetailScreen() {
   // as one pill — and so the key={label} in tags.map below can't collide.
   const seenTags = new Set<string>()
   const tags = [
-    entry.emotion,
     entry.distortion && entry.distortion !== 'none' ? entry.distortion : null,
     entry.topic,
     entry.topic2,
@@ -178,6 +178,9 @@ export default function EntryDetailScreen() {
         {formatDate(entry.created_at)}
       </Text>
       <MoodChip mood={entry.mood} />
+
+      {entry.named_emotion ? <Section label="You named" value={entry.named_emotion} /> : null}
+      {entry.emotion ? <Section label="MindWiki noticed" value={entry.emotion} /> : null}
 
       {entry.situation.trim() ? (
         <Text variant="body" style={[styles.prose, styles.situation]}>
@@ -258,7 +261,7 @@ export default function EntryDetailScreen() {
               style={styles.linkRow}
             >
               <Text variant="body" numberOfLines={1}>
-                {e.situation}
+                {entryPreview(e)}
               </Text>
               <Text variant="caption" color="textMuted">
                 {formatShortDate(e.created_at)}

@@ -10,7 +10,13 @@ import { type Theme, useTheme, useThemedStyles } from '@/theme'
  * never stored on-device, so this is the only chance to save it — a checkbox
  * gates "Continue" so the user can't blow past it. On confirm, the app enters.
  */
-export function RecoveryPhraseView({ phrase, onConfirm }: { phrase: string; onConfirm: () => void }) {
+export function RecoveryPhraseView({ phrase, onConfirm, onRetry, loading = false, error }: {
+  phrase: string
+  onConfirm: () => void | Promise<void | boolean>
+  onRetry?: () => void
+  loading?: boolean
+  error?: string | null
+}) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const [saved, setSaved] = useState(false)
@@ -53,8 +59,15 @@ export function RecoveryPhraseView({ phrase, onConfirm }: { phrase: string; onCo
         </Text>
       </Pressable>
 
+      {error && <Text variant="caption" color="danger" style={styles.error}>{error}</Text>}
+      {error && onRetry && (
+        <View style={styles.retry}>
+          <Button title="Try again" variant="secondary" fullWidth onPress={onRetry} disabled={loading} testID="recovery-retry" />
+        </View>
+      )}
+
       <View style={styles.continue}>
-        <Button title="Continue" disabled={!saved} fullWidth onPress={onConfirm} testID="recovery-continue" />
+        <Button title="Continue" loading={loading} disabled={!saved || loading} fullWidth onPress={onConfirm} testID="recovery-continue" />
       </View>
     </ScrollView>
   )
@@ -79,5 +92,7 @@ const makeStyles = (t: Theme) =>
     wordIndex: { width: 22, fontVariant: ['tabular-nums'] },
     checkboxRow: { flexDirection: 'row', alignItems: 'center', marginTop: t.spacing.xl, gap: t.spacing.sm },
     checkboxLabel: { flexShrink: 1 },
+    error: { marginTop: t.spacing.md },
+    retry: { marginTop: t.spacing.md },
     continue: { marginTop: t.spacing.xl },
   })

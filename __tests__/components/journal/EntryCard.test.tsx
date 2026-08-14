@@ -33,6 +33,7 @@ describe('EntryCard', () => {
     render(<EntryCard entry={make({ thought: 'A thought without situation' })} onPress={onPress} />)
     expect(screen.getByText('A thought without situation')).toBeTruthy()
     expect(screen.getByRole('button').props.accessibilityLabel).toContain('Good')
+    expect(screen.getByRole('button').props.accessibilityLabel).not.toContain('A thought without situation')
     fireEvent.press(screen.getByRole('button'))
     expect(onPress).toHaveBeenCalled()
   })

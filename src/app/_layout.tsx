@@ -181,6 +181,10 @@ function AppGate() {
     )
   }
 
+  if (authStatus === 'recovery_pending') {
+    return <AuthScreen />
+  }
+
   if (authStatus === 'unauthenticated') {
     if (!introDone) {
       const finishIntro = async (mode: AuthMode) => {

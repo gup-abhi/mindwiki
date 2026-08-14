@@ -73,6 +73,18 @@ describe('EntryDetailScreen', () => {
     expect(screen.getByText('Work')).toBeTruthy()
   })
 
+  it('separates the user-named feeling from the model observation', () => {
+    mockUseEntry.mockReturnValue({
+      entry: make({ named_emotion: 'Calm', emotion: 'anxiety' }),
+      loading: false,
+    })
+    render(<EntryDetailScreen />)
+    expect(screen.getByText('You named')).toBeTruthy()
+    expect(screen.getByText('Calm')).toBeTruthy()
+    expect(screen.getByText('MindWiki noticed')).toBeTruthy()
+    expect(screen.getByText('anxiety')).toBeTruthy()
+  })
+
   it('renders a label shared by two tags (emotion == topic) as a single pill', () => {
     // The model can tag the same word as both the feeling and the theme. It must
     // collapse to one pill — otherwise tags.map's key={label} collides.
@@ -81,7 +93,7 @@ describe('EntryDetailScreen', () => {
       loading: false,
     })
     render(<EntryDetailScreen />)
-    expect(screen.getAllByText('Loneliness')).toHaveLength(1)
+    expect(screen.getAllByText('Loneliness')).toHaveLength(2)
   })
 
   it('navigates to the older neighbour and disables Newer at the newest entry', () => {
@@ -109,7 +121,7 @@ describe('EntryDetailScreen', () => {
     render(<EntryDetailScreen />)
     expect(screen.queryByText('Shaped these pages')).toBeNull()
     expect(screen.getByText('Tap a highlighted tag to open the page it shaped.')).toBeTruthy()
-    fireEvent.press(screen.getByText('anxiety ›'))
+    fireEvent.press(screen.getByText('Anxiety ›'))
     expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
   })
 

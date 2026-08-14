@@ -46,6 +46,40 @@ describe('useJournalEntry', () => {
     expect(mockCreateEntry).not.toHaveBeenCalled()
   })
 
+  it('submit returns an error when energy is missing', async () => {
+    const { result } = renderHook(() => useJournalEntry())
+    act(() =>
+      result.current.hydrate({ mood: 4, energy: null, body: '', thought: '', emotion: 'Calm' })
+    )
+
+    let res
+    await act(async () => {
+      res = await result.current.submit()
+    })
+    expect(res!.success).toBe(false)
+    if (!res!.success) {
+      expect(res!.error.code).toBe('ENTRY_INVALID')
+      expect(res!.error.message).toBe('Choose your energy level first')
+    }
+    expect(mockCreateEntry).not.toHaveBeenCalled()
+  })
+
+  it('submit returns an error when the named feeling is missing', async () => {
+    const { result } = renderHook(() => useJournalEntry())
+    act(() => result.current.setAffect(4, 5))
+
+    let res
+    await act(async () => {
+      res = await result.current.submit()
+    })
+    expect(res!.success).toBe(false)
+    if (!res!.success) {
+      expect(res!.error.code).toBe('ENTRY_INVALID')
+      expect(res!.error.message).toBe('Name how you’re feeling first')
+    }
+    expect(mockCreateEntry).not.toHaveBeenCalled()
+  })
+
   it('maps the trimmed body to situation, includes the optional thought, and resets', async () => {
     const saved = { id: 'e1', mood: 4 }
     mockCreateEntry.mockResolvedValue(ok(saved))
@@ -53,6 +87,7 @@ describe('useJournalEntry', () => {
     const { result } = renderHook(() => useJournalEntry())
     act(() => {
       result.current.setAffect(4, 5)
+      result.current.setEmotion('Excited')
       result.current.setBody('  a long rough day  ')
       result.current.setThought('I will fail')
     })
@@ -66,7 +101,7 @@ describe('useJournalEntry', () => {
       mood: 4,
       situation: 'a long rough day',
       thought: 'I will fail',
-      named_emotion: null,
+      named_emotion: 'Excited',
       energy: 5,
       behavior: null,
       closing_note: null,

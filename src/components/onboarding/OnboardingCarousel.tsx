@@ -96,7 +96,9 @@ export function OnboardingCarousel({ onDone, onSignIn }: OnboardingCarouselProps
         {confirmSkip ? (
           <View style={styles.confirmRow}>
             <Text variant="caption" color="textMuted" style={styles.confirmCopy}>
-              {isAccountEntry ? 'You can choose later whether to download private on-device AI.' : 'Close the introduction?'}
+              {isAccountEntry
+                ? 'Skip the introduction and continue to account setup. You can replay it in Settings; on-device AI remains optional.'
+                : 'Skip the introduction? You can replay it later in Settings.'}
             </Text>
             <Pressable onPress={() => { setConfirmSkip(false) }} hitSlop={8} testID="onboarding-skip-cancel">
               <Text variant="label" color="textMuted">

@@ -22,8 +22,8 @@ import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { updateWikiForEntry, maybeRefreshEmotionPages } from '@/services/wiki/engine'
 import { useWikiStore } from '@/store/wiki.store'
 import { useSyncStore } from '@/store/sync.store'
-import { announceFirstRunPageIfPending } from '@/services/onboarding/first-run'
-import { sendFirstPageReadyNotification, onEntrySaved } from '@/services/notifications/scheduler'
+import { announceFirstRunPageAfterIndexing } from '@/services/onboarding/first-run'
+import { onEntrySaved } from '@/services/notifications/scheduler'
 import { reconcileNotifications, recordEntrySaved } from '@/services/notifications/orchestrator'
 import { startSessionWork } from '@/services/auth/session-work'
 
@@ -232,12 +232,9 @@ export async function catchUpUnindexed(): Promise<void> {
     }
   }
 
-  // Deferred aha moment (P1): if the first run completed but its entries were
-  // synthesized only just now (the deep model was absent during the funnel), the
-  // path runner deferred. Now those entries have pages — announce once via a Home
-  // banner marker + a local notification. Idempotent across passes via the marker.
-  const readyPage = await announceFirstRunPageIfPending()
-  if (readyPage) void sendFirstPageReadyNotification(readyPage)
+  // Deferred aha moment: if the first run completed but its entries were
+  // synthesized only just now, announce once via the durable Home receipt.
+  await announceFirstRunPageAfterIndexing()
 
   // Pass 2: entries tagged but whose wiki synthesis was interrupted (tagged_at is
   // set before the fire-and-forget wiki step). Re-run ONLY the wiki step — tags
@@ -641,4 +638,5 @@ async function indexPathEntries(entries: Entry[]): Promise<void> {
     if (!ex.success) continue
     await indexFromExtract(entry, ex.data)
   }
+  await announceFirstRunPageAfterIndexing()
 }

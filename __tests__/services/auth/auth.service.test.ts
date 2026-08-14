@@ -14,6 +14,7 @@ import {
 import { wrapMasterKey } from '@/services/auth/crypto'
 import { generateRecoveryPhrase, recoveryKeyFromPhrase } from '@/services/auth/recovery'
 import { saveTokens, getTokens, clearTokens } from '@/services/auth/token-store'
+import { getRecoveryPending, setRecoveryPending, clearRecoveryPending } from '@/services/auth/recovery-pending-marker'
 import { deleteDatabase, beginWipe, endWipe } from '@/services/storage/db'
 import { resetSessionStores } from '@/services/auth/session-reset'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
@@ -62,6 +63,11 @@ jest.mock('@/services/auth/token-store', () => ({
   clearTokens: jest.fn(),
   getTokens: jest.fn(),
 }))
+jest.mock('@/services/auth/recovery-pending-marker', () => ({
+  setRecoveryPending: jest.fn(),
+  clearRecoveryPending: jest.fn(),
+  getRecoveryPending: jest.fn(),
+}))
 // R2/R3: wipe-marker is a unit of its own (wipe-marker.test.ts); stub it here so
 // auth.service tests can spy on whether the repair/wipe-markers were invoked.
 jest.mock('@/services/auth/wipe-marker', () => ({
@@ -98,6 +104,9 @@ const mockSetKeyOwner = CryptoModule.setKeyOwner as jest.Mock
 const mockDeleteKeyOwner = CryptoModule.deleteKeyOwner as jest.Mock
 const mockSave = saveTokens as jest.Mock
 const mockGetTokens = getTokens as jest.Mock
+const mockGetPending = getRecoveryPending as jest.Mock
+const mockSetPending = setRecoveryPending as jest.Mock
+const mockClearPending = clearRecoveryPending as jest.Mock
 const mockClear = clearTokens as jest.Mock
 const mockDeleteDb = deleteDatabase as jest.Mock
 const mockBeginWipe = beginWipe as jest.Mock
@@ -133,6 +142,7 @@ beforeEach(() => {
   mockCleanupNotifications.mockResolvedValue(ok(undefined))
   mockWaitForNotifications.mockResolvedValue(undefined)
   mockGetDeletionState.mockResolvedValue(null)
+  mockGetPending.mockResolvedValue(null)
 })
 
 describe('register', () => {
@@ -156,7 +166,7 @@ describe('register', () => {
     expect(body.device_label).toBe('Test Model') // hardware model, not the user-editable device name
     expect(body.platform).toBeTruthy()
     expect(body.device_id).toBe('dev-1') // stable id so logout can remove this exact row
-    expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1', status: 'pending_ack' })
     // auth state is deferred until the user acknowledges the recovery phrase
     expect(useAuthStore.getState().status).not.toBe('authenticated')
   })
@@ -257,7 +267,7 @@ describe('recoverAccount', () => {
     expect(res).toEqual({ success: true, data: { accountId: 'acc1' } })
     expect(mockSetKey).toHaveBeenCalledWith(MASTER)
     expect(mockSetKeyOwner).toHaveBeenCalledWith('acc1') // R3: ownership recorded
-    expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1', status: 'active' })
     // recovery is a wizard — auth is flipped by the hook only after changePassword
     expect(useAuthStore.getState().status).not.toBe('authenticated')
   })
@@ -674,7 +684,7 @@ describe('register (account isolation, R3)', () => {
     expect(mockDeleteKeyOwner).toHaveBeenCalled()
     expect(mockSetKey).toHaveBeenCalledWith(expect.any(String))
     expect(mockSetKeyOwner).toHaveBeenCalledWith('acc1')
-    expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1' })
+    expect(mockSave).toHaveBeenCalledWith({ accessToken: 'at', refreshToken: 'rt', accountId: 'acc1', status: 'pending_ack' })
   })
 })
 

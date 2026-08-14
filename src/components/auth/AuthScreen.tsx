@@ -29,10 +29,34 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
   const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
-  const { submit, submitting, error, pendingPhrase, confirmPhrase } = useAuth()
+  const { submit, submitting, error, pendingPhrase, recoveryPending, confirmPhrase, retryPendingRecovery } = useAuth()
+
+  if (recoveryPending && !pendingPhrase) {
+    return (
+      <View style={styles.pendingGate}>
+        <Text variant="heading">Recovery phrase setup</Text>
+        <Text variant="body" color="textSecondary" style={styles.subtitle}>
+          {error ?? 'Preparing a fresh recovery phrase for this account.'}
+        </Text>
+        <View style={styles.submit}>
+          <Button title="Try again" variant="secondary" loading={submitting} disabled={submitting} fullWidth onPress={retryPendingRecovery} testID="recovery-retry" />
+        </View>
+      </View>
+    )
+  }
 
   // After a successful register, show the recovery phrase once before entering.
-  if (pendingPhrase) return <RecoveryPhraseView phrase={pendingPhrase.phrase} onConfirm={confirmPhrase} />
+  if (pendingPhrase) {
+    return (
+      <RecoveryPhraseView
+        phrase={pendingPhrase.phrase}
+        onConfirm={confirmPhrase}
+        onRetry={retryPendingRecovery}
+        loading={submitting}
+        error={error}
+      />
+    )
+  }
   if (recovering) return <RecoverScreen onCancel={() => setRecovering(false)} />
   if (scanning) return <PairScanScreen onCancel={() => setScanning(false)} />
 
@@ -180,6 +204,7 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: t.colors.bg },
+    pendingGate: { flex: 1, justifyContent: 'center', padding: t.spacing['2xl'], backgroundColor: t.colors.bg },
     body: { flex: 1, justifyContent: 'center', padding: t.spacing['2xl'] },
     subtitle: { marginTop: t.spacing.sm },
     input: {

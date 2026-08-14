@@ -200,7 +200,7 @@ export default function YouScreen() {
                   <Card variant="sunken" style={styles.hintCard} testID="you-intro-hint">
                     <View style={styles.hintRow}>
                       <Text variant="caption" color="textSecondary" style={styles.hintText}>
-                        Your insight pages live here; the Connections view shows how they relate.
+                        Your insight pages live here; the Map segment shows how they relate.
                       </Text>
                       <Chip
                         label="Got it"

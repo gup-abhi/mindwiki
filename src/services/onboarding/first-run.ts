@@ -2,7 +2,8 @@ import { getEntry } from '@/services/storage/entries'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
 import { lineageForEntry } from '@/services/wiki/engine'
-import { areModelsReady, downloadModel, isModelDownloaded } from '@/services/llm/model-manager'
+import { getPage } from '@/services/storage/wiki'
+import { isModelDownloaded } from '@/services/llm/model-manager'
 import { useAuthStore } from '@/store/auth.store'
 
 // Settings keys (persisted across sessions, never synced).
@@ -23,11 +24,27 @@ export async function setModelDownloadPreference(preference: Exclude<ModelDownlo
   await setSetting(MODEL_DOWNLOAD_PREFERENCE, preference).catch(() => undefined)
 }
 
-// One-shot marker carrying the first synthesized wiki page's {id,title} so Home
-// can surface a deferred "your first insight page is ready" banner/notification
-// after the deep model finishes — the aha moment, deferred not lost.
+// Durable receipt carrying only the first synthesized wiki page ID. Home resolves
+// the current title locally when it renders the banner.
 export const FIRST_RUN_PAGE_READY = 'onboarding:first_run_page_ready'
 const ANNOUNCE_POLL_TIMEOUT_MS = 10_000
+
+export interface FirstRunPageReceipt {
+  id: string
+}
+
+function parseFirstRunPageReceipt(raw: string | null): FirstRunPageReceipt | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && typeof (parsed as { id?: unknown }).id === 'string') {
+      return { id: (parsed as { id: string }).id }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
 
 // The path most suitable for a first-run — broad appeal, 4 prompts (not
 // too long), no specific external event needed.
@@ -125,67 +142,47 @@ export async function markFirstRunComplete(entryIds: string[]): Promise<void> {
   await setSetting(FIRST_RUN_ENTRY_IDS, JSON.stringify(entryIds))
 }
 
-/** True iff the post-registration writing flow hasn't marked complete — the gate
- *  the decoupled download kick (AppRoot) uses on launch. Best-effort: treats read
- *  failure as "incomplete". */
-export async function isOnboardingIncomplete(): Promise<boolean> {
-  const res = await getSetting(FIRST_RUN_FLAG)
-  return !(res.success && res.data === '1')
+/**
+ * Store the first synthesized wiki page as an opaque durable receipt.
+ */
+export async function markFirstRunPageReady(pageId: string): Promise<void> {
+  await setSetting(FIRST_RUN_PAGE_READY, JSON.stringify({ id: pageId })).catch(() => undefined)
 }
 
-/**
- * Store the first synthesized wiki page so Home can show a deferred banner after
- * the deep model finishes. Best-effort, never throws.
- */
-export async function markFirstRunPageReady(pageId: string, title: string): Promise<void> {
-  await setSetting(FIRST_RUN_PAGE_READY, JSON.stringify({ id: pageId, title })).catch(
-    () => undefined
-  )
-}
-
-/**
- * Read (and clear) the deferred first-page-ready marker. One-shot: a second call
- * returns null so the banner/notification never re-fires. Returns null on miss or
- * parse error (treated as already-announced). Best-effort, never throws.
- */
-export async function getFirstRunPageReady(): Promise<{ id: string; title: string } | null> {
+/** Read the pending receipt without mutating it. */
+export async function peekFirstRunPageReady(): Promise<FirstRunPageReceipt | null> {
   try {
     const res = await getSetting(FIRST_RUN_PAGE_READY)
-    if (!res.success || !res.data) return null
-    // Clear unconditionally first so a crash mid-read can't re-announce.
-    await setSetting(FIRST_RUN_PAGE_READY, '').catch(() => undefined)
-    const parsed: unknown = JSON.parse(res.data)
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof (parsed as { id?: unknown }).id === 'string' &&
-      typeof (parsed as { title?: unknown }).title === 'string'
-    ) {
-      return parsed as { id: string; title: string }
-    }
-    return null
+    return res.success ? parseFirstRunPageReceipt(res.data) : null
   } catch {
     return null
   }
 }
 
-/**
- * Called from catch-up after the deep model heals first-run entries. If the
- * first run is complete AND those entries have now synthesized into a wiki page,
- * record the page-ready marker and return it so the caller fires a notification.
- * Idempotent across passes: once the marker is set, subsequent calls return null.
- * Best-effort, never throws.
- */
+/** Acknowledge the pending receipt after the user opens or dismisses it. */
+export async function clearFirstRunPageReady(): Promise<void> {
+  await setSetting(FIRST_RUN_PAGE_READY, '').catch(() => undefined)
+}
+
+/** Resolve a pending receipt to the current local page title. */
+export async function resolveFirstRunPageReady(): Promise<{ id: string; title: string } | null> {
+  const receipt = await peekFirstRunPageReady()
+  if (!receipt) return null
+  const page = await getPage(receipt.id)
+  return page.success && page.data
+    ? { id: receipt.id, title: page.data.title }
+    : { id: receipt.id, title: 'Your first insight' }
+}
+
+/** Backwards-compatible read alias; unlike the old API, it never clears state. */
+export const getFirstRunPageReady = resolveFirstRunPageReady
+
+/** Announce a completed first-run page once, preserving the durable receipt. */
 export async function announceFirstRunPageIfPending(): Promise<{ id: string; title: string } | null> {
   try {
-    // Only for a completed first run; an in-progress run's path runner routes live.
+    if (await peekFirstRunPageReady()) return null
     const complete = await getSetting(FIRST_RUN_FLAG)
     if (!(complete.success && complete.data === '1')) return null
-
-    // Already announced — don't re-fire.
-    const existing = await getSetting(FIRST_RUN_PAGE_READY)
-    if (existing.success && existing.data) return null
-
     const idsRes = await getSetting(FIRST_RUN_ENTRY_IDS)
     if (!idsRes.success || !idsRes.data) return null
     let entryIds: string[] = []
@@ -196,13 +193,21 @@ export async function announceFirstRunPageIfPending(): Promise<{ id: string; tit
       return null
     }
     if (entryIds.length === 0) return null
-
     const page = await firstWikiPage(entryIds, ANNOUNCE_POLL_TIMEOUT_MS)
     if (!page) return null
-    await markFirstRunPageReady(page.id, page.title)
+    await markFirstRunPageReady(page.id)
     return page
   } catch {
     return null
+  }
+}
+
+/** Best-effort completion announcement; safe to call from every indexing path. */
+export async function announceFirstRunPageAfterIndexing(): Promise<void> {
+  const page = await announceFirstRunPageIfPending()
+  if (page) {
+    const { sendFirstPageReadyNotification } = await import('@/services/notifications/scheduler')
+    void sendFirstPageReadyNotification(page)
   }
 }
 
@@ -262,49 +267,4 @@ export async function firstWikiPage(
   }
 
   return null
-}
-
-// Once-per-session guard: the launch kick may re-run across renders, and we must
-// not start two concurrent downloads of the same file.
-let _onboardingDownloadStarted = false
-
-/**
- * Kick off model download after registration, so a fresh user's models arrive
- * in the background while they complete the guided path. Fire-and-forget: never
- * awaited, never throws.
- *
- * Staged to mirror useModelDownload.download() (the Home ModelDownloadCard) but
- * without React state — the fast model unblocks journaling, then the deep model
- * downloads behind the user and triggers catch-up synthesis of any path entries
- * captured before it arrived, then the optional embed model.
- *
- * No-ops if both required models are already present (re-install with models on
- * disk) or if it has already run this session.
- */
-export function beginOnboardingModelDownload(): void {
-  if (_onboardingDownloadStarted) return
-  _onboardingDownloadStarted = true
-
-  void (async () => {
-    if (await areModelsReady()) return
-
-    // Phase 0: fast model — required to start journaling. Stop on failure; the
-    // Home ModelDownloadCard remains as the user's retry path.
-    const fastRes = await downloadModel('fast')
-    if (!fastRes.success) return
-
-    // Phase 1: deep model in the background. On success, heal any path entries
-    // captured before it arrived, then fetch the optional embed model.
-    const deepRes = await downloadModel('deep')
-    if (!deepRes.success) return
-    // Lazy require to break the pipeline ↔ first-run require cycle (Metro warns
-    // a static cycle can yield uninitialized values). Resolved at call time, not
-    // module load — by here both modules are fully initialized. We use require()
-    // rather than dynamic import() so Jest's module registry (and the pipeline
-    // mock in first-run.test.ts) still applies without --experimental-vm-modules.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { triggerCatchUp } = require('@/services/pipeline') as typeof import('@/services/pipeline')
-    void triggerCatchUp()
-    void downloadModel('embed')
-  })()
 }

@@ -23,6 +23,7 @@ import {
 import { resetSessionStores } from './session-reset'
 import { invalidateSessionWork, resumeSessionWork, waitForSessionWork } from './session-work'
 import { clearAccountTransition, repairAccountTransition, setAccountTransition } from './account-transition'
+import { clearRecoveryPending, getRecoveryPending, setRecoveryPending } from './recovery-pending-marker'
 import { getTokens, saveTokens, clearTokens } from './token-store'
 import * as tokenStore from './token-store'
 import {
@@ -43,6 +44,17 @@ const SERVER_LOGOUT_TIMEOUT_MS = 5_000
 const SERVER_DELETE_READINESS_TIMEOUT_MS = 5_000
 let logoutFlight: Promise<void> | null = null
 let deleteAccountFlight: Promise<Result<true>> | null = null
+let pendingRecoveryPhrase: string | null = null
+
+export function getPendingRecoveryPhrase(): string | null {
+  return pendingRecoveryPhrase
+}
+
+export async function preparePendingRecovery(): Promise<Result<{ recoveryPhrase: string }>> {
+  const result = await addRecoveryPhrase()
+  if (result.success) pendingRecoveryPhrase = result.data.recoveryPhrase
+  return result
+}
 
 async function randomHex(bytes: number): Promise<string> {
   const arr = await getRandomBytesAsync(bytes)
@@ -64,6 +76,7 @@ interface AuthResponse {
   refresh_token: string
   key_escrow?: { encrypted_key: string; salt: string }
   recovery_escrow?: { encrypted_key: string }
+  status?: 'pending_ack' | 'active'
 }
 
 /**
@@ -83,7 +96,7 @@ interface AuthResponse {
 export async function register(
   email: string,
   password: string
-): Promise<Result<{ accountId: string; recoveryPhrase: string }>> {
+): Promise<Result<{ accountId: string; recoveryPhrase: string; status: 'pending_ack' | 'active' }>> {
   try {
     // Repair only an interrupted explicit wipe. Do not destroy retained local
     // state before server registration accepts this new account.
@@ -130,8 +143,14 @@ export async function register(
     await setAccountTransition({
       accountId: data.account_id,
       masterKey,
-      tokens: { accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id },
+      tokens: {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        accountId: data.account_id,
+        status: data.status ?? 'pending_ack',
+      },
     })
+    await setRecoveryPending({ accountId: data.account_id, phase: 'needs_phrase' })
     await setWipePending()
     beginWipe()
     try {
@@ -140,7 +159,12 @@ export async function register(
       await CryptoModule.deleteKeyOwner()
       await CryptoModule.setKeyInKeychain(masterKey)
       await CryptoModule.setKeyOwner(data.account_id)
-      await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
+      await saveTokens({
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        accountId: data.account_id,
+        status: data.status ?? 'pending_ack',
+      })
       await clearWipePending()
       await clearAccountTransition()
     } finally {
@@ -148,7 +172,7 @@ export async function register(
     }
     // Don't flip auth state yet: the caller shows the recovery phrase first, then
     // authenticates on acknowledgement (so the user can't skip past saving it).
-    return ok({ accountId: data.account_id, recoveryPhrase })
+    return ok({ accountId: data.account_id, recoveryPhrase, status: data.status ?? 'pending_ack' })
   } catch (e) {
     return err('REGISTER_FAILED', 'Registration failed', e)
   }
@@ -192,7 +216,18 @@ export async function loginNewDevice(email: string, password: string): Promise<R
 
     await CryptoModule.setKeyInKeychain(masterKey.data)
     await CryptoModule.setKeyOwner(data.account_id) // R3: this key belongs to this account
-    await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
+    await saveTokens({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      accountId: data.account_id,
+      ...(data.status ? { status: data.status } : {}),
+    })
+    if (data.status === 'pending_ack') {
+      await setRecoveryPending({ accountId: data.account_id, phase: 'needs_phrase' })
+      useAuthStore.getState().setRecoveryPending(data.account_id)
+      return ok({ accountId: data.account_id })
+    }
+
     // Signing in on a new device: the encrypted DB is empty until the first pull.
     // Flag a restore so the UI reassures the user their data is on its way.
     useSyncStore.getState().beginRestore()
@@ -243,7 +278,12 @@ export async function recoverAccount(
 
     await CryptoModule.setKeyInKeychain(masterKey.data)
     await CryptoModule.setKeyOwner(data.account_id) // R3: this key belongs to this account
-    await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
+    await saveTokens({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      accountId: data.account_id,
+      status: data.status ?? 'active',
+    })
     return ok({ accountId: data.account_id })
   } catch (e) {
     return err('RECOVER_FAILED', 'Recovery failed', e)
@@ -270,9 +310,27 @@ export async function hydrateAuth(): Promise<void> {
   }
   await repairAccountTransition()
   const tokens = await getTokens()
-  if (tokens) useAuthStore.getState().setAuthenticated(tokens.accountId)
-  else useAuthStore.getState().setUnauthenticated()
+  const pending = await getRecoveryPending()
+  if (!tokens) {
+    if (pending) await clearRecoveryPending()
+    useAuthStore.getState().setUnauthenticated()
+    return
+  }
+  if (pending && pending.accountId !== tokens.accountId) {
+    await clearTokens()
+    await CryptoModule.deleteKeyFromKeychain()
+    await CryptoModule.deleteKeyOwner()
+    await clearRecoveryPending()
+    useAuthStore.getState().setUnauthenticated()
+    return
+  }
+  if ((pending && pending.accountId === tokens.accountId) || tokens.status === 'pending_ack') {
+    useAuthStore.getState().setRecoveryPending(tokens.accountId)
+    return
+  }
+  useAuthStore.getState().setAuthenticated(tokens.accountId)
 }
+
 
 /**
  * Change the account password. Re-wraps the password escrow under a key derived
@@ -325,10 +383,13 @@ export async function getRecoveryStatus(): Promise<Result<boolean>> {
  * escrow + credential. Returns the phrase for one-time display. Works only while
  * authenticated (the key comes from this device's keychain).
  */
-export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: string }>> {
+export async function addRecoveryPhrase(
+  phrase?: string
+): Promise<Result<{ recoveryPhrase: string }>> {
   try {
     const masterKey = await CryptoModule.getKeyFromKeychain()
-    const recoveryPhrase = await generateRecoveryPhrase()
+    const recoveryPhrase = phrase ?? await generateRecoveryPhrase()
+    if (!isValidRecoveryPhrase(recoveryPhrase)) return err('ADD_RECOVERY_FAILED', 'Invalid recovery phrase')
     const wrapped = await wrapMasterKey(masterKey, recoveryKeyFromPhrase(recoveryPhrase))
     if (!wrapped.success) return wrapped
 
@@ -341,6 +402,8 @@ export async function addRecoveryPhrase(): Promise<Result<{ recoveryPhrase: stri
     })
     if (!res.success) return res
     if (!res.data.ok) return err('ADD_RECOVERY_FAILED', `Set recovery failed (${res.data.status})`)
+    const tokens = await getTokens()
+    if (tokens) await saveTokens({ ...tokens, status: 'active' })
     return ok({ recoveryPhrase })
   } catch (e) {
     return err('ADD_RECOVERY_FAILED', 'Set recovery failed', e)
@@ -441,6 +504,7 @@ async function finishDeletedAccountWipe(): Promise<void> {
     await CryptoModule.deleteKeyFromKeychain()
     await CryptoModule.deleteKeyOwner()
     await clearTokens()
+    await clearRecoveryPending()
     await clearWipePending()
     await clearAccountDeletionState()
     completed = true
@@ -583,6 +647,7 @@ async function logoutImpl(): Promise<void> {
     await CryptoModule.deleteKeyFromKeychain()
     await CryptoModule.deleteKeyOwner()
     await clearTokens()
+    await clearRecoveryPending()
     await clearWipePending()
   } finally {
     // Marker intentionally survives a failed destructive step so launch repair

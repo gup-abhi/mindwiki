@@ -62,6 +62,18 @@ describe('SavedScreen', () => {
     expect(useEntryLifecycle).toHaveBeenCalledWith('entry-1')
   })
 
+  it('offers a link to view the saved entry by opaque id', () => {
+    mockParams = { id: 'entry-1' }
+    render(<SavedScreen />)
+    fireEvent.press(screen.getByTestId('saved-view-entry'))
+    expect(mockReplace).toHaveBeenCalledWith('/entries/entry-1')
+  })
+
+  it('does not offer entry navigation without an id', () => {
+    render(<SavedScreen />)
+    expect(screen.queryByTestId('saved-view-entry')).toBeNull()
+  })
+
   it('keeps Done available while synthesis is pending', () => {
     useEntryLifecycle.mockReturnValue({ status: 'pending', refresh: jest.fn() })
     render(<SavedScreen />)

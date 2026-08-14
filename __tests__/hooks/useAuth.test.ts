@@ -6,6 +6,7 @@ import {
   loginNewDevice,
   recoverAccount,
   changePassword,
+  addRecoveryPhrase,
 } from '@/services/auth/auth.service'
 import { useAuthStore } from '@/store/auth.store'
 
@@ -14,16 +15,21 @@ jest.mock('@/services/auth/auth.service', () => ({
   loginNewDevice: jest.fn(),
   recoverAccount: jest.fn(),
   changePassword: jest.fn(),
+  addRecoveryPhrase: jest.fn(),
+  preparePendingRecovery: jest.fn(),
+  getPendingRecoveryPhrase: jest.fn(() => null),
 }))
 
 const mockRegister = register as jest.Mock
 const mockLogin = loginNewDevice as jest.Mock
 const mockRecover = recoverAccount as jest.Mock
 const mockChange = changePassword as jest.Mock
+const mockAddRecovery = addRecoveryPhrase as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
   useAuthStore.setState({ status: 'loading', accountId: null })
+  mockAddRecovery.mockResolvedValue({ success: true, data: { recoveryPhrase: 'a b c' } })
 })
 
 describe('useAuth', () => {
@@ -49,7 +55,10 @@ describe('useAuth', () => {
       await result.current.submit('register', 'a@b.com', 'password123')
     })
 
-    act(() => result.current.confirmPhrase())
+    await act(async () => {
+      await result.current.confirmPhrase()
+    })
+    expect(mockAddRecovery).toHaveBeenCalledWith('a b c')
     expect(useAuthStore.getState()).toMatchObject({ status: 'authenticated', accountId: 'acc1' })
   })
 

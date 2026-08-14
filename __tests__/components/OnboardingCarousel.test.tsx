@@ -22,6 +22,8 @@ describe('OnboardingCarousel', () => {
     const onDone = jest.fn()
     render(<OnboardingCarousel onDone={onDone} onSignIn={jest.fn()} />)
     fireEvent.press(screen.getByTestId('onboarding-skip'))
+    expect(screen.getByText(/Skip the introduction and continue to account setup/)).toBeTruthy()
+    expect(screen.getByText(/on-device AI remains optional/)).toBeTruthy()
     // Confirm dialog appears — Cancel and Continue visible.
     expect(screen.getByTestId('onboarding-skip-cancel')).toBeTruthy()
     expect(screen.getByTestId('onboarding-skip-confirm')).toBeTruthy()
@@ -29,6 +31,12 @@ describe('OnboardingCarousel', () => {
 
     fireEvent.press(screen.getByTestId('onboarding-skip-confirm'))
     expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('explains that skipping before account entry only closes the introduction', () => {
+    render(<OnboardingCarousel onDone={jest.fn()} />)
+    fireEvent.press(screen.getByTestId('onboarding-skip'))
+    expect(screen.getByText(/You can replay it later in Settings/)).toBeTruthy()
   })
 
   it('advances through the 6 slides and completes from the final CTA', () => {

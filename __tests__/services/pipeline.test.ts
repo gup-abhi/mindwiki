@@ -49,6 +49,7 @@ jest.mock('@/services/notifications/scheduler', () => ({
 }))
 jest.mock('@/services/onboarding/first-run', () => ({
   announceFirstRunPageIfPending: jest.fn().mockResolvedValue(null),
+  announceFirstRunPageAfterIndexing: jest.fn().mockResolvedValue(undefined),
 }))
 
 const mockBegin = jest.fn()

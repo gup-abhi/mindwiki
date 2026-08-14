@@ -31,6 +31,10 @@ export async function handleLogin(req: Request, env: Env): Promise<Response> {
   if (!valid) return new Response('Invalid credentials', { status: 401 })
 
   const escrow = await env.AUTH_KV.get(`escrow:${emailRecord.account_id}`, 'json')
+  const recovery = (await env.AUTH_KV.get(`recovery:${emailRecord.account_id}`, 'json')) as {
+    status?: 'pending_ack' | 'active'
+  } | null
+  const status = recovery?.status ?? 'active'
 
   const { accessToken, refreshToken, familyId } = await issueTokens(emailRecord.account_id, env)
 
@@ -51,5 +55,6 @@ export async function handleLogin(req: Request, env: Env): Promise<Response> {
     access_token: accessToken,
     refresh_token: refreshToken,
     key_escrow: escrow, // client re-derives the master key from this
+    status,
   })
 }
