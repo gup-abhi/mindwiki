@@ -81,18 +81,16 @@ describe('Home dashboard', () => {
     useWikiStore.setState({ pending: 0 })
   })
 
-  it('renders Today, recent entries, and View all action', async () => {
+  it('renders Today, recent entries, and Browse & search action', async () => {
     mockCount.mockResolvedValue(ok(4))
     mockList.mockResolvedValue(ok([entry(), entry({ id: 'b' }), entry({ id: 'c' }), entry({ id: 'd' })]))
     render(<Home />)
-    await waitFor(() => {
-      const entryButtons = screen.getAllByRole('button').filter((node) =>
-        node.props.accessibilityLabel?.includes('a tense meeting')
-      )
-      expect(entryButtons).toHaveLength(3)
-    })
+    await waitFor(() => expect(screen.getAllByText('a tense meeting')).toHaveLength(3))
+    const entryButtons = screen.getAllByRole('button')
+    expect(entryButtons.every((node) => !node.props.accessibilityLabel?.includes('a tense meeting'))).toBe(true)
     expect(screen.queryByText('Today')).toBeNull()
     expect(screen.getByTestId('home-view-all')).toBeTruthy()
+    expect(screen.getByText('Browse & search →')).toBeTruthy()
     expect(screen.getByText('4 journal entries')).toBeTruthy()
   })
 

@@ -128,8 +128,13 @@ export default function Home() {
                 <Text variant="subtitle">Recent entries</Text>
                 <Text variant="caption" color="textMuted">{journalCount} journal {journalCount === 1 ? 'entry' : 'entries'}</Text>
               </View>
-              <Pressable accessibilityRole="button" accessibilityLabel="View all entries" onPress={() => router.push('/entries')} testID="home-view-all">
-                <Text variant="label" color="accent">View all →</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Browse and search entries"
+                onPress={() => router.push('/entries')}
+                testID="home-view-all"
+              >
+                <Text variant="label" color="accent">Browse & search →</Text>
               </Pressable>
             </View>
             {recentEntries.length === 0 ? (

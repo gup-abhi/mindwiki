@@ -4,6 +4,7 @@ import { Platform, Pressable, StyleSheet, View, type GestureResponderEvent } fro
 import { Text } from '@/components/ui'
 import { type Entry } from '@/services/storage/entries'
 import { type Theme, moodColorKey, moodLabel, useThemedStyles } from '@/theme'
+import { entryPreview } from '@/lib/entry-display'
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -73,7 +74,7 @@ function EntryCardBase({ entry, onPress }: EntryCardProps) {
     }
     onPress()
   }
-  const preview = entry.situation.trim() || entry.thought.trim() || 'Mood check-in.'
+  const preview = entryPreview(entry)
   const metadata = [
     moodLabel(entry.mood),
     entry.named_emotion,
@@ -89,7 +90,7 @@ function EntryCardBase({ entry, onPress }: EntryCardProps) {
     seen.add(key)
     return true
   }).join(' · ')
-  const accessibilityLabel = `${new Date(entry.created_at).toLocaleString()}, ${moodLabel(entry.mood)}, ${preview.slice(0, 120)}`
+  const accessibilityLabel = `${new Date(entry.created_at).toLocaleString()}, ${moodLabel(entry.mood)}${tags ? `, ${tags}` : ''}`
 
   return (
     <Pressable

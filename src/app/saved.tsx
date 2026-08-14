@@ -47,6 +47,15 @@ export default function SavedScreen() {
         {status === 'retryable' && (
           <Button title="Check again" variant="ghost" onPress={refresh} testID="saved-retry" />
         )}
+        {id && (
+          <Button
+            title="View saved entry"
+            variant="secondary"
+            fullWidth
+            onPress={() => router.replace(`/entries/${id}`)}
+            testID="saved-view-entry"
+          />
+        )}
         <View style={styles.cta}>
           {lowMood && (
             <Button
