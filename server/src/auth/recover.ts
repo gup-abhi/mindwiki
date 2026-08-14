@@ -31,6 +31,7 @@ export async function handleRecover(req: Request, env: Env): Promise<Response> {
   const recovery = (await env.AUTH_KV.get(`recovery:${emailRecord.account_id}`, 'json')) as {
     recovery_bcrypt: string
     encrypted_key: string
+    status?: 'pending_ack' | 'active'
   } | null
   if (!recovery) return new Response('Invalid credentials', { status: 401 })
 
@@ -51,5 +52,6 @@ export async function handleRecover(req: Request, env: Env): Promise<Response> {
     access_token: accessToken,
     refresh_token: refreshToken,
     recovery_escrow: { encrypted_key: recovery.encrypted_key },
+    status: recovery.status ?? 'active',
   })
 }

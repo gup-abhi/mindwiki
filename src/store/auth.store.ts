@@ -7,7 +7,7 @@ import { immer } from 'zustand/middleware/immer'
 // the whole app is gated, so journaling is NOT accessible until re-login. Key +
 // DB stay on disk after session *expiry* (same-account relogin restores without
 // a re-pull); a *logout* wipes key + DB entirely. See docs/AUTH_DB_LIFECYCLE.md.
-export type AuthStatus = 'loading' | 'authenticated' | 'deleting' | 'unauthenticated'
+export type AuthStatus = 'loading' | 'authenticated' | 'recovery_pending' | 'deleting' | 'unauthenticated'
 
 export interface AuthState {
   status: AuthStatus
@@ -18,6 +18,7 @@ export interface AuthState {
   // Session-only (not persisted); a restart hydrates as an existing session.
   isNewAccount: boolean
   setAuthenticated: (accountId: string, isNewAccount?: boolean) => void
+  setRecoveryPending: (accountId: string) => void
   setDeleting: (accountId: string) => void
   setUnauthenticated: () => void
 }
@@ -32,6 +33,12 @@ export const useAuthStore = create<AuthState>()(
         s.status = 'authenticated'
         s.accountId = accountId
         s.isNewAccount = isNewAccount
+      }),
+    setRecoveryPending: (accountId) =>
+      set((s) => {
+        s.status = 'recovery_pending'
+        s.accountId = accountId
+        s.isNewAccount = false
       }),
     setDeleting: (accountId) =>
       set((s) => {

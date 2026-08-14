@@ -102,9 +102,10 @@ describe('server auth boundaries', () => {
       env(kv)
     )
     expect(response.status).toBe(200)
-    const body = await response.json() as { access_token: string; refresh_token: string }
+    const body = await response.json() as { access_token: string; refresh_token: string; status: string }
     expect(body.access_token).toEqual(expect.any(String))
     expect(body.refresh_token).toEqual(expect.any(String))
+    expect(body.status).toBe('active')
     expect(kv.json('devices:acc')).toEqual([
       expect.objectContaining({ id: 'device-1', label: 'Recovery phone', platform: 'ios', family_id: expect.any(String) }),
     ])

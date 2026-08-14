@@ -63,6 +63,7 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
     JSON.stringify({
       recovery_bcrypt: recoveryBcrypt,
       encrypted_key: body.recovery_escrow.encrypted_key,
+      status: 'pending_ack',
       updated_at: now,
     })
   )
@@ -80,5 +81,10 @@ export async function handleRegister(req: Request, env: Env): Promise<Response> 
     familyId
   )
 
-  return Response.json({ account_id: accountId, access_token: accessToken, refresh_token: refreshToken })
+  return Response.json({
+    account_id: accountId,
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    status: 'pending_ack',
+  })
 }

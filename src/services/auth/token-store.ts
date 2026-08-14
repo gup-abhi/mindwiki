@@ -13,6 +13,7 @@ export interface AuthTokens {
   accessToken: string
   refreshToken: string
   accountId: string
+  status?: 'pending_ack' | 'active'
 }
 
 export interface TokenSnapshot extends AuthTokens {
@@ -44,6 +45,7 @@ function parse(raw: string | null): AuthTokens | null {
       accessToken: candidate.accessToken,
       refreshToken: candidate.refreshToken,
       accountId: candidate.accountId,
+      ...(candidate.status === 'pending_ack' || candidate.status === 'active' ? { status: candidate.status } : {}),
     }
   } catch {
     return null

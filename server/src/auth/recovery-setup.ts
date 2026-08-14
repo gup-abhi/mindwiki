@@ -17,8 +17,12 @@ export async function handleRecoveryStatus(
   env: Env,
   accountId: string
 ): Promise<Response> {
-  const recovery = await env.AUTH_KV.get(`recovery:${accountId}`)
-  return Response.json({ configured: recovery !== null })
+  const recovery = (await env.AUTH_KV.get(`recovery:${accountId}`, 'json')) as {
+    recovery_bcrypt: string
+    encrypted_key: string
+    status?: 'pending_ack' | 'active'
+  } | null
+  return Response.json({ configured: recovery !== null, status: recovery?.status ?? 'active' })
 }
 
 /**
@@ -47,6 +51,7 @@ export async function handleSetRecovery(
     JSON.stringify({
       recovery_bcrypt: recoveryBcrypt,
       encrypted_key: body.recovery_escrow.encrypted_key,
+      status: 'active',
       updated_at: Date.now(),
     })
   )
