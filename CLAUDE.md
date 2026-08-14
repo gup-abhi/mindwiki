@@ -123,10 +123,11 @@ mindwiki/
 ├── .gitignore
 ├── .graphify.json                 ← Graphify codebase graph config
 ├── .claude/
-│   ├── settings.json
-│   ├── hooks/
-│   │   └── pre-session.sh         ← auto-rebuilds Graphify graph
-│   └── commands/                  ← custom slash commands
+│   ├── settings.json              ← permissions + lifecycle/tool hooks
+│   ├── hooks/                     ← Graphify gate/rebuild + Jest guard
+│   ├── scripts/                   ← shared cross-worktree test runner
+│   ├── skills/                    ← project slash commands/workflows
+│   └── agents/                    ← domain-specific reviewers/debuggers
 │
 ├── docs/
 │   ├── ARCHITECTURE.md
@@ -409,6 +410,14 @@ __tests__/
 ```
 
 `yarn test` must pass before any commit. Mock all native modules in tests.
+
+Claude-driven Jest runs must never overlap across agents or worktrees. Run focused or full tests through:
+
+```bash
+bash .claude/scripts/run-jest.sh [test paths or Jest flags]
+```
+
+The wrapper holds a repository-wide lock and adds `--runInBand`. Use `/verify` for the standard focused/full quality workflow. Native mocks are not proof of physical-device behavior.
 
 ---
 
