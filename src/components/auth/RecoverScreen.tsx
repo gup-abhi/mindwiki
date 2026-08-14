@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Button, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { useAuth } from '@/hooks/useAuth'
+import { isValidRecoveryPhrase } from '@/services/auth/recovery'
 
 const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())
 
@@ -20,11 +21,18 @@ export function RecoverScreen({ onCancel }: { onCancel: () => void }) {
   const [email, setEmail] = useState('')
   const [phrase, setPhrase] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const { recover, submitting, error } = useAuth()
 
+  const validPhrase = isValidRecoveryPhrase(phrase)
+  const passwordsMatch = password === confirmPassword
   const canSubmit =
-    isValidEmail(email) && phrase.trim().split(/\s+/).length === 12 && password.length >= 8 && !submitting
+    isValidEmail(email) && validPhrase && password.length >= 8 && passwordsMatch && !submitting
+
+  const showInvalidPhrase = phrase.trim().length > 0 && !validPhrase
+  const showPasswordMismatch = confirmPassword.length > 0 && !passwordsMatch
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -86,6 +94,46 @@ export function RecoverScreen({ onCancel }: { onCancel: () => void }) {
             <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={22} color={theme.colors.textMuted} />
           </Pressable>
         </View>
+
+        <View style={styles.passwordWrap}>
+          <TextInput
+            style={[styles.input, styles.passwordInput]}
+            placeholder="Confirm new password"
+            placeholderTextColor={theme.colors.textMuted}
+            secureTextEntry={!showConfirmPassword}
+            autoCapitalize="none"
+            autoComplete="new-password"
+            textContentType="newPassword"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            testID="recover-password-confirm"
+          />
+          <Pressable
+            style={styles.eyeButton}
+            onPress={() => setShowConfirmPassword((v) => !v)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={showConfirmPassword ? 'Hide password' : 'Show password'}
+            testID="recover-password-confirm-toggle"
+          >
+            <Ionicons
+              name={showConfirmPassword ? 'eye-off' : 'eye'}
+              size={22}
+              color={theme.colors.textMuted}
+            />
+          </Pressable>
+        </View>
+
+        {showInvalidPhrase && (
+          <Text variant="caption" color="danger" style={styles.error}>
+            Enter a valid recovery phrase.
+          </Text>
+        )}
+        {showPasswordMismatch && (
+          <Text variant="caption" color="danger" style={styles.error}>
+            Passwords don’t match.
+          </Text>
+        )}
 
         {error && (
           <Text variant="caption" color="danger" style={styles.error}>

@@ -163,6 +163,56 @@ describe('AuthScreen', () => {
     expect(screen.getByTestId('recover-password').props.textContentType).toBe('newPassword')
   })
 
+  it('blocks recovery for twelve arbitrary words and explains the invalid phrase', () => {
+    render(<AuthScreen />)
+    fireEvent.press(screen.getByTestId('auth-toggle'))
+    fireEvent.press(screen.getByTestId('auth-forgot'))
+    fireEvent.changeText(screen.getByTestId('recover-email'), 'a@b.com')
+    fireEvent.changeText(screen.getByTestId('recover-phrase'), 'one two three four five six seven eight nine ten eleven twelve')
+    fireEvent.changeText(screen.getByTestId('recover-password'), 'password123')
+    fireEvent.changeText(screen.getByTestId('recover-password-confirm'), 'password123')
+    expect(screen.getByText('Enter a valid recovery phrase.')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('recover-submit'))
+    expect(recover).not.toHaveBeenCalled()
+  })
+
+  it('blocks recovery when the new passwords do not match', () => {
+    render(<AuthScreen />)
+    fireEvent.press(screen.getByTestId('auth-toggle'))
+    fireEvent.press(screen.getByTestId('auth-forgot'))
+    fireEvent.changeText(screen.getByTestId('recover-email'), 'a@b.com')
+    fireEvent.changeText(screen.getByTestId('recover-phrase'), 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about')
+    fireEvent.changeText(screen.getByTestId('recover-password'), 'password123')
+    fireEvent.changeText(screen.getByTestId('recover-password-confirm'), 'password124')
+    expect(screen.getByText('Passwords don’t match.')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('recover-submit'))
+    expect(recover).not.toHaveBeenCalled()
+  })
+
+  it('submits recovery once a valid phrase and matching password are entered', () => {
+    render(<AuthScreen />)
+    fireEvent.press(screen.getByTestId('auth-toggle'))
+    fireEvent.press(screen.getByTestId('auth-forgot'))
+    const phrase = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+    fireEvent.changeText(screen.getByTestId('recover-email'), 'a@b.com')
+    fireEvent.changeText(screen.getByTestId('recover-phrase'), phrase)
+    fireEvent.changeText(screen.getByTestId('recover-password'), 'password123')
+    fireEvent.changeText(screen.getByTestId('recover-password-confirm'), 'password123')
+    fireEvent.press(screen.getByTestId('recover-submit'))
+    expect(recover).toHaveBeenCalledWith('a@b.com', phrase, 'password123')
+  })
+
+  it('toggles recovery confirmation visibility independently', () => {
+    render(<AuthScreen />)
+    fireEvent.press(screen.getByTestId('auth-toggle'))
+    fireEvent.press(screen.getByTestId('auth-forgot'))
+    const confirm = screen.getByTestId('recover-password-confirm')
+    expect(confirm.props.secureTextEntry).toBe(true)
+    fireEvent.press(screen.getByTestId('recover-password-confirm-toggle'))
+    expect(confirm.props.secureTextEntry).toBe(false)
+    expect(screen.getByTestId('recover-password').props.secureTextEntry).toBe(true)
+  })
+
   it('opens the QR scanner from "Pair with another device"', () => {
     render(<AuthScreen />)
     fireEvent.press(screen.getByTestId('auth-pair'))
