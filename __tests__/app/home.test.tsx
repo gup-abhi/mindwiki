@@ -7,6 +7,7 @@ import { useWikiStore } from '@/store/wiki.store'
 import { ok } from '@/types/result'
 
 const mockPush = jest.fn()
+const mockStreakTimestamps = jest.fn()
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
   useFocusEffect: (cb: () => void) => {
@@ -21,6 +22,9 @@ jest.mock('@/services/storage/entries', () => ({
 jest.mock('@/services/storage/streak-freezes', () => ({
   listFrozenDays: jest.fn(() => Promise.resolve({ success: true, data: new Set() })),
   freezeDays: jest.fn(() => Promise.resolve({ success: true, data: undefined })),
+}))
+jest.mock('@/hooks/useStreakTimestamps', () => ({
+  useStreakTimestamps: () => mockStreakTimestamps(),
 }))
 jest.mock('@/hooks/useRecoverySetup', () => ({
   useRecoverySetup: () => ({
@@ -76,6 +80,7 @@ describe('Home dashboard', () => {
     mockPush.mockReset()
     mockWiki.mockReturnValue({ pages: [], loading: false })
     mockChallengeCheckIn.mockReset()
+    mockStreakTimestamps.mockReset().mockReturnValue({ timestamps: [], refresh: jest.fn() })
     mockChallenge.mockReturnValue({ challenge: null, streak: 0, doneToday: false, checkIn: mockChallengeCheckIn })
     mockLineage.mockResolvedValue({ success: true, data: [] })
     useWikiStore.setState({ pending: 0 })
@@ -169,6 +174,24 @@ describe('Home dashboard', () => {
     render(<Home />)
     await waitFor(() => expect(screen.getByText(/Done for today/)).toBeTruthy())
     expect(screen.queryByTestId('home-challenge-checkin')).toBeNull()
+  })
+
+  it('distinguishes a completed guided reflection from an empty journal', async () => {
+    mockCount.mockResolvedValue(ok(0))
+    mockList.mockResolvedValue(ok([]))
+    mockStreakTimestamps.mockReturnValue({ timestamps: [Date.now()], refresh: jest.fn() })
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('Your guided reflection is saved')).toBeTruthy())
+    expect(screen.getByText(/Your journal is still empty/)).toBeTruthy()
+  })
+
+  it('keeps the ordinary empty state for a new user', async () => {
+    mockCount.mockResolvedValue(ok(0))
+    mockList.mockResolvedValue(ok([]))
+    mockStreakTimestamps.mockReturnValue({ timestamps: [], refresh: jest.fn() })
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('No entries yet')).toBeTruthy())
+    expect(screen.getByText('Start with how you feel.')).toBeTruthy()
   })
 
   it('opens archive from View all and composer from New entry', async () => {

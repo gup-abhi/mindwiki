@@ -68,6 +68,7 @@ export default function Home() {
   }, [lineageTarget])
 
   const recentEntries = entries.slice(0, 3)
+  const hasGuidedReflection = journalCount === 0 && timestamps.length > 0
 
   return (
     <Screen padded={false}>
@@ -139,8 +140,14 @@ export default function Home() {
             </View>
             {recentEntries.length === 0 ? (
               <Card variant="sunken" style={styles.fullWidth} onPress={() => router.push('/entry')} testID="home-empty-entries">
-                <Text variant="bodyStrong" style={styles.surfaceText}>No entries yet</Text>
-                <Text variant="caption" color="textMuted" style={styles.digestSub}>Start with a quick check-in.</Text>
+                <Text variant="bodyStrong" style={styles.surfaceText}>
+                  {hasGuidedReflection ? 'Your guided reflection is saved' : 'No entries yet'}
+                </Text>
+                <Text variant="caption" color="textMuted" style={styles.digestSub}>
+                  {hasGuidedReflection
+                    ? 'Your journal is still empty. Start with how you feel, and add a few words when you want your private pages to notice patterns over time.'
+                    : 'Start with how you feel.'}
+                </Text>
               </Card>
             ) : (
               recentEntries.map((entry) => <EntryCard key={entry.id} entry={entry} onPress={() => router.push(`/entries/${entry.id}`)} />)

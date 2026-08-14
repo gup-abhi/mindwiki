@@ -195,7 +195,7 @@ export default function QueryScreen() {
                 <Card variant="sunken" style={styles.hintCard} testID="reflect-intro-hint">
                   <View style={styles.hintRow}>
                     <Text variant="caption" color="textSecondary" style={styles.hintText}>
-                      Reflect is your private companion — try one of the feeling chips above to start.
+                      Reflect is your private companion — try one of the feeling chips below to start.
                     </Text>
                     <Chip
                       label="Got it"
