@@ -15,6 +15,21 @@ export interface SubmitOutcome {
   crisis: CrisisAssessment
 }
 
+type ValidatedDraft =
+  | { valid: true; mood: number; energy: number; emotion: string }
+  | { valid: false; message: string }
+
+const validateDraft = (draft: {
+  mood: number | null
+  energy: number | null
+  emotion: string | null
+}): ValidatedDraft => {
+  if (draft.mood == null) return { valid: false, message: 'Choose how you’re feeling first' }
+  if (draft.energy == null) return { valid: false, message: 'Choose your energy level first' }
+  if (draft.emotion == null) return { valid: false, message: 'Name how you’re feeling first' }
+  return { valid: true, mood: draft.mood, energy: draft.energy, emotion: draft.emotion }
+}
+
 /**
  * Drives the free-write entry: a mood + the body the user writes, with an
  * optional automatic-thought facet. The body is the entry text (stored as
@@ -36,19 +51,23 @@ export function useJournalEntry() {
   // feeling; the written body is optional and, when present, is what the AI
   // analyses. The feeling chips only surface once the grid is tapped, so this
   // gates in order.
-  const canSave = draft.mood != null && draft.energy != null && draft.emotion != null
+  const validation = validateDraft(draft)
+  const canSave = validation.valid
 
   const submit = useCallback(async (): Promise<Result<SubmitOutcome>> => {
-    if (draft.mood == null) return err('ENTRY_INVALID', 'Choose how you’re feeling first')
+    const validation = validateDraft(draft)
+    if (!validation.valid) return err('ENTRY_INVALID', validation.message)
+
+    const { mood, energy, emotion } = validation
 
     setSubmitting(true)
     try {
       const result = await createEntry({
-        mood: draft.mood,
+        mood,
         situation: draft.body.trim(), // the free-write body is the entry text
         thought: draft.thought.trim(), // optional CBT facet ('' if not added)
-        named_emotion: draft.emotion, // the feeling the user named (the model fills its own `emotion`)
-        energy: draft.energy, // the grid's vertical axis
+        named_emotion: emotion, // the feeling the user named (the model fills its own `emotion`)
+        energy, // the grid's vertical axis
         behavior: null,
         closing_note: null,
       })

@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native'
-import { Alert } from 'react-native'
+import { Alert, AppState } from 'react-native'
 
 import EntryScreen from '@/app/entry'
 import { useEntryStore } from '@/store/entry.store'
@@ -9,6 +9,14 @@ import { ok } from '@/types/result'
 type BackCb = (e: { preventDefault: () => void; data: { action: unknown } }) => void
 const mockReplace = jest.fn()
 const mockAddListener = jest.fn((_event: string, _cb: BackCb) => jest.fn()) // returns an unsubscribe
+let appStateHandler: (state: string) => void
+
+jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
+  appStateHandler = handler as (state: string) => void
+  return { remove: jest.fn() } as unknown as ReturnType<typeof AppState.addEventListener>
+})
+
+appStateHandler = () => {}
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),
   useNavigation: () => ({ addListener: mockAddListener }),
@@ -46,6 +54,7 @@ describe('EntryScreen (free-write)', () => {
     draftMock.clearDraft.mockClear()
     draftMock.loadDraft.mockReset().mockResolvedValue(null)
     mockAddListener.mockClear() // each test's render is the only back-guard registration
+    appStateHandler = () => {}
   })
 
   // Step 1 (grid + feeling) → Continue → step 2 (writing). Advancing requires a
@@ -138,6 +147,46 @@ describe('EntryScreen (free-write)', () => {
     expect(e.preventDefault).toHaveBeenCalled()
     expect(alertSpy).toHaveBeenCalled()
     alertSpy.mockRestore()
+  })
+
+  it('prompts to keep a draft on back when only the thought has text', () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
+    render(<EntryScreen />)
+    goToWrite('affect-4-5', 'Excited')
+    fireEvent.press(screen.getByTestId('entry-add-thought'))
+    fireEvent.changeText(screen.getByTestId('entry-thought'), 'I will fail')
+    fireEvent.press(screen.getByTestId('entry-back')) // back to step 1, thought retained
+    const e = { preventDefault: jest.fn(), data: { action: {} } }
+    backGuard()!(e)
+    expect(e.preventDefault).toHaveBeenCalled()
+    expect(alertSpy).toHaveBeenCalled()
+    alertSpy.mockRestore()
+  })
+
+  it('saves a thought-only draft when the app backgrounds', () => {
+    render(<EntryScreen />)
+    goToWrite('affect-4-5', 'Excited')
+    fireEvent.press(screen.getByTestId('entry-add-thought'))
+    fireEvent.changeText(screen.getByTestId('entry-thought'), 'I will fail')
+
+    act(() => appStateHandler('background'))
+
+    expect(draftMock.saveDraft).toHaveBeenCalledWith({
+      mood: 4,
+      energy: 5,
+      body: '',
+      thought: 'I will fail',
+      emotion: 'Excited',
+    })
+  })
+
+  it('does not save a draft when the app backgrounds with only affect controls', () => {
+    render(<EntryScreen />)
+    fireEvent.press(screen.getByTestId('affect-4-5'))
+
+    act(() => appStateHandler('background'))
+
+    expect(draftMock.saveDraft).not.toHaveBeenCalled()
   })
 
   it('steps back to the feeling screen instead of leaving, from the writing step', () => {
