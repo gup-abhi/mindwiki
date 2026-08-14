@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons'
 
 import { Card, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
-import { getFirstRunPageReady } from '@/services/onboarding/first-run'
+import { clearFirstRunPageReady, resolveFirstRunPageReady } from '@/services/onboarding/first-run'
 import { haptics } from '@/lib/haptics'
 
 type ReadyPage = { id: string; title: string }
@@ -14,9 +14,9 @@ type ReadyPage = { id: string; title: string }
  * Deferred first-run aha moment (P1). When the deep model finishes synthesizing a
  * first-run's entries AFTER the funnel completed (the model was absent during the
  * path), the catch-up path records the first page via a one-shot settings marker.
- * This banner surfaces that page once on Home and deep-links to it. The marker is
- * one-shot (cleared on read), so the banner never re-fires. Renders nothing when
- * no first page is pending — self-gating like the other Home cards.
+ * This banner surfaces that page on Home and deep-links to it. The marker remains
+ * pending until the user opens or dismisses it. Renders nothing when no first page
+ * is pending — self-gating like the other Home cards.
  */
 export function FirstPageReadyBanner() {
   const router = useRouter()
@@ -28,7 +28,7 @@ export function FirstPageReadyBanner() {
   // even if the user has been sitting on Home since before synthesis finished.
   useFocusEffect(() => {
     let active = true
-    void getFirstRunPageReady().then((p) => {
+    void resolveFirstRunPageReady().then((p) => {
       if (active) setPage(p)
     })
     return () => {
@@ -40,8 +40,10 @@ export function FirstPageReadyBanner() {
 
   const view = () => {
     haptics.light()
-    router.push({ pathname: `/wiki/${page.id}`, params: { firstRun: '1' } })
-    setPage(null)
+    void clearFirstRunPageReady().then(() => {
+      router.push({ pathname: `/wiki/${page.id}`, params: { firstRun: '1' } })
+      setPage(null)
+    })
   }
 
   return (
@@ -69,7 +71,9 @@ export function FirstPageReadyBanner() {
         <Pressable
           hitSlop={8}
           accessibilityLabel="Dismiss"
-          onPress={() => setPage(null)}
+          onPress={() => {
+            void clearFirstRunPageReady().then(() => setPage(null))
+          }}
           testID="first-page-ready-dismiss"
         >
           <Ionicons name="close" size={18} color={theme.colors.accentText} />

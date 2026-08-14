@@ -7,7 +7,7 @@ import { type Theme, useThemedStyles } from '@/theme'
 import { haptics } from '@/lib/haptics'
 import { useGuidedPath } from '@/hooks/useGuidedPath'
 import { isModelDownloaded } from '@/services/llm/model-manager'
-import { markFirstRunComplete, firstWikiPage } from '@/services/onboarding/first-run'
+import { markFirstRunComplete, firstWikiPage, announceFirstRunPageAfterIndexing } from '@/services/onboarding/first-run'
 
 /**
  * Guided-path runner: steps through a path's prompts one at a time, with an
@@ -134,8 +134,11 @@ export default function PathRunnerScreen() {
           })
           return
         }
-        // Poll timed out — fall through to normal completed state; the
-        // WhatChangedCard on Home picks up the pages when synthesis finishes.
+        // Poll timed out — keep the completion honest and let the durable
+        // receipt/announcement path reveal the page when synthesis finishes.
+        await announceFirstRunPageAfterIndexing()
+        setDeferred(true)
+        return
       } else {
         // All answers were blank — still mark first run complete so the user
         // isn't trapped in a first-run loop.

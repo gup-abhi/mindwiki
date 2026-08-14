@@ -26,12 +26,7 @@ jest.mock('@/services/onboarding/intro', () => ({
   isIntroOnboardingDone: jest.fn().mockResolvedValue(false),
   markIntroOnboardingDone: jest.fn().mockResolvedValue(undefined),
 }))
-// The guided writing path remains account-level. Stub its model download so gate
-// tests don't touch the model manager.
-jest.mock('@/services/onboarding/first-run', () => ({
-  beginOnboardingModelDownload: jest.fn(),
-  isOnboardingIncomplete: jest.fn().mockResolvedValue(false),
-}))
+jest.mock('@/services/onboarding/first-run', () => ({}))
 jest.mock('@/services/llm/model-manager', () => ({
   areModelsReady: jest.fn().mockResolvedValue(true),
 }))

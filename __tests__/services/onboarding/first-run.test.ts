@@ -13,14 +13,13 @@
  * by construction once both are individually verified.
  */
 
-import { firstRunStatus, markFirstRunComplete, firstWikiPage, hasExistingEntries, beginOnboardingModelDownload, getModelDownloadPreference, setModelDownloadPreference } from '@/services/onboarding/first-run'
+import { firstRunStatus, markFirstRunComplete, firstWikiPage, hasExistingEntries, getModelDownloadPreference, setModelDownloadPreference, peekFirstRunPageReady, clearFirstRunPageReady, resolveFirstRunPageReady, announceFirstRunPageIfPending } from '@/services/onboarding/first-run'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { getDb } from '@/services/storage/db'
 import { getEntry } from '@/services/storage/entries'
 import { useAuthStore } from '@/store/auth.store'
 import { lineageForEntry } from '@/services/wiki/engine'
-import { isModelDownloaded, canStart, areModelsReady, downloadModel } from '@/services/llm/model-manager'
-import { catchUpUnindexed, triggerCatchUp } from '@/services/pipeline'
+import { isModelDownloaded } from '@/services/llm/model-manager'
 import { ok, err } from '@/types/result'
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
@@ -34,11 +33,15 @@ jest.mock('@/services/wiki/engine', () => ({
   lineageForEntry: jest.fn(),
 }))
 
+jest.mock('@/services/storage/wiki', () => ({
+  getPage: jest.fn(),
+}))
+
+import { getPage } from '@/services/storage/wiki'
+
 jest.mock('@/services/llm/model-manager', () => ({
   isModelDownloaded: jest.fn(),
   canStart: jest.fn(),
-  areModelsReady: jest.fn(),
-  downloadModel: jest.fn(),
 }))
 
 jest.mock('@/services/pipeline', () => {
@@ -69,10 +72,6 @@ const mockSetSetting = setSetting as jest.Mock
 const mockGetEntry = getEntry as jest.Mock
 const mockLineageForEntry = lineageForEntry as jest.Mock
 const mockIsModelDownloaded = isModelDownloaded as jest.Mock
-const mockCanStart = canStart as jest.Mock
-const mockAreModelsReady = areModelsReady as jest.Mock
-const mockDownloadModel = downloadModel as jest.Mock
-const mockCatchUpUnindexed = catchUpUnindexed as jest.Mock
 
 const FIRST_RUN_FLAG = 'onboarding:first_run_complete'
 const FIRST_RUN_ENTRY_IDS = 'onboarding:first_run_entry_ids'
@@ -305,88 +304,40 @@ describe('P1 — firstWikiPage', () => {
   }, 8_000)
 })
 
-// ─── P2: Staged model download ───────────────────────────────────────────────
-
-describe('P2 — canStart', () => {
+describe('P2 — durable first-page receipt', () => {
   beforeEach(() => {
-    mockCanStart.mockReset()
-    mockCanStart.mockImplementation(async () => {
-      const m = await mockIsModelDownloaded('fast')
-      return m
+    mockGetSetting.mockReset()
+    mockSetSetting.mockReset().mockResolvedValue(ok(undefined))
+    mockIsModelDownloaded.mockReset().mockResolvedValue(true)
+    mockGetEntry.mockReset().mockResolvedValue(ok({ id: 'e1', topic: 'work' }))
+    ;(getPage as jest.Mock).mockReset().mockResolvedValue(ok({ id: 'p1', title: 'Anxiety' }))
+    mockLineageForEntry.mockReset().mockResolvedValue(ok([{ id: 'p1', title: 'Anxiety', category: 'emotion' }]))
+  })
+
+  it('peeks without clearing and clears only explicitly', async () => {
+    mockGetSetting.mockResolvedValue(ok(JSON.stringify({ id: 'p1' })))
+    await expect(peekFirstRunPageReady()).resolves.toEqual({ id: 'p1' })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    await clearFirstRunPageReady()
+    expect(mockSetSetting).toHaveBeenCalledWith('onboarding:first_run_page_ready', '')
+  })
+
+  it('resolves the current local title and falls back when the page is gone', async () => {
+    mockGetSetting.mockResolvedValue(ok(JSON.stringify({ id: 'p1' })))
+    await expect(resolveFirstRunPageReady()).resolves.toEqual({ id: 'p1', title: 'Anxiety' })
+    mockGetSetting.mockResolvedValue(ok(JSON.stringify({ id: 'missing' })))
+    ;(getPage as jest.Mock).mockResolvedValue(ok(null))
+    mockLineageForEntry.mockResolvedValue(ok([]))
+    await expect(resolveFirstRunPageReady()).resolves.toEqual({ id: 'missing', title: 'Your first insight' })
+  })
+
+  it('announces once and preserves the opaque receipt', async () => {
+    mockGetSetting.mockImplementation(async (key: string) => {
+      if (key === FIRST_RUN_FLAG) return ok('1')
+      if (key === FIRST_RUN_ENTRY_IDS) return ok(JSON.stringify(['e1']))
+      return ok(null)
     })
-  })
-
-  it('returns true when only fast model is present', async () => {
-    mockIsModelDownloaded.mockImplementation(async (kind: string) => kind === 'fast')
-    expect(await mockCanStart()).toBe(true)
-    expect(mockIsModelDownloaded).toHaveBeenCalledWith('fast')
-  })
-
-  it('returns false when no models present', async () => {
-    mockIsModelDownloaded.mockResolvedValue(false)
-    expect(await mockCanStart()).toBe(false)
-  })
-
-  it('returns true when both fast and deep are present', async () => {
-    mockIsModelDownloaded.mockResolvedValue(true)
-    expect(await mockCanStart()).toBe(true)
-  })
-
-  it('is idempotent', async () => {
-    mockIsModelDownloaded.mockImplementation(async (kind: string) => kind === 'fast')
-    expect(await mockCanStart()).toBe(true)
-    expect(await mockCanStart()).toBe(true)
-  })
-})
-
-describe('P2 — beginOnboardingModelDownload', () => {
-  beforeEach(() => {
-    mockAreModelsReady.mockReset()
-    mockDownloadModel.mockReset()
-    mockCatchUpUnindexed.mockReset().mockResolvedValue(undefined)
-  })
-
-  // The once-per-session guard is a module-level singleton that can't be reset
-  // between tests, so this single test exercises the full staged sequence AND
-  // the idempotency guard together (the meaningful contract).
-  it('stages fast → deep → catch-up → embed, then no-ops on repeat', async () => {
-    mockAreModelsReady.mockResolvedValue(false)
-    mockDownloadModel.mockResolvedValue(ok(true))
-
-    beginOnboardingModelDownload()
-    // Let the fire-and-forget chain settle (fast → deep → catch-up → embed).
-    await flush()
-    await flush()
-    await flush()
-    await flush()
-
-    expect(mockDownloadModel).toHaveBeenCalledWith('fast')
-    expect(mockDownloadModel).toHaveBeenCalledWith('deep')
-    // embed only runs on the deep-success branch (after triggerCatchUp), so its
-    // presence proves the full staged sequence completed.
-    expect(mockDownloadModel).toHaveBeenCalledWith('embed')
-
-    // Second call is a no-op — the guard prevents a duplicate download.
-    const callCount = mockDownloadModel.mock.calls.length
-    beginOnboardingModelDownload()
-    await flush()
-    expect(mockDownloadModel.mock.calls.length).toBe(callCount)
-  })
-})
-
-describe('P2 — triggerCatchUp', () => {
-  beforeEach(() => {
-    mockCatchUpUnindexed.mockReset().mockResolvedValue(undefined)
-    mockIsModelDownloaded.mockResolvedValue(true)
-  })
-
-  it('exists and never throws', async () => {
-    expect(typeof triggerCatchUp).toBe('function')
-    await expect(triggerCatchUp()).resolves.toBeUndefined()
-  })
-
-  it('never throws even when delegate rejects', async () => {
-    mockCatchUpUnindexed.mockRejectedValue(new Error('explosion'))
-    await expect(triggerCatchUp()).resolves.toBeUndefined()
+    await expect(announceFirstRunPageIfPending()).resolves.toEqual({ id: 'p1', title: 'Anxiety' })
+    expect(mockSetSetting).toHaveBeenCalledWith('onboarding:first_run_page_ready', JSON.stringify({ id: 'p1' }))
   })
 })
