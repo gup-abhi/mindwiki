@@ -141,8 +141,12 @@ describe('storage/challenges CRUD', () => {
     const b = await createChallenge({ title: 'B' }, db)
     if (!a.success || !b.success) throw new Error('setup failed')
 
+    const now = jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(2000)
+      .mockReturnValueOnce(3000)
     await updateChallenge(b.data.id, { current_streak: 1 }, db)
     await updateChallenge(a.data.id, { current_streak: 1 }, db)
+    now.mockRestore()
 
     const list = await listChallenges(db)
     expect(list.success).toBe(true)

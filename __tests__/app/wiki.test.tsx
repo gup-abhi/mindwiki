@@ -12,7 +12,11 @@ const mockReplace = jest.fn()
 let mockParams: Record<string, string> = { id: 'p1' }
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: mockBack, replace: mockReplace }),
+  useNavigation: () => ({ addListener: jest.fn(() => jest.fn()) }),
   useLocalSearchParams: () => mockParams,
+  useFocusEffect: (cb: () => void) => {
+    require('react').useEffect(() => cb(), [])
+  },
 }))
 
 
