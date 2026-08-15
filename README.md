@@ -58,7 +58,7 @@ server/           Cloudflare Workers backend (auth, encrypted storage, push rela
 demo/             Phase -1 validation app (SQLCipher / Argon2 / LLM on real hardware)
 models/           GGUF files (gitignored — see models/README.md)
 docs/             ARCHITECTURE, DATABASE, LLM_PIPELINE, SYNC, PRIVACY_SECURITY, SERVER, …
-__tests__/        service + screen tests
+__tests__/        service, app, component, hook, store, and server tests; see directory for complete suite
 ```
 
 ## Getting started

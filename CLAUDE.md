@@ -194,7 +194,7 @@ mindwiki/
 │
 ├── ios/
 ├── android/
-└── __tests__/
+└── __tests__/                    ← service, app, component, hook, store, and server tests; see directory for complete suite
 ```
 
 ---
