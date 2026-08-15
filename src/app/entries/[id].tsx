@@ -1,85 +1,278 @@
 import { useMemo } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Pressable, StyleSheet, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 
-import { Screen, Text } from '@/components/ui'
-import { type Theme, moodColorKey, moodLabel, useThemedStyles } from '@/theme'
+import { Card, Chip, Divider, IconButton, ListRow, Screen, Text } from '@/components/ui'
+import { type Theme, moodColorKey, moodLabel, useTheme, useThemedStyles } from '@/theme'
 import { useEntries, useEntry, useEntryNeighbors } from '@/hooks/useEntries'
 import { useGraph } from '@/hooks/useGraph'
-import { useEntryLineage } from '@/hooks/useWiki'
+import { useEntryLineage, useWikiPages } from '@/hooks/useWiki'
 import { entryPreview } from '@/lib/entry-display'
-
-function formatShortDate(ts: number): string {
-  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
+import { type Entry } from '@/services/storage/entries'
 
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
   })
 }
 
-/** A colored mood dot + its label ("Good"), reading the same scale as the list. */
-function MoodChip({ mood }: { mood: number }) {
-  const styles = useThemedStyles((t) =>
-    StyleSheet.create({
-      row: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, marginTop: t.spacing.sm },
-      dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: t.colors[moodColorKey(mood)] },
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+function MoodMeta({ mood }: { mood: number }) {
+  const styles = useThemedStyles((t) => StyleSheet.create({
+    row: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+    dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: t.colors[moodColorKey(mood)] },
+  }))
+  return (
+    <View style={styles.row} accessibilityLabel={`Mood: ${moodLabel(mood)}`}>
+      <View style={styles.dot} accessibilityElementsHidden importantForAccessibility="no" />
+      <Text variant="label" color="textSecondary">{moodLabel(mood)}</Text>
+    </View>
+  )
+}
+
+function ReflectionField({ label, value, quote = false, compact = false }: { label: string; value: string; quote?: boolean; compact?: boolean }) {
+  const styles = useThemedStyles(makeStyles)
+  return (
+    <View style={compact ? styles.compactField : styles.field}>
+      <Text variant="label" color="textSecondary">{label}</Text>
+      <Text variant="body" style={quote ? styles.quote : undefined}>{value}</Text>
+    </View>
+  )
+}
+
+function AuthoredReflection({ entry }: { entry: Entry }) {
+  const styles = useThemedStyles(makeStyles)
+  const situation = entry.situation.trim()
+  const thought = entry.thought.trim()
+  const behavior = entry.behavior?.trim() ?? ''
+  const closingNote = entry.closing_note?.trim() ?? ''
+  const moodOnly = !situation && !thought
+
+  return (
+    <View testID="entry-remember-section">
+      {situation ? <Text variant="body" style={styles.situation}>{situation}</Text> : null}
+      {moodOnly ? (
+        <Text variant="body" color="textMuted" style={styles.situation}>
+          A quick mood check-in — no note added.
+        </Text>
+      ) : null}
+      {thought ? <ReflectionField label="The thought behind this" value={thought} quote /> : null}
+      {behavior ? <ReflectionField label="Behaviour" value={behavior} /> : null}
+      {closingNote ? <ReflectionField label="Closing note" value={closingNote} /> : null}
+    </View>
+  )
+}
+
+function LocalReflection({
+  entry,
+  pages,
+  graphNodes,
+}: {
+  entry: Entry
+  pages: ReturnType<typeof useWikiPages>['pages']
+  graphNodes: { id: string; label: string }[]
+}) {
+  const router = useRouter()
+  const styles = useThemedStyles(makeStyles)
+  const written = entry.situation.trim() !== '' || entry.thought.trim() !== ''
+  if (!written) return null
+
+  const labels = [entry.emotion, entry.distortion, entry.topic, entry.topic2].filter(
+    (value): value is string => !!value && value.trim() !== '' && value.trim().toLowerCase() !== 'none'
+  )
+  const seen = new Set<string>()
+  const uniqueLabels = labels.filter((value) => {
+    const key = value.trim().toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+
+  if (entry.tagged_at == null) {
+    return (
+      <View testID="entry-tagging-status" accessibilityLiveRegion="polite">
+        <Text variant="label" color="accent">Private reflection in progress</Text>
+        <Text variant="caption" color="textMuted" style={styles.statusText}>
+          Your entry is saved. MindWiki is noticing themes on this device.
+        </Text>
+      </View>
+    )
+  }
+
+  const themes = [entry.topic, entry.topic2]
+    .filter((value): value is string => !!value && value.trim() !== '' && value.trim().toLowerCase() !== 'none')
+    .filter((value, index, values) => values.findIndex((candidate) => candidate.trim().toLowerCase() === value.trim().toLowerCase()) === index)
+    .filter((value) => {
+      const key = value.trim().toLowerCase()
+      return key !== entry.emotion?.trim().toLowerCase() && key !== entry.distortion?.trim().toLowerCase()
     })
-  )
+  if (uniqueLabels.length === 0 && graphNodes.length === 0) return null
   return (
-    <View style={styles.row}>
-      <View style={styles.dot} />
-      <Text variant="label" color="textSecondary">
-        {moodLabel(mood)}
-      </Text>
-    </View>
+    <Card variant="sunken" style={styles.localCard} testID="entry-local-reflection">
+      <Text variant="subtitle">MindWiki’s local reflection</Text>
+      {entry.emotion && entry.emotion.trim() !== '' && entry.emotion.trim().toLowerCase() !== 'none' ? (
+        <ReflectionField label="MindWiki noticed" value={entry.emotion} compact />
+      ) : null}
+      {entry.distortion && entry.distortion.trim() !== '' && entry.distortion.trim().toLowerCase() !== 'none' ? (
+        <ReflectionField label="Possible thinking pattern" value={entry.distortion} compact />
+      ) : null}
+      {themes.length > 0 ? (
+        <View style={styles.compactField}>
+          <Text variant="label" color="textSecondary">Themes</Text>
+          <View style={styles.badgeRow}>
+            {themes.map((theme) => {
+              const page = pages.find((candidate) => candidate.title.trim().toLowerCase() === theme.trim().toLowerCase())
+              return (
+                <Chip
+                  key={theme}
+                  label={theme}
+                  onPress={page ? () => router.push(`/wiki/${page.id}`) : undefined}
+                  testID={page ? 'entry-theme-page-link' : `entry-theme-${theme}`}
+                />
+              )
+            })}
+          </View>
+        </View>
+      ) : null}
+      {graphNodes.length > 0 ? (
+        <View style={styles.compactField} testID="entry-graph-links">
+          <Text variant="label" color="textSecondary">In your connections</Text>
+          <View style={styles.badgeRow}>
+            {graphNodes.map((node) => (
+              <Chip
+                key={node.id}
+                label={node.label}
+                onPress={() => router.push({
+                  pathname: '/(tabs)/you',
+                  params: { nodeId: node.id, returnEntryId: entry.id },
+                })}
+                testID={`entry-graph-link-${node.id}`}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+      <Text variant="caption" color="textMuted" style={styles.provenance}>Processed privately on this device.</Text>
+    </Card>
   )
 }
 
-function Section({ label, value }: { label: string; value: string }) {
+function KnowledgeTrail({
+  entry,
+  lineage,
+}: {
+  entry: Entry
+  lineage: ReturnType<typeof useEntryLineage>
+}) {
+  const router = useRouter()
   const styles = useThemedStyles(makeStyles)
+  const written = entry.situation.trim() !== '' || entry.thought.trim() !== ''
+  if (!written || entry.tagged_at == null) return null
+
+  if (lineage.length === 0 && entry.wiki_indexed_at == null) {
+    return (
+      <View accessibilityLiveRegion="polite">
+        <Card variant="sunken" style={styles.knowledgeCard} testID="entry-knowledge-pending">
+          <Text variant="label" color="accent">Private synthesis in progress</Text>
+          <Text variant="caption" color="textMuted" style={styles.statusText}>
+            Your reflection is saved. Any wiki change will appear here once it is confirmed.
+          </Text>
+        </Card>
+      </View>
+    )
+  }
+  if (lineage.length === 0) return null
+
   return (
-    <View style={styles.section}>
-      <Text variant="label" color="accent" style={styles.sectionLabel}>
-        {label}
-      </Text>
-      <Text variant="body" style={styles.prose}>
-        {value}
-      </Text>
-    </View>
+    <Card variant="sunken" style={styles.knowledgeCard} testID="entry-knowledge-trail">
+      <Text variant="label" color="accent">This reflection contributed to…</Text>
+      {lineage.map((page) => (
+        <View key={page.id} style={styles.pageRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open the ${page.title} page`}
+            onPress={() => router.push(`/wiki/${page.id}`)}
+            testID="entry-page-link"
+            style={styles.pageLink}
+          >
+            <Text variant="bodyStrong" color="accentText">{page.title} ›</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`See how ${page.title} evolved`}
+            onPress={() => router.push(`/wiki/${page.id}/evolution`)}
+            testID="entry-evolution-link"
+            style={styles.evolutionLink}
+          >
+            <Text variant="caption" color="textSecondary">See what changed</Text>
+          </Pressable>
+        </View>
+      ))}
+    </Card>
   )
 }
 
-function Tag({ label }: { label: string }) {
+function ExploreSection({
+  related,
+  older,
+  newer,
+}: {
+  related: Entry[]
+  older: Entry | null
+  newer: Entry | null
+}) {
+  const router = useRouter()
+  const theme = useTheme()
   const styles = useThemedStyles(makeStyles)
-  return (
-    <View style={styles.tag}>
-      <Text variant="caption" color="textSecondary">
-        {label}
-      </Text>
-    </View>
-  )
-}
+  if (related.length === 0 && !older && !newer) return null
 
-/** A tag that grew into a wiki page — tappable, opens the page. */
-function PageTag({ label, onPress }: { label: string; onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles)
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Open the ${label} page`}
-      onPress={onPress}
-      style={[styles.tag, styles.tagLink]}
-    >
-      <Text variant="caption" color="accentText">
-        {label} ›
-      </Text>
-    </Pressable>
+    <View testID="entry-explore-section">
+      {related.length > 0 ? (
+        <View style={styles.related}>
+          <Text variant="label" color="textSecondary">Related entries</Text>
+          {related.map((item) => {
+            const date = formatDate(item.created_at)
+            return (
+              <ListRow
+                key={item.id}
+                title={date}
+                subtitle={entryPreview(item)}
+                onPress={() => router.push(`/entries/${item.id}`)}
+                testID="entry-related-link"
+                right={<Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />}
+              />
+            )
+          })}
+        </View>
+      ) : null}
+      {(older || newer) ? (
+        <View style={styles.nav}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open older entry"
+            disabled={!older}
+            onPress={() => older && router.replace(`/entries/${older.id}`)}
+          >
+            <Text variant="label" color={older ? 'accent' : 'textMuted'}>← Older</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open newer entry"
+            disabled={!newer}
+            onPress={() => newer && router.replace(`/entries/${newer.id}`)}
+          >
+            <Text variant="label" color={newer ? 'accent' : 'textMuted'}>Newer →</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
   )
 }
 
@@ -91,237 +284,79 @@ export default function EntryDetailScreen() {
   const { entries } = useEntries()
   const { older, newer } = useEntryNeighbors(entry)
   const { nodes } = useGraph()
-
-  // The wiki pages this entry shaped, and other entries on the same theme.
+  const { pages } = useWikiPages()
   const lineage = useEntryLineage(entry)
+
   const related = useMemo(() => {
     if (!entry) return []
-    return entries
-      .filter(
-        (e) =>
-          e.id !== entry.id &&
-          ((!!entry.emotion && e.emotion === entry.emotion) ||
-            (!!entry.topic && e.topic === entry.topic) ||
-            (!!entry.topic2 && e.topic === entry.topic2) ||
-            (!!entry.topic && e.topic2 === entry.topic) ||
-            (!!entry.topic2 && e.topic2 === entry.topic2))
-      )
-      .slice(0, 3)
+    return entries.filter((candidate) => candidate.id !== entry.id && (
+      (!!entry.emotion && candidate.emotion === entry.emotion) ||
+      (!!entry.topic && candidate.topic === entry.topic) ||
+      (!!entry.topic2 && candidate.topic === entry.topic2) ||
+      (!!entry.topic && candidate.topic2 === entry.topic) ||
+      (!!entry.topic2 && candidate.topic2 === entry.topic2)
+    )).slice(0, 3)
   }, [entries, entry])
 
   if (loading) {
-    return (
-      <Screen>
-        <View style={styles.center}>
-          <Text variant="body" color="textMuted">
-            Loading…
-          </Text>
-        </View>
-      </Screen>
-    )
+    return <Screen><View style={styles.center}><Text variant="body" color="textMuted">Loading…</Text></View></Screen>
   }
-
   if (!entry) {
     return (
       <Screen>
         <View style={styles.center}>
-          <Text variant="body" color="textMuted">
-            That entry couldn’t be found.
-          </Text>
-          <Text variant="label" color="accent" onPress={() => router.back()}>
-            ← Back
-          </Text>
+          <Text variant="body" color="textMuted">That entry couldn’t be found.</Text>
+          <Text variant="label" color="accent" onPress={() => router.back()}>← Back</Text>
         </View>
       </Screen>
     )
   }
 
-  // emotion / distortion / topic can coincide (the model may tag the same word as
-  // both the feeling and the theme). De-dupe case-insensitively so a label shows
-  // as one pill — and so the key={label} in tags.map below can't collide.
-  const seenTags = new Set<string>()
-  const tags = [
-    entry.distortion && entry.distortion !== 'none' ? entry.distortion : null,
-    entry.topic,
-    entry.topic2,
-  ].filter((t): t is string => {
-    if (!t || t === 'none') return false
-    const key = t.toLowerCase()
-    if (seenTags.has(key)) return false
-    seenTags.add(key)
-    return true
-  })
-
-  // A tag often grew into a wiki page (same label) — so the old "Shaped these
-  // pages" list just repeated the tags. Instead, make each tag that maps to a
-  // live page tappable, and surface any pages the entry shaped that aren't
-  // already a tag (e.g. people/places) as extra links. One row, no duplication.
-  const pageByLabel = new Map(lineage.map((p) => [p.title.trim().toLowerCase(), p]))
-  const taggedLabels = new Set(tags.map((t) => t.toLowerCase()))
-  const extraPages = lineage.filter((p) => !taggedLabels.has(p.title.trim().toLowerCase()))
-  const hasLinks = lineage.length > 0
-
-  // Deep link into the connections view, focused on the entry's primary concept
-  // (its theme, else its emotion) — only a node that recurred is focused there.
-  const graphFocus = entry.topic?.trim() || entry.emotion?.trim() || null
-  const graphNode = graphFocus
-    ? nodes.find((node) => node.label.trim().toLowerCase() === graphFocus.toLowerCase()) ?? null
-    : null
+  const graphLabels = [entry.topic, entry.topic2, entry.emotion]
+    .filter((label): label is string => !!label && label.trim() !== '')
+    .filter((label, index, labels) => labels.findIndex((candidate) => candidate.trim().toLowerCase() === label.trim().toLowerCase()) === index)
+  const graphNodes = graphLabels
+    .map((label) => nodes.find((node) => node.label.trim().toLowerCase() === label.trim().toLowerCase()))
+    .filter((node): node is NonNullable<typeof node> => node != null)
 
   return (
     <Screen scroll>
-      <Text variant="label" color="accent" onPress={() => router.back()}>
-        ← Back
-      </Text>
-
-      <Text variant="caption" color="textMuted" style={styles.date}>
-        {formatDate(entry.created_at)}
-      </Text>
-      <MoodChip mood={entry.mood} />
-
-      {entry.named_emotion ? <Section label="You named" value={entry.named_emotion} /> : null}
-      {entry.emotion ? <Section label="MindWiki noticed" value={entry.emotion} /> : null}
-
-      {entry.situation.trim() ? (
-        <Text variant="body" style={[styles.prose, styles.situation]}>
-          {entry.situation}
-        </Text>
-      ) : !entry.thought ? (
-        <Text variant="body" color="textMuted" style={styles.situation}>
-          A quick mood check-in — no note added.
-        </Text>
-      ) : null}
-      {entry.thought ? <Section label="The thought behind this" value={entry.thought} /> : null}
-      {entry.behavior ? <Section label="Behaviour" value={entry.behavior} /> : null}
-      {entry.closing_note ? <Section label="Closing note" value={entry.closing_note} /> : null}
-
-      {tags.length > 0 || extraPages.length > 0 ? (
-        <View style={styles.tags}>
-          {tags.map((t) => {
-            const page = pageByLabel.get(t.toLowerCase())
-            return page ? (
-              <PageTag key={t} label={t} onPress={() => router.push(`/wiki/${page.id}`)} />
-            ) : (
-              <Tag key={t} label={t} />
-            )
-          })}
-          {extraPages.map((p) => (
-            <PageTag key={p.id} label={p.title} onPress={() => router.push(`/wiki/${p.id}`)} />
-          ))}
+      <View style={styles.header}>
+        <IconButton name="arrow-back" onPress={() => router.back()} accessibilityLabel="Back" testID="entry-back" />
+        <Text variant="title">{formatDate(entry.created_at)}</Text>
+        <View style={styles.meta}>
+          <Text variant="caption" color="textMuted">{formatTime(entry.created_at)}</Text>
+          <MoodMeta mood={entry.mood} />
+          {entry.named_emotion ? <Text variant="label" color="textSecondary">You felt: {entry.named_emotion}</Text> : null}
         </View>
-      ) : null}
-      {hasLinks ? (
-        <Text variant="caption" color="textMuted" style={styles.linkHint}>
-          Tap a highlighted tag to open the page it shaped.
-        </Text>
-      ) : null}
-
-      {graphFocus && graphNode ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`See ${graphFocus} in your connections`}
-          onPress={() => router.push({ pathname: '/graph', params: { nodeId: graphNode.id } })}
-          style={styles.graphLink}
-          testID="entry-graph-link"
-        >
-          <Text variant="label" color="accent">
-            See “{graphFocus}” in your connections ›
-          </Text>
-        </Pressable>
-      ) : null}
-
-      {lineage.length > 0 && (
-        <View style={styles.linkSection}>
-          {lineage.slice(0, 3).map((p) => (
-            <Pressable
-              key={p.id}
-              accessibilityRole="button"
-              onPress={() => router.push(`/wiki/${p.id}/evolution`)}
-              style={styles.evolutionRow}
-              testID="entry-evolution-link"
-            >
-              <Text variant="label" color="accent">
-                How “{p.title}” evolved from entry to entry ›
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      {related.length > 0 ? (
-        <View style={styles.linkSection}>
-          <Text variant="label" color="accent" style={styles.sectionLabel}>
-            Related entries
-          </Text>
-          {related.map((e) => (
-            <Pressable
-              key={e.id}
-              accessibilityRole="button"
-              onPress={() => router.push(`/entries/${e.id}`)}
-              style={styles.linkRow}
-            >
-              <Text variant="body" numberOfLines={1}>
-                {entryPreview(e)}
-              </Text>
-              <Text variant="caption" color="textMuted">
-                {formatShortDate(e.created_at)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-
-      <View style={styles.nav}>
-        <Pressable
-          accessibilityRole="button"
-          disabled={!older}
-          onPress={() => older && router.replace(`/entries/${older.id}`)}
-        >
-          <Text variant="label" color={older ? 'accent' : 'textMuted'}>
-            ← Older
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          disabled={!newer}
-          onPress={() => newer && router.replace(`/entries/${newer.id}`)}
-        >
-          <Text variant="label" color={newer ? 'accent' : 'textMuted'}>
-            Newer →
-          </Text>
-        </Pressable>
       </View>
+
+      <AuthoredReflection entry={entry} />
+      <Divider />
+      <LocalReflection entry={entry} pages={pages} graphNodes={graphNodes} />
+      <KnowledgeTrail entry={entry} lineage={lineage} />
+      <Divider />
+      <ExploreSection related={related} older={older} newer={newer} />
     </Screen>
   )
 }
 
-const makeStyles = (t: Theme) =>
-  StyleSheet.create({
-    center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing.md },
-    date: { marginTop: t.spacing.xl },
-    prose: { lineHeight: 25 },
-    situation: { marginTop: t.spacing.xl },
-    section: { marginTop: t.spacing.xl },
-    sectionLabel: { marginBottom: t.spacing.xs },
-    tags: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm, marginTop: t.spacing['2xl'] },
-    tag: {
-      borderRadius: t.radii.pill,
-      paddingVertical: t.spacing.xs,
-      paddingHorizontal: t.spacing.md,
-      backgroundColor: t.colors.surfaceAlt,
-    },
-    tagLink: { backgroundColor: t.colors.accentMuted },
-    linkHint: { marginTop: t.spacing.sm },
-    graphLink: { marginTop: t.spacing.lg },
-    linkSection: { marginTop: t.spacing['2xl'] },
-    linkRow: { paddingVertical: t.spacing.sm },
-    evolutionRow: { paddingVertical: t.spacing.sm },
-    nav: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginTop: t.spacing['2xl'],
-      paddingTop: t.spacing.lg,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: t.colors.border,
-    },
-  })
+const makeStyles = (t: Theme) => StyleSheet.create({
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing.md },
+  header: { gap: t.spacing.sm, marginBottom: t.spacing['2xl'] },
+  meta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: t.spacing.md },
+  situation: { marginBottom: t.spacing.lg },
+  field: { gap: t.spacing.xs, marginTop: t.spacing.xl },
+  compactField: { gap: t.spacing.xs, marginTop: t.spacing.md },
+  quote: { borderLeftWidth: 2, borderLeftColor: t.colors.accent, paddingLeft: t.spacing.md },
+  statusText: { marginTop: t.spacing.xs },
+  localCard: { marginTop: t.spacing.lg, gap: t.spacing.xs },
+  provenance: { marginTop: t.spacing.sm },
+  knowledgeCard: { marginTop: t.spacing.lg, gap: t.spacing.sm },
+  pageRow: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.colors.border, paddingTop: t.spacing.sm },
+  pageLink: { paddingVertical: t.spacing.xs },
+  evolutionLink: { paddingVertical: t.spacing.xs },
+  related: { marginTop: t.spacing.lg },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
+  nav: { flexDirection: 'row', justifyContent: 'space-between', marginTop: t.spacing.xl, paddingTop: t.spacing.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.colors.border },
+})

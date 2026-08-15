@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocalSearchParams, useNavigation, useRouter, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   Alert,
+  BackHandler,
   FlatList,
   Pressable,
   ScrollView,
@@ -51,6 +52,7 @@ function formatShortDate(ts: number): string {
 
 export default function YouScreen() {
   const router = useRouter()
+  const navigation = useNavigation()
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const insets = useSafeAreaInsets()
@@ -80,8 +82,36 @@ export default function YouScreen() {
 
   // Deep-link with a persisted graph-node ID. Labels stay in encrypted storage,
   // never navigation state or deep-link serialization.
-  const { nodeId: rawNodeId } = useLocalSearchParams<{ nodeId?: string }>()
+  const { nodeId: rawNodeId, returnEntryId: rawReturnEntryId } = useLocalSearchParams<{
+    nodeId?: string
+    returnEntryId?: string
+  }>()
   const nodeId = opaqueRouteId(rawNodeId)
+  const returnEntryId = opaqueRouteId(rawReturnEntryId)
+  const leavingForEntry = useRef(false)
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!returnEntryId) return undefined
+      const goBackToEntry = () => {
+        if (leavingForEntry.current) return true
+        leavingForEntry.current = true
+        router.push(`/entries/${returnEntryId}`)
+        return true
+      }
+      const onBack = () => goBackToEntry()
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBack)
+      const removeSubscription = navigation.addListener('beforeRemove', (event) => {
+        if (leavingForEntry.current) return
+        event.preventDefault()
+        goBackToEntry()
+      })
+      return () => {
+        subscription.remove()
+        removeSubscription()
+      }
+    }, [navigation, returnEntryId, router])
+  )
   const appliedNodeId = useRef<string | null>(null)
   useEffect(() => {
     if (!nodeId || nodes.length === 0 || appliedNodeId.current === nodeId) return

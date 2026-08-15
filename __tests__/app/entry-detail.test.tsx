@@ -7,6 +7,7 @@ const mockUseEntry = jest.fn()
 const mockUseEntries = jest.fn()
 const mockUseNeighbors = jest.fn()
 const mockUseLineage = jest.fn()
+const mockUseWikiPages = jest.fn()
 const mockBack = jest.fn()
 const mockReplace = jest.fn()
 const mockPush = jest.fn()
@@ -15,7 +16,10 @@ jest.mock('@/hooks/useEntries', () => ({
   useEntries: () => mockUseEntries(),
   useEntryNeighbors: () => mockUseNeighbors(),
 }))
-jest.mock('@/hooks/useWiki', () => ({ useEntryLineage: () => mockUseLineage() }))
+jest.mock('@/hooks/useWiki', () => ({
+  useEntryLineage: () => mockUseLineage(),
+  useWikiPages: () => mockUseWikiPages(),
+}))
 jest.mock('@/hooks/useGraph', () => ({ useGraph: () => ({ nodes: [{ id: 'node-work', label: 'Work' }, { id: 'node-anxiety', label: 'anxiety' }] }) }))
 jest.mock('expo-router', () => ({
   useRouter: () => ({ back: mockBack, replace: mockReplace, push: mockPush }),
@@ -39,7 +43,7 @@ const make = (over: Partial<Entry> = {}): Entry => ({
   topic2: null,
   tagged_at: 1,
   wiki_indexed_at: null,
-  graph_indexed_at: null,
+  graph_indexed_at: 1,
   raw_text: null,
   source: 'journal',
   ...over,
@@ -53,11 +57,13 @@ describe('EntryDetailScreen', () => {
     mockUseEntries.mockReset()
     mockUseNeighbors.mockReset()
     mockUseLineage.mockReset()
+    mockUseWikiPages.mockReset()
     mockReplace.mockReset()
     mockPush.mockReset()
     mockUseEntries.mockReturnValue({ entries: [entry] })
     mockUseNeighbors.mockReturnValue({ older: null, newer: null })
     mockUseLineage.mockReturnValue([])
+    mockUseWikiPages.mockReturnValue({ pages: [] })
   })
 
   it('renders the entry prose, mood label and tags', () => {
@@ -68,9 +74,9 @@ describe('EntryDetailScreen', () => {
     expect(screen.getByText('left early')).toBeTruthy()
     expect(screen.getByText('Low')).toBeTruthy() // mood 2 → "Low"
     // tags render as separate pills (no raw mood_score / "none")
-    expect(screen.getByText('anxiety')).toBeTruthy()
+    expect(screen.getAllByText('anxiety').length).toBeGreaterThan(0)
     expect(screen.getByText('catastrophizing')).toBeTruthy()
-    expect(screen.getByText('Work')).toBeTruthy()
+    expect(screen.getAllByText('Work').length).toBeGreaterThan(0)
   })
 
   it('separates the user-named feeling from the model observation', () => {
@@ -79,10 +85,9 @@ describe('EntryDetailScreen', () => {
       loading: false,
     })
     render(<EntryDetailScreen />)
-    expect(screen.getByText('You named')).toBeTruthy()
-    expect(screen.getByText('Calm')).toBeTruthy()
+    expect(screen.getByText('You felt: Calm')).toBeTruthy()
     expect(screen.getByText('MindWiki noticed')).toBeTruthy()
-    expect(screen.getByText('anxiety')).toBeTruthy()
+    expect(screen.getAllByText('anxiety').length).toBeGreaterThan(0)
   })
 
   it('renders a label shared by two tags (emotion == topic) as a single pill', () => {
@@ -93,7 +98,7 @@ describe('EntryDetailScreen', () => {
       loading: false,
     })
     render(<EntryDetailScreen />)
-    expect(screen.getAllByText('Loneliness')).toHaveLength(2)
+    expect(screen.getAllByText('Loneliness')).toHaveLength(1)
   })
 
   it('navigates to the older neighbour and disables Newer at the newest entry', () => {
@@ -114,15 +119,14 @@ describe('EntryDetailScreen', () => {
 
   it('makes a tag that grew into a page tappable, opening the page', () => {
     mockUseEntry.mockReturnValue({ entry, loading: false })
-    // 'Anxiety' matches the entry's emotion tag — so the tag itself becomes the
-    // link (no separate "Shaped these pages" list duplicating it).
     mockUseLineage.mockReturnValue([{ id: 'p1', title: 'Anxiety', category: 'emotion' }])
 
     render(<EntryDetailScreen />)
-    expect(screen.queryByText('Shaped these pages')).toBeNull()
-    expect(screen.getByText('Tap a highlighted tag to open the page it shaped.')).toBeTruthy()
-    fireEvent.press(screen.getByText('Anxiety ›'))
+    expect(screen.getByTestId('entry-knowledge-trail')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('entry-page-link'))
     expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+    fireEvent.press(screen.getByTestId('entry-evolution-link'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/p1/evolution')
   })
 
   it('surfaces a shaped page that is not one of the entry tags', () => {
@@ -134,23 +138,88 @@ describe('EntryDetailScreen', () => {
     expect(mockPush).toHaveBeenCalledWith('/wiki/p9')
   })
 
+  it('links confirmed themes to their wiki pages', () => {
+    mockUseEntry.mockReturnValue({ entry, loading: false })
+    mockUseWikiPages.mockReturnValue({ pages: [{ id: 'p10', title: 'Work', category: 'theme' }] })
+
+    render(<EntryDetailScreen />)
+    fireEvent.press(screen.getByTestId('entry-theme-page-link'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/p10')
+  })
+
   it('deep-links into the graph focused on the entry’s primary concept (topic)', () => {
     mockUseEntry.mockReturnValue({ entry, loading: false })
     render(<EntryDetailScreen />)
-    fireEvent.press(screen.getByTestId('entry-graph-link'))
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/graph', params: { nodeId: 'node-work' } })
+    fireEvent.press(screen.getByTestId('entry-graph-link-node-work'))
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/(tabs)/you', params: { nodeId: 'node-work', returnEntryId: 'e1' } })
   })
 
   it('falls back to the emotion for the graph link when there is no topic', () => {
     mockUseEntry.mockReturnValue({ entry: make({ topic: null }), loading: false })
     render(<EntryDetailScreen />)
-    fireEvent.press(screen.getByTestId('entry-graph-link'))
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/graph', params: { nodeId: 'node-anxiety' } })
+    fireEvent.press(screen.getByTestId('entry-graph-link-node-anxiety'))
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/(tabs)/you', params: { nodeId: 'node-anxiety', returnEntryId: 'e1' } })
   })
 
   it('shows a not-found state when the entry is missing', () => {
     mockUseEntry.mockReturnValue({ entry: null, loading: false })
     render(<EntryDetailScreen />)
     expect(screen.getByText(/couldn’t be found/)).toBeTruthy()
+  })
+
+  it('shows the honest mood-only fallback without processing status', () => {
+    mockUseEntry.mockReturnValue({
+      entry: make({ situation: '', thought: '', behavior: null, closing_note: null, tagged_at: null, graph_indexed_at: null }),
+      loading: false,
+    })
+    render(<EntryDetailScreen />)
+    expect(screen.getByText('A quick mood check-in — no note added.')).toBeTruthy()
+    expect(screen.queryByTestId('entry-tagging-status')).toBeNull()
+  })
+
+  it('hides model output and derived links while tagging is pending', () => {
+    mockUseEntry.mockReturnValue({
+      entry: make({ tagged_at: null, graph_indexed_at: null, emotion: 'anxiety', topic: 'Work' }),
+      loading: false,
+    })
+    mockUseLineage.mockReturnValue([{ id: 'p1', title: 'Work', category: 'situation' }])
+    render(<EntryDetailScreen />)
+    expect(screen.getByTestId('entry-tagging-status')).toBeTruthy()
+    expect(screen.queryByText('MindWiki noticed')).toBeNull()
+    expect(screen.queryByText('anxiety')).toBeNull()
+    expect(screen.queryByTestId('entry-graph-link')).toBeNull()
+    expect(screen.queryByTestId('entry-knowledge-trail')).toBeNull()
+  })
+
+  it('shows truthful synthesis progress without claiming a contribution', () => {
+    mockUseEntry.mockReturnValue({
+      entry: make({ wiki_indexed_at: null, tagged_at: 1, graph_indexed_at: null }),
+      loading: false,
+    })
+    render(<EntryDetailScreen />)
+    expect(screen.getByTestId('entry-knowledge-pending')).toBeTruthy()
+    expect(screen.getByText('Your reflection is saved. Any wiki change will appear here once it is confirmed.')).toBeTruthy()
+    expect(screen.queryByText('This reflection contributed to…')).toBeNull()
+  })
+
+  it('shows only receipt-backed pages in the knowledge trail', () => {
+    mockUseEntry.mockReturnValue({ entry, loading: false })
+    mockUseLineage.mockReturnValue([{ id: 'p1', title: 'Anxiety', category: 'emotion' }])
+    render(<EntryDetailScreen />)
+    expect(screen.getByTestId('entry-knowledge-trail')).toBeTruthy()
+    fireEvent.press(screen.getByTestId('entry-page-link'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+    fireEvent.press(screen.getByTestId('entry-evolution-link'))
+    expect(mockPush).toHaveBeenCalledWith('/wiki/p1/evolution')
+  })
+
+  it('does not expose authored prose in accessibility labels', () => {
+    mockUseEntry.mockReturnValue({ entry, loading: false })
+    render(<EntryDetailScreen />)
+    const labels = screen.UNSAFE_getAllByProps({ accessibilityRole: 'button' })
+      .map((node) => node.props.accessibilityLabel)
+      .filter((label): label is string => typeof label === 'string')
+    expect(labels.join(' ')).not.toContain(entry.situation)
+    expect(labels.join(' ')).not.toContain(entry.thought)
   })
 })

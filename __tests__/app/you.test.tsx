@@ -15,7 +15,8 @@ const mockUseDigest = jest.fn()
 const mockUseEntries = jest.fn()
 
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  useNavigation: () => ({ addListener: jest.fn(() => jest.fn()) }),
   useLocalSearchParams: () => ({}),
   useFocusEffect: (cb: () => void) => {
     require('react').useEffect(() => cb(), [])
