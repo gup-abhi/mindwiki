@@ -4,7 +4,7 @@ import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-n
 import { CRISIS_RESOURCES } from '@/services/crisis/resources'
 import { useRouter } from 'expo-router'
 
-import { Button, Chip, ProgressBar, Screen, Text, TextField } from '@/components/ui'
+import { Button, Chip, IconButton, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { useUntangleThought } from '@/hooks/useUntangleThought'
 
@@ -131,18 +131,18 @@ export default function UntangleScreen() {
 
   return (
     <Screen scroll animated={false}>
-      {/* Cancel button */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Back to Reflect"
-        onPress={handleCancel}
-        testID="untangle-cancel-button"
-        style={styles.backButton}
-      >
-        <Text variant="label" color="accent">
-          ← Back
-        </Text>
-      </Pressable>
+      <View style={styles.header}>
+        <IconButton
+          name="chevron-back"
+          color="accent"
+          accessibilityLabel="Back to Reflect"
+          onPress={handleCancel}
+          testID="untangle-cancel-button"
+        />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="title">Untangle a thought</Text>
+        </View>
+      </View>
 
       <View style={styles.progress}>
         <ProgressBar
@@ -365,7 +365,8 @@ export default function UntangleScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing.md },
-    backButton: { marginBottom: t.spacing.md },
+    header: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, paddingTop: t.spacing.lg, marginBottom: t.spacing.md },
+    headerContent: { flex: 1 },
     progress: { marginBottom: t.spacing.md },
     stepsRow: {
       flexDirection: 'row',

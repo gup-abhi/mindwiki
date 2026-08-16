@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router'
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
 import QRCode from 'react-native-qrcode-svg'
 
-import { Button, Screen, Text } from '@/components/ui'
+import { Button, IconButton, Screen, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { startPairing } from '@/services/sync/pairing'
 import { authenticate } from '@/services/auth/biometric'
@@ -65,14 +65,20 @@ export default function Pair() {
 
   return (
     <Screen>
-      <Pressable onPress={() => router.back()} testID="pair-back">
-        <Text variant="label" color="accent">
-          ‹ Settings
-        </Text>
-      </Pressable>
-      <Text variant="title" style={styles.title}>
-        Pair a new device
-      </Text>
+      <View style={styles.header}>
+        <IconButton
+          name="chevron-back"
+          color="accent"
+          accessibilityLabel="Back to Settings"
+          onPress={() => router.back()}
+          testID="pair-back"
+        />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="title">
+            Pair a new device
+          </Text>
+        </View>
+      </View>
       <Text variant="body" color="textSecondary" style={styles.subtitle}>
         On your new device, choose “Pair with another device” and scan this code. It expires in 5
         minutes. Anyone who scans it gets full access — only show it to a device you own.
@@ -109,7 +115,8 @@ export default function Pair() {
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    title: { marginTop: t.spacing.sm },
+    header: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, paddingTop: t.spacing.lg },
+    headerContent: { flex: 1 },
     subtitle: { marginTop: t.spacing.sm },
     qrWrap: { alignItems: 'center', justifyContent: 'center', marginTop: t.spacing['3xl'], minHeight: 240 },
     qrCode: { backgroundColor: '#fff', padding: t.spacing.md, borderRadius: t.radii.md },

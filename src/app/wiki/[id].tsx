@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Alert, Pressable, StyleSheet, View } from 'react-native'
 
-import { Button, Card, Divider, ProgressBar, Screen, Text, TextField } from '@/components/ui'
+import { Button, Card, Divider, IconButton, ProgressBar, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { Markdown } from '@/components/wiki/Markdown'
 import { WikiConnections } from '@/components/wiki/WikiConnections'
@@ -95,11 +95,22 @@ export default function WikiPageScreen() {
 
   return (
     <Screen scroll>
-      <Text variant="title">{page.title}</Text>
-      <Text variant="caption" color="textMuted" style={styles.meta}>
-        {page.category ?? 'page'} · v{page.version} · {page.entry_count}{' '}
-        {page.entry_count === 1 ? 'entry' : 'entries'}
-      </Text>
+      <View style={styles.header}>
+        <IconButton
+          name="chevron-back"
+          color="accent"
+          accessibilityLabel="Back to your wiki"
+          onPress={() => router.back()}
+          testID="wiki-page-back"
+        />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="heading">{page.title}</Text>
+          <Text variant="caption" color="textMuted" style={styles.meta}>
+            {page.category ?? 'page'} · v{page.version} · {page.entry_count}{' '}
+            {page.entry_count === 1 ? 'entry' : 'entries'}
+          </Text>
+        </View>
+      </View>
       {contributionSummary && contributionSummary.count > 0 && (
         <Text variant="caption" color="textMuted" style={styles.provenance} testID="wiki-provenance">
           Shaped by {contributionSummary.count}{' '}
@@ -298,6 +309,14 @@ export default function WikiPageScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: t.spacing.sm,
+      paddingTop: t.spacing.lg,
+      marginBottom: t.spacing.md,
+    },
+    headerContent: { flex: 1 },
     meta: { marginTop: t.spacing.xs },
     provenance: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
     firstRunCard: { marginBottom: t.spacing.xl },

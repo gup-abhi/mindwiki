@@ -22,6 +22,18 @@ jest.mock('@/hooks/useDevices', () => ({ useDevices: jest.fn() }))
 jest.mock('@/components/DevStreakDebug', () => ({ DevStreakDebug: () => null }))
 jest.mock('@/components/DevLegacyWikiBackfill', () => ({ DevLegacyWikiBackfill: () => null }))
 jest.mock('@/components/DevGraphAudit', () => ({ DevGraphAudit: () => null }))
+jest.mock('@/components/onboarding/OnboardingCarousel', () => ({
+  OnboardingCarousel: ({ onDone }: { onDone: () => void }) => {
+    const React = require('react')
+    const { Text, Pressable } = require('react-native')
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(Text, { testID: 'settings-tour-content' }, 'A journal that thinks with you'),
+      React.createElement(Pressable, { testID: 'settings-tour-done', onPress: onDone }),
+    )
+  },
+}))
 
 // R4: logout is gated by a confirmation dialog. Capture the dialog and buttons
 // so each test can drive the "Log out" button (or cancel) explicitly.
@@ -279,10 +291,32 @@ describe('Settings', () => {
     expect(refresh).toHaveBeenCalled()
   })
 
+  it('opens the welcome tour on the first press', () => {
+    render(<Settings />)
+    expect(screen.queryByTestId('settings-tour-content')).toBeNull()
+    fireEvent.press(screen.getByTestId('settings-replay-tour'))
+    expect(screen.getByTestId('settings-tour-content')).toBeTruthy()
+  })
+
+  it('opens the development design preview from the developer section', () => {
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-design-preview'))
+    expect(screen.getByTestId('settings-design-preview-overlay')).toBeTruthy()
+    expect(screen.getByTestId('design-preview-close')).toBeTruthy()
+  })
+
   it('offers the System/Light/Dark appearance options', () => {
     render(<Settings />)
     expect(screen.getByTestId('appearance-system')).toBeTruthy()
     expect(screen.getByTestId('appearance-light')).toBeTruthy()
     expect(screen.getByTestId('appearance-dark')).toBeTruthy()
+  })
+
+  it('exposes the settings sections as accessible headers', () => {
+    render(<Settings />)
+    expect(screen.getByRole('header', { name: 'Appearance' })).toBeTruthy()
+    expect(screen.getByRole('header', { name: 'Security' })).toBeTruthy()
+    expect(screen.getByRole('header', { name: 'Sync' })).toBeTruthy()
+    expect(screen.getByRole('header', { name: 'Account' })).toBeTruthy()
   })
 })

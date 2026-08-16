@@ -25,8 +25,12 @@ beforeEach(() => {
 })
 
 describe('AuthScreen', () => {
-  it('declares intentional credential-manager semantics for register and login', () => {
+  it('declares accessible credential fields and intentional credential-manager semantics', () => {
     render(<AuthScreen />)
+    expect(screen.getByRole('header', { name: 'Create your account' })).toBeTruthy()
+    expect(screen.getByTestId('auth-email').props.accessibilityLabel).toBe('Email')
+    expect(screen.getByTestId('auth-password').props.accessibilityLabel).toBe('Password')
+    expect(screen.getByTestId('auth-password-confirm').props.accessibilityLabel).toBe('Confirm password')
     expect(screen.getByTestId('auth-email').props.autoComplete).toBe('email')
     expect(screen.getByTestId('auth-email').props.textContentType).toBe('emailAddress')
     expect(screen.getByTestId('auth-password').props.autoComplete).toBe('new-password')

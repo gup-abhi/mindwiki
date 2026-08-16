@@ -72,7 +72,7 @@ describe('Entries archive screen', () => {
     render(<EntriesScreen />)
     expect(screen.getByText('Entries')).toBeTruthy()
     expect(screen.getByText('Yesterday')).toBeTruthy()
-    expect(screen.getByText('situation e1')).toBeTruthy()
+    expect(screen.getByText('situation e1', { includeHiddenElements: true })).toBeTruthy()
     fireEvent.press(screen.getByTestId('entries-search-toggle'))
     fireEvent.changeText(screen.getByTestId('entries-search'), 'meeting')
     expect(mockSetQuery).toHaveBeenCalledWith('meeting')
@@ -91,7 +91,7 @@ describe('Entries archive screen', () => {
     }))
     render(<EntriesScreen />)
 
-    fireEvent.press(screen.getByText('situation e4'))
+    fireEvent.press(screen.getByText('situation e4', { includeHiddenElements: true }))
 
     expect(mockPush).toHaveBeenCalledWith('/entries/e4')
   })

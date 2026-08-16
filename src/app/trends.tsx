@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { Pressable, StyleSheet, View } from 'react-native'
 
-import { Button, Card, Screen, Text } from '@/components/ui'
+import { Button, Card, IconButton, Screen, Text } from '@/components/ui'
 import { PageTrendView, TrendLegend } from '@/components/wiki/PageTrendView'
 import { AffectMapView } from '@/components/insights/AffectMapView'
 import { DistortionTrendView } from '@/components/insights/DistortionTrendView'
@@ -51,12 +51,20 @@ export default function TrendsScreen() {
 
   return (
     <Screen scroll>
-      <Text variant="label" color="accent" onPress={() => router.back()}>
-        ← Back
-      </Text>
-      <Text variant="title" style={styles.h1}>
-        Reflection rhythm
-      </Text>
+      <View style={styles.header}>
+        <IconButton
+          name="chevron-back"
+          color="accent"
+          accessibilityLabel="Back"
+          onPress={() => router.back()}
+          testID="trends-back"
+        />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="title">
+            Reflection rhythm
+          </Text>
+        </View>
+      </View>
       <Text variant="body" color="textSecondary" style={styles.intro}>
         Your writing pattern over time. Today is always open.
       </Text>
@@ -296,7 +304,8 @@ function MoodRhythm({ data }: { data: WeekdayTimeMood }) {
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    h1: { marginTop: t.spacing.sm },
+    header: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, paddingTop: t.spacing.lg },
+    headerContent: { flex: 1 },
     intro: { marginTop: t.spacing.xs },
     card: { marginTop: t.spacing.lg },
     rescueBody: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },

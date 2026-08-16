@@ -12,7 +12,17 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Card, Chip, Divider, EmptyState, IconButton, ListRow, Screen, Text } from '@/components/ui'
+import {
+  Card,
+  Chip,
+  Divider,
+  EmptyState,
+  IconButton,
+  ListRow,
+  Screen,
+  SegmentedControl,
+  Text,
+} from '@/components/ui'
 import { Graph3D } from '@/components/graph/Graph3D'
 import { MoversStrip } from '@/components/insights/MoversStrip'
 import { MergeSuggestionBanner } from '@/components/wiki/MergeSuggestionBanner'
@@ -195,38 +205,16 @@ export default function YouScreen() {
     <>
       {/* Segment switcher */}
       <View style={[styles.header, { paddingTop: insets.top + theme.spacing.md }]}>
-        <View style={styles.segments}>
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.segment, tab === 'pages' && styles.segmentActive]}
-            onPress={() => setTab('pages')}
-            testID="you-tab-pages"
-          >
-            <Text variant="label" color={tab === 'pages' ? 'primaryText' : 'textSecondary'}>
-              Pages
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.segment, tab === 'patterns' && styles.segmentActive]}
-            onPress={() => setTab('patterns')}
-            testID="you-tab-patterns"
-          >
-            <Text variant="label" color={tab === 'patterns' ? 'primaryText' : 'textSecondary'}>
-              Patterns
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.segment, tab === 'map' && styles.segmentActive]}
-            onPress={() => setTab('map')}
-            testID="you-tab-map"
-          >
-            <Text variant="label" color={tab === 'map' ? 'primaryText' : 'textSecondary'}>
-              Map
-            </Text>
-          </Pressable>
-        </View>
+        <SegmentedControl
+          options={[
+            { key: 'pages', label: 'Pages', testID: 'you-tab-pages' },
+            { key: 'patterns', label: 'Patterns', testID: 'you-tab-patterns' },
+            { key: 'map', label: 'Map', testID: 'you-tab-map' },
+          ]}
+          selectedKey={tab}
+          onChange={(key) => setTab(key as Tab)}
+          testID="you-tabs"
+        />
       </View>
 
       {/* Pages — wiki category browse */}
@@ -705,20 +693,6 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     // Segment switcher
     header: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, backgroundColor: t.colors.bg },
-    segments: {
-      flexDirection: 'row',
-      backgroundColor: t.colors.surfaceAlt,
-      borderRadius: t.radii.pill,
-      padding: 2,
-    },
-    segment: {
-      flex: 1,
-      paddingVertical: t.spacing.sm,
-      alignItems: 'center',
-      borderRadius: t.radii.pill - 2,
-    },
-    segmentActive: { backgroundColor: t.colors.accent },
-
     // Pages segment
     listContent: {
       paddingHorizontal: t.spacing.xl,

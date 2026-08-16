@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ScrollView, StyleSheet, View } from 'react-native'
 
-import { Button, Divider, Screen, Text } from '@/components/ui'
+import { Button, Divider, IconButton, Screen, Text } from '@/components/ui'
 import { VersionChipRow } from '@/components/wiki/VersionChipRow'
 import { VersionDiff } from '@/components/wiki/VersionDiff'
 import { VersionViewer } from '@/components/wiki/VersionViewer'
@@ -151,19 +151,22 @@ export default function PageEvolutionScreen() {
   return (
     <Screen padded={false} animated={false}>
       <View style={styles.header}>
-        {/* Back */}
-        <Text variant="label" color="accent" onPress={() => router.back()} testID="evolution-back">
-          ← Back to page
-        </Text>
-
-        {/* Header */}
-        <Text variant="title" style={styles.title}>
-          {page.title}
-        </Text>
-        <Text variant="caption" color="textMuted" style={styles.meta}>
-          {page.category ?? 'page'} · {page.version} versions · {page.entry_count}{' '}
-          {page.entry_count === 1 ? 'entry' : 'entries'}
-        </Text>
+        <IconButton
+          name="chevron-back"
+          color="accent"
+          accessibilityLabel="Back to page"
+          onPress={() => router.back()}
+          testID="evolution-back"
+        />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="title">
+            {page.title}
+          </Text>
+          <Text variant="caption" color="textMuted" style={styles.meta}>
+            {page.category ?? 'page'} · {page.version} versions · {page.entry_count}{' '}
+            {page.entry_count === 1 ? 'entry' : 'entries'}
+          </Text>
+        </View>
 
         {/* Action bar */}
         <View style={styles.actions}>
@@ -270,7 +273,14 @@ export default function PageEvolutionScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    header: { paddingHorizontal: t.spacing.xl },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: t.spacing.sm,
+      paddingTop: t.spacing.lg,
+      paddingHorizontal: t.spacing.xl,
+    },
+    headerContent: { flex: 1 },
     body: { flex: 1 },
     bodyContent: { paddingHorizontal: t.spacing.xl, paddingBottom: t.spacing['2xl'] },
     title: { marginTop: t.spacing.sm },

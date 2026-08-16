@@ -136,14 +136,16 @@ describe('storage/challenges CRUD', () => {
   })
 
   it('lists all challenges most-recently-updated first', async () => {
+    const now = jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(2000)
+      .mockReturnValueOnce(3000)
+      .mockReturnValueOnce(4000)
     const { db } = createFakeDb()
     const a = await createChallenge({ title: 'A' }, db)
     const b = await createChallenge({ title: 'B' }, db)
     if (!a.success || !b.success) throw new Error('setup failed')
 
-    const now = jest.spyOn(Date, 'now')
-      .mockReturnValueOnce(2000)
-      .mockReturnValueOnce(3000)
     await updateChallenge(b.data.id, { current_streak: 1 }, db)
     await updateChallenge(a.data.id, { current_streak: 1 }, db)
     now.mockRestore()

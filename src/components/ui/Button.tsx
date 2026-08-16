@@ -3,6 +3,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { Ionicons } from '@expo/vector-icons'
 
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { haptics } from '@/lib/haptics'
 
 import { Text } from './Text'
@@ -34,7 +35,7 @@ const makeStyles = (t: Theme) =>
       gap: t.spacing.sm,
       borderRadius: t.radii.md,
     },
-    sm: { paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.lg },
+    sm: { minHeight: 48, paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.lg },
     md: { paddingVertical: t.spacing.md + 2, paddingHorizontal: t.spacing.xl },
     lg: { paddingVertical: t.spacing.lg, paddingHorizontal: t.spacing.xl },
     primary: { backgroundColor: t.colors.primary },
@@ -66,6 +67,7 @@ export function Button({
 }: ButtonProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
+  const reducedMotion = useReducedMotion()
   const isDisabled = disabled || loading
   const tint = theme.colors[textColorFor[variant]]
 
@@ -82,10 +84,10 @@ export function Button({
     <AnimatedPressable
       onPress={handlePress}
       onPressIn={() => {
-        if (!isDisabled) scale.value = withTiming(0.97, { duration: 90 })
+        if (!reducedMotion && !isDisabled) scale.value = withTiming(0.97, { duration: 90 })
       }}
       onPressOut={() => {
-        scale.value = withTiming(1, { duration: 120 })
+        if (!reducedMotion) scale.value = withTiming(1, { duration: 120 })
       }}
       disabled={isDisabled}
       accessibilityRole="button"

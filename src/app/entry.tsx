@@ -170,6 +170,10 @@ export default function EntryScreen() {
             </View>
           )}
 
+          <Text accessibilityRole="header" variant="heading" style={styles.stepTitle}>
+            How are you feeling?
+          </Text>
+
           {/* First-time hint: the grid isn't self-explanatory. Drop it once a
               cell is picked so it doesn't linger. */}
           {j.draft.mood == null && (
@@ -241,6 +245,10 @@ export default function EntryScreen() {
               How you’re feeling
             </Text>
           </Pressable>
+
+          <Text accessibilityRole="header" variant="heading" style={styles.stepTitle}>
+            What’s on your mind?
+          </Text>
 
           <Pressable
             style={styles.promptRow}
@@ -319,6 +327,7 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     flex: { flex: 1 },
     content: { flex: 1, padding: t.spacing.xl },
+    stepTitle: { marginBottom: t.spacing.md },
     gridHint: { textAlign: 'center', marginBottom: t.spacing.md },
     topBar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: t.spacing.sm },
     feelingsWrap: { marginTop: t.spacing.lg },

@@ -90,7 +90,7 @@ describe('Home dashboard', () => {
     mockCount.mockResolvedValue(ok(4))
     mockList.mockResolvedValue(ok([entry(), entry({ id: 'b' }), entry({ id: 'c' }), entry({ id: 'd' })]))
     render(<Home />)
-    await waitFor(() => expect(screen.getAllByText('a tense meeting')).toHaveLength(3))
+    await waitFor(() => expect(screen.getAllByText('a tense meeting', { includeHiddenElements: true })).toHaveLength(3))
     const entryButtons = screen.getAllByRole('button')
     expect(entryButtons.every((node) => !node.props.accessibilityLabel?.includes('a tense meeting'))).toBe(true)
     expect(screen.queryByText('Today')).toBeNull()
@@ -102,8 +102,8 @@ describe('Home dashboard', () => {
   it('opens an entry for reading when its row is tapped', async () => {
     mockList.mockResolvedValue(ok([entry()]))
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
-    fireEvent.press(screen.getByText('a tense meeting'))
+    await waitFor(() => expect(screen.getByText('a tense meeting', { includeHiddenElements: true })).toBeTruthy())
+    fireEvent.press(screen.getByText('a tense meeting', { includeHiddenElements: true }))
     expect(mockPush).toHaveBeenCalledWith('/entries/a')
   })
 
@@ -114,7 +114,7 @@ describe('Home dashboard', () => {
       ok([entry({ emotion: 'anxiety', distortion: 'catastrophizing', topic: 'Work', mood_score: 0.2 })])
     )
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('a tense meeting', { includeHiddenElements: true })).toBeTruthy())
     expect(screen.getByText('Low · anxiety · catastrophizing · Work')).toBeTruthy()
   })
 
@@ -143,7 +143,7 @@ describe('Home dashboard', () => {
   it('hides the digest card with too few entries', async () => {
     mockList.mockResolvedValue(ok([entry({ created_at: Date.now() })]))
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('a tense meeting', { includeHiddenElements: true })).toBeTruthy())
     expect(screen.queryByText('Your weekly digest is ready')).toBeNull()
   })
 
@@ -197,31 +197,24 @@ describe('Home dashboard', () => {
   it('opens archive from View all and composer from New entry', async () => {
     mockList.mockResolvedValue(ok([entry()]))
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('a tense meeting', { includeHiddenElements: true })).toBeTruthy())
     fireEvent.press(screen.getByTestId('home-view-all'))
     expect(mockPush).toHaveBeenCalledWith('/entries')
   })
 
-  it('opens new entry directly from plus and shows the two reflection paths above recent entries', async () => {
+  it('keeps Home focused on capture and recent continuity', async () => {
     mockList.mockResolvedValue(ok([entry()]))
     render(<Home />)
-    await waitFor(() => expect(screen.getByText('a tense meeting')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('a tense meeting', { includeHiddenElements: true })).toBeTruthy())
 
-    expect(screen.getByText('Guided reflection')).toBeTruthy()
-    expect(screen.getByText('Work through gentle prompts, one step at a time.')).toBeTruthy()
-    expect(screen.getByText('Untangle a thought')).toBeTruthy()
-    expect(screen.getByText('Untangle a difficult thought, one step at a time.')).toBeTruthy()
     expect(screen.getByText('Recent entries')).toBeTruthy()
+    expect(screen.queryByText('Guided reflection')).toBeNull()
+    expect(screen.queryByText('Untangle a thought')).toBeNull()
+    expect(screen.queryByTestId('home-action-guided-reflection')).toBeNull()
+    expect(screen.queryByTestId('home-action-untangle')).toBeNull()
     expect(screen.queryByTestId('streak-rescue')).toBeNull()
 
     fireEvent.press(screen.getByTestId('home-new-entry'))
     expect(mockPush).toHaveBeenCalledWith('/entry')
-    expect(screen.queryByTestId('home-action-menu')).toBeNull()
-
-    fireEvent.press(screen.getByTestId('home-action-guided-reflection'))
-    expect(mockPush).toHaveBeenCalledWith('/paths')
-
-    fireEvent.press(screen.getByTestId('home-action-untangle'))
-    expect(mockPush).toHaveBeenCalledWith('/untangle')
   })
 })

@@ -1,12 +1,23 @@
 import { Tabs } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { StyleSheet } from 'react-native'
 
 import { useTheme } from '@/theme'
 import { haptics } from '@/lib/haptics'
 
-/** Bottom tab bar: Home / Wiki / Graph / Ask / Settings, themed. */
+/** Bottom tab bar: Home / You / Reflect / Settings, themed. */
 export default function TabsLayout() {
   const theme = useTheme()
+  const insets = useSafeAreaInsets()
+  const tabBarStyle = StyleSheet.create({
+    bar: {
+      minHeight: 56 + insets.bottom,
+      paddingBottom: insets.bottom,
+      backgroundColor: theme.colors.surface,
+      borderTopColor: theme.colors.border,
+    },
+  })
   return (
     <Tabs
       screenListeners={{ tabPress: () => haptics.select() }}
@@ -14,10 +25,7 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: theme.colors.accent,
         tabBarInactiveTintColor: theme.colors.textMuted,
-        tabBarStyle: {
-          backgroundColor: theme.colors.surface,
-          borderTopColor: theme.colors.border,
-        },
+        tabBarStyle: tabBarStyle.bar,
         tabBarLabelStyle: { fontFamily: theme.fontFamily.uiSemibold, fontSize: 11 },
       }}
     >
@@ -25,6 +33,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Home',
+          tabBarAccessibilityLabel: 'Home',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'home' : 'home-outline'} color={color} size={size} />
           ),
@@ -34,6 +43,7 @@ export default function TabsLayout() {
         name="you"
         options={{
           title: 'You',
+          tabBarAccessibilityLabel: 'You',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'apps' : 'apps-outline'} color={color} size={size} />
           ),
@@ -43,6 +53,7 @@ export default function TabsLayout() {
         name="query"
         options={{
           title: 'Reflect',
+          tabBarAccessibilityLabel: 'Reflect',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
@@ -56,6 +67,7 @@ export default function TabsLayout() {
         name="settings"
         options={{
           title: 'Settings',
+          tabBarAccessibilityLabel: 'Settings',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'settings' : 'settings-outline'} color={color} size={size} />
           ),

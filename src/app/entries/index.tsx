@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router'
 import { ActivityIndicator, Pressable, ScrollView, SectionList, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Button, Chip, EmptyState, Screen, Text, TextField } from '@/components/ui'
+import { Button, Chip, EmptyState, IconButton, Screen, Text, TextField } from '@/components/ui'
 import { EntryCard } from '@/components/journal/EntryCard'
 import { groupEntriesByDay } from '@/components/journal/grouping'
 import { useEntryArchive } from '@/hooks/useEntries'
@@ -41,15 +41,13 @@ export default function EntriesScreen() {
   const header = (
     <View style={styles.header}>
       <View style={styles.topRow}>
-        <Pressable
-          accessibilityRole="button"
+        <IconButton
+          name="chevron-back"
+          color="accent"
           accessibilityLabel="Back"
           onPress={() => router.back()}
-          style={styles.back}
           testID="entries-back"
-        >
-          <Ionicons name="arrow-back" size={22} color={theme.colors.textPrimary} />
-        </Pressable>
+        />
         <View style={styles.heading}>
           <Text variant="title">Entries</Text>
           <Text variant="caption" color="textMuted">
@@ -190,8 +188,7 @@ const makeStyles = (t: Theme) =>
     filterBar: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
     searchBtn: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.xs, paddingVertical: t.spacing.xs },
     searchField: { marginTop: -t.spacing.xs },
-    topRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
-    back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+    topRow: { flexDirection: 'row', alignItems: 'flex-start', gap: t.spacing.md },
     heading: { flex: 1 },
     chipsLabel: { marginTop: t.spacing.xs },
     chips: { gap: t.spacing.sm, paddingRight: t.spacing.xl },

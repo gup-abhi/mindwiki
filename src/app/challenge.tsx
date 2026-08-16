@@ -57,8 +57,9 @@ export default function ChallengeScreen() {
           onPress={() => router.back()}
           testID="challenge-back"
         />
-        <Text variant="title">Challenge</Text>
-        <View style={styles.spacer} />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="title">Challenge</Text>
+        </View>
       </View>
 
       {completed ? (
@@ -258,8 +259,8 @@ function formatEarned(completedAt: number | null): string {
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: t.spacing.lg },
-    spacer: { width: 40 }, // balances the back button so the title stays centered
+    header: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, paddingTop: t.spacing.lg, marginBottom: t.spacing.lg },
+    headerContent: { flex: 1 },
     body: { paddingBottom: t.spacing.xl },
     center: { textAlign: 'center' },
     intro: { marginBottom: t.spacing.xl, lineHeight: 22 },

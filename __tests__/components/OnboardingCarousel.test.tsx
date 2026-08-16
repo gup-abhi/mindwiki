@@ -3,9 +3,12 @@ import { fireEvent, render, screen } from '@testing-library/react-native'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
 
 describe('OnboardingCarousel', () => {
-  it('opens on the first slide with Sign in, Skip, and Next', () => {
+  it('opens on the first slide with accessible progress', () => {
     render(<OnboardingCarousel onDone={jest.fn()} onSignIn={jest.fn()} />)
+    const introduction = screen.getByTestId('onboarding')
     expect(screen.getByText('A journal that thinks with you')).toBeTruthy()
+    expect(introduction).toBeTruthy()
+    expect(screen.getByLabelText('Introduction slide 1 of 6')).toBeTruthy()
     expect(screen.getByTestId('onboarding-sign-in')).toBeTruthy()
     expect(screen.getByTestId('onboarding-skip')).toBeTruthy()
     expect(screen.getByText('Next')).toBeTruthy()

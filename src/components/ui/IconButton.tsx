@@ -15,7 +15,14 @@ interface IconButtonProps {
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    base: { padding: t.spacing.sm, borderRadius: t.radii.pill },
+    base: {
+      minWidth: 48,
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: t.spacing.sm,
+      borderRadius: t.radii.pill,
+    },
     pressed: { opacity: 0.6 },
   })
 

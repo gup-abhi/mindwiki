@@ -85,6 +85,8 @@ Use the user-approved video-informed design context in [`ethical-product-design-
 - Treat motion as optional: support reduced motion, static equivalents, readable focus order, font scaling, and accessible labels.
 - Keep the privacy promise on every surface: raw journal text must never enter network payloads, logs, notifications, route parameters, telemetry, or accessibility labels.
 
+For the reusable visual and interaction contract, future UI work must also follow [`docs/UI_DESIGN_SYSTEM.md`](docs/UI_DESIGN_SYSTEM.md), including its Quiet Editorial principles, primitive contracts, accessibility/device gates, privacy rules, and migration ledger.
+
 ---
 
 ## SPARC methodology

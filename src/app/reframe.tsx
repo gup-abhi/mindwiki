@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Alert, StyleSheet, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 
-import { Button, Screen, Text, TextField } from '@/components/ui'
+import { Button, IconButton, Screen, Text, TextField } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { useReframes } from '@/hooks/useReframes'
 import { useWikiPage } from '@/hooks/useWiki'
@@ -65,9 +65,13 @@ export default function ReframeScreen() {
           <Text variant="body" color="textMuted">
             No belief to reframe.
           </Text>
-          <Text variant="label" color="accent" onPress={() => router.back()}>
-            ← Back
-          </Text>
+          <IconButton
+            name="chevron-back"
+            color="accent"
+            accessibilityLabel="Back"
+            onPress={() => router.back()}
+            testID="reframe-back"
+          />
         </View>
       </Screen>
     )
@@ -75,13 +79,20 @@ export default function ReframeScreen() {
 
   return (
     <Screen scroll>
-      <Text variant="label" color="accent" onPress={() => router.back()}>
-        ← Back
-      </Text>
-
-      <Text variant="title" style={styles.heading}>
-        Challenge this belief
-      </Text>
+      <View style={styles.header}>
+        <IconButton
+          name="chevron-back"
+          color="accent"
+          accessibilityLabel="Back"
+          onPress={() => router.back()}
+          testID="reframe-back"
+        />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="title">
+            Challenge this belief
+          </Text>
+        </View>
+      </View>
       <Text variant="body" color="textSecondary" style={styles.belief}>
         “{belief}”
       </Text>
@@ -153,7 +164,8 @@ export default function ReframeScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing.md },
-    heading: { marginTop: t.spacing.md },
+    header: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, paddingTop: t.spacing.lg },
+    headerContent: { flex: 1 },
     belief: { marginTop: t.spacing.xs, marginBottom: t.spacing.xl, fontStyle: 'italic' },
     field: { marginBottom: t.spacing.xl },
     fieldLabel: { marginBottom: t.spacing.sm },

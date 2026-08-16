@@ -148,7 +148,8 @@ describe('WikiCategoryScreen', () => {
     mockParams = { category: 'emotion' }
     mockUseWikiPages.mockReturnValue({ pages: mixedPages, loading: false })
     render(<WikiCategoryScreen />)
-    expect(screen.getByText('Emotions')).toBeTruthy() // header label
+    expect(screen.getByRole('header', { name: 'Emotions' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Back to your wiki' })).toBeTruthy()
     expect(screen.getByText('Anxiety')).toBeTruthy()
     expect(screen.getByText('Joy')).toBeTruthy()
     expect(screen.queryByText('Work')).toBeNull() // theme page excluded
@@ -191,7 +192,8 @@ describe('WikiPageScreen', () => {
       pageReturn({ id: 'p1', title: 'Anxiety', category: 'emotion', version: 2, entry_count: 3, content: 'You tend to expect the worst before meetings.', dismissed_at: null })
     )
     render(<WikiPageScreen />)
-    expect(screen.getByText('Anxiety')).toBeTruthy()
+    expect(screen.getByRole('header', { name: 'Anxiety' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Back to your wiki' })).toBeTruthy()
     expect(screen.getByText('You tend to expect the worst before meetings.')).toBeTruthy()
     expect(screen.getByText('emotion · v2 · 3 entries')).toBeTruthy()
   })

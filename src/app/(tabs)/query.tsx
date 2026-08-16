@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native'
 
-import { Card, Chip, IconButton, Screen, Text } from '@/components/ui'
+import { Card, Chip, IconButton, Screen, SegmentedControl, Text } from '@/components/ui'
 import { ConversationComposer } from '@/components/wiki/ConversationComposer'
 import { MessageBubble } from '@/components/wiki/MessageBubble'
 import { useConversation } from '@/hooks/useConversation'
@@ -209,38 +209,16 @@ export default function QueryScreen() {
                 </Card>
               )}
 
-              <View style={styles.segments}>
-                <Pressable
-                  accessibilityRole="button"
-                  style={[styles.segment, tab === 'start' && styles.segmentActive]}
-                  onPress={() => setTab('start')}
-                  testID="tab-start"
-                >
-                  <Text variant="label" color={tab === 'start' ? 'primaryText' : 'textSecondary'}>
-                    Start
-                  </Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  style={[styles.segment, tab === 'history' && styles.segmentActive]}
-                  onPress={() => setTab('history')}
-                  testID="tab-history"
-                >
-                  <Text variant="label" color={tab === 'history' ? 'primaryText' : 'textSecondary'}>
-                    History
-                  </Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  style={[styles.segment, tab === 'paths' && styles.segmentActive]}
-                  onPress={() => setTab('paths')}
-                  testID="tab-paths"
-                >
-                  <Text variant="label" color={tab === 'paths' ? 'primaryText' : 'textSecondary'}>
-                    Paths
-                  </Text>
-                </Pressable>
-              </View>
+              <SegmentedControl
+                options={[
+                  { key: 'start', label: 'Start', testID: 'tab-start' },
+                  { key: 'history', label: 'History', testID: 'tab-history' },
+                  { key: 'paths', label: 'Paths', testID: 'tab-paths' },
+                ]}
+                selectedKey={tab}
+                onChange={(key) => setTab(key as 'start' | 'history' | 'paths')}
+                testID="reflect-tabs"
+              />
 
               {tab === 'start' ? (
                 <View>
@@ -394,20 +372,6 @@ const makeStyles = (t: Theme) =>
     hintCard: { marginBottom: t.spacing.md },
     hintRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
     hintText: { flex: 1 },
-    segments: {
-      flexDirection: 'row',
-      backgroundColor: t.colors.surfaceAlt,
-      borderRadius: t.radii.lg,
-      padding: t.spacing.xs,
-      marginBottom: t.spacing.xl,
-    },
-    segment: {
-      flex: 1,
-      alignItems: 'center',
-      paddingVertical: t.spacing.sm,
-      borderRadius: t.radii.md,
-    },
-    segmentActive: { backgroundColor: t.colors.accent },
     sectionLabel: { marginBottom: t.spacing.sm },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
     chip: {

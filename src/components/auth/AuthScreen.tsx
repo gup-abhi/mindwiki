@@ -75,8 +75,11 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
     >
       <StatusBar style={theme.statusBar} />
       <View style={styles.body}>
-        <Text variant="title">{isRegister ? 'Create your account' : 'Welcome back'}</Text>
+        <Text accessibilityRole="header" variant="title">
+          {isRegister ? 'Create your account' : 'Welcome back'}
+        </Text>
         <Text variant="body" color="textSecondary" style={styles.subtitle}>
+
           {isRegister
             ? 'Your journal and on-device AI stay private. An account only carries encrypted sync data across your own devices.'
             : 'Sign in to restore your encrypted journal and continue on this device.'}
@@ -84,6 +87,7 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
 
         <TextInput
           style={styles.input}
+          accessibilityLabel="Email"
           placeholder="Email"
           placeholderTextColor={theme.colors.textMuted}
           autoCapitalize="none"
@@ -97,6 +101,7 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
         <View style={styles.passwordWrap}>
           <TextInput
             style={[styles.input, styles.passwordInput]}
+            accessibilityLabel="Password"
             placeholder="Password (8+ characters)"
             placeholderTextColor={theme.colors.textMuted}
             secureTextEntry={!showPassword}
@@ -124,6 +129,7 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
             <View style={styles.passwordWrap}>
               <TextInput
                 style={[styles.input, styles.passwordInput]}
+                accessibilityLabel="Confirm password"
                 placeholder="Confirm password"
                 placeholderTextColor={theme.colors.textMuted}
                 secureTextEntry={!showConfirm}
@@ -221,7 +227,17 @@ const makeStyles = (t: Theme) =>
     },
     passwordWrap: { marginTop: t.spacing.lg, justifyContent: 'center' },
     passwordInput: { marginTop: 0, paddingRight: 48 },
-    eyeButton: { position: 'absolute', right: 6, top: 0, bottom: 0, justifyContent: 'center', paddingHorizontal: t.spacing.sm },
+    eyeButton: {
+      position: 'absolute',
+      right: 0,
+      top: 0,
+      bottom: 0,
+      minWidth: 48,
+      minHeight: 48,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: t.spacing.sm,
+    },
     error: { marginTop: t.spacing.md },
     submit: { marginTop: t.spacing.xl },
     toggle: { textAlign: 'center', marginTop: t.spacing.xl },

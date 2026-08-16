@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router'
 import { ScrollView, StyleSheet, View } from 'react-native'
 
-import { Button, Card, IconButton, Screen, Text } from '@/components/ui'
+import { Button, IconButton, ListRow, Screen, Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { useDismissedPages } from '@/hooks/useWiki'
 import { restorePage } from '@/services/storage/wiki'
@@ -9,7 +9,7 @@ import { restorePage } from '@/services/storage/wiki'
 export default function DismissedWikiScreen() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { pages, refresh } = useDismissedPages()
+  const { pages, loading, refresh } = useDismissedPages()
 
   const onRestore = async (id: string) => {
     await restorePage(id)
@@ -26,11 +26,16 @@ export default function DismissedWikiScreen() {
           onPress={() => router.back()}
           testID="dismissed-back"
         />
-        <Text variant="title">Dropped insights</Text>
-        <View style={styles.spacer} />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="title">Dropped insights</Text>
+        </View>
       </View>
 
-      {pages.length === 0 ? (
+      {loading ? (
+        <View style={styles.empty}>
+          <Text variant="body" color="textMuted" style={styles.emptyText}>Loading dropped insights…</Text>
+        </View>
+      ) : pages.length === 0 ? (
         <View style={styles.empty}>
           <Text variant="body" color="textMuted" style={styles.emptyText}>
             Nothing dropped. Insights you mark as inaccurate show up here, and you can
@@ -40,13 +45,12 @@ export default function DismissedWikiScreen() {
       ) : (
         <ScrollView contentContainerStyle={styles.list}>
           {pages.map((p) => (
-            <Card key={p.id} variant="sunken" style={styles.card} testID="dismissed-row">
-              <Text variant="bodyStrong" onPress={() => router.push(`/wiki/${p.id}`)}>
-                {p.title}
-              </Text>
-              <Text variant="caption" color="textMuted" style={styles.meta}>
-                {p.category ?? 'page'}
-              </Text>
+            <View key={p.id} testID="dismissed-row" style={styles.card}>
+              <ListRow
+                title={p.title}
+                subtitle={p.category ?? 'page'}
+                onPress={() => router.push(`/wiki/${p.id}`)}
+              />
               <Button
                 title="Restore"
                 size="sm"
@@ -54,7 +58,7 @@ export default function DismissedWikiScreen() {
                 onPress={() => onRestore(p.id)}
                 testID={`dismissed-restore-${p.id}`}
               />
-            </Card>
+            </View>
           ))}
         </ScrollView>
       )}
@@ -64,8 +68,8 @@ export default function DismissedWikiScreen() {
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: t.spacing.lg },
-    spacer: { width: 40 }, // balances the back button so the title stays centered
+    header: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, paddingTop: t.spacing.lg, marginBottom: t.spacing.lg },
+    headerContent: { flex: 1 },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing['2xl'] },
     emptyText: { textAlign: 'center', lineHeight: 22 },
     list: { paddingBottom: t.spacing.xl },

@@ -30,6 +30,8 @@ describe('DismissedWikiScreen', () => {
 
   it('lists dropped pages and restores one', async () => {
     render(<DismissedWikiScreen />)
+    expect(screen.getByRole('header', { name: 'Dropped insights' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy()
     expect(screen.getByText('Avoidant')).toBeTruthy()
     fireEvent.press(screen.getByTestId('dismissed-restore-d1'))
     await waitFor(() => expect(mockRestore).toHaveBeenCalledWith('d1'))

@@ -133,6 +133,9 @@ export function OnboardingCarousel({ onDone, onSignIn }: OnboardingCarouselProps
 
       <FlatList
         ref={listRef}
+        accessibilityRole="adjustable"
+        accessibilityLabel={`Introduction slide ${index + 1} of ${SLIDES.length}`}
+        accessibilityValue={{ min: 1, max: SLIDES.length, now: index + 1 }}
         data={SLIDES}
         keyExtractor={(s) => s.title}
         horizontal

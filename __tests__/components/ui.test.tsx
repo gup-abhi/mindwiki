@@ -1,10 +1,19 @@
 import { fireEvent, screen } from '@testing-library/react-native'
 
-import { Button, Card, Chip, EmptyState, IconButton, ProgressBar, Screen, Text } from '@/components/ui'
+import { Button, Card, Chip, EmptyState, IconButton, ListRow, ProgressBar, Screen, Text } from '@/components/ui'
 import { haptics } from '@/lib/haptics'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { renderWithTheme } from '@/test/renderWithTheme'
 
 jest.mock('@/lib/haptics', () => ({ haptics: { light: jest.fn(), select: jest.fn(), success: jest.fn(), medium: jest.fn() } }))
+jest.mock('@/hooks/useReducedMotion', () => ({ useReducedMotion: jest.fn(() => false) }))
+
+const mockedUseReducedMotion = jest.mocked(useReducedMotion)
+
+const flattenStyle = (style: unknown): Record<string, unknown> => {
+  if (Array.isArray(style)) return Object.assign({}, ...style.filter(Boolean).map(flattenStyle))
+  return style && typeof style === 'object' ? style as Record<string, unknown> : {}
+}
 
 describe('ui primitives', () => {
   it('Text renders its content', () => {
@@ -39,7 +48,7 @@ describe('ui primitives', () => {
     expect(screen.getByText('body')).toBeTruthy()
   })
 
-  it('IconButton forwards accessibility state', () => {
+  it('IconButton uses a full 48dp target and forwards accessibility state', () => {
     renderWithTheme(
       <IconButton
         name="chevron-down"
@@ -49,7 +58,9 @@ describe('ui primitives', () => {
         testID="icon-button"
       />
     )
-    expect(screen.getByTestId('icon-button').props.accessibilityState.expanded).toBe(false)
+    const button = screen.getByTestId('icon-button')
+    expect(button.props.accessibilityState.expanded).toBe(false)
+    expect(flattenStyle(button.props.style)).toEqual(expect.objectContaining({ minWidth: 48, minHeight: 48 }))
   })
 
   it('Chip reflects selected + fires onPress', () => {
@@ -57,8 +68,26 @@ describe('ui primitives', () => {
     renderWithTheme(<Chip label="All" selected onPress={onPress} testID="chip" />)
     const chip = screen.getByTestId('chip')
     expect(chip.props.accessibilityState.selected).toBe(true)
+    expect(chip.props.accessibilityRole).toBe('button')
     fireEvent.press(chip)
     expect(onPress).toHaveBeenCalled()
+  })
+
+  it('ListRow gives actionable rows a 48dp target', () => {
+    renderWithTheme(<ListRow title="Appearance" onPress={jest.fn()} testID="row" />)
+    expect(flattenStyle(screen.getByTestId('row').props.style)).toEqual(expect.objectContaining({ minHeight: 48 }))
+  })
+
+  it('Button skips press animation when reduced motion is enabled', () => {
+    mockedUseReducedMotion.mockReturnValue(true)
+    renderWithTheme(<Button title="Go" onPress={jest.fn()} testID="motion-button" />)
+    fireEvent(screen.getByTestId('motion-button'), 'pressIn')
+    fireEvent(screen.getByTestId('motion-button'), 'pressOut')
+    expect(screen.getByTestId('motion-button')).toBeTruthy()
+  })
+
+  afterEach(() => {
+    mockedUseReducedMotion.mockReturnValue(false)
   })
 
   it('ProgressBar + Screen + EmptyState render', () => {

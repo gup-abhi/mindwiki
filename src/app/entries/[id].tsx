@@ -306,7 +306,13 @@ export default function EntryDetailScreen() {
       <Screen>
         <View style={styles.center}>
           <Text variant="body" color="textMuted">That entry couldn’t be found.</Text>
-          <Text variant="label" color="accent" onPress={() => router.back()}>← Back</Text>
+          <IconButton
+            name="chevron-back"
+            color="accent"
+            accessibilityLabel="Back"
+            onPress={() => router.back()}
+            testID="entry-back"
+          />
         </View>
       </Screen>
     )
@@ -322,12 +328,14 @@ export default function EntryDetailScreen() {
   return (
     <Screen scroll>
       <View style={styles.header}>
-        <IconButton name="arrow-back" onPress={() => router.back()} accessibilityLabel="Back" testID="entry-back" />
-        <Text variant="title">{formatDate(entry.created_at)}</Text>
-        <View style={styles.meta}>
-          <Text variant="caption" color="textMuted">{formatTime(entry.created_at)}</Text>
-          <MoodMeta mood={entry.mood} />
-          {entry.named_emotion ? <Text variant="label" color="textSecondary">You felt: {entry.named_emotion}</Text> : null}
+        <IconButton name="chevron-back" color="accent" onPress={() => router.back()} accessibilityLabel="Back" testID="entry-back" />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="heading">{formatDate(entry.created_at)}</Text>
+          <View style={styles.meta}>
+            <Text variant="caption" color="textMuted">{formatTime(entry.created_at)}</Text>
+            <MoodMeta mood={entry.mood} />
+            {entry.named_emotion ? <Text variant="label" color="textSecondary">You felt: {entry.named_emotion}</Text> : null}
+          </View>
         </View>
       </View>
 
@@ -343,8 +351,9 @@ export default function EntryDetailScreen() {
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing.md },
-  header: { gap: t.spacing.sm, marginBottom: t.spacing['2xl'] },
-  meta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: t.spacing.md },
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: t.spacing.sm, paddingTop: t.spacing.lg, marginBottom: t.spacing['2xl'] },
+  headerContent: { flex: 1 },
+  meta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: t.spacing.md, marginTop: t.spacing.xs },
   situation: { marginBottom: t.spacing.lg },
   field: { gap: t.spacing.xs, marginTop: t.spacing.xl },
   compactField: { gap: t.spacing.xs, marginTop: t.spacing.md },

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Alert, Modal, StyleSheet, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Alert, BackHandler, Modal, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 
 import { Button, Card, Chip, IconButton, Screen, Text } from '@/components/ui'
@@ -15,6 +15,7 @@ import { DevEmbedProbe } from '@/components/DevEmbedProbe'
 import { DevWikiAudit } from '@/components/DevWikiAudit'
 import { DevLegacyWikiBackfill } from '@/components/DevLegacyWikiBackfill'
 import { DevGraphAudit } from '@/components/DevGraphAudit'
+import { DesignPreview } from '@/components/dev/DesignPreview'
 import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
 import { RecoveryPhraseView } from '@/components/auth/RecoveryPhraseView'
 import { useAuth } from '@/hooks/useAuth'
@@ -131,36 +132,48 @@ export default function Settings() {
     ])
   }
   const [showTour, setShowTour] = useState(false)
+  const [showDesignPreview, setShowDesignPreview] = useState(false)
+
+  useEffect(() => {
+    if (!showTour && !showDesignPreview) return
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showDesignPreview) setShowDesignPreview(false)
+      else setShowTour(false)
+      return true
+    })
+    return () => subscription.remove()
+  }, [showTour, showDesignPreview])
 
   return (
-    <Screen scroll>
-      {phrase && (
-        <Modal visible animationType="slide" onRequestClose={done}>
-          <RecoveryPhraseView phrase={phrase} onConfirm={done} />
-        </Modal>
-      )}
-      {showTour && (
-        <Modal visible animationType="slide" onRequestClose={() => setShowTour(false)}>
-          <OnboardingCarousel onDone={() => setShowTour(false)} />
-        </Modal>
-      )}
+    <View style={styles.root}>
+      <Screen scroll>
+        {phrase && (
+          <Modal visible animationType="slide" onRequestClose={done}>
+            <RecoveryPhraseView phrase={phrase} onConfirm={done} />
+          </Modal>
+        )}
 
-      <Text variant="title">Settings</Text>
+        <Text variant="title">Settings</Text>
 
-      <Text variant="label" color="textMuted" style={styles.section}>
+      <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Appearance
       </Text>
-      <View style={styles.appearance}>
-        {APPEARANCE_OPTIONS.map((o) => (
-          <Chip
-            key={o.value}
-            label={o.label}
-            selected={preference === o.value}
-            onPress={() => setPreference(o.value)}
-            testID={`appearance-${o.value}`}
-          />
-        ))}
-      </View>
+      <Card variant="sunken" style={styles.appearanceCard}>
+        <Text variant="caption" color="textSecondary" style={styles.hint}>
+          Choose how MindWiki looks on this device.
+        </Text>
+        <View style={styles.appearance}>
+          {APPEARANCE_OPTIONS.map((o) => (
+            <Chip
+              key={o.value}
+              label={o.label}
+              selected={preference === o.value}
+              onPress={() => setPreference(o.value)}
+              testID={`appearance-${o.value}`}
+            />
+          ))}
+        </View>
+      </Card>
 
       <Card
         variant="sunken"
@@ -174,7 +187,7 @@ export default function Settings() {
         </Text>
       </Card>
 
-      <Text variant="label" color="textMuted" style={styles.section}>
+      <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Notifications
       </Text>
       <Card variant="sunken">
@@ -249,7 +262,7 @@ export default function Settings() {
         )}
       </Card>
 
-      <Text variant="label" color="textMuted" style={styles.section}>
+      <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Calm
       </Text>
       <Card variant="sunken" onPress={() => router.push('/breathe')} testID="settings-breathe">
@@ -259,7 +272,7 @@ export default function Settings() {
         </Text>
       </Card>
 
-      <Text variant="label" color="textMuted" style={styles.section}>
+      <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Challenge
       </Text>
       <Card variant="sunken" onPress={() => router.push('/challenge')} testID="settings-challenge">
@@ -269,7 +282,7 @@ export default function Settings() {
         </Text>
       </Card>
 
-      <Text variant="label" color="textMuted" style={styles.section}>
+      <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Security
       </Text>
       <Card variant="sunken">
@@ -293,7 +306,7 @@ export default function Settings() {
         </View>
       </Card>
 
-      <Text variant="label" color="textMuted" style={styles.section}>
+      <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Sync
       </Text>
       <Card variant="sunken">
@@ -319,7 +332,7 @@ export default function Settings() {
         )}
       </Card>
 
-      <Text variant="label" color="textMuted" style={styles.section}>
+      <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Recovery phrase
       </Text>
       <Card variant="sunken">
@@ -348,7 +361,7 @@ export default function Settings() {
         )}
       </Card>
 
-      <Text variant="label" color="textMuted" style={styles.section}>
+      <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Account
       </Text>
       <Card variant="sunken" onPress={() => router.push('/pair')} testID="settings-pair">
@@ -422,9 +435,15 @@ export default function Settings() {
 
       {__DEV__ && (
         <>
-          <Text variant="label" color="textMuted" style={styles.section}>
+          <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
             Developer
           </Text>
+          <Card variant="sunken" onPress={() => setShowDesignPreview(true)} testID="settings-design-preview">
+            <Text variant="bodyStrong">Design preview</Text>
+            <Text variant="caption" color="textSecondary" style={styles.hint}>
+              Inspect Quiet Editorial components with static, non-sensitive examples.
+            </Text>
+          </Card>
           <DevStreakDebug />
           <DevSeedDigest />
           <DevSeedTrend />
@@ -453,7 +472,18 @@ export default function Settings() {
           </Text>
         )}
       </View>
-    </Screen>
+      </Screen>
+      {showTour && (
+        <View style={styles.tourOverlay} testID="settings-tour-overlay">
+          <OnboardingCarousel onDone={() => setShowTour(false)} />
+        </View>
+      )}
+      {showDesignPreview && (
+        <View style={styles.tourOverlay} testID="settings-design-preview-overlay">
+          <DesignPreview onClose={() => setShowDesignPreview(false)} />
+        </View>
+      )}
+    </View>
   )
 }
 
@@ -469,6 +499,7 @@ const makeStyles = (t: Theme) =>
     },
     sectionLabel: { textTransform: 'uppercase' },
     deviceMeta: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+    appearanceCard: { marginTop: t.spacing.sm },
     appearance: { flexDirection: 'row', gap: t.spacing.sm },
     row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: t.spacing.xs },
     lockText: { flex: 1, paddingRight: t.spacing.md },
@@ -477,5 +508,7 @@ const makeStyles = (t: Theme) =>
     error: { marginTop: t.spacing.sm },
     hint: { marginTop: t.spacing.xs },
     tourCard: { marginTop: t.spacing.lg },
+    root: { flex: 1 },
+    tourOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 10, backgroundColor: t.colors.bg },
     logout: { marginTop: t.spacing.xl, gap: t.spacing.md },
   })

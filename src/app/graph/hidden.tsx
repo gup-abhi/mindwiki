@@ -20,8 +20,9 @@ export default function HiddenNodesScreen() {
           onPress={() => router.back()}
           testID="hidden-back"
         />
-        <Text variant="title">Hidden from connections</Text>
-        <View style={styles.spacer} />
+        <View style={styles.headerContent}>
+          <Text accessibilityRole="header" variant="title">Hidden from connections</Text>
+        </View>
       </View>
 
       {dismissals.length === 0 ? (
@@ -56,8 +57,8 @@ export default function HiddenNodesScreen() {
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: t.spacing.lg },
-    spacer: { width: 40 }, // balances the back button so the title stays centered
+    header: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, paddingTop: t.spacing.lg, marginBottom: t.spacing.lg },
+    headerContent: { flex: 1 },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing['2xl'] },
     emptyText: { textAlign: 'center', lineHeight: 22 },
     list: { paddingBottom: t.spacing.xl },

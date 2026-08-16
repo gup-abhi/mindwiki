@@ -16,6 +16,7 @@ interface ListRowProps {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     row: {
+      minHeight: 48,
       flexDirection: 'row',
       alignItems: 'center',
       gap: t.spacing.md,

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { Pressable, SectionList, StyleSheet, View } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
-
 import { Button, Card, ProgressBar, Screen, Text } from '@/components/ui'
-import { type Theme, useTheme, useThemedStyles } from '@/theme'
+import { type Theme, useThemedStyles } from '@/theme'
+
 import { EntryCard } from '@/components/journal/EntryCard'
 
 import { ModelDownloadCard } from '@/components/ModelDownloadCard'
@@ -28,7 +27,6 @@ import { generateDigest } from '@/services/digest/generator'
 export default function Home() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const theme = useTheme()
   const { entries } = useEntries()
   const { count: journalCount } = useJournalEntryCount()
   const { pages } = useWikiPages()
@@ -92,37 +90,17 @@ export default function Home() {
               freezesAvailable={journalStreak.freezesAvailable}
               onPress={() => router.push('/trends')}
             />
-            <View style={styles.pathActions}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Guided reflection"
-                style={({ pressed }) => [styles.pathAction, pressed && styles.fabPressed]}
-                onPress={() => router.push('/paths')}
-                testID="home-action-guided-reflection"
-              >
-                <View style={styles.pathActionTitle}>
-                  <Ionicons name="compass-outline" size={18} color={theme.colors.accent} />
-                  <Text variant="label" color="accent">Guided reflection</Text>
-                </View>
-                <Text variant="caption" color="textMuted">
-                  Work through gentle prompts, one step at a time.
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Untangle a thought"
-                style={({ pressed }) => [styles.pathAction, pressed && styles.fabPressed]}
-                onPress={() => router.push('/untangle')}
-                testID="home-action-untangle"
-              >
-                <View style={styles.pathActionTitle}>
-                  <Text variant="label" color="accent">🧩</Text>
-                  <Text variant="label" color="accent">Untangle a thought</Text>
-                </View>
-                <Text variant="caption" color="textMuted">
-                  Untangle a difficult thought, one step at a time.
-                </Text>
-              </Pressable>
+            <View style={styles.primaryAction}>
+              <Button
+                title="New entry"
+                icon="create-outline"
+                fullWidth
+                onPress={() => router.push('/entry')}
+                testID="home-new-entry"
+              />
+              <Text variant="caption" color="textMuted" style={styles.primaryActionHint}>
+                A private place to capture what is here today.
+              </Text>
             </View>
             <View style={styles.recentHeader}>
               <View>
@@ -196,15 +174,6 @@ export default function Home() {
           </View>
         }
         />
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="New entry"
-        testID="home-new-entry"
-        onPress={() => router.push('/entry')}
-        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-      >
-        <Ionicons name="add" size={30} color={theme.colors.primaryText} />
-      </Pressable>
     </Screen>
   )
 }
@@ -216,35 +185,11 @@ const makeStyles = (t: Theme) =>
     header: { alignItems: 'center', paddingTop: t.spacing.lg, paddingBottom: t.spacing.sm, paddingHorizontal: t.spacing.xl },
     recentHeader: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: t.spacing.md },
     fullWidth: { alignSelf: 'stretch', marginTop: t.spacing.lg },
+    primaryAction: { alignSelf: 'stretch', marginTop: t.spacing.lg },
+    primaryActionHint: { textAlign: 'center', marginTop: t.spacing.sm },
     challengeBar: { marginTop: t.spacing.md },
     challengeAction: { flexDirection: 'row', marginTop: t.spacing.md },
     challengeDone: { marginTop: t.spacing.md },
     digestSub: { marginTop: t.spacing.xs },
     surfaceText: { marginTop: t.spacing.xs },
-    pathActions: { alignSelf: 'stretch', gap: t.spacing.sm, marginTop: t.spacing.sm, marginBottom: t.spacing.sm },
-    pathAction: {
-      padding: t.spacing.md,
-      backgroundColor: t.colors.accent + '0F',
-      borderRadius: t.radii.md,
-      gap: t.spacing.xs,
-    },
-    pathActionTitle: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.xs },
-
-    fab: {
-      position: 'absolute',
-      right: t.spacing.xl,
-      bottom: t.spacing.xl,
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      backgroundColor: t.colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 6,
-      elevation: 6,
-    },
-    fabPressed: { opacity: 0.85 },
   })

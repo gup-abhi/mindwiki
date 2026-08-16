@@ -87,6 +87,13 @@ describe('EntryScreen (free-write)', () => {
     )
   })
 
+  it('labels both entry steps as headings', () => {
+    render(<EntryScreen />)
+    expect(screen.getByRole('header', { name: 'How are you feeling?' })).toBeTruthy()
+    goToWrite('affect-4-5', 'Excited')
+    expect(screen.getByRole('header', { name: 'What’s on your mind?' })).toBeTruthy()
+  })
+
   it('does not advance without a mood or a feeling', () => {
     render(<EntryScreen />)
     fireEvent.press(screen.getByTestId('entry-continue')) // disabled — no-op

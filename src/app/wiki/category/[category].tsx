@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { FlatList, Pressable, StyleSheet } from 'react-native'
+import { FlatList, StyleSheet, View } from 'react-native'
 
-import { Divider, EmptyState, ListRow, Screen, Text } from '@/components/ui'
+import { Divider, EmptyState, IconButton, ListRow, Screen, Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
 import { categoryKey, categoryLabel } from '@/services/wiki/categories'
 import { useWikiPages } from '@/hooks/useWiki'
@@ -12,7 +12,7 @@ export default function WikiCategoryScreen() {
   const styles = useThemedStyles(makeStyles)
   const { category } = useLocalSearchParams<{ category?: string }>()
   const key = category ?? 'other'
-  const { pages } = useWikiPages()
+  const { pages, loading } = useWikiPages()
 
   const inCategory = useMemo(
     () => pages.filter((p) => categoryKey(p.category) === key),
@@ -27,19 +27,27 @@ export default function WikiCategoryScreen() {
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={Divider}
         ListHeaderComponent={
-          <>
-            <Pressable onPress={() => router.back()} testID="category-back">
-              <Text variant="label" color="accent">
-                ‹ Your wiki
+          <View style={styles.header}>
+            <IconButton
+              name="chevron-back"
+              color="accent"
+              accessibilityLabel="Back to your wiki"
+              onPress={() => router.back()}
+              testID="category-back"
+            />
+            <View style={styles.headerContent}>
+              <Text accessibilityRole="header" variant="title">
+                {categoryLabel(key)}
               </Text>
-            </Pressable>
-            <Text variant="title" style={styles.title}>
-              {categoryLabel(key)}
-            </Text>
-          </>
+            </View>
+          </View>
         }
         ListEmptyComponent={
-          <EmptyState icon="book-outline" title="Nothing here yet" message="No pages in this category." />
+          loading ? (
+            <Text variant="body" color="textMuted" style={styles.state}>Loading pages…</Text>
+          ) : (
+            <EmptyState icon="book-outline" title="Nothing here yet" message="No pages in this category." />
+          )
         }
         renderItem={({ item }) => (
           <ListRow
@@ -56,5 +64,13 @@ export default function WikiCategoryScreen() {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     listContent: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, paddingBottom: t.spacing['2xl'] },
-    title: { marginTop: t.spacing.sm, marginBottom: t.spacing.md },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: t.spacing.sm,
+      paddingTop: t.spacing.lg,
+      marginBottom: t.spacing.md,
+    },
+    headerContent: { flex: 1 },
+    state: { paddingVertical: t.spacing['2xl'], textAlign: 'center' },
   })

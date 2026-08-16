@@ -1,11 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react-native'
 
 import YouScreen from '@/app/(tabs)/you'
-import { listEntries } from '@/services/storage/entries'
-import { ok } from '@/types/result'
-
 const mockPush = jest.fn()
-const mockListPages = jest.fn()
 const mockUseWikiPages = jest.fn()
 const mockUseTrendingPages = jest.fn()
 const mockUseGraph = jest.fn()
@@ -73,8 +69,10 @@ describe('YouScreen', () => {
 
   it('renders with the Pages segment selected by default', () => {
     render(<YouScreen />)
-    expect(screen.getByText('Pages')).toBeTruthy()
-    // Default segment is Pages — shows "No pages yet" empty state
+    expect(screen.getByTestId('you-tab-pages').props.accessibilityRole).toBe('tab')
+    expect(screen.getByTestId('you-tab-pages').props.accessibilityState.selected).toBe(true)
+    expect(screen.getByTestId('you-tab-patterns').props.accessibilityState.selected).toBe(false)
+    expect(screen.getByTestId('you-tab-map').props.accessibilityState.selected).toBe(false)
     expect(screen.getByText('No pages yet')).toBeTruthy()
   })
 
@@ -82,14 +80,22 @@ describe('YouScreen', () => {
     mockUseDigest.mockReturnValue({ digest: null, loading: false, synthesizing: false })
     mockUseEntries.mockReturnValue({ entries: [] })
     render(<YouScreen />)
-    fireEvent.press(screen.getByText('Patterns'))
+    fireEvent.press(screen.getByTestId('you-tab-patterns'))
+    expect(screen.getByTestId('you-tab-patterns').props.accessibilityState.selected).toBe(true)
+    expect(screen.getByTestId('you-tab-pages').props.accessibilityState.selected).toBe(false)
     expect(screen.getByText('Trends')).toBeTruthy()
   })
 
   it('switches to Map segment and shows empty state when no nodes', () => {
     render(<YouScreen />)
-    fireEvent.press(screen.getByText('Map'))
+    fireEvent.press(screen.getByTestId('you-tab-map'))
+    expect(screen.getByTestId('you-tab-map').props.accessibilityState.selected).toBe(true)
     expect(screen.getByText(/No connections yet/)).toBeTruthy()
+  })
+
+  it('exposes the segmented control as a tab list', () => {
+    render(<YouScreen />)
+    expect(screen.getByTestId('you-tabs').props.accessibilityRole).toBe('tablist')
   })
 
   it('renders the graph in Map segment when nodes exist', () => {
