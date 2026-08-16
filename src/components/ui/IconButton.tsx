@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet } from 'react-native'
+import { Pressable, StyleSheet, type AccessibilityState } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
 import { type ColorTokens, type Theme, useTheme, useThemedStyles } from '@/theme'
@@ -10,6 +10,7 @@ interface IconButtonProps {
   size?: number
   color?: keyof ColorTokens
   testID?: string
+  accessibilityState?: AccessibilityState
 }
 
 const makeStyles = (t: Theme) =>
@@ -25,6 +26,7 @@ export function IconButton({
   size = 24,
   color = 'textSecondary',
   testID,
+  accessibilityState,
 }: IconButtonProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
@@ -34,6 +36,7 @@ export function IconButton({
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      accessibilityState={accessibilityState}
       testID={testID}
       style={({ pressed }) => [styles.base, pressed && styles.pressed]}
     >

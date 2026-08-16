@@ -74,6 +74,7 @@ export function buildGraphHtml(
     'const BG = ' + jsonForInlineScript(backgroundColor) + ';',
     'function post(m){ if(window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(JSON.stringify(m)); } }',
     "const el = document.getElementById('graph');",
+    'var nodeTapInProgress = false;',
     "const G = ForceGraph3D({ controlType: 'orbit' })(el)",
     '  .backgroundColor(BG)',
     "  .nodeVal('val')",
@@ -90,8 +91,8 @@ export function buildGraphHtml(
     '  .warmupTicks(60)',
     '  .cooldownTicks(120)',
     '  .d3VelocityDecay(0.3)',
-    "  .onNodeClick(function(n){ post({ type: 'node', id: n.id }); })",
-    "  .onBackgroundClick(function(){ post({ type: 'bg' }); })",
+    "  .onNodeClick(function(n){ nodeTapInProgress = true; post({ type: 'node', id: n.id }); setTimeout(function(){ nodeTapInProgress = false; }, 0); })",
+    "  .onBackgroundClick(function(){ if (!nodeTapInProgress) post({ type: 'bg' }); })",
     // Frame the camera to the content once the layout settles. Without this the
     // graph opens as a tiny clump and the user has to pinch-zoom in by hand.
     '  .onEngineStop(function(){ fit(); });',

@@ -12,7 +12,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Card, Chip, Divider, EmptyState, ListRow, Screen, Text } from '@/components/ui'
+import { Card, Chip, Divider, EmptyState, IconButton, ListRow, Screen, Text } from '@/components/ui'
 import { Graph3D } from '@/components/graph/Graph3D'
 import { MoversStrip } from '@/components/insights/MoversStrip'
 import { MergeSuggestionBanner } from '@/components/wiki/MergeSuggestionBanner'
@@ -67,7 +67,20 @@ export default function YouScreen() {
   const { dismissals, refresh: refreshHidden } = useNodeDismissals()
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<GraphNode | null>(null)
+  const [nodeDetailsExpanded, setNodeDetailsExpanded] = useState(false)
   const { context } = useNodeContext(selected)
+
+  const selectNode = (node: GraphNode | null) => {
+    setSelected(node)
+    setNodeDetailsExpanded(false)
+  }
+
+  const closeNodeDetails = () => {
+    setSelected(null)
+    setNodeDetailsExpanded(false)
+  }
+
+  const toggleNodeDetails = () => setNodeDetailsExpanded((expanded) => !expanded)
   // One-time You-tab intro hint (P8). null while checking; false → show; true → hide.
   const [youHint, setYouHint] = useState<boolean | null>(null)
 
@@ -119,7 +132,7 @@ export default function YouScreen() {
     if (node) {
       setTab('map')
       setFilter('all')
-      setSelected(node)
+      selectNode(node)
       appliedNodeId.current = nodeId
     }
   }, [nodeId, nodes])
@@ -140,7 +153,7 @@ export default function YouScreen() {
           style: 'destructive',
           onPress: async () => {
             await dismissNode(node.type, node.label)
-            setSelected(null)
+            closeNodeDetails()
             await Promise.all([refresh(), refreshHidden()])
           },
         },
@@ -389,7 +402,7 @@ export default function YouScreen() {
                   accessibilityRole="button"
                   onPress={() => {
                     setFilter(f)
-                    setSelected(null)
+                    closeNodeDetails()
                   }}
                   style={[styles.pill, filter === f && styles.pillActive]}
                 >
@@ -440,77 +453,99 @@ export default function YouScreen() {
                 backgroundColor={theme.colors.bg}
                 filter={filter}
                 selectedId={selected?.id ?? null}
-                onSelect={setSelected}
+                onSelect={selectNode}
               />
             </View>
           )}
 
           {selected && (
-            <View style={styles.nodeCard}>
-              <Text style={styles.nodeCardTitle}>{selected.label}</Text>
-              <Text style={styles.nodeCardMeta}>
-                {selected.type} · appeared {selected.frequency}{' '}
-                {selected.frequency === 1 ? 'time' : 'times'}
-              </Text>
-
-              <ScrollView style={styles.nodeCardScroll} showsVerticalScrollIndicator={false}>
-                {context && context.pages.length > 0 && (
-                  <View style={styles.nodeCardSection}>
-                    <Text style={styles.nodeCardSectionLabel}>Pages it shaped</Text>
-                    {context.pages.map((p) => (
-                      <Pressable
-                        key={p.id}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Open the ${p.title} page`}
-                        onPress={() => router.push(`/wiki/${p.id}`)}
-                        style={styles.nodeLinkRow}
-                        testID="graph-node-page"
-                      >
-                        <Text style={styles.nodeLinkTitle} numberOfLines={1}>
-                          {p.title}
-                        </Text>
-                        <Text style={styles.nodeLinkChevron}>›</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-
-                {context && context.entries.length > 0 && (
-                  <View style={styles.nodeCardSection}>
-                    <Text style={styles.nodeCardSectionLabel}>
-                      {context.entries.length === 1 ? 'Entry behind it' : 'Entries behind it'}
-                    </Text>
-                    {context.entries.slice(0, 6).map((e) => (
-                      <Pressable
-                        key={e.id}
-                        accessibilityRole="button"
-                        onPress={() => router.push(`/entries/${e.id}`)}
-                        style={styles.nodeLinkRow}
-                        testID="graph-node-entry"
-                      >
-                        <Text style={styles.nodeLinkTitle} numberOfLines={1}>
-                          {e.situation.trim() || 'Mood check-in'}
-                        </Text>
-                        <Text style={styles.nodeLinkDate}>{formatShortDate(e.created_at)}</Text>
-                      </Pressable>
-                    ))}
-                    {context.entries.length > 6 && (
-                      <Text style={styles.nodeCardMore}>
-                        +{context.entries.length - 6} more
-                      </Text>
-                    )}
-                  </View>
-                )}
-              </ScrollView>
-
-              <View style={styles.nodeCardActions}>
-                <Pressable onPress={() => confirmDrop(selected)} testID="graph-drop">
-                  <Text style={styles.nodeCardDrop}>Remove from connections</Text>
-                </Pressable>
-                <Pressable onPress={() => setSelected(null)}>
-                  <Text style={styles.nodeCardClose}>Close</Text>
-                </Pressable>
+            <View style={[styles.nodeCard, { bottom: insets.bottom + theme.spacing.lg }]}>
+              <View style={styles.nodeCardHeader}>
+                <View style={styles.nodeCardHeading}>
+                  <Text style={styles.nodeCardTitle} numberOfLines={1}>
+                    {selected.label}
+                  </Text>
+                  <Text style={styles.nodeCardMeta}>
+                    {selected.type} · appeared {selected.frequency}{' '}
+                    {selected.frequency === 1 ? 'time' : 'times'}
+                  </Text>
+                </View>
+                <View style={styles.nodeCardControls}>
+                  <IconButton
+                    name={nodeDetailsExpanded ? 'chevron-down' : 'chevron-up'}
+                    onPress={toggleNodeDetails}
+                    accessibilityLabel={nodeDetailsExpanded ? 'Collapse node details' : 'Expand node details'}
+                    accessibilityState={{ expanded: nodeDetailsExpanded }}
+                    testID="graph-node-details-toggle"
+                  />
+                  <IconButton
+                    name="close"
+                    onPress={closeNodeDetails}
+                    accessibilityLabel="Close node details"
+                    testID="graph-node-details-close"
+                  />
+                </View>
               </View>
+
+              {nodeDetailsExpanded && (
+                <>
+                  <ScrollView style={styles.nodeCardScroll} showsVerticalScrollIndicator={false}>
+                    {context && context.pages.length > 0 && (
+                      <View style={styles.nodeCardSection}>
+                        <Text style={styles.nodeCardSectionLabel}>Pages it shaped</Text>
+                        {context.pages.map((p) => (
+                          <Pressable
+                            key={p.id}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Open the ${p.title} page`}
+                            onPress={() => router.push(`/wiki/${p.id}`)}
+                            style={styles.nodeLinkRow}
+                            testID="graph-node-page"
+                          >
+                            <Text style={styles.nodeLinkTitle} numberOfLines={1}>
+                              {p.title}
+                            </Text>
+                            <Text style={styles.nodeLinkChevron}>›</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+
+                    {context && context.entries.length > 0 && (
+                      <View style={styles.nodeCardSection}>
+                        <Text style={styles.nodeCardSectionLabel}>
+                          {context.entries.length === 1 ? 'Entry behind it' : 'Entries behind it'}
+                        </Text>
+                        {context.entries.slice(0, 6).map((e) => (
+                          <Pressable
+                            key={e.id}
+                            accessibilityRole="button"
+                            onPress={() => router.push(`/entries/${e.id}`)}
+                            style={styles.nodeLinkRow}
+                            testID="graph-node-entry"
+                          >
+                            <Text style={styles.nodeLinkTitle} numberOfLines={1}>
+                              {e.situation.trim() || 'Mood check-in'}
+                            </Text>
+                            <Text style={styles.nodeLinkDate}>{formatShortDate(e.created_at)}</Text>
+                          </Pressable>
+                        ))}
+                        {context.entries.length > 6 && (
+                          <Text style={styles.nodeCardMore}>
+                            +{context.entries.length - 6} more
+                          </Text>
+                        )}
+                      </View>
+                    )}
+                  </ScrollView>
+
+                  <View style={styles.nodeCardActions}>
+                    <Pressable onPress={() => confirmDrop(selected)} testID="graph-drop">
+                      <Text style={styles.nodeCardDrop}>Remove from connections</Text>
+                    </Pressable>
+                  </View>
+                </>
+              )}
             </View>
           )}
         </Screen>
@@ -763,12 +798,14 @@ const makeStyles = (t: Theme) =>
       position: 'absolute',
       left: t.spacing.xl,
       right: t.spacing.xl,
-      bottom: t.spacing['2xl'],
       backgroundColor: t.colors.surface,
       borderRadius: t.radii.lg,
       padding: t.spacing.lg,
       ...t.shadows.high,
     },
+    nodeCardHeader: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+    nodeCardHeading: { flex: 1, minWidth: 0 },
+    nodeCardControls: { flexDirection: 'row', alignItems: 'center' },
     nodeCardTitle: {
       fontSize: 18,
       fontFamily: t.fontFamily.serifSemibold,

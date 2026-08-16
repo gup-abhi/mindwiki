@@ -112,13 +112,43 @@ describe('GraphScreen (inside You tab > Map segment)', () => {
     expect(screen.queryByText(/appeared/)).toBeNull()
   })
 
-  it('shows a node detail card on tap', () => {
+  it('shows a compact node preview on tap', () => {
     renderMap()
     fireEvent.press(screen.getAllByTestId('graph-node')[0])
+
     expect(screen.getByText('emotion · appeared 3 times')).toBeTruthy()
+    expect(screen.getByTestId('graph-node-details-toggle').props.accessibilityLabel).toBe('Expand node details')
+    expect(screen.getByTestId('graph-node-details-toggle').props.accessibilityState.expanded).toBe(false)
+    expect(screen.getByTestId('graph-node-details-close')).toBeTruthy()
+    expect(screen.queryByTestId('graph-node-page')).toBeNull()
+    expect(screen.queryByTestId('graph-drop')).toBeNull()
   })
 
-  it('lists the pages and entries behind a tapped node and navigates to them', () => {
+  it('focuses the adjacent node when selection moves from one node to the other', () => {
+    renderMap()
+    fireEvent.press(screen.getAllByTestId('graph-node')[0])
+    fireEvent.press(screen.getAllByTestId('graph-node')[1])
+
+    expect(screen.getByText('situation · appeared 1 time')).toBeTruthy()
+    expect(screen.getByTestId('graph-node-details-toggle').props.accessibilityState.expanded).toBe(false)
+  })
+
+  it('expands and collapses node details without clearing selection', () => {
+    renderMap()
+    fireEvent.press(screen.getAllByTestId('graph-node')[0])
+
+    fireEvent.press(screen.getByTestId('graph-node-details-toggle'))
+    expect(screen.getByTestId('graph-node-details-toggle').props.accessibilityLabel).toBe('Collapse node details')
+    expect(screen.getByTestId('graph-node-details-toggle').props.accessibilityState.expanded).toBe(true)
+    expect(screen.getByTestId('graph-drop')).toBeTruthy()
+
+    fireEvent.press(screen.getByTestId('graph-node-details-toggle'))
+    expect(screen.getByText('emotion · appeared 3 times')).toBeTruthy()
+    expect(screen.queryByTestId('graph-drop')).toBeNull()
+    expect(screen.getByTestId('graph-node-details-toggle').props.accessibilityState.expanded).toBe(false)
+  })
+
+  it('lists the pages and entries behind an expanded node and navigates to them', () => {
     mockUseNodeContext.mockReturnValue({
       context: {
         pages: [{ id: 'p1', title: 'Anxiety', category: 'Emotions' }],
@@ -128,6 +158,7 @@ describe('GraphScreen (inside You tab > Map segment)', () => {
     })
     renderMap()
     fireEvent.press(screen.getAllByTestId('graph-node')[0])
+    fireEvent.press(screen.getByTestId('graph-node-details-toggle'))
 
     fireEvent.press(screen.getByTestId('graph-node-page'))
     expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
@@ -148,6 +179,7 @@ describe('GraphScreen (inside You tab > Map segment)', () => {
     })
     renderMap()
     fireEvent.press(screen.getAllByTestId('graph-node')[0])
+    fireEvent.press(screen.getByTestId('graph-node-details-toggle'))
     fireEvent.press(screen.getByTestId('graph-drop'))
     expect(spy).toHaveBeenCalled()
     expect(mockDismissNode).toHaveBeenCalledWith('emotion', 'Anxiety')

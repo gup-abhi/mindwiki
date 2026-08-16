@@ -56,6 +56,9 @@ describe('buildGraphHtml', () => {
     // node-focus (show a node + its neighbors) driven from RN
     expect(html).toContain('focusNode')
     expect(html).toContain('neighborIds')
+    // A node tap must not be followed by background deselection for the same gesture.
+    expect(html).toContain('nodeTapInProgress')
+    expect(html).toContain("if (!nodeTapInProgress) post({ type: 'bg' });")
     // auto-frames the camera to the content (no manual pinch-zoom on open)
     expect(html).toContain('zoomToFit')
     expect(html).toContain('onEngineStop')

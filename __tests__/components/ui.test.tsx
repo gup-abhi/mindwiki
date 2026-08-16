@@ -1,6 +1,6 @@
 import { fireEvent, screen } from '@testing-library/react-native'
 
-import { Button, Card, Chip, EmptyState, ProgressBar, Screen, Text } from '@/components/ui'
+import { Button, Card, Chip, EmptyState, IconButton, ProgressBar, Screen, Text } from '@/components/ui'
 import { haptics } from '@/lib/haptics'
 import { renderWithTheme } from '@/test/renderWithTheme'
 
@@ -37,6 +37,19 @@ describe('ui primitives', () => {
     fireEvent.press(screen.getByTestId('card'))
     expect(onPress).toHaveBeenCalled()
     expect(screen.getByText('body')).toBeTruthy()
+  })
+
+  it('IconButton forwards accessibility state', () => {
+    renderWithTheme(
+      <IconButton
+        name="chevron-down"
+        onPress={jest.fn()}
+        accessibilityLabel="Expand"
+        accessibilityState={{ expanded: false }}
+        testID="icon-button"
+      />
+    )
+    expect(screen.getByTestId('icon-button').props.accessibilityState.expanded).toBe(false)
   })
 
   it('Chip reflects selected + fires onPress', () => {
