@@ -85,3 +85,25 @@ jest.mock('expo-secure-store', () => {
     }),
   }
 })
+
+// Service tests do not mount the app composition root, so wire the same typed
+// runtime projections here without making services depend on Zustand.
+const { configureRuntimeStoreBridge } = require('./src/services/runtime/store-bridge')
+const { useAuthStore } = require('./src/store/auth.store')
+const { useSyncStore } = require('./src/store/sync.store')
+const { useWikiStore } = require('./src/store/wiki.store')
+configureRuntimeStoreBridge({
+  bumpSyncRevision: () => useSyncStore.getState().bumpRevision(),
+  notifySyncPending: () => useSyncStore.getState().notifyLocalChange(),
+  setSyncing: (syncing) => useSyncStore.getState().setSyncing(syncing),
+  beginSyncRestore: () => useSyncStore.getState().beginRestore(),
+  endSyncRestore: () => useSyncStore.getState().endRestore(),
+  beginWikiWork: () => useWikiStore.getState().begin(),
+  endWikiWork: () => useWikiStore.getState().end(),
+  setAuthenticated: (accountId, isNewAccount) => useAuthStore.getState().setAuthenticated(accountId, isNewAccount),
+  setRecoveryPending: (accountId) => useAuthStore.getState().setRecoveryPending(accountId),
+  setDeleting: (accountId) => useAuthStore.getState().setDeleting(accountId),
+  setUnauthenticated: () => useAuthStore.getState().setUnauthenticated(),
+  getAccountId: () => useAuthStore.getState().accountId,
+  isNewAccount: () => useAuthStore.getState().isNewAccount,
+})

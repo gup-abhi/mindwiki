@@ -1,13 +1,61 @@
-import React from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import React, { useEffect, useRef } from 'react'
+import { Animated, Pressable, StyleSheet, View } from 'react-native'
 
 import { Text } from '@/components/ui'
-import { type Theme, useThemedStyles } from '@/theme'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { type UIMessage } from '@/store/chat.store'
+import { type Theme, useThemedStyles } from '@/theme'
 
 import { CrisisBanner } from './CrisisBanner'
 import { Markdown } from './Markdown'
 import { SourceChips } from './SourceChips'
+
+const ENTRANCE_DURATION = 220
+const ENTRANCE_OFFSET = 8
+
+function EntranceAnimation({
+  animate,
+  children,
+}: {
+  animate: boolean
+  children: React.ReactNode
+}) {
+  const reducedMotion = useReducedMotion()
+  const progress = useRef(new Animated.Value(animate ? 0 : 1)).current
+
+  useEffect(() => {
+    if (!animate || reducedMotion) {
+      progress.setValue(1)
+      return
+    }
+
+    const animation = Animated.timing(progress, {
+      toValue: 1,
+      duration: ENTRANCE_DURATION,
+      useNativeDriver: true,
+    })
+    animation.start()
+    return () => animation.stop()
+  }, [animate, progress, reducedMotion])
+
+  return (
+    <Animated.View
+      style={{
+        opacity: progress,
+        transform: [
+          {
+            translateY: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [ENTRANCE_OFFSET, 0],
+            }),
+          },
+        ],
+      }}
+    >
+      {children}
+    </Animated.View>
+  )
+}
 
 function MessageBubbleBase({
   message,
@@ -19,7 +67,8 @@ function MessageBubbleBase({
   const styles = useThemedStyles(makeStyles)
   const isUser = message.role === 'user'
   return (
-    <View style={isUser ? styles.userWrap : styles.assistantWrap}>
+    <EntranceAnimation animate={message.animateEntrance === true}>
+      <View style={isUser ? styles.userWrap : styles.assistantWrap}>
       <View style={[styles.bubble, isUser ? styles.user : styles.assistant]}>
         {isUser ? (
           // The user's own text, shown verbatim.
@@ -38,6 +87,7 @@ function MessageBubbleBase({
       {message.failed && onRetry && (
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="Try again"
           onPress={onRetry}
           style={styles.retry}
           testID="retry"
@@ -47,7 +97,8 @@ function MessageBubbleBase({
           </Text>
         </Pressable>
       )}
-    </View>
+      </View>
+    </EntranceAnimation>
   )
 }
 

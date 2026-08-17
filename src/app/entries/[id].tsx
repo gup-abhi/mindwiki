@@ -133,7 +133,7 @@ function LocalReflection({
                   key={theme}
                   label={theme}
                   onPress={page ? () => router.push(`/wiki/${page.id}`) : undefined}
-                  testID={page ? 'entry-theme-page-link' : `entry-theme-${theme}`}
+                  testID={page ? 'entry-theme-page-link' : 'entry-theme'}
                 />
               )
             })}
@@ -196,7 +196,7 @@ function KnowledgeTrail({
         <View key={page.id} style={styles.pageRow}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Open the ${page.title} page`}
+            accessibilityLabel="Open contributing page"
             onPress={() => router.push(`/wiki/${page.id}`)}
             testID="entry-page-link"
             style={styles.pageLink}
@@ -205,7 +205,7 @@ function KnowledgeTrail({
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`See how ${page.title} evolved`}
+            accessibilityLabel="See contributing page history"
             onPress={() => router.push(`/wiki/${page.id}/evolution`)}
             testID="entry-evolution-link"
             style={styles.evolutionLink}

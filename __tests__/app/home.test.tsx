@@ -86,6 +86,13 @@ describe('Home dashboard', () => {
     useWikiStore.setState({ pending: 0 })
   })
 
+  it('shows a loading state before entries resolve', () => {
+    mockList.mockReturnValue(new Promise(() => undefined))
+    render(<Home />)
+    expect(screen.getByTestId('home-entries-loading')).toBeTruthy()
+    expect(screen.queryByText('No entries yet')).toBeNull()
+  })
+
   it('renders Today, recent entries, and Browse & search action', async () => {
     mockCount.mockResolvedValue(ok(4))
     mockList.mockResolvedValue(ok([entry(), entry({ id: 'b' }), entry({ id: 'c' }), entry({ id: 'd' })]))
@@ -95,7 +102,7 @@ describe('Home dashboard', () => {
     expect(entryButtons.every((node) => !node.props.accessibilityLabel?.includes('a tense meeting'))).toBe(true)
     expect(screen.queryByText('Today')).toBeNull()
     expect(screen.getByTestId('home-view-all')).toBeTruthy()
-    expect(screen.getByText('Browse & search →')).toBeTruthy()
+    expect(screen.getByText('Browse & search')).toBeTruthy()
     expect(screen.getByText('4 journal entries')).toBeTruthy()
   })
 
@@ -204,6 +211,8 @@ describe('Home dashboard', () => {
 
   it('keeps Home focused on capture and recent continuity', async () => {
     mockList.mockResolvedValue(ok([entry()]))
+    mockCount.mockResolvedValue(ok(1))
+    mockStreakTimestamps.mockReturnValue({ timestamps: [], refresh: jest.fn() })
     render(<Home />)
     await waitFor(() => expect(screen.getByText('a tense meeting', { includeHiddenElements: true })).toBeTruthy())
 
@@ -214,7 +223,13 @@ describe('Home dashboard', () => {
     expect(screen.queryByTestId('home-action-untangle')).toBeNull()
     expect(screen.queryByTestId('streak-rescue')).toBeNull()
 
-    fireEvent.press(screen.getByTestId('home-new-entry'))
+    const newEntry = screen.getByTestId('home-new-entry')
+    const browse = screen.getByTestId('home-view-all')
+    expect(newEntry.props.accessibilityLabel).toBe('New entry')
+    expect(browse.props.accessibilityLabel).toBe('Browse & search')
+    expect(browse.props.accessibilityState?.disabled).toBe(false)
+
+    fireEvent.press(newEntry)
     expect(mockPush).toHaveBeenCalledWith('/entry')
   })
 })

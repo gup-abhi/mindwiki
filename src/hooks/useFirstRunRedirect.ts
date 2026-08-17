@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'expo-router'
 
 import { firstRunStatus } from '@/services/onboarding/first-run'

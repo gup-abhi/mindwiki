@@ -54,13 +54,13 @@ jest.mock('@/services/onboarding/first-run', () => ({
 
 const mockBegin = jest.fn()
 const mockEnd = jest.fn()
-jest.mock('@/store/wiki.store', () => ({
-  useWikiStore: { getState: () => ({ begin: mockBegin, end: mockEnd }) },
-}))
-
 const mockBumpRevision = jest.fn()
-jest.mock('@/store/sync.store', () => ({
-  useSyncStore: { getState: () => ({ bumpRevision: mockBumpRevision }) },
+jest.mock('@/services/runtime/store-bridge', () => ({
+  runtimeStoreBridge: () => ({
+    beginWikiWork: mockBegin,
+    endWikiWork: mockEnd,
+    bumpSyncRevision: mockBumpRevision,
+  }),
 }))
 
 import { updateWikiForEntry } from '@/services/wiki/engine'

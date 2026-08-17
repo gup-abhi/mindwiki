@@ -29,6 +29,7 @@ export function useGraph() {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       refresh()
     }, [refresh, revision])
   )
