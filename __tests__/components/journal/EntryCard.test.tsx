@@ -38,6 +38,13 @@ describe('EntryCard', () => {
     expect(onPress).toHaveBeenCalled()
   })
 
+  it('keeps the entry preview in the accessibility tree without putting it in a control label', () => {
+    render(<EntryCard entry={make({ situation: 'A private situation' })} onPress={jest.fn()} />)
+    const preview = screen.getByText('A private situation')
+    expect(preview.props.importantForAccessibility).not.toBe('no-hide-descendants')
+    expect(screen.getAllByRole('button').every((node) => !node.props.accessibilityLabel?.includes('A private situation'))).toBe(true)
+  })
+
   it('shows mood-only fallback and de-duplicates metadata', () => {
     render(<EntryCard entry={make({ named_emotion: 'Calm', emotion: 'calm', topic: 'Work', topic2: 'Work', tagged_at: 1 })} onPress={jest.fn()} />)
     expect(screen.getByText('Mood check-in · Good')).toBeTruthy()

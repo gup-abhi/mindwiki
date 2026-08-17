@@ -5,6 +5,7 @@ import {
   listEntries,
   listStreakTimestamps,
   listEntriesForGraph,
+  listEntriesForGraphPage,
   listUnindexedEntries,
   listWikiPendingEntries,
   markWikiIndexed,
@@ -61,6 +62,16 @@ function createFakeDb() {
         const all = [...rows.values()]
           .filter((r) => r.source === 'journal')
           .sort((a, b) => Number(b.created_at) - Number(a.created_at))
+        return { rows: all.slice(0, limit), rowsAffected: 0 }
+      }
+      if (/^SELECT \* FROM entries WHERE 1 = 1/.test(sql)) {
+        const hasCursor = /created_at < \?/.test(sql)
+        const limit = Number(params[hasCursor ? 3 : 0])
+        const cursorCreatedAt = hasCursor ? Number(params[0]) : null
+        const cursorId = hasCursor ? String(params[2]) : null
+        const all = [...rows.values()]
+          .filter((r) => !hasCursor || Number(r.created_at) < cursorCreatedAt! || (Number(r.created_at) === cursorCreatedAt && String(r.id) < cursorId!))
+          .sort((a, b) => Number(b.created_at) - Number(a.created_at) || String(b.id).localeCompare(String(a.id)))
         return { rows: all.slice(0, limit), rowsAffected: 0 }
       }
       if (/^SELECT \* FROM entries ORDER BY created_at DESC LIMIT/.test(sql)) {
@@ -263,6 +274,23 @@ describe('storage/entries CRUD', () => {
     // Unlike listEntries (journal-only), the graph must re-derive from every
     // source so path/reflect signal survives a rebuild.
     if (result.success) expect(result.data).toHaveLength(3)
+  })
+
+  it('paginates graph entries with a stable created_at/id keyset', async () => {
+    const { db, rows } = createFakeDb()
+    rows.set('a', { id: 'a', created_at: 100, mood: 3, situation: 'a', thought: '', source: 'journal' })
+    rows.set('b', { id: 'b', created_at: 100, mood: 3, situation: 'b', thought: '', source: 'journal' })
+    rows.set('c', { id: 'c', created_at: 99, mood: 3, situation: 'c', thought: '', source: 'journal' })
+
+    const first = await listEntriesForGraphPage({ limit: 2 }, db)
+    expect(first.success).toBe(true)
+    expect(first.success && first.data.items.map((item) => item.id)).toEqual(['b', 'a'])
+    expect(first.success && first.data.nextCursor).toEqual({ createdAt: 100, id: 'a' })
+
+    const second = await listEntriesForGraphPage({ limit: 2, cursor: first.success ? first.data.nextCursor : null }, db)
+    expect(second.success).toBe(true)
+    expect(second.success && second.data.items.map((item) => item.id)).toEqual(['c'])
+    expect(second.success && second.data.nextCursor).toBeNull()
   })
 
   it('lists only un-indexed entries with text — tagged ones and empty mood-logs excluded', async () => {

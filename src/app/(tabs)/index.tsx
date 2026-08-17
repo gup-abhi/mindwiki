@@ -107,14 +107,13 @@ export default function Home() {
                 <Text variant="subtitle">Recent entries</Text>
                 <Text variant="caption" color="textMuted">{journalCount} journal {journalCount === 1 ? 'entry' : 'entries'}</Text>
               </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Browse and search entries"
+              <Button
+                title="Browse & search"
+                size="sm"
+                variant="ghost"
                 onPress={() => router.push('/entries')}
                 testID="home-view-all"
-              >
-                <Text variant="label" color="accent">Browse & search →</Text>
-              </Pressable>
+              />
             </View>
             {recentEntries.length === 0 ? (
               <Card variant="sunken" style={styles.fullWidth} onPress={() => router.push('/entry')} testID="home-empty-entries">

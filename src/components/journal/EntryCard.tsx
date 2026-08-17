@@ -122,15 +122,13 @@ function EntryCardBase({ entry, onPress }: EntryCardProps) {
             <Text variant="label" color="accentText" style={styles.tags} numberOfLines={1}>
               {tags || moodLabel(entry.mood)}
             </Text>
-            <View importantForAccessibility="no-hide-descendants">
-              <Text
-                variant="body"
-                style={styles.preview}
-                numberOfLines={2}
-              >
-                {preview}
-              </Text>
-            </View>
+            <Text
+              variant="body"
+              style={styles.preview}
+              numberOfLines={2}
+            >
+              {preview}
+            </Text>
           </>
         )}
       </View>

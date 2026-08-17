@@ -29,6 +29,13 @@ describe('ui primitives', () => {
     expect(haptics.light).toHaveBeenCalled()
   })
 
+  it('Button keeps its accessible name and exposes busy state while loading', () => {
+    renderWithTheme(<Button title="Save entry" onPress={jest.fn()} loading testID="loading-btn" />)
+    const button = screen.getByTestId('loading-btn')
+    expect(button.props.accessibilityLabel).toBe('Save entry')
+    expect(button.props.accessibilityState).toEqual(expect.objectContaining({ busy: true, disabled: true }))
+  })
+
   it('Button does nothing when disabled', () => {
     const onPress = jest.fn()
     renderWithTheme(<Button title="Go" onPress={onPress} disabled testID="btn2" />)
@@ -67,15 +74,43 @@ describe('ui primitives', () => {
     const onPress = jest.fn()
     renderWithTheme(<Chip label="All" selected onPress={onPress} testID="chip" />)
     const chip = screen.getByTestId('chip')
-    expect(chip.props.accessibilityState.selected).toBe(true)
-    expect(chip.props.accessibilityRole).toBe('button')
+    expect(chip.props.accessibilityState.checked).toBe(true)
+    expect(chip.props.accessibilityRole).toBe('checkbox')
     fireEvent.press(chip)
     expect(onPress).toHaveBeenCalled()
   })
 
-  it('ListRow gives actionable rows a 48dp target', () => {
-    renderWithTheme(<ListRow title="Appearance" onPress={jest.fn()} testID="row" />)
-    expect(flattenStyle(screen.getByTestId('row').props.style)).toEqual(expect.objectContaining({ minHeight: 48 }))
+  it('Chip supports static content without claiming an interactive role', () => {
+    renderWithTheme(<Chip label="Journal" testID="static-chip" />)
+    const chip = screen.getByTestId('static-chip')
+    expect(chip.props.accessibilityRole).toBeUndefined()
+    expect(chip.props.accessibilityState).toBeUndefined()
+  })
+
+  it('ListRow gives actionable rows a 48dp target and forwards semantics', () => {
+    renderWithTheme(
+      <ListRow
+        title="Appearance"
+        onPress={jest.fn()}
+        accessibilityLabel="Open appearance settings"
+        accessibilityState={{ expanded: false }}
+        testID="row"
+      />
+    )
+    const row = screen.getByTestId('row')
+    expect(flattenStyle(row.props.style)).toEqual(expect.objectContaining({ minHeight: 48 }))
+    expect(row.props.accessibilityLabel).toBe('Open appearance settings')
+    expect(row.props.accessibilityState.expanded).toBe(false)
+  })
+
+  it('EmptyState exposes an optional next action', () => {
+    renderWithTheme(
+      <EmptyState
+        title="No entries"
+        action={{ label: 'New entry', onPress: jest.fn(), testID: 'empty-action' }}
+      />
+    )
+    expect(screen.getByTestId('empty-action')).toBeTruthy()
   })
 
   it('Button skips press animation when reduced motion is enabled', () => {

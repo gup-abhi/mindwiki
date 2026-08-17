@@ -95,7 +95,7 @@ describe('Home dashboard', () => {
     expect(entryButtons.every((node) => !node.props.accessibilityLabel?.includes('a tense meeting'))).toBe(true)
     expect(screen.queryByText('Today')).toBeNull()
     expect(screen.getByTestId('home-view-all')).toBeTruthy()
-    expect(screen.getByText('Browse & search →')).toBeTruthy()
+    expect(screen.getByText('Browse & search')).toBeTruthy()
     expect(screen.getByText('4 journal entries')).toBeTruthy()
   })
 
@@ -214,7 +214,13 @@ describe('Home dashboard', () => {
     expect(screen.queryByTestId('home-action-untangle')).toBeNull()
     expect(screen.queryByTestId('streak-rescue')).toBeNull()
 
-    fireEvent.press(screen.getByTestId('home-new-entry'))
+    const newEntry = screen.getByTestId('home-new-entry')
+    const browse = screen.getByTestId('home-view-all')
+    expect(newEntry.props.accessibilityLabel).toBe('New entry')
+    expect(browse.props.accessibilityLabel).toBe('Browse & search')
+    expect(browse.props.accessibilityState?.disabled).toBe(false)
+
+    fireEvent.press(newEntry)
     expect(mockPush).toHaveBeenCalledWith('/entry')
   })
 })

@@ -1,14 +1,17 @@
-import { Pressable, StyleSheet } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
 
 import { type Theme, useThemedStyles } from '@/theme'
 import { haptics } from '@/lib/haptics'
 
 import { Text } from './Text'
 
+type ChipMode = 'action' | 'single' | 'multi' | 'toggle'
+
 interface ChipProps {
   label: string
   selected?: boolean
   onPress?: () => void
+  mode?: ChipMode
   testID?: string
 }
 
@@ -25,7 +28,7 @@ const makeStyles = (t: Theme) =>
   })
 
 /** Pill — filter / selectable tag. */
-export function Chip({ label, selected = false, onPress, testID }: ChipProps) {
+export function Chip({ label, selected = false, onPress, mode = 'multi', testID }: ChipProps) {
   const styles = useThemedStyles(makeStyles)
   const handlePress = onPress
     ? () => {
@@ -33,18 +36,48 @@ export function Chip({ label, selected = false, onPress, testID }: ChipProps) {
         onPress()
       }
     : undefined
+  const accessibilityRole = onPress
+    ? mode === 'action'
+      ? 'button'
+      : mode === 'single'
+        ? 'radio'
+        : mode === 'toggle'
+          ? 'switch'
+          : 'checkbox'
+    : undefined
+  const accessibilityState = onPress
+    ? mode === 'single'
+      ? { selected }
+      : mode === 'toggle'
+        ? { checked: selected }
+        : mode === 'multi'
+          ? { checked: selected }
+          : undefined
+    : undefined
+
+  const content = (
+    <Text variant="label" color={selected ? 'primaryText' : 'textPrimary'}>
+      {label}
+    </Text>
+  )
+
+  if (!onPress) {
+    return (
+      <View style={[styles.base, selected && styles.selected]} testID={testID}>
+        {content}
+      </View>
+    )
+  }
+
   return (
     <Pressable
       onPress={handlePress}
-      disabled={!onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
+      accessibilityRole={accessibilityRole}
+      accessibilityState={accessibilityState}
       testID={testID}
       style={({ pressed }) => [styles.base, selected && styles.selected, pressed && styles.pressed]}
     >
-      <Text variant="label" color={selected ? 'primaryText' : 'textPrimary'}>
-        {label}
-      </Text>
+      {content}
     </Pressable>
   )
 }

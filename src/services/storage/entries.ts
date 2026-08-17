@@ -2,7 +2,7 @@ import { randomUUID } from 'expo-crypto'
 
 import { type Result, ok, err } from '@/types/result'
 
-import { type SqliteDatabase, getDb } from './db'
+import { type SqlParam, type SqliteDatabase, getDb } from './db'
 import { type EntityType } from './entities'
 import { enqueueUpsertInTransaction, notifySyncPending } from './sync-queue'
 
@@ -343,6 +343,54 @@ export async function getJournalEntryNeighbors(
  * any realistic single-user journal today; revisit (paginate the rebuild, or a
  * pre-aggregated support table) if users approach the cap.
  */
+export interface GraphEntryCursor {
+  createdAt: number
+  id: string
+}
+
+export interface GraphEntryPage {
+  items: Entry[]
+  nextCursor: GraphEntryCursor | null
+  hasMore: boolean
+}
+
+export interface GraphEntryPageOptions {
+  limit?: number
+  cursor?: GraphEntryCursor | null
+}
+
+/** Source-inclusive keyset pagination keeps graph rebuild memory bounded. */
+export async function listEntriesForGraphPage(
+  options: GraphEntryPageOptions = {},
+  db: SqliteDatabase = getDb()
+): Promise<Result<GraphEntryPage>> {
+  try {
+    const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 500)))
+    const clauses = ['1 = 1']
+    const params: SqlParam[] = []
+    if (options.cursor) {
+      clauses.push('(created_at < ? OR (created_at = ? AND id < ?))')
+      params.push(options.cursor.createdAt, options.cursor.createdAt, options.cursor.id)
+    }
+    const res = await db.execute(
+      `SELECT * FROM entries WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT ?`,
+      [...params, limit + 1]
+    )
+    const rows = res.rows.map(rowToEntry)
+    const hasMore = rows.length > limit
+    const items = hasMore ? rows.slice(0, limit) : rows
+    const last = items[items.length - 1]
+    return ok({
+      items,
+      hasMore,
+      nextCursor: hasMore && last ? { createdAt: last.created_at, id: last.id } : null,
+    })
+  } catch (e) {
+    return err('ENTRY_GRAPH_LIST_FAILED', 'Failed to list entries for graph', e)
+  }
+}
+
+/** Compatibility wrapper for callers that need one bounded graph read. */
 export async function listEntriesForGraph(
   limit = 10000,
   db: SqliteDatabase = getDb()

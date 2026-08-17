@@ -91,6 +91,8 @@ export function Button({
       }}
       disabled={isDisabled}
       accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
       testID={testID}
       // NOTE: an Animated (reanimated) component must take a static/array style —
       // a function style ({ pressed }) => … is NOT applied, which silently drops

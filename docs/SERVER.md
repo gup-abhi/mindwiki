@@ -8,51 +8,26 @@ The server is a **dumb encrypted blob store with thin auth**. It stores cipherte
 
 ## Wrangler config
 
-```toml
-# server/wrangler.toml
+The checked-in configuration currently supports local Miniflare development only. Staging and production namespaces, buckets, secrets, and deployment promotion are Phase 0 release work; do not add placeholder production IDs or credentials to this repository.
 
+```toml
+# server/wrangler.toml (current local configuration)
 name = "mindwiki-server"
 main = "src/index.ts"
-compatibility_date = "2026-01-01"
+compatibility_date = "2024-11-06"
 compatibility_flags = ["nodejs_compat"]
-
-[env.production]
-name = "mindwiki-server-prod"
-kv_namespaces = [
-  { binding = "AUTH_KV", id = "YOUR_KV_NAMESPACE_ID" }
-]
-r2_buckets = [
-  { binding = "R2", bucket_name = "mindwiki-sync" }
-]
-
-[env.staging]
-name = "mindwiki-server-staging"
-kv_namespaces = [
-  { binding = "AUTH_KV", id = "YOUR_STAGING_KV_NAMESPACE_ID" }
-]
-r2_buckets = [
-  { binding = "R2", bucket_name = "mindwiki-sync-staging" }
-]
+kv_namespaces = [{ binding = "AUTH_KV", id = "local_dev_auth_kv" }]
+r2_buckets = [{ binding = "R2", bucket_name = "mindwiki-sync" }]
 ```
 
-```toml
-# server/wrangler.dev.toml (local dev — uses Miniflare, no real KV/R2)
-[miniflare]
-kv_persist = ".miniflare/kv"
-r2_persist = ".miniflare/r2"
-```
+The deploy workflow is intentionally manual while real staging and production resources are being provisioned. Once those environments exist, this document and the workflow must be updated together with the actual bindings and rollback procedure.
 
 ```bash
-# Create resources
-wrangler kv:namespace create AUTH_KV
-wrangler kv:namespace create AUTH_KV --preview
-
-wrangler r2 bucket create mindwiki-sync
-wrangler r2 bucket create mindwiki-sync-staging
-
-# Secrets (never in wrangler.toml)
-wrangler secret put JWT_SECRET              # 256-bit random hex
+# Local development
+wrangler dev
 ```
+
+Secrets are never committed. Production secret provisioning belongs to the staged deployment work.
 
 > **Notifications are local-only today.** The app schedules local notifications;
 > there is no APNs/FCM relay in `server/src/` and no `push:` KV namespace. A

@@ -7,3 +7,12 @@ compatibility_flags = ["nodejs_compat"]
 # until real namespaces/buckets are created for staging/production.
 kv_namespaces = [{ binding = "AUTH_KV", id = "local_dev_auth_kv" }]
 r2_buckets = [{ binding = "R2", bucket_name = "mindwiki-sync" }]
+
+durable_objects.bindings = [{ name = "AUTH_COORDINATOR", class_name = "AuthCoordinator" }]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["AuthCoordinator"]
+
+# The local binding uses the same class; staging and production must provision
+# separate namespaces before deployment promotion.

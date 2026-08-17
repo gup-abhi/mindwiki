@@ -44,5 +44,9 @@ jobs:
       - name: Lint
         run: yarn lint
 
+      - name: Server lint
+        working-directory: server
+        run: npm run lint
+
       - name: Test
         run: yarn test --ci --maxWorkers 2
