@@ -10,6 +10,7 @@ interface IconButtonProps {
   size?: number
   color?: keyof ColorTokens
   testID?: string
+  disabled?: boolean
   accessibilityState?: AccessibilityState
 }
 
@@ -33,6 +34,7 @@ export function IconButton({
   size = 24,
   color = 'textSecondary',
   testID,
+  disabled = false,
   accessibilityState,
 }: IconButtonProps) {
   const styles = useThemedStyles(makeStyles)
@@ -40,10 +42,11 @@ export function IconButton({
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={accessibilityState}
+      accessibilityState={{ ...accessibilityState, disabled }}
       testID={testID}
       style={({ pressed }) => [styles.base, pressed && styles.pressed]}
     >

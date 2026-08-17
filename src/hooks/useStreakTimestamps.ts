@@ -21,6 +21,7 @@ export function useStreakTimestamps() {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       refresh()
     }, [refresh, revision])
   )

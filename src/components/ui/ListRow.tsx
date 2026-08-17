@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View, type AccessibilityState } from 'react-native'
 
 import { type Theme, useThemedStyles } from '@/theme'
 
@@ -10,6 +10,9 @@ interface ListRowProps {
   subtitle?: string
   onPress?: () => void
   right?: ReactNode
+  accessibilityLabel?: string
+  accessibilityState?: AccessibilityState
+  disabled?: boolean
   testID?: string
 }
 
@@ -27,7 +30,7 @@ const makeStyles = (t: Theme) =>
   })
 
 /** A title (+ optional subtitle) row with an optional right accessory. */
-export function ListRow({ title, subtitle, onPress, right, testID }: ListRowProps) {
+export function ListRow({ title, subtitle, onPress, right, accessibilityLabel, accessibilityState, disabled = false, testID }: ListRowProps) {
   const styles = useThemedStyles(makeStyles)
   const content = (
     <>
@@ -48,7 +51,10 @@ export function ListRow({ title, subtitle, onPress, right, testID }: ListRowProp
     return (
       <Pressable
         onPress={onPress}
+        disabled={disabled}
         accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={{ ...accessibilityState, disabled }}
         testID={testID}
         style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       >

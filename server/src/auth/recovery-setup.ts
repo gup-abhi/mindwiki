@@ -1,11 +1,7 @@
 import { hash } from 'bcryptjs'
 
 import type { Env } from '../types'
-
-interface SetRecoveryBody {
-  recovery_hash: string // SHA-256(recovery phrase) hex — computed client-side
-  recovery_escrow: { encrypted_key: string }
-}
+import { parseRecoveryBody, readJsonBody } from '../validation/request'
 
 /**
  * Whether the account has a recovery phrase configured. Lets the client show a
@@ -36,14 +32,8 @@ export async function handleSetRecovery(
   env: Env,
   accountId: string
 ): Promise<Response> {
-  const body = await req.json<SetRecoveryBody>()
-
-  if (!body.recovery_hash || body.recovery_hash.length !== 64) {
-    return new Response('Invalid recovery_hash', { status: 400 })
-  }
-  if (!body.recovery_escrow?.encrypted_key) {
-    return new Response('Missing recovery_escrow', { status: 400 })
-  }
+  const body = parseRecoveryBody(await readJsonBody(req))
+  if (!body) return new Response('Invalid request body', { status: 400 })
 
   const recoveryBcrypt = await hash(body.recovery_hash, 12)
   await env.AUTH_KV.put(

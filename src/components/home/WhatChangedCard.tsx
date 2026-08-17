@@ -20,8 +20,7 @@ export function WhatChangedCard({
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
 
-  if (!pages || pages.length === 0) {
-    if (!pending) return null
+  if (pending) {
     return (
       <Card variant="sunken" style={styles.card} testID="what-changed-pending">
         <Text variant="caption" color="accent">
@@ -34,6 +33,8 @@ export function WhatChangedCard({
     )
   }
 
+  if (!pages || pages.length === 0) return null
+
   return (
     <Card variant="sunken" style={styles.card} testID="what-changed-card">
       <Text variant="caption" color="accent">
@@ -44,7 +45,7 @@ export function WhatChangedCard({
           <Pressable
             key={p.id}
             accessibilityRole="button"
-            accessibilityLabel={`Open the ${p.title} page`}
+            accessibilityLabel="Open changed page"
             onPress={() => router.push(`/wiki/${p.id}`)}
             style={styles.chip}
             testID="what-changed-page"

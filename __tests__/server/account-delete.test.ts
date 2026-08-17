@@ -144,8 +144,8 @@ describe('account deletion', () => {
     await kv.put('deleting:acc', JSON.stringify({ account_id: 'acc', family_id: 'fam', status: 'pending', updated_at: Date.now() }))
     const environment = env(kv, r2)
 
-    expect((await handleLogin(new Request('https://example.test/auth/login', { method: 'POST', body: JSON.stringify({ email: 'user@example.com', password_hash: 'hash' }) }), environment)).status).toBe(401)
-    expect((await handleRecover(new Request('https://example.test/auth/recover', { method: 'POST', body: JSON.stringify({ email: 'user@example.com', recovery_hash: 'hash' }) }), environment)).status).toBe(401)
+    expect((await handleLogin(new Request('https://example.test/auth/login', { method: 'POST', body: JSON.stringify({ email: 'user@example.com', password_hash: 'a'.repeat(64) }) }), environment)).status).toBe(401)
+    expect((await handleRecover(new Request('https://example.test/auth/recover', { method: 'POST', body: JSON.stringify({ email: 'user@example.com', recovery_hash: 'a'.repeat(64) }) }), environment)).status).toBe(401)
     expect((await handlePairRedeem(new Request('https://example.test/auth/pair/redeem', { method: 'POST', body: JSON.stringify({ code: 'code' }) }), environment)).status).toBe(401)
 
     await kv.put(`refresh:${await sha256('token')}`, JSON.stringify({ account_id: 'acc', family_id: 'fam', expires_at: Date.now() + 60_000 }))
