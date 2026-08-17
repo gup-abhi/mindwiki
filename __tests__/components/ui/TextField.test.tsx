@@ -22,11 +22,11 @@ describe('TextField privacy mode', () => {
     expect(input.props.autoComplete).toBeUndefined()
   })
 
-  it('associates labels and errors with the input and announces errors', () => {
+  it('exposes the visible label and announces errors', () => {
     render(<TextField label="Email" error="Enter a valid email" value="" onChangeText={jest.fn()} testID="error-input" />)
 
     const input = screen.getByTestId('error-input')
-    expect(input.props.accessibilityLabelledBy).toHaveLength(2)
+    expect(input.props.accessibilityLabel).toBe('Email')
     expect(screen.getByText('Enter a valid email').props.accessibilityLiveRegion).toBe('polite')
   })
 

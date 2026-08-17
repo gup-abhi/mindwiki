@@ -86,6 +86,13 @@ describe('Home dashboard', () => {
     useWikiStore.setState({ pending: 0 })
   })
 
+  it('shows a loading state before entries resolve', () => {
+    mockList.mockReturnValue(new Promise(() => undefined))
+    render(<Home />)
+    expect(screen.getByTestId('home-entries-loading')).toBeTruthy()
+    expect(screen.queryByText('No entries yet')).toBeNull()
+  })
+
   it('renders Today, recent entries, and Browse & search action', async () => {
     mockCount.mockResolvedValue(ok(4))
     mockList.mockResolvedValue(ok([entry(), entry({ id: 'b' }), entry({ id: 'c' }), entry({ id: 'd' })]))
@@ -204,6 +211,8 @@ describe('Home dashboard', () => {
 
   it('keeps Home focused on capture and recent continuity', async () => {
     mockList.mockResolvedValue(ok([entry()]))
+    mockCount.mockResolvedValue(ok(1))
+    mockStreakTimestamps.mockReturnValue({ timestamps: [], refresh: jest.fn() })
     render(<Home />)
     await waitFor(() => expect(screen.getByText('a tense meeting', { includeHiddenElements: true })).toBeTruthy())
 

@@ -1,4 +1,3 @@
-import { useId } from 'react'
 import { StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type TextStyle } from 'react-native'
 
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
@@ -35,19 +34,16 @@ const makeStyles = (t: Theme) =>
 export function TextField({ label, error, multiline, scrollEnabled, sensitive = false, style, ...rest }: TextFieldProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
-  const fieldId = useId().replace(/:/g, '')
-  const labelId = `text-field-label-${fieldId}`
-  const errorId = `text-field-error-${fieldId}`
   return (
     <View style={styles.wrap}>
       {label ? (
-        <Text nativeID={labelId} variant="label" color="textSecondary">
+        <Text variant="label" color="textSecondary">
           {label}
         </Text>
       ) : null}
       <TextInput
         {...rest}
-        accessibilityLabelledBy={[label ? labelId : null, error ? errorId : null].filter((value): value is string => value !== null)}
+        accessibilityLabel={rest.accessibilityLabel ?? label}
         accessibilityState={{ disabled: rest.editable === false }}
         autoCorrect={sensitive ? false : rest.autoCorrect}
         spellCheck={sensitive ? false : rest.spellCheck}
@@ -64,7 +60,7 @@ export function TextField({ label, error, multiline, scrollEnabled, sensitive = 
         style={[styles.input, multiline && styles.multiline, error ? styles.errorBorder : null, style]}
       />
       {error ? (
-        <Text nativeID={errorId} accessibilityLiveRegion="polite" variant="caption" color="danger">
+        <Text accessibilityLiveRegion="polite" variant="caption" color="danger">
           {error}
         </Text>
       ) : null}

@@ -27,7 +27,7 @@ import { generateDigest } from '@/services/digest/generator'
 export default function Home() {
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
-  const { entries } = useEntries()
+  const { entries, loading: entriesLoading } = useEntries()
   const { count: journalCount } = useJournalEntryCount()
   const { pages } = useWikiPages()
   const { challenge, streak, doneToday, checkIn } = useChallenge()
@@ -115,7 +115,13 @@ export default function Home() {
                 testID="home-view-all"
               />
             </View>
-            {recentEntries.length === 0 ? (
+            {entriesLoading ? (
+              <Card variant="sunken" style={styles.fullWidth} testID="home-entries-loading">
+                <View accessibilityLiveRegion="polite">
+                  <Text variant="bodyStrong" style={styles.surfaceText}>Loading recent entries…</Text>
+                </View>
+              </Card>
+            ) : recentEntries.length === 0 ? (
               <Card variant="sunken" style={styles.fullWidth} onPress={() => router.push('/entry')} testID="home-empty-entries">
                 <Text variant="bodyStrong" style={styles.surfaceText}>
                   {hasGuidedReflection ? 'Your guided reflection is saved' : 'No entries yet'}
