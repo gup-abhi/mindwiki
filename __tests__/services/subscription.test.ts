@@ -1,5 +1,8 @@
 import { authenticatedFetch } from '@/services/auth/api-client'
-import { getTrialStatus } from '@/services/subscription'
+import { getTrialStatus, getTrialState } from '@/services/subscription'
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const TRIAL_DAYS = 30
 
 jest.mock('@/services/auth/api-client', () => ({ authenticatedFetch: jest.fn() }))
 const mockFetch = authenticatedFetch as jest.Mock
@@ -40,6 +43,30 @@ describe('getTrialStatus', () => {
     await expect(getTrialStatus()).resolves.toEqual({
       success: false,
       error: { code: 'NETWORK_ERROR', message: 'offline' },
+    })
+  })
+
+  it('reports an active trial from the server timestamp', () => {
+    expect(getTrialState(1_000, 1_000 + 10 * DAY_MS)).toEqual({
+      kind: 'trial-active',
+      trialStartedAt: 1_000,
+      trialEndsAt: 1_000 + TRIAL_DAYS * DAY_MS,
+      remainingDays: 20,
+    })
+  })
+
+  it('reports an expired trial without relying on a local start time', () => {
+    expect(getTrialState(1_000, 1_000 + 31 * DAY_MS)).toEqual({
+      kind: 'trial-expired',
+      trialStartedAt: 1_000,
+      trialEndsAt: 1_000 + TRIAL_DAYS * DAY_MS,
+      remainingDays: 0,
+    })
+  })
+
+  it('rejects a future server timestamp', () => {
+    expect(getTrialState(2_000, 1_000)).toEqual({
+      kind: 'unavailable',
     })
   })
 })
