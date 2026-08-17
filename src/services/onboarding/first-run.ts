@@ -4,7 +4,7 @@ import { getDb } from '@/services/storage/db'
 import { lineageForEntry } from '@/services/wiki/engine'
 import { getPage } from '@/services/storage/wiki'
 import { isModelDownloaded } from '@/services/llm/model-manager'
-import { useAuthStore } from '@/store/auth.store'
+import { runtimeStoreBridge } from '@/services/runtime/store-bridge'
 
 // Settings keys (persisted across sessions, never synced).
 const FIRST_RUN_FLAG = 'onboarding:first_run_complete'
@@ -101,7 +101,7 @@ export async function firstRunStatus(): Promise<FirstRunStatus> {
     return { shouldRun: false, pathId: FIRST_RUN_PATH_ID }
   }
 
-  const isNewAccount = useAuthStore.getState().isNewAccount
+  const isNewAccount = runtimeStoreBridge().isNewAccount()
 
   // Resume-after-kill: a prior session started the path but didn't complete it.
   // The marker is per-account (DB settings, wiped on logout), so only the very

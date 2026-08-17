@@ -68,6 +68,22 @@ export async function revokeFamily(env: Env, accountId: string, familyId: string
   if (next.length !== existing.length) await env.AUTH_KV.put(key, JSON.stringify(next))
 }
 
+export async function revokeOtherFamilies(env: Env, accountId: string, keepFamilyId: string): Promise<void> {
+  const devicesKey = `devices:${accountId}`
+  const existing = ((await env.AUTH_KV.get(devicesKey, 'json')) as PairedDevice[] | null) ?? []
+  const indexed = ((await env.AUTH_KV.get(`families:${accountId}`, 'json')) as string[] | null) ?? []
+  const otherFamilies = new Set([
+    ...indexed,
+    ...existing.map((device) => device.family_id).filter((familyId): familyId is string => !!familyId),
+  ].filter((familyId) => familyId !== keepFamilyId))
+  await Promise.all([...otherFamilies].map((familyId) => env.AUTH_KV.put(
+    `family:${familyId}`,
+    JSON.stringify({ account_id: accountId, invalidated: true })
+  )))
+  const next = existing.filter((device) => !device.family_id || device.family_id === keepFamilyId)
+  if (next.length !== existing.length) await env.AUTH_KV.put(devicesKey, JSON.stringify(next))
+}
+
 /** Revoke selected other device. Caller family is checked before mutation. */
 export async function revokeDevice(
   env: Env,

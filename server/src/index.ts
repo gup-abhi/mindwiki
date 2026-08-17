@@ -8,11 +8,13 @@ import { handleListDevices, handleRevokeDevice } from './auth/devices'
 import { handleRecover } from './auth/recover'
 import { handleRecoveryStatus, handleSetRecovery } from './auth/recovery-setup'
 import { handleRefresh } from './auth/refresh'
+import { handleSubscriptionStatus } from './auth/subscription'
 import { handleUpload } from './storage/upload'
 import { handleDelta } from './storage/delta'
 import { handleSyncAudit } from './storage/audit'
 import { authMiddleware } from './middleware/auth'
 import { kvRateLimit, clientIp } from './middleware/rate-limit'
+import { AuthCoordinator } from './auth/coordinator'
 import type { Env } from './types'
 
 const MINUTE = 60 * 1000
@@ -45,11 +47,17 @@ async function bodyEmail(req: Request): Promise<string | null> {
   }
 }
 
+export { AuthCoordinator }
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url)
     const method = req.method
     const path = url.pathname
+
+    if (method === 'GET' && path === '/health') {
+      return Response.json({ ok: true })
+    }
 
     // Public routes (no auth)
     if (method === 'POST' && path === '/auth/register') {
@@ -97,8 +105,9 @@ export default {
     }
 
     if (method === 'POST' && path === '/auth/change-password')
-      return handleChangePassword(req, env, accountId)
+      return handleChangePassword(req, env, accountId, familyId)
     if (method === 'GET' && path === '/auth/recovery') return handleRecoveryStatus(req, env, accountId)
+    if (method === 'GET' && path === '/auth/subscription-status') return handleSubscriptionStatus(req, env, accountId)
     if (method === 'POST' && path === '/auth/recovery') return handleSetRecovery(req, env, accountId)
     if (method === 'POST' && path === '/auth/logout') return handleLogout(req, env, accountId, familyId)
     if (method === 'GET' && path === '/auth/account/deletion-readiness') {

@@ -1,4 +1,4 @@
-import { type EntryDraft } from '@/store/entry.store'
+import { type EntryDraft } from '@/types/entry'
 
 import { getSetting, setSetting } from './settings'
 

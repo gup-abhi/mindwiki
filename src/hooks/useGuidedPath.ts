@@ -20,7 +20,7 @@ export function useGuidedPath(pathId: string) {
   const [stepIndex, setStepIndex] = useState(0)
   const [answers, setAnswers] = useState<string[]>(() => Array<string>(stepCount).fill(''))
   // The model's follow-up question per step, once the user taps "go deeper".
-  const [followUps, setFollowUps] = useState<Array<string | null>>(() =>
+  const [followUps, setFollowUps] = useState<(string | null)[]>(() =>
     Array<string | null>(stepCount).fill(null)
   )
   const [deepening, setDeepening] = useState(false)

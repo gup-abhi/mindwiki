@@ -1,4 +1,5 @@
 import type { Env } from '../types'
+import { parsePairRedeemBody, readJsonBody } from '../validation/request'
 import { issueTokens } from './tokens'
 import { recordPairedDevice } from './devices'
 import { getAccountDeletionMarker } from './deletion-marker'
@@ -28,12 +29,9 @@ export async function handlePairStart(
  * can read ciphertext but cannot decrypt without the master key (carried in the QR).
  */
 export async function handlePairRedeem(req: Request, env: Env): Promise<Response> {
-  const { code, device_label, platform, device_id } = (await req.json()) as {
-    code: string
-    device_label?: string
-    platform?: string
-    device_id?: string
-  }
+  const body = parsePairRedeemBody(await readJsonBody(req))
+  if (!body) return new Response('Invalid request body', { status: 400 })
+  const { code, device_label, platform, device_id } = body
 
   const rec = (await env.AUTH_KV.get(`pair:${code}`, 'json')) as { account_id: string } | null
   if (!rec) return new Response('Invalid or expired pairing code', { status: 401 })

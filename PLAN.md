@@ -344,13 +344,13 @@ is allowed after the first successful login.
   - [ ] EDGE (deferred): switching to a *different* account on a device that already has a DB → `initStorage` can't open the old DB with the new key; needs reset-on-key-mismatch (reinstall works for now).
 
 ### Track C: Cloudflare Workers server — server-agent
-Full spec in `docs/SERVER.md`. Local Miniflare (`wrangler dev`), curl- + device-verified.
+Full spec in `docs/SERVER.md`. Local Miniflare (`wrangler dev`) is implemented and curl/device-tested; real staging and production resources remain release work.
 - [x] `server/` Wrangler project, KV `AUTH_KV` + R2 bindings, secrets in `.dev.vars`
 - [x] `auth/register.ts` (bcrypt over SHA-256(password) + key escrow + recovery escrow), `auth/login.ts`, `auth/refresh.ts` (rotation + family invalidation), `auth/change-password.ts`
 - [x] `auth/recover.ts`, `auth/recovery-setup.ts` (status + set/rotate), `auth/pair.ts` (start mints one-time code, redeem → session)
 - [x] `storage/upload.ts` (PUT /sync/{acc}/{table}/{rec}), `storage/delta.ts` (GET delta?since)
-- [ ] `auth/logout.ts` (family invalidate), `auth/delete-account.ts`, `storage/delete.ts` — deferred
-- [ ] `push/register.ts` + `push/send.ts` (APNs/FCM) — deferred (Phase 5 used local notifications)
+- [x] `auth/logout.ts` (family invalidate), `auth/delete-account.ts`, `storage/delete.ts` — implemented; production deployment verification remains
+- [ ] `push/register.ts` + `push/send.ts` (APNs/FCM) — not implemented; notifications remain local-only
 - [ ] Known: `storage/delta.ts` R2 `include:['customMetadata']` flagged by Cloudflare types (works at runtime)
 
 ### Track D: Sync engine (client) — sync-agent
@@ -364,8 +364,8 @@ Full spec in `docs/SERVER.md`. Local Miniflare (`wrangler dev`), curl- + device-
 
 ### Track E: Wrangler deployment — server-agent
 - [x] `wrangler dev` local with Miniflare (KV + R2 emulated, port 8787)
-- [ ] `wrangler deploy --env staging` / `production` — deferred (still local-only)
-- [ ] GitHub Actions: auto-deploy on merge to main — deferred
+- [ ] `wrangler deploy --env staging` / `production` — release work (currently local-only)
+- [ ] GitHub Actions: staged deployment promotion — release work; automatic production deploy remains paused
 
 ### Also added this phase (not in original plan)
 - [x] In-app LLM model download (`services/llm/model-manager.ts`) — single source of truth for the model location, shared with `LLMBridge`; existence check before download; Home `ModelDownloadCard`. A QR-paired device had no GGUF models, so tagging/wiki/Ask-your-wiki failed until this.

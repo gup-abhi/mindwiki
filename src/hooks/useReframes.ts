@@ -36,6 +36,7 @@ export function useReframes(belief: string | null) {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       void refresh()
     }, [refresh, revision])
   )

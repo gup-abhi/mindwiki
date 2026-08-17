@@ -4,7 +4,7 @@ import {
   getEntry,
   listEntries,
   listStreakTimestamps,
-  listEntriesForGraph,
+  listEntriesForGraphPage,
   listUnindexedEntries,
   listWikiPendingEntries,
   markWikiIndexed,
@@ -63,9 +63,14 @@ function createFakeDb() {
           .sort((a, b) => Number(b.created_at) - Number(a.created_at))
         return { rows: all.slice(0, limit), rowsAffected: 0 }
       }
-      if (/^SELECT \* FROM entries ORDER BY created_at DESC LIMIT/.test(sql)) {
-        const limit = Number(params[0])
-        const all = [...rows.values()].sort((a, b) => Number(b.created_at) - Number(a.created_at))
+      if (/^SELECT \* FROM entries WHERE 1 = 1/.test(sql)) {
+        const hasCursor = /created_at < \?/.test(sql)
+        const limit = Number(params[hasCursor ? 3 : 0])
+        const cursorCreatedAt = hasCursor ? Number(params[0]) : null
+        const cursorId = hasCursor ? String(params[2]) : null
+        const all = [...rows.values()]
+          .filter((r) => !hasCursor || Number(r.created_at) < cursorCreatedAt! || (Number(r.created_at) === cursorCreatedAt && String(r.id) < cursorId!))
+          .sort((a, b) => Number(b.created_at) - Number(a.created_at) || String(b.id).localeCompare(String(a.id)))
         return { rows: all.slice(0, limit), rowsAffected: 0 }
       }
       if (/^SELECT \* FROM entries WHERE tagged_at IS NULL AND \(TRIM\(situation\) <> '' OR TRIM\(thought\) <> ''\) ORDER BY created_at ASC/.test(sql)) {
@@ -252,17 +257,63 @@ describe('storage/entries CRUD', () => {
     if (result.success) expect(result.data).toHaveLength(2) // journal + path, reflect excluded
   })
 
-  it('lists entries for the graph across ALL sources (journal + path + reflect)', async () => {
+  it('lists graph entries across all sources through bounded pages', async () => {
     const { db } = createFakeDb()
     await createEntry({ mood: 3, situation: 'journaled', thought: 't' }, db)
     await createEntry({ mood: 3, situation: 'guided answer', thought: '', source: 'path' }, db)
     await createEntry({ mood: 3, situation: 'said in chat', thought: '', source: 'reflect' }, db)
 
-    const result = await listEntriesForGraph(50, db)
+    const result = await listEntriesForGraphPage({ limit: 50 }, db)
     expect(result.success).toBe(true)
     // Unlike listEntries (journal-only), the graph must re-derive from every
     // source so path/reflect signal survives a rebuild.
-    if (result.success) expect(result.data).toHaveLength(3)
+    if (result.success) expect(result.data.items).toHaveLength(3)
+  })
+
+  it('paginates graph entries with a stable created_at/id keyset', async () => {
+    const { db, rows } = createFakeDb()
+    rows.set('a', { id: 'a', created_at: 100, mood: 3, situation: 'a', thought: '', source: 'journal' })
+    rows.set('b', { id: 'b', created_at: 100, mood: 3, situation: 'b', thought: '', source: 'journal' })
+    rows.set('c', { id: 'c', created_at: 99, mood: 3, situation: 'c', thought: '', source: 'journal' })
+
+    const first = await listEntriesForGraphPage({ limit: 2 }, db)
+    expect(first.success).toBe(true)
+    expect(first.success && first.data.items.map((item) => item.id)).toEqual(['b', 'a'])
+    expect(first.success && first.data.nextCursor).toEqual({ createdAt: 100, id: 'a' })
+
+    const second = await listEntriesForGraphPage({ limit: 2, cursor: first.success ? first.data.nextCursor : null }, db)
+    expect(second.success).toBe(true)
+    expect(second.success && second.data.items.map((item) => item.id)).toEqual(['c'])
+    expect(second.success && second.data.nextCursor).toBeNull()
+  })
+
+  it('traverses more than 10,000 graph entries without omissions', async () => {
+    const { db, rows } = createFakeDb()
+    for (let i = 0; i < 10001; i++) {
+      rows.set(`entry-${i}`, {
+        id: `entry-${i}`,
+        created_at: 10001 - i,
+        mood: 3,
+        situation: `situation-${i}`,
+        thought: '',
+        source: 'journal',
+      })
+    }
+
+    const ids: string[] = []
+    let cursor: { createdAt: number; id: string } | null = null
+    do {
+      const page = await listEntriesForGraphPage({ limit: 500, cursor }, db)
+      expect(page.success).toBe(true)
+      if (!page.success) break
+      ids.push(...page.data.items.map((item) => item.id))
+      cursor = page.data.nextCursor
+    } while (cursor)
+
+    expect(ids).toHaveLength(10001)
+    expect(new Set(ids).size).toBe(10001)
+    expect(ids[0]).toBe('entry-0')
+    expect(ids.at(-1)).toBe('entry-10000')
   })
 
   it('lists only un-indexed entries with text — tagged ones and empty mood-logs excluded', async () => {

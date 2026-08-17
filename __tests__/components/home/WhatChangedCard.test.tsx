@@ -37,6 +37,17 @@ describe('WhatChangedCard', () => {
     expect(screen.queryByText('This reflection contributed to…')).toBeNull()
   })
 
+  it('keeps pending synthesis visible while an older lineage result is present', () => {
+    render(
+      <WhatChangedCard
+        pages={[{ id: 'p1', title: 'Anxiety', category: 'emotion' }]}
+        pending
+      />
+    )
+    expect(screen.getByTestId('what-changed-pending')).toBeTruthy()
+    expect(screen.queryByText('This reflection contributed to…')).toBeNull()
+  })
+
   it('renders no card when there is no receipt-backed page', () => {
     render(<WhatChangedCard pages={[]} />)
     expect(screen.queryByTestId('what-changed-card')).toBeNull()
@@ -54,5 +65,11 @@ describe('WhatChangedCard', () => {
     render(<WhatChangedCard pages={pages} />)
     fireEvent.press(screen.getByText('Anxiety'))
     expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
+  })
+
+  it('keeps page titles out of action labels', () => {
+    render(<WhatChangedCard pages={[{ id: 'p1', title: 'Private page title', category: 'emotion' }]} />)
+    expect(screen.getByTestId('what-changed-page').props.accessibilityLabel).toBe('Open changed page')
+    expect(screen.getByText('Private page title')).toBeTruthy()
   })
 })

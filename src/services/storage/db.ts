@@ -8,7 +8,7 @@ import { type Result, ok, err } from '@/types/result'
 export type SqlParam = string | number | null
 
 export interface QueryResult {
-  rows: Array<Record<string, unknown>>
+  rows: Record<string, unknown>[]
   rowsAffected: number
   insertId?: number
 }

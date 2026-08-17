@@ -2,7 +2,7 @@ import { randomUUID } from 'expo-crypto'
 
 import { type Result, ok, err } from '@/types/result'
 
-import { type SqliteDatabase, getDb } from './db'
+import { type SqlParam, type SqliteDatabase, getDb } from './db'
 import { type EntityType } from './entities'
 import { enqueueUpsertInTransaction, notifySyncPending } from './sync-queue'
 
@@ -335,24 +335,51 @@ export async function getJournalEntryNeighbors(
  * pipeline builds: guided-path and chat-capture signal is first-class knowledge,
  * not timeline noise. Without this a rebuild (sync pull, dedupe, node restore)
  * would silently drop every node that only path/reflect entries supported.
- * Newest first, capped.
- *
- * The 10k cap is newest-first, so once a user passes 10k entries a rebuild stops
- * folding in the oldest ones while the live path already counted them — another
- * live-vs-rebuild divergence (rebuild would UNDER-count vs live here). Far beyond
- * any realistic single-user journal today; revisit (paginate the rebuild, or a
- * pre-aggregated support table) if users approach the cap.
+ * Newest first with a stable `(created_at, id)` keyset so rebuilds can traverse
+ * the complete source set without retaining every entry in memory.
  */
-export async function listEntriesForGraph(
-  limit = 10000,
+export interface GraphEntryCursor {
+  createdAt: number
+  id: string
+}
+
+export interface GraphEntryPage {
+  items: Entry[]
+  nextCursor: GraphEntryCursor | null
+  hasMore: boolean
+}
+
+export interface GraphEntryPageOptions {
+  limit?: number
+  cursor?: GraphEntryCursor | null
+}
+
+/** Source-inclusive keyset pagination keeps graph rebuild memory bounded. */
+export async function listEntriesForGraphPage(
+  options: GraphEntryPageOptions = {},
   db: SqliteDatabase = getDb()
-): Promise<Result<Entry[]>> {
+): Promise<Result<GraphEntryPage>> {
   try {
+    const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 500)))
+    const clauses = ['1 = 1']
+    const params: SqlParam[] = []
+    if (options.cursor) {
+      clauses.push('(created_at < ? OR (created_at = ? AND id < ?))')
+      params.push(options.cursor.createdAt, options.cursor.createdAt, options.cursor.id)
+    }
     const res = await db.execute(
-      'SELECT * FROM entries ORDER BY created_at DESC LIMIT ?',
-      [limit]
+      `SELECT * FROM entries WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT ?`,
+      [...params, limit + 1]
     )
-    return ok(res.rows.map(rowToEntry))
+    const rows = res.rows.map(rowToEntry)
+    const hasMore = rows.length > limit
+    const items = hasMore ? rows.slice(0, limit) : rows
+    const last = items[items.length - 1]
+    return ok({
+      items,
+      hasMore,
+      nextCursor: hasMore && last ? { createdAt: last.created_at, id: last.id } : null,
+    })
   } catch (e) {
     return err('ENTRY_GRAPH_LIST_FAILED', 'Failed to list entries for graph', e)
   }

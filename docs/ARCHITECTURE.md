@@ -26,6 +26,16 @@ screens/ → hooks/ → services/ → native/
 services/ cannot import store/, components/, screens/
 store/ cannot import services/
 
+### Application orchestration exceptions
+
+The service/store rule is enforced by ESLint for new service modules. A small set of
+existing application-orchestration modules is exempt because it publishes lifecycle
+state or coordinates account transitions rather than implementing storage/domain
+rules: `auth/api-client.ts`, `auth/auth.service.ts`, `auth/session-reset.ts`,
+`onboarding/first-run.ts`, `pipeline.ts`, `storage/sync-queue.ts`, `sync/engine.ts`,
+and `sync/pairing.ts`. New store access belongs in an explicitly named adapter or
+orchestration module; core storage, sync, and domain logic must remain store-free.
+
 ## Performance targets
 Entry save: <50ms | Fast model: <2000ms (iPhone 12) | Graph render: <16ms/frame
 
