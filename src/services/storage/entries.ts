@@ -335,13 +335,8 @@ export async function getJournalEntryNeighbors(
  * pipeline builds: guided-path and chat-capture signal is first-class knowledge,
  * not timeline noise. Without this a rebuild (sync pull, dedupe, node restore)
  * would silently drop every node that only path/reflect entries supported.
- * Newest first, capped.
- *
- * The 10k cap is newest-first, so once a user passes 10k entries a rebuild stops
- * folding in the oldest ones while the live path already counted them — another
- * live-vs-rebuild divergence (rebuild would UNDER-count vs live here). Far beyond
- * any realistic single-user journal today; revisit (paginate the rebuild, or a
- * pre-aggregated support table) if users approach the cap.
+ * Newest first with a stable `(created_at, id)` keyset so rebuilds can traverse
+ * the complete source set without retaining every entry in memory.
  */
 export interface GraphEntryCursor {
   createdAt: number
@@ -385,22 +380,6 @@ export async function listEntriesForGraphPage(
       hasMore,
       nextCursor: hasMore && last ? { createdAt: last.created_at, id: last.id } : null,
     })
-  } catch (e) {
-    return err('ENTRY_GRAPH_LIST_FAILED', 'Failed to list entries for graph', e)
-  }
-}
-
-/** Compatibility wrapper for callers that need one bounded graph read. */
-export async function listEntriesForGraph(
-  limit = 10000,
-  db: SqliteDatabase = getDb()
-): Promise<Result<Entry[]>> {
-  try {
-    const res = await db.execute(
-      'SELECT * FROM entries ORDER BY created_at DESC LIMIT ?',
-      [limit]
-    )
-    return ok(res.rows.map(rowToEntry))
   } catch (e) {
     return err('ENTRY_GRAPH_LIST_FAILED', 'Failed to list entries for graph', e)
   }
