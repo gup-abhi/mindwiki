@@ -200,7 +200,6 @@ export default function YouScreen() {
     month: 'long',
     year: 'numeric',
   })
-
   return (
     <>
       {/* Segment switcher */}
@@ -219,7 +218,7 @@ export default function YouScreen() {
 
       {/* Pages — wiki category browse */}
       {tab === 'pages' && (
-        <Screen padded={false}>
+        <Screen padded={false} edges={['left', 'right']}>
           <FlatList
             data={categories}
             keyExtractor={(c) => c.key}
@@ -227,6 +226,12 @@ export default function YouScreen() {
             ItemSeparatorComponent={Divider}
             ListHeaderComponent={
               <>
+                <Text variant="title" style={styles.segmentHeading}>
+                  Your pages
+                </Text>
+                <Text variant="body" color="textSecondary" style={styles.segmentDescription}>
+                  Insights that have grown from your entries.
+                </Text>
                 {youHint === false && (
                   <Card variant="sunken" style={styles.hintCard} testID="you-intro-hint">
                     <View style={styles.hintRow}>
@@ -281,7 +286,13 @@ export default function YouScreen() {
 
       {/* Patterns — trends + digest */}
       {tab === 'patterns' && (
-        <Screen scroll>
+        <Screen scroll edges={['left', 'right']}>
+          <Text variant="title" style={styles.segmentHeading}>
+            Patterns over time
+          </Text>
+          <Text variant="body" color="textSecondary" style={styles.segmentDescription}>
+            Notice recurring feelings and thinking patterns across your entries.
+          </Text>
           {digest && !digestLoading && (
             <Card variant="accent" style={styles.digestCard} onPress={() => router.push('/digest')}>
               <Text variant="subtitle" color="accentText">
@@ -376,7 +387,13 @@ export default function YouScreen() {
 
       {/* Map — graph */}
       {tab === 'map' && (
-        <Screen padded={false}>
+        <Screen padded={false} edges={['left', 'right']}>
+          <View style={styles.mapIntro}>
+            <Text variant="title">Connections</Text>
+            <Text variant="body" color="textSecondary">
+              See how themes and feelings relate across your entries.
+            </Text>
+          </View>
           <View style={styles.mapTopRow}>
             <ScrollView
               horizontal
@@ -420,30 +437,35 @@ export default function YouScreen() {
                 No connections yet — write entries and your emotions, themes, and patterns will
                 connect here.
               </Text>
+              <Text variant="caption" color="textSecondary" style={styles.mapEmptyAction}>
+                Write entries to see your connections grow.
+              </Text>
             </View>
           ) : (
-            <View style={styles.canvas}>
-              <Graph3D
-                nodes={nodes}
-                edges={edges}
-                colors={{
-                  emotion: theme.colors.graphEmotion,
-                  situation: theme.colors.graphSituation,
-                  person: theme.colors.graphPerson,
-                  belief: theme.colors.graphBelief,
-                  behavior: theme.colors.graphBehavior,
-                  distortion: theme.colors.graphDistortion,
-                  place: theme.colors.graphPlace,
-                  activity: theme.colors.graphActivity,
-                }}
-                edgeColor={theme.colors.graphEdge}
-                labelColor={theme.colors.textSecondary}
-                backgroundColor={theme.colors.bg}
-                filter={filter}
-                selectedId={selected?.id ?? null}
-                onSelect={selectNode}
-              />
-            </View>
+            <>
+              <View style={styles.canvas}>
+                <Graph3D
+                  nodes={nodes}
+                  edges={edges}
+                  colors={{
+                    emotion: theme.colors.graphEmotion,
+                    situation: theme.colors.graphSituation,
+                    person: theme.colors.graphPerson,
+                    belief: theme.colors.graphBelief,
+                    behavior: theme.colors.graphBehavior,
+                    distortion: theme.colors.graphDistortion,
+                    place: theme.colors.graphPlace,
+                    activity: theme.colors.graphActivity,
+                  }}
+                  edgeColor={theme.colors.graphEdge}
+                  labelColor={theme.colors.textSecondary}
+                  backgroundColor={theme.colors.bg}
+                  filter={filter}
+                  selectedId={selected?.id ?? null}
+                  onSelect={selectNode}
+                />
+              </View>
+            </>
           )}
 
           {selected && (
@@ -696,12 +718,14 @@ const makeStyles = (t: Theme) =>
     // Pages segment
     listContent: {
       paddingHorizontal: t.spacing.xl,
-      paddingTop: t.spacing.md,
+      paddingTop: 0,
       paddingBottom: t.spacing['2xl'],
     },
-    hintCard: { marginBottom: t.spacing.sm },
+    hintCard: { marginBottom: 0 },
     hintRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
     hintText: { flex: 1 },
+    segmentHeading: { marginTop: t.spacing.md },
+    segmentDescription: { marginTop: t.spacing.xs, marginBottom: t.spacing.md },
 
     // Patterns segment
     h1: { marginTop: t.spacing.sm },
@@ -735,7 +759,14 @@ const makeStyles = (t: Theme) =>
     rhythmMsg: { marginTop: t.spacing.sm },
 
     // Map segment
-    mapTopRow: { flexDirection: 'row', alignItems: 'center', paddingTop: t.spacing.sm },
+    mapIntro: {
+      paddingHorizontal: t.spacing.xl,
+      paddingTop: t.spacing.md,
+      paddingBottom: t.spacing.md,
+      gap: t.spacing.xs,
+    },
+    mapTopRow: { flexDirection: 'row', alignItems: 'center' },
+    mapEmptyAction: { marginTop: t.spacing.md, textAlign: 'center' },
     pillBar: { flexGrow: 1, maxHeight: 40 },
     hiddenLink: { paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.xs },
     hiddenText: {
@@ -767,7 +798,7 @@ const makeStyles = (t: Theme) =>
       textAlign: 'center',
       lineHeight: 22,
     },
-    canvas: { flex: 1, width: '100%' },
+    canvas: { flex: 1, width: '100%', minHeight: 320 },
     nodeCard: {
       position: 'absolute',
       left: t.spacing.xl,

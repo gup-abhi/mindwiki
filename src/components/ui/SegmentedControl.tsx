@@ -24,7 +24,7 @@ const makeStyles = (t: Theme) =>
       backgroundColor: t.colors.surfaceAlt,
       borderRadius: t.radii.lg,
       padding: t.spacing.xs,
-      marginBottom: t.spacing.xl,
+      marginBottom: t.spacing.sm,
     },
     segment: {
       flex: 1,
