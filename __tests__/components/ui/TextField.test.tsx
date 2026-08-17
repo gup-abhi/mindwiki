@@ -21,4 +21,17 @@ describe('TextField privacy mode', () => {
     expect(input.props.autoCorrect).toBeUndefined()
     expect(input.props.autoComplete).toBeUndefined()
   })
+
+  it('associates labels and errors with the input and announces errors', () => {
+    render(<TextField label="Email" error="Enter a valid email" value="" onChangeText={jest.fn()} testID="error-input" />)
+
+    const input = screen.getByTestId('error-input')
+    expect(input.props.accessibilityLabelledBy).toHaveLength(2)
+    expect(screen.getByText('Enter a valid email').props.accessibilityLiveRegion).toBe('polite')
+  })
+
+  it('exposes disabled state for read-only fields', () => {
+    render(<TextField editable={false} value="Saved" onChangeText={jest.fn()} testID="read-only-input" />)
+    expect(screen.getByTestId('read-only-input').props.accessibilityState).toEqual({ disabled: true })
+  })
 })

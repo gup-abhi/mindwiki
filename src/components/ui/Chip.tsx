@@ -12,6 +12,7 @@ interface ChipProps {
   selected?: boolean
   onPress?: () => void
   mode?: ChipMode
+  disabled?: boolean
   testID?: string
 }
 
@@ -22,15 +23,17 @@ const makeStyles = (t: Theme) =>
       paddingVertical: t.spacing.sm,
       paddingHorizontal: t.spacing.lg,
       backgroundColor: t.colors.surfaceAlt,
+      minHeight: 48,
+      justifyContent: 'center',
     },
     selected: { backgroundColor: t.colors.accent },
     pressed: { opacity: 0.85 },
   })
 
 /** Pill — filter / selectable tag. */
-export function Chip({ label, selected = false, onPress, mode = 'multi', testID }: ChipProps) {
+export function Chip({ label, selected = false, onPress, mode = 'multi', disabled = false, testID }: ChipProps) {
   const styles = useThemedStyles(makeStyles)
-  const handlePress = onPress
+  const handlePress = onPress && !disabled
     ? () => {
         try { haptics.select() } catch { /* optional native feedback */ }
         onPress()
@@ -72,8 +75,9 @@ export function Chip({ label, selected = false, onPress, mode = 'multi', testID 
   return (
     <Pressable
       onPress={handlePress}
+      disabled={disabled}
       accessibilityRole={accessibilityRole}
-      accessibilityState={accessibilityState}
+      accessibilityState={{ ...accessibilityState, disabled }}
       testID={testID}
       style={({ pressed }) => [styles.base, selected && styles.selected, pressed && styles.pressed]}
     >

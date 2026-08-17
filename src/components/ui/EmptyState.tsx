@@ -15,6 +15,7 @@ interface EmptyStateProps {
     onPress: () => void
     testID?: string
   }
+  testID?: string
 }
 
 const makeStyles = (t: Theme) =>
@@ -23,11 +24,11 @@ const makeStyles = (t: Theme) =>
     msg: { textAlign: 'center' },
   })
 
-export function EmptyState({ icon, title, message, action }: EmptyStateProps) {
+export function EmptyState({ icon, title, message, action, testID }: EmptyStateProps) {
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   return (
-    <View style={styles.wrap}>
+    <View style={styles.wrap} accessibilityLiveRegion="polite" testID={testID}>
       {icon ? <Ionicons name={icon} size={40} color={theme.colors.textMuted} /> : null}
       <Text variant="subtitle" color="textSecondary">
         {title}

@@ -25,8 +25,9 @@ const makeColorStyles = (t: Theme): Record<keyof ColorTokens, TextStyle> =>
   )
 
 /** Typed text: `variant` picks the type scale, `color` picks a theme color token. */
-export function Text({ variant = 'body', color = 'textPrimary', style, ...rest }: TextProps) {
+export function Text({ variant = 'body', color = 'textPrimary', accessibilityRole, style, ...rest }: TextProps) {
   const variants = useThemedStyles(makeVariantStyles)
   const colors = useThemedStyles(makeColorStyles)
-  return <RNText {...rest} style={[variants[variant], colors[color], style]} />
+  const role = accessibilityRole ?? (variant === 'display' || variant === 'title' || variant === 'heading' ? 'header' : undefined)
+  return <RNText {...rest} accessibilityRole={role} style={[variants[variant], colors[color], style]} />
 }

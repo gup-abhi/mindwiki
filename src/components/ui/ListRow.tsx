@@ -12,6 +12,7 @@ interface ListRowProps {
   right?: ReactNode
   accessibilityLabel?: string
   accessibilityState?: AccessibilityState
+  disabled?: boolean
   testID?: string
 }
 
@@ -29,7 +30,7 @@ const makeStyles = (t: Theme) =>
   })
 
 /** A title (+ optional subtitle) row with an optional right accessory. */
-export function ListRow({ title, subtitle, onPress, right, accessibilityLabel, accessibilityState, testID }: ListRowProps) {
+export function ListRow({ title, subtitle, onPress, right, accessibilityLabel, accessibilityState, disabled = false, testID }: ListRowProps) {
   const styles = useThemedStyles(makeStyles)
   const content = (
     <>
@@ -50,9 +51,10 @@ export function ListRow({ title, subtitle, onPress, right, accessibilityLabel, a
     return (
       <Pressable
         onPress={onPress}
+        disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
-        accessibilityState={accessibilityState}
+        accessibilityState={{ ...accessibilityState, disabled }}
         testID={testID}
         style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       >

@@ -14,6 +14,7 @@ interface SegmentedControlProps {
   options: readonly SegmentOption[]
   selectedKey: string
   onChange: (key: string) => void
+  disabled?: boolean
   testID?: string
 }
 
@@ -42,7 +43,7 @@ const makeStyles = (t: Theme) =>
     pressed: { opacity: 0.8 },
   })
 
-export function SegmentedControl({ options, selectedKey, onChange, testID }: SegmentedControlProps) {
+export function SegmentedControl({ options, selectedKey, onChange, disabled = false, testID }: SegmentedControlProps) {
   const styles = useThemedStyles(makeStyles)
 
   return (
@@ -53,8 +54,9 @@ export function SegmentedControl({ options, selectedKey, onChange, testID }: Seg
           <Pressable
             key={option.key}
             accessibilityRole="tab"
-            accessibilityState={{ selected }}
+            accessibilityState={{ selected, disabled }}
             accessibilityLabel={option.label}
+            disabled={disabled}
             onPress={() => onChange(option.key)}
             testID={option.testID ?? (testID ? `${testID}-${option.key}` : undefined)}
             style={({ pressed }) => [styles.segment, selected && styles.selected, pressed && styles.pressed]}

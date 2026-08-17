@@ -1,6 +1,6 @@
 import { fireEvent, screen } from '@testing-library/react-native'
 
-import { Button, Card, Chip, EmptyState, IconButton, ListRow, ProgressBar, Screen, Text } from '@/components/ui'
+import { Button, Card, Chip, EmptyState, IconButton, ListRow, ProgressBar, Screen, SegmentedControl, Text } from '@/components/ui'
 import { haptics } from '@/lib/haptics'
 import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { renderWithTheme } from '@/test/renderWithTheme'
@@ -80,11 +80,70 @@ describe('ui primitives', () => {
     expect(onPress).toHaveBeenCalled()
   })
 
+  it('Chip supports explicit semantic modes and a full target', () => {
+    renderWithTheme(<Chip label="Only mine" selected onPress={jest.fn()} mode="single" testID="single-chip" />)
+    const chip = screen.getByTestId('single-chip')
+    expect(chip.props.accessibilityRole).toBe('radio')
+    expect(chip.props.accessibilityState.selected).toBe(true)
+    expect(flattenStyle(chip.props.style)).toEqual(expect.objectContaining({ minHeight: 48 }))
+
+    renderWithTheme(<Chip label="Enabled" selected onPress={jest.fn()} mode="toggle" testID="toggle-chip" />)
+    expect(screen.getByTestId('toggle-chip').props.accessibilityRole).toBe('switch')
+    expect(screen.getByTestId('toggle-chip').props.accessibilityState.checked).toBe(true)
+  })
+
   it('Chip supports static content without claiming an interactive role', () => {
     renderWithTheme(<Chip label="Journal" testID="static-chip" />)
     const chip = screen.getByTestId('static-chip')
     expect(chip.props.accessibilityRole).toBeUndefined()
     expect(chip.props.accessibilityState).toBeUndefined()
+  })
+
+  it('maps heading variants to header semantics', () => {
+    renderWithTheme(<Text variant="heading">Section title</Text>)
+    expect(screen.getByText('Section title').props.accessibilityRole).toBe('header')
+  })
+
+  it('forwards disabled semantics to actionable primitives', () => {
+    renderWithTheme(<IconButton name="close" onPress={jest.fn()} accessibilityLabel="Close" disabled testID="disabled-icon" />)
+    expect(screen.getByTestId('disabled-icon').props.accessibilityState.disabled).toBe(true)
+
+    renderWithTheme(<SegmentedControl options={[{ key: 'one', label: 'One' }]} selectedKey="one" onChange={jest.fn()} disabled testID="disabled-tabs" />)
+    expect(screen.getByTestId('disabled-tabs-one').props.accessibilityState.disabled).toBe(true)
+  })
+
+  it('covers static and alternate primitive states', () => {
+    renderWithTheme(<Button title="Secondary" variant="secondary" size="lg" onPress={jest.fn()} testID="secondary-button" />)
+    expect(screen.getByTestId('secondary-button')).toBeTruthy()
+
+    renderWithTheme(<Chip label="Do" mode="action" onPress={jest.fn()} testID="action-chip" />)
+    expect(screen.getByTestId('action-chip').props.accessibilityRole).toBe('button')
+
+    renderWithTheme(<ListRow title="Read only" subtitle="Details" testID="static-row" />)
+    expect(screen.getByTestId('static-row').props.accessibilityRole).toBeUndefined()
+
+    renderWithTheme(<SegmentedControl options={[{ key: 'one', label: 'One' }, { key: 'two', label: 'Two' }]} selectedKey="one" onChange={jest.fn()} testID="tabs" />)
+    expect(screen.getByTestId('tabs-two').props.accessibilityState.selected).toBe(false)
+  })
+
+  it('preserves disabled loading semantics', () => {
+    renderWithTheme(<Button title="Submit" onPress={jest.fn()} disabled loading testID="busy-button" />)
+    expect(screen.getByTestId('busy-button').props.accessibilityState).toEqual(expect.objectContaining({ disabled: true, busy: true }))
+  })
+
+  it('handles chips with a disabled selection', () => {
+    renderWithTheme(<Chip label="Unavailable" selected disabled onPress={jest.fn()} testID="disabled-chip" />)
+    expect(screen.getByTestId('disabled-chip').props.accessibilityState).toEqual(expect.objectContaining({ checked: true, disabled: true }))
+  })
+
+  it('handles icon buttons with custom state', () => {
+    renderWithTheme(<IconButton name="chevron-down" onPress={jest.fn()} accessibilityLabel="Expand" accessibilityState={{ expanded: true }} testID="expanded-icon" />)
+    expect(screen.getByTestId('expanded-icon').props.accessibilityState).toEqual({ expanded: true, disabled: false })
+  })
+
+  it('announces empty state updates politely', () => {
+    renderWithTheme(<EmptyState title="No entries" testID="empty-state" />)
+    expect(screen.getByTestId('empty-state').props.accessibilityLiveRegion).toBe('polite')
   })
 
   it('ListRow gives actionable rows a 48dp target and forwards semantics', () => {
