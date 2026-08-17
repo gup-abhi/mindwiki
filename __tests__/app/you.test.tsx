@@ -76,6 +76,12 @@ describe('YouScreen', () => {
     expect(screen.getByText('No pages yet')).toBeTruthy()
   })
 
+  it('shows a focused heading and explanation for Pages', () => {
+    render(<YouScreen />)
+    expect(screen.getByText('Your pages')).toBeTruthy()
+    expect(screen.getByText(/insights that have grown from your entries/i)).toBeTruthy()
+  })
+
   it('switches to Patterns segment and shows digest-trends content', () => {
     mockUseDigest.mockReturnValue({ digest: null, loading: false, synthesizing: false })
     mockUseEntries.mockReturnValue({ entries: [] })
@@ -83,14 +89,19 @@ describe('YouScreen', () => {
     fireEvent.press(screen.getByTestId('you-tab-patterns'))
     expect(screen.getByTestId('you-tab-patterns').props.accessibilityState.selected).toBe(true)
     expect(screen.getByTestId('you-tab-pages').props.accessibilityState.selected).toBe(false)
+    expect(screen.getByText('Patterns over time')).toBeTruthy()
+    expect(screen.getByText(/notice recurring feelings and thinking patterns/i)).toBeTruthy()
     expect(screen.getByText('Trends')).toBeTruthy()
   })
 
-  it('switches to Map segment and shows empty state when no nodes', () => {
+  it('switches to Map segment and shows an explained empty state when no nodes', () => {
     render(<YouScreen />)
     fireEvent.press(screen.getByTestId('you-tab-map'))
     expect(screen.getByTestId('you-tab-map').props.accessibilityState.selected).toBe(true)
+    expect(screen.getByText('Connections')).toBeTruthy()
+    expect(screen.getByText(/how themes and feelings relate/i)).toBeTruthy()
     expect(screen.getByText(/No connections yet/)).toBeTruthy()
+    expect(screen.getByText(/Write entries to see your connections grow/i)).toBeTruthy()
   })
 
   it('exposes the segmented control as a tab list', () => {

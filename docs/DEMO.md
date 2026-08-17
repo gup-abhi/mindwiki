@@ -38,6 +38,7 @@ demo/
 
 ```typescript
 // demo/screens/SystemCheck.tsx
+// The demo uses op-sqlite with SQLCipher enabled in demo/package.json.
 
 interface CheckResult {
   name: string
@@ -51,13 +52,12 @@ const CHECKS: Array<() => Promise<CheckResult>> = [
   async function checkSQLCipher(): Promise<CheckResult> {
     const start = Date.now()
     try {
-      const db = await SQLite.openDatabaseAsync(':memory:')
-      // SQLCipher: inject test key
-      await db.execAsync("PRAGMA key = 'demo-test-key-32bytes-padding!!'")
-      await db.execAsync('CREATE TABLE IF NOT EXISTS test (id TEXT, val TEXT)')
-      await db.runAsync('INSERT INTO test VALUES (?, ?)', ['1', 'hello-mindwiki'])
-      const row = await db.getFirstAsync<{ val: string }>('SELECT val FROM test WHERE id = ?', ['1'])
-      await db.closeAsync()
+      const db = open({ name: 'sqlcipher-check.db', encryptionKey: 'demo-test-key-32bytes-padding!!' })
+      await db.execute('CREATE TABLE IF NOT EXISTS test (id TEXT, val TEXT)')
+      await db.execute('INSERT INTO test VALUES (?, ?)', ['1', 'hello-mindwiki'])
+      const result = await db.execute('SELECT val FROM test WHERE id = ?', ['1'])
+      const row = result.rows[0] as { val?: string } | undefined
+      db.close()
       const passed = row?.val === 'hello-mindwiki'
       return { name: 'SQLite + SQLCipher', passed, timingMs: Date.now() - start, detail: passed ? 'Write/read verified' : `Got: ${row?.val}` }
     } catch (e) {

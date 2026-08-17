@@ -43,6 +43,8 @@ export function TextField({ label, error, multiline, scrollEnabled, sensitive = 
       ) : null}
       <TextInput
         {...rest}
+        accessibilityLabel={rest.accessibilityLabel ?? label}
+        accessibilityState={{ disabled: rest.editable === false }}
         autoCorrect={sensitive ? false : rest.autoCorrect}
         spellCheck={sensitive ? false : rest.spellCheck}
         autoComplete={sensitive ? 'off' : rest.autoComplete}
@@ -58,7 +60,7 @@ export function TextField({ label, error, multiline, scrollEnabled, sensitive = 
         style={[styles.input, multiline && styles.multiline, error ? styles.errorBorder : null, style]}
       />
       {error ? (
-        <Text variant="caption" color="danger">
+        <Text accessibilityLiveRegion="polite" variant="caption" color="danger">
           {error}
         </Text>
       ) : null}

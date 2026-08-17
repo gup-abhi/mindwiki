@@ -46,6 +46,11 @@ export async function issueTokens(
       `family:${familyId}`,
       JSON.stringify({ account_id: accountId, invalidated: false })
     )
+    const familyKey = `families:${accountId}`
+    const families = ((await env.AUTH_KV.get(familyKey, 'json')) as string[] | null) ?? []
+    if (!families.includes(familyId)) {
+      await env.AUTH_KV.put(familyKey, JSON.stringify([...families, familyId]))
+    }
   }
 
   return { accessToken, refreshToken, familyId }

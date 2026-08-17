@@ -1,4 +1,4 @@
-import { useSyncStore } from '@/store/sync.store'
+import { runtimeStoreBridge } from '@/services/runtime/store-bridge'
 import { type Result, ok, err } from '@/types/result'
 
 import { type SqliteDatabase, getDb } from './db'
@@ -80,7 +80,7 @@ export async function enqueueUpsertInTransaction(
  * queue SQL so callers can notify only after their transaction commits. */
 export function notifySyncPending(): void {
   try {
-    useSyncStore.getState().notifyLocalChange()
+    runtimeStoreBridge().notifySyncPending()
   } catch {
     // A UI/sync signal failure must not affect committed local data.
   }
