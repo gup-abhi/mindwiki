@@ -48,7 +48,6 @@ const message = (over: Partial<UIMessage> = {}): UIMessage => ({
 
 const base = {
   messages: [] as UIMessage[],
-  streaming: '',
   sending: false,
   suggestions: ['What patterns show up around Work?'],
   history: [] as { id: string; title: string | null; created_at: number; updated_at: number }[],
@@ -166,18 +165,33 @@ describe('QueryScreen (reflective conversation)', () => {
     expect(screen.getByText('Deadlines spike it.')).toBeTruthy()
   })
 
-  it('shows the streaming text while a reply is in flight', () => {
+  it('shows a typing indicator without rendering partial reply text', () => {
     mockUse.mockReturnValue({
       ...base,
       messages: [message({ role: 'user', content: 'hi' })],
       sending: true,
-      streaming: 'Thinking abou',
     })
     render(<QueryScreen />)
-    expect(screen.getByText('Thinking abou')).toBeTruthy()
+    expect(screen.getByTestId('reflect-typing-indicator')).toBeTruthy()
+    expect(screen.getByTestId('reflect-typing-indicator').props.accessibilityLabel).toBe('Companion is typing')
+    expect(screen.queryByText('Thinking abou')).toBeNull()
   })
 
-  it('shows a Try again button on a failed reply and retries when tapped', () => {
+  it('shows the complete reply after generation finishes', () => {
+    mockUse.mockReturnValue({
+      ...base,
+      messages: [
+        message({ role: 'user', content: 'hi' }),
+        message({ role: 'assistant', content: 'That sounds difficult.' }),
+      ],
+      sending: false,
+    })
+    render(<QueryScreen />)
+    expect(screen.getByText('That sounds difficult.')).toBeTruthy()
+    expect(screen.queryByTestId('reflect-typing-indicator')).toBeNull()
+  })
+
+  it('shows a named Try again button on a failed reply and retries when tapped', () => {
     mockUse.mockReturnValue({
       ...base,
       messages: [
@@ -186,6 +200,7 @@ describe('QueryScreen (reflective conversation)', () => {
       ],
     })
     render(<QueryScreen />)
+    expect(screen.getByTestId('retry').props.accessibilityLabel).toBe('Try again')
     fireEvent.press(screen.getByTestId('retry'))
     expect(mockRetry).toHaveBeenCalled()
   })
