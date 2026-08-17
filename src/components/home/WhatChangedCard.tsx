@@ -45,7 +45,7 @@ export function WhatChangedCard({
           <Pressable
             key={p.id}
             accessibilityRole="button"
-            accessibilityLabel={`Open the ${p.title} page`}
+            accessibilityLabel="Open changed page"
             onPress={() => router.push(`/wiki/${p.id}`)}
             style={styles.chip}
             testID="what-changed-page"

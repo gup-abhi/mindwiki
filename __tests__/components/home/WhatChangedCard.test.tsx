@@ -66,4 +66,10 @@ describe('WhatChangedCard', () => {
     fireEvent.press(screen.getByText('Anxiety'))
     expect(mockPush).toHaveBeenCalledWith('/wiki/p1')
   })
+
+  it('keeps page titles out of action labels', () => {
+    render(<WhatChangedCard pages={[{ id: 'p1', title: 'Private page title', category: 'emotion' }]} />)
+    expect(screen.getByTestId('what-changed-page').props.accessibilityLabel).toBe('Open changed page')
+    expect(screen.getByText('Private page title')).toBeTruthy()
+  })
 })

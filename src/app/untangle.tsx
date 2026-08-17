@@ -276,7 +276,7 @@ export default function UntangleScreen() {
                 </Text>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Open wiki page ${obs.title}`}
+                  accessibilityLabel="Open related wiki page"
                   onPress={() => router.push(`/wiki/${obs.pageId}`)}
                 >
                   <Text variant="label" color="accent">

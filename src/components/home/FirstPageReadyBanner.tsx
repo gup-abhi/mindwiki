@@ -50,7 +50,7 @@ export function FirstPageReadyBanner() {
     <Card variant="accent" style={styles.card} testID="first-page-ready-banner">
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Review the early insight page ${page.title}`}
+        accessibilityLabel="Review early insight page"
         onPress={view}
         testID="first-page-ready-open"
       >

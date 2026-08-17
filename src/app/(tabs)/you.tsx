@@ -369,7 +369,7 @@ export default function YouScreen() {
                     <Pressable
                       key={page.id}
                       accessibilityRole="button"
-                      accessibilityLabel={`Open the ${page.title} page`}
+                      accessibilityLabel="Open insight page"
                       onPress={() => router.push(`/wiki/${page.id}`)}
                       style={styles.trendRow}
                       testID="trend-row"
@@ -506,7 +506,7 @@ export default function YouScreen() {
                           <Pressable
                             key={p.id}
                             accessibilityRole="button"
-                            accessibilityLabel={`Open the ${p.title} page`}
+                            accessibilityLabel="Open shaped page"
                             onPress={() => router.push(`/wiki/${p.id}`)}
                             style={styles.nodeLinkRow}
                             testID="graph-node-page"

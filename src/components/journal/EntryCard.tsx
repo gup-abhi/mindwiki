@@ -90,16 +90,15 @@ function EntryCardBase({ entry, onPress }: EntryCardProps) {
     seen.add(key)
     return true
   }).join(' · ')
-  const accessibilityLabel = `${new Date(entry.created_at).toLocaleString()}, ${moodLabel(entry.mood)}${tags ? `, ${tags}` : ''}`
 
   return (
     <Pressable
+      accessibilityLabel="Open journal entry"
       accessibilityRole="button"
       onPressIn={handlePressIn}
       onTouchMove={handlePressMove}
       onPressOut={handlePressOut}
       onPress={handleNativePress}
-      accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <MoodBar mood={entry.mood} />

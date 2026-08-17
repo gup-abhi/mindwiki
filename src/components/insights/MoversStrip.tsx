@@ -34,7 +34,7 @@ export function MoversStrip() {
           <Pressable
             key={page.id}
             accessibilityRole="button"
-            accessibilityLabel={`Open the ${page.title} page`}
+            accessibilityLabel="Open insight page"
             onPress={() => router.push(`/wiki/${page.id}`)}
             style={styles.chip}
             testID="home-mover"
