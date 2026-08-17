@@ -11,6 +11,30 @@ interface RefreshRequest {
   family_id: string
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 200
+}
+
+function parseRequest(value: unknown): ReservationRequest | RefreshRequest | null {
+  if (!value || typeof value !== 'object') return null
+  const body = value as Record<string, unknown>
+  if (body.operation === 'reserve_email' || body.operation === 'release_email') {
+    return isNonEmptyString(body.account_id)
+      ? { operation: body.operation, account_id: body.account_id }
+      : null
+  }
+  if (body.operation === 'claim_refresh') {
+    return isNonEmptyString(body.account_id) && isNonEmptyString(body.family_id)
+      ? {
+          operation: body.operation,
+          account_id: body.account_id,
+          family_id: body.family_id,
+        }
+      : null
+  }
+  return null
+}
+
 interface ReservationState {
   account_id: string
   released?: boolean
@@ -30,12 +54,13 @@ export class AuthCoordinator {
   constructor(private readonly state: DurableObjectState) {}
 
   async fetch(request: Request): Promise<Response> {
-    let body: ReservationRequest | RefreshRequest
+    let body: ReservationRequest | RefreshRequest | null
     try {
-      body = await request.json() as ReservationRequest | RefreshRequest
+      body = parseRequest(await request.json())
     } catch {
-      return Response.json({ status: 'invalid' }, { status: 400 })
+      body = null
     }
+    if (!body) return Response.json({ status: 'invalid' }, { status: 400 })
 
     if (body.operation === 'reserve_email') {
       const result = await this.state.storage.transaction(async (storage) => {
