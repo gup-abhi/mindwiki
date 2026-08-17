@@ -4,8 +4,7 @@ import * as Device from 'expo-device'
 
 import { CryptoModule } from '@/native/CryptoModule'
 import { beginWipe, deleteDatabase, endWipe } from '@/services/storage/db'
-import { useAuthStore } from '@/store/auth.store'
-import { useSyncStore } from '@/store/sync.store'
+import { runtimeStoreBridge } from '@/services/runtime/store-bridge'
 import { type Result, ok, err } from '@/types/result'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
 import { resumeNotificationReconciliation, suspendNotificationReconciliation, waitForNotificationReconciliation } from '@/services/notifications/orchestrator'
@@ -224,14 +223,14 @@ export async function loginNewDevice(email: string, password: string): Promise<R
     })
     if (data.status === 'pending_ack') {
       await setRecoveryPending({ accountId: data.account_id, phase: 'needs_phrase' })
-      useAuthStore.getState().setRecoveryPending(data.account_id)
+      runtimeStoreBridge().setRecoveryPending(data.account_id)
       return ok({ accountId: data.account_id })
     }
 
     // Signing in on a new device: the encrypted DB is empty until the first pull.
     // Flag a restore so the UI reassures the user their data is on its way.
-    useSyncStore.getState().beginRestore()
-    useAuthStore.getState().setAuthenticated(data.account_id)
+    runtimeStoreBridge().beginSyncRestore()
+    runtimeStoreBridge().setAuthenticated(data.account_id)
     return ok({ accountId: data.account_id })
   } catch (e) {
     return err('LOGIN_FAILED', 'Login failed', e)
@@ -302,7 +301,7 @@ export async function hydrateAuth(): Promise<void> {
   await repairInterruptedWipe()
   const deletionState = await getAccountDeletionState()
   if (deletionState) {
-    useAuthStore.getState().setDeleting(deletionState.accountId)
+    runtimeStoreBridge().setDeleting(deletionState.accountId)
     if (deletionState.remoteComplete) await finishDeletedAccountWipe()
     // A pending remote deletion requires an explicit retry. Auto-retrying here
     // would remove the user's chance to cancel a stale, local-only marker.
@@ -313,7 +312,7 @@ export async function hydrateAuth(): Promise<void> {
   const pending = await getRecoveryPending()
   if (!tokens) {
     if (pending) await clearRecoveryPending()
-    useAuthStore.getState().setUnauthenticated()
+    runtimeStoreBridge().setUnauthenticated()
     return
   }
   if (pending && pending.accountId !== tokens.accountId) {
@@ -321,14 +320,14 @@ export async function hydrateAuth(): Promise<void> {
     await CryptoModule.deleteKeyFromKeychain()
     await CryptoModule.deleteKeyOwner()
     await clearRecoveryPending()
-    useAuthStore.getState().setUnauthenticated()
+    runtimeStoreBridge().setUnauthenticated()
     return
   }
   if ((pending && pending.accountId === tokens.accountId) || tokens.status === 'pending_ack') {
-    useAuthStore.getState().setRecoveryPending(tokens.accountId)
+    runtimeStoreBridge().setRecoveryPending(tokens.accountId)
     return
   }
-  useAuthStore.getState().setAuthenticated(tokens.accountId)
+  runtimeStoreBridge().setAuthenticated(tokens.accountId)
 }
 
 
@@ -476,7 +475,7 @@ export async function canReturnToAccountFromDeletion(): Promise<Result<boolean>>
 
 export async function returnToAccountFromDeletion(): Promise<Result<true>> {
   const deletionState = await getAccountDeletionState()
-  const accountId = deletionState?.accountId ?? useAuthStore.getState().accountId
+  const accountId = deletionState?.accountId ?? runtimeStoreBridge().getAccountId()
   if (!accountId) return err('NOT_AUTHENTICATED', 'No account to restore')
 
   const canReturn = await canReturnToAccountFromDeletion()
@@ -491,7 +490,7 @@ export async function returnToAccountFromDeletion(): Promise<Result<true>> {
   await clearAccountDeletionState()
   resumeNotificationReconciliation()
   resumeSessionWork()
-  useAuthStore.getState().setAuthenticated(accountId)
+  runtimeStoreBridge().setAuthenticated(accountId)
   return ok(true)
 }
 
@@ -511,7 +510,7 @@ async function finishDeletedAccountWipe(): Promise<void> {
   } finally {
     endWipe()
     resetSessionStores()
-    if (completed) useAuthStore.getState().setUnauthenticated()
+    if (completed) runtimeStoreBridge().setUnauthenticated()
   }
 }
 
@@ -520,7 +519,7 @@ async function deleteAccountImpl(): Promise<Result<true>> {
   let deletionFinished = false
   let workQuiesced = false
   let resumeWork = true
-  let accountId: string | null = useAuthStore.getState().accountId
+  let accountId: string | null = runtimeStoreBridge().getAccountId()
   try {
     if (!accountId) return err('NOT_AUTHENTICATED', 'No active account')
     const deletionState = await getAccountDeletionState()
@@ -563,7 +562,7 @@ async function deleteAccountImpl(): Promise<Result<true>> {
 
     if (!deletionState) await setAccountDeletionPending(accountId)
     deletionLocked = true
-    useAuthStore.getState().setDeleting(accountId)
+    runtimeStoreBridge().setDeleting(accountId)
     if (deletionState?.remoteComplete) {
       await finishDeletedAccountWipe()
       deletionFinished = true
@@ -603,7 +602,7 @@ async function deleteAccountImpl(): Promise<Result<true>> {
     return err('ACCOUNT_DELETE_FAILED', 'Account deletion failed', e)
   } finally {
     if (deletionLocked && !deletionFinished && accountId) {
-      useAuthStore.getState().setDeleting(accountId)
+      runtimeStoreBridge().setDeleting(accountId)
     }
     if (workQuiesced && resumeWork && !deletionFinished) {
       resumeNotificationReconciliation()
@@ -654,6 +653,6 @@ async function logoutImpl(): Promise<void> {
     // can finish the wipe. Guard/store reset must still happen on every path.
     endWipe()
     resetSessionStores()
-    useAuthStore.getState().setUnauthenticated()
+    runtimeStoreBridge().setUnauthenticated()
   }
 }

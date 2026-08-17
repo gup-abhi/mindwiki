@@ -20,6 +20,7 @@ export function useStreakFreezes() {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       void refresh()
     }, [refresh, revision])
   )

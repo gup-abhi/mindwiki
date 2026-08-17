@@ -125,7 +125,7 @@ describe('UntangleScreen', () => {
     }
     render(<UntangleScreen />)
     expect(screen.getByLabelText('Back to Reflect')).toBeTruthy()
-    expect(screen.getByLabelText('Open wiki page Work')).toBeTruthy()
+    expect(screen.getByLabelText('Open related wiki page')).toBeTruthy()
   })
 
   it('shows loading state', () => {

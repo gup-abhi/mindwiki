@@ -343,6 +343,47 @@ describe('rebuildGraph', () => {
     expect(stamped).toBe(false) // backlog left for the next launch's catch-up
   })
 
+  it('does not stamp after a later page fails, then heals on a complete retry', async () => {
+    const firstPage = Array.from({ length: 501 }, (_, index) =>
+      entry({ id: `e${index}`, created_at: 10000 - index, emotion: null, distortion: null })
+    )
+    let rebuildAttempt = 0
+    let pageReads = 0
+    let stamped = 0
+    const fakeDb = {
+      async execute(sql: string) {
+        if (/^DELETE FROM/.test(sql)) return { rows: [], rowsAffected: 0 }
+        const g = groupBy(sql)
+        if (g) return g
+        if (/^SELECT \* FROM entries WHERE 1 = 1/.test(sql)) {
+          pageReads++
+          if (pageReads === 2 && rebuildAttempt === 1) throw new Error('later page unavailable')
+          if (pageReads === 1 || pageReads === 3) return { rows: firstPage, rowsAffected: 0 }
+          return { rows: [], rowsAffected: 0 }
+        }
+        if (/^UPDATE entries SET graph_indexed_at/.test(sql)) {
+          stamped++
+          return { rows: [], rowsAffected: firstPage.length }
+        }
+        throw new Error(`unhandled SQL: ${sql}`)
+      },
+      async transaction(fn: (tx: SqliteDatabase) => Promise<void>) {
+        rebuildAttempt++
+        await fn(fakeDb)
+      },
+      close() {},
+    } as unknown as SqliteDatabase
+    setDb(fakeDb)
+
+    const failed = await rebuildGraph()
+    expect(failed.success).toBe(false)
+    expect(stamped).toBe(0)
+
+    const retried = await rebuildGraph()
+    expect(retried.success).toBe(true)
+    expect(stamped).toBe(1)
+  })
+
   it('serializes a live update against a rebuild (no interleaving)', async () => {
     // Record the order DELETE (rebuild) and the live entry's entity read happen.
     // With the mutex, the whole rebuild completes before the live update starts —

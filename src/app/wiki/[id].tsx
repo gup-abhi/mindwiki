@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Alert, Pressable, StyleSheet, View } from 'react-native'
 
@@ -38,7 +38,7 @@ export default function WikiPageScreen() {
     return () => {
       active = false
     }
-  }, [page?.id, page?.updated_at])
+  }, [page])
 
   const onRegenerate = async () => {
     const error = await regenerate()

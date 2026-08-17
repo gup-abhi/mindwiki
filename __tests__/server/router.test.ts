@@ -30,6 +30,12 @@ const env = { R2: new FakeR2() } as unknown as Env
 describe('Worker sync routes', () => {
   beforeEach(() => mockAuth.mockResolvedValue({ ok: true, accountId: 'acc', familyId: 'fam' }))
 
+  it('returns a content-free health response without authentication', async () => {
+    const response = await worker.fetch(new Request('https://example.test/health'), env)
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+  })
+
   it('accepts exact authenticated-account delta route', async () => {
     const response = await worker.fetch(new Request('https://example.test/sync/acc/delta?since=0'), env)
     expect(response.status).toBe(200)

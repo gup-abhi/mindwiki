@@ -1,18 +1,16 @@
 import { compare } from 'bcryptjs'
 
 import type { Env } from '../types'
+import { parseLoginBody, readJsonBody } from '../validation/request'
 import { issueTokens } from './tokens'
 import { recordPairedDevice } from './devices'
 import { getAccountDeletionMarker } from './deletion-marker'
 
 export async function handleLogin(req: Request, env: Env): Promise<Response> {
-  const { email, password_hash, device_label, platform, device_id } = (await req.json()) as {
-    email: string
-    password_hash: string
-    device_label?: string
-    platform?: string
-    device_id?: string
-  }
+  const body = parseLoginBody(await readJsonBody(req))
+  if (!body) return new Response('Invalid request body', { status: 400 })
+  const { email, password_hash, device_label, platform, device_id } = body
+
 
   const emailRecord = (await env.AUTH_KV.get(`email:${email.toLowerCase()}`, 'json')) as {
     account_id: string

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router'
 import {
-  ActivityIndicator,
+  Animated,
   BackHandler,
   KeyboardAvoidingView,
   Platform,
@@ -15,12 +15,66 @@ import { Card, Chip, IconButton, Screen, SegmentedControl, Text } from '@/compon
 import { ConversationComposer } from '@/components/wiki/ConversationComposer'
 import { MessageBubble } from '@/components/wiki/MessageBubble'
 import { useConversation } from '@/hooks/useConversation'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { useChatStore } from '@/store/chat.store'
 import { getHintSeen, markHintSeen } from '@/services/onboarding/first-run'
 import { isModelDownloaded } from '@/services/llm/model-manager'
 import { CRISIS_RESOURCES } from '@/services/crisis/resources'
 import { GUIDED_PATHS } from '@/lib/guided-paths'
-import { type Theme, useTheme, useThemedStyles } from '@/theme'
+import { type Theme, useThemedStyles } from '@/theme'
+
+const TYPING_DOT_COUNT = 3
+const TYPING_DOT_DELAY = 140
+const TYPING_DOT_DURATION = 420
+const TYPING_INDICATOR_DELAY = 300
+
+function TypingIndicator({ styles }: { styles: ReturnType<typeof makeStyles> }) {
+  const reducedMotion = useReducedMotion()
+  const [visible, setVisible] = useState(false)
+  const values = useRef(Array.from({ length: TYPING_DOT_COUNT }, () => new Animated.Value(0.35))).current
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), TYPING_INDICATOR_DELAY)
+    return () => clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
+    if (!visible || reducedMotion) return
+    const animations = values.map((value, index) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(index * TYPING_DOT_DELAY),
+          Animated.parallel([
+            Animated.timing(value, { toValue: 1, duration: TYPING_DOT_DURATION, useNativeDriver: true }),
+            Animated.timing(value, { toValue: 1.15, duration: TYPING_DOT_DURATION, useNativeDriver: true }),
+          ]),
+          Animated.timing(value, { toValue: 0.35, duration: TYPING_DOT_DURATION, useNativeDriver: true }),
+          Animated.delay((TYPING_DOT_COUNT - index) * TYPING_DOT_DELAY),
+        ])
+      )
+    )
+    animations.forEach((animation) => animation.start())
+    return () => animations.forEach((animation) => animation.stop())
+  }, [reducedMotion, values, visible])
+
+  return (
+    <View
+      accessibilityLabel="Companion is typing"
+      accessibilityLiveRegion="polite"
+      style={[styles.typingBubble, !visible && styles.typingBubbleHidden]}
+      testID="reflect-typing-indicator"
+    >
+      <View style={styles.typingDots} accessibilityElementsHidden>
+        {values.map((value, index) => (
+          <Animated.View
+            key={index}
+            style={[styles.typingDot, { opacity: value, transform: [{ scale: value }] }]}
+          />
+        ))}
+      </View>
+    </View>
+  )
+}
 
 // Feeling/struggle chips that seed the composer, so the user can start by naming
 // what's going on right now instead of facing a blank box. A fixed, curated set —
@@ -37,8 +91,7 @@ const FEELING_CHIPS: { label: string; seed: string }[] = [
 
 export default function QueryScreen() {
   const styles = useThemedStyles(makeStyles)
-  const theme = useTheme()
-  const { messages, streaming, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
+  const { messages, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
     useConversation()
   const summaryCrisisTier = useChatStore((s) => s.summaryCrisisTier)
   const scrollRef = useRef<ScrollView>(null)
@@ -48,6 +101,8 @@ export default function QueryScreen() {
   const router = useRouter()
   const isEmpty = messages.length === 0
   const [tab, setTab] = useState<'start' | 'history' | 'paths'>('start')
+  const [startRevealed, setStartRevealed] = useState(false)
+  const [moreWaysRevealed, setMoreWaysRevealed] = useState(false)
   // One-time Reflect-tab intro hint (P8). null while checking; false → show; true → hide.
   const [reflectHint, setReflectHint] = useState<boolean | null>(null)
 
@@ -94,7 +149,7 @@ export default function QueryScreen() {
   // and history in descending order and shouldn't scroll to bottom).
   useEffect(() => {
     if (!isEmpty) scrollToBottom()
-  }, [messages, streaming, scrollToBottom, isEmpty])
+  }, [messages, sending, scrollToBottom, isEmpty])
 
   // Save the start screen's scroll position before entering a conversation,
   // and restore it when returning. Without this, closing a conversation resets
@@ -195,7 +250,7 @@ export default function QueryScreen() {
                 <Card variant="sunken" style={styles.hintCard} testID="reflect-intro-hint">
                   <View style={styles.hintRow}>
                     <Text variant="caption" color="textSecondary" style={styles.hintText}>
-                      Reflect is your private companion — try one of the feeling chips below to start.
+                      Reflect is your private companion — use Start reflecting below when you’re ready.
                     </Text>
                     <Chip
                       label="Got it"
@@ -209,138 +264,161 @@ export default function QueryScreen() {
                 </Card>
               )}
 
-              <SegmentedControl
-                options={[
-                  { key: 'start', label: 'Start', testID: 'tab-start' },
-                  { key: 'history', label: 'History', testID: 'tab-history' },
-                  { key: 'paths', label: 'Paths', testID: 'tab-paths' },
-                ]}
-                selectedKey={tab}
-                onChange={(key) => setTab(key as 'start' | 'history' | 'paths')}
-                testID="reflect-tabs"
-              />
+              {!startRevealed ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Start reflecting"
+                  onPress={() => setStartRevealed(true)}
+                  style={styles.startAction}
+                  testID="start-reflecting"
+                >
+                  <Text variant="label" color="accent">Start reflecting</Text>
+                </Pressable>
+              ) : (
+                <>
+                  <SegmentedControl
+                    options={[
+                      { key: 'start', label: 'Start', testID: 'tab-start' },
+                      { key: 'history', label: 'History', testID: 'tab-history' },
+                      { key: 'paths', label: 'Paths', testID: 'tab-paths' },
+                    ]}
+                    selectedKey={tab}
+                    onChange={(key) => setTab(key as 'start' | 'history' | 'paths')}
+                    testID="reflect-tabs"
+                  />
 
-              {tab === 'start' ? (
-                <View>
-                  <Text variant="label" color="accent" style={styles.sectionLabel}>
-                    What’s weighing on you lately?
-                  </Text>
-                  <View style={styles.chips}>
-                    {FEELING_CHIPS.map((c) => (
-                      <Pressable
-                        key={c.label}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Start a chat: ${c.label}`}
-                        style={styles.chip}
-                        onPress={() =>
-                          setComposerSeed((s) => ({ text: c.seed, nonce: (s?.nonce ?? 0) + 1 }))
-                        }
-                        testID={`feeling-chip-${c.label}`}
-                      >
-                        <Text variant="label" color="textSecondary">
-                          {c.label}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-
-                  <Pressable
-                    style={styles.untangleCard}
-                    onPress={() => router.push('/untangle')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Untangle a thought, five-step reflection exercise"
-                    testID="untangle-entry"
-                  >
-                    <Text variant="label" color="accent">
-                      🧩 Untangle a thought
-                    </Text>
-                    <Text variant="caption" color="textMuted">
-                      Untangle a difficult thought, one step at a time.
-                    </Text>
-                  </Pressable>
-
-                  {suggestions.length > 0 && (
-                    <View style={styles.exploreSection}>
+                  {tab === 'start' ? (
+                    <View>
                       <Text variant="label" color="accent" style={styles.sectionLabel}>
-                        Or explore a pattern
+                        What’s weighing on you lately?
                       </Text>
-                      {suggestions.map((q) => (
+                      <View style={styles.chips}>
+                        {FEELING_CHIPS.map((c) => (
+                          <Pressable
+                            key={c.label}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Start a chat: ${c.label}`}
+                            style={styles.chip}
+                            onPress={() =>
+                              setComposerSeed((s) => ({ text: c.seed, nonce: (s?.nonce ?? 0) + 1 }))
+                            }
+                            testID={`feeling-chip-${c.label}`}
+                          >
+                            <Text variant="label" color="textSecondary">
+                              {c.label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="More ways to reflect"
+                        onPress={() => setMoreWaysRevealed(true)}
+                        style={styles.moreAction}
+                        testID="more-reflecting-options"
+                      >
+                        <Text variant="label" color="accent">More ways to reflect</Text>
+                      </Pressable>
+
+                      {moreWaysRevealed ? (
+                        <>
+                          <Pressable
+                            style={styles.untangleCard}
+                            onPress={() => router.push('/untangle')}
+                            accessibilityRole="button"
+                            accessibilityLabel="Untangle a thought, five-step reflection exercise"
+                            testID="untangle-entry"
+                          >
+                            <Text variant="label" color="accent">
+                              🧩 Untangle a thought
+                            </Text>
+                            <Text variant="caption" color="textMuted">
+                              Untangle a difficult thought, one step at a time.
+                            </Text>
+                          </Pressable>
+
+                          {suggestions.length > 0 && (
+                            <View style={styles.exploreSection}>
+                              <Text variant="label" color="accent" style={styles.sectionLabel}>
+                                Or explore a pattern
+                              </Text>
+                              {suggestions.map((q) => (
+                                <Card
+                                  key={q}
+                                  variant="sunken"
+                                  style={styles.suggestion}
+                                  onPress={() => openStarter(q)}
+                                >
+                                  <Text variant="body">{q}</Text>
+                                </Card>
+                              ))}
+                            </View>
+                          )}
+                        </>
+                      ) : null}
+                    </View>
+                  ) : tab === 'paths' ? (
+                    <View style={styles.pathsContainer}>
+                      <Text variant="label" color="accent" style={styles.sectionLabel}>
+                        Guided reflections
+                      </Text>
+                      <Text variant="body" color="textSecondary" style={styles.pathsIntro}>
+                        A few gentle prompts to work through, one at a time. Whatever you write feeds your wiki.
+                      </Text>
+                      {GUIDED_PATHS.map((path) => (
                         <Card
-                          key={q}
-                          variant="sunken"
-                          style={styles.suggestion}
-                          onPress={() => openStarter(q)}
+                          key={path.id}
+                          variant="surface"
+                          style={styles.pathCard}
+                          onPress={() => router.push(`/paths/${path.id}`)}
+                          testID={`path-${path.id}`}
                         >
-                          <Text variant="body">{q}</Text>
+                          <Text variant="heading">{path.title}</Text>
+                          <Text variant="body" color="textSecondary" style={styles.pathCardDesc}>
+                            {path.description}
+                          </Text>
+                          <Text variant="caption" color="textMuted" style={styles.pathCardMeta}>
+                            {path.steps.length} prompts
+                          </Text>
                         </Card>
                       ))}
                     </View>
+                  ) : history.length > 0 ? (
+                    history.map((c) => (
+                      <Pressable
+                        key={c.id}
+                        accessibilityRole="button"
+                        style={styles.historyRow}
+                        onPress={() => loadConversation(c.id)}
+                      >
+                        <Text variant="body" numberOfLines={1}>
+                          {c.title ?? 'Conversation'}
+                        </Text>
+                        <Text variant="caption" color="textMuted" style={styles.historyDate}>
+                          {new Date(c.updated_at).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </Text>
+                      </Pressable>
+                    ))
+                  ) : (
+                    <Text variant="body" color="textMuted">
+                      No past conversations yet.
+                    </Text>
                   )}
-                </View>
-              ) : tab === 'paths' ? (
-                <View style={styles.pathsContainer}>
-                  <Text variant="label" color="accent" style={styles.sectionLabel}>
-                    Guided reflections
-                  </Text>
-                  <Text variant="body" color="textSecondary" style={styles.pathsIntro}>
-                    A few gentle prompts to work through, one at a time. Whatever you write feeds your wiki.
-                  </Text>
-                  {GUIDED_PATHS.map((path) => (
-                    <Card
-                      key={path.id}
-                      variant="surface"
-                      style={styles.pathCard}
-                      onPress={() => router.push(`/paths/${path.id}`)}
-                      testID={`path-${path.id}`}
-                    >
-                      <Text variant="heading">{path.title}</Text>
-                      <Text variant="body" color="textSecondary" style={styles.pathCardDesc}>
-                        {path.description}
-                      </Text>
-                      <Text variant="caption" color="textMuted" style={styles.pathCardMeta}>
-                        {path.steps.length} prompts
-                      </Text>
-                    </Card>
-                  ))}
-                </View>
-              ) : history.length > 0 ? (
-                history.map((c) => (
-                  <Pressable
-                    key={c.id}
-                    accessibilityRole="button"
-                    style={styles.historyRow}
-                    onPress={() => loadConversation(c.id)}
-                  >
-                    <Text variant="body" numberOfLines={1}>
-                      {c.title ?? 'Conversation'}
-                    </Text>
-                    <Text variant="caption" color="textMuted" style={styles.historyDate}>
-                      {new Date(c.updated_at).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  </Pressable>
-                ))
-              ) : (
-                <Text variant="body" color="textMuted">
-                  No past conversations yet.
-                </Text>
+                </>
               )}
             </View>
           ) : (
             messages.map((m) => <MessageBubble key={m.id} message={m} onRetry={retry} />)
           )}
 
-          {sending && streaming.length > 0 && (
+          {sending && (
             <View style={styles.assistantWrap}>
-              <View style={styles.streamBubble}>
-                <Text variant="body">{streaming}</Text>
-              </View>
+              <TypingIndicator styles={styles} />
             </View>
-          )}
-          {sending && streaming.length === 0 && (
-            <ActivityIndicator style={styles.spinner} color={theme.colors.accent} />
           )}
         </ScrollView>
 
@@ -372,6 +450,21 @@ const makeStyles = (t: Theme) =>
     hintCard: { marginBottom: t.spacing.md },
     hintRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
     hintText: { flex: 1 },
+    startAction: {
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: t.spacing.md,
+      borderRadius: t.radii.md,
+      backgroundColor: t.colors.surfaceAlt,
+      marginTop: t.spacing.sm,
+    },
+    moreAction: {
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingVertical: t.spacing.sm,
+      marginTop: t.spacing.lg,
+    },
     sectionLabel: { marginBottom: t.spacing.sm },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
     chip: {
@@ -405,12 +498,19 @@ const makeStyles = (t: Theme) =>
       marginBottom: t.spacing.sm,
     },
     crisisResourceText: { textAlign: 'center' },
-    streamBubble: {
-      maxWidth: '85%',
+    typingBubble: {
+      minWidth: 64,
       paddingVertical: t.spacing.md,
       paddingHorizontal: t.spacing.lg,
       borderRadius: t.radii.lg,
       backgroundColor: t.colors.surfaceAlt,
     },
-    spinner: { marginTop: t.spacing.lg, alignSelf: 'flex-start' },
+    typingBubbleHidden: { opacity: 0 },
+    typingDots: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.xs },
+    typingDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: t.colors.textMuted,
+    },
   })

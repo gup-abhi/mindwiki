@@ -40,6 +40,7 @@ export function useWikiPages() {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       refresh()
     }, [refresh, revision])
   )
@@ -165,6 +166,7 @@ export function usePageTrend(page: WikiPage | null): PageTrend | null {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       let active = true
       void (async () => {
         if (!title) {
@@ -196,6 +198,7 @@ export function useTrendingPages(): PageTrendEntry[] {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       let active = true
       void (async () => {
         const res = await listPages() // non-dismissed pages

@@ -1,11 +1,8 @@
 import { hash } from 'bcryptjs'
 
 import type { Env } from '../types'
-
-interface ChangePasswordBody {
-  password_hash: string // SHA-256(new password) hex — computed client-side
-  key_escrow: { encrypted_key: string; salt: string }
-}
+import { parseChangePasswordBody, readJsonBody } from '../validation/request'
+import { revokeOtherFamilies } from './devices'
 
 /**
  * Change the account password. Re-wraps the password escrow (the master key is
@@ -16,16 +13,11 @@ interface ChangePasswordBody {
 export async function handleChangePassword(
   req: Request,
   env: Env,
-  accountId: string
+  accountId: string,
+  currentFamilyId?: string
 ): Promise<Response> {
-  const body = await req.json<ChangePasswordBody>()
-
-  if (!body.password_hash || body.password_hash.length !== 64) {
-    return new Response('Invalid password_hash', { status: 400 })
-  }
-  if (!body.key_escrow?.encrypted_key || !body.key_escrow?.salt) {
-    return new Response('Missing key_escrow', { status: 400 })
-  }
+  const body = parseChangePasswordBody(await readJsonBody(req))
+  if (!body) return new Response('Invalid request body', { status: 400 })
 
   const account = (await env.AUTH_KV.get(`account:${accountId}`, 'json')) as {
     email: string
@@ -47,6 +39,7 @@ export async function handleChangePassword(
       updated_at: Date.now(),
     })
   )
+  if (currentFamilyId) await revokeOtherFamilies(env, accountId, currentFamilyId)
 
   return new Response(null, { status: 204 })
 }

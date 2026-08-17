@@ -1,4 +1,4 @@
-import { useAuthStore } from '@/store/auth.store'
+import { runtimeStoreBridge } from '@/services/runtime/store-bridge'
 import { invalidateSessionWork } from './session-work'
 import { type Result, ok, err } from '@/types/result'
 
@@ -128,7 +128,7 @@ export async function authenticatedFetch(
     const cleared = await clearMatching(initial, initial.generation)
     if (cleared) {
       invalidateSessionWork()
-      useAuthStore.getState().setUnauthenticated()
+      runtimeStoreBridge().setUnauthenticated()
     }
     return err('SESSION_EXPIRED', 'Session expired — please sign in again')
   }
@@ -147,7 +147,7 @@ export async function authenticatedFetch(
     const cleared = await clearMatching(current, currentGeneration)
     if (cleared) {
       invalidateSessionWork()
-      useAuthStore.getState().setUnauthenticated()
+      runtimeStoreBridge().setUnauthenticated()
     }
     return err('SESSION_EXPIRED', 'Session expired — please sign in again')
   }
