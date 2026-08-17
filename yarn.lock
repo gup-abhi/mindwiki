@@ -1677,10 +1677,10 @@
   dependencies:
     semver "^7.3.5"
 
-"@op-engineering/op-sqlite@^16.2.0":
-  version "16.2.0"
-  resolved "https://registry.yarnpkg.com/@op-engineering/op-sqlite/-/op-sqlite-16.2.0.tgz#b533f3c707abeb84e7984b4fc97656285cfb941d"
-  integrity sha512-aP8wlZt2HcyP1YzqIfB3G73vlBVS1voY6Z5zCVMuwB9/Up/cPGtkjJtiZm2l5SNVwF/QMYQiq/KooBVSovVEbg==
+"@op-engineering/op-sqlite@^18.0.0":
+  version "18.0.0"
+  resolved "https://registry.yarnpkg.com/@op-engineering/op-sqlite/-/op-sqlite-18.0.0.tgz#ff217a4c69f04a74d4144b1dc5f2b57c42194512"
+  integrity sha512-N8JFikyyk/bZHE10ejZqXbCd+1Hu/wIhFwshj4gHqqrrAfRDdFQ59inrSKDfhU7RonjMhYbkhd2FnP/ZeraceQ==
 
 "@pkgjs/parseargs@^0.11.0":
   version "0.11.0"
