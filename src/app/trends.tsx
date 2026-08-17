@@ -43,10 +43,9 @@ export default function TrendsScreen() {
   const distortions = useMemo(() => computeDistortionTrend(entries, now), [entries, now])
   const rhythm = useMemo(() => moodByWeekdayTime(entries, now), [entries, now])
   const today = new Date(now)
-  const weeks = useMemo(
-    () => monthMoodGrid(entries, today.getFullYear(), today.getMonth()),
-    [entries, today]
-  )
+  const year = today.getFullYear()
+  const month = today.getMonth()
+  const weeks = useMemo(() => monthMoodGrid(entries, year, month), [entries, year, month])
   const monthLabel = today.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 
   return (

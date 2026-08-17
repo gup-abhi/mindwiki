@@ -192,10 +192,9 @@ export default function YouScreen() {
   const distortions = useMemo(() => computeDistortionTrend(entries, now), [entries, now])
   const rhythm = useMemo(() => moodByWeekdayTime(entries, now), [entries, now])
   const todayD = new Date(now)
-  const weeks = useMemo(
-    () => monthMoodGrid(entries, todayD.getFullYear(), todayD.getMonth()),
-    [entries, todayD]
-  )
+  const year = todayD.getFullYear()
+  const month = todayD.getMonth()
+  const weeks = useMemo(() => monthMoodGrid(entries, year, month), [entries, year, month])
   const monthLabel = todayD.toLocaleDateString(undefined, {
     month: 'long',
     year: 'numeric',

@@ -65,7 +65,7 @@ __tests__/        service, app, component, hook, store, and server tests; see di
 
 ## Getting started
 
-Requires **Node v22.x** and Yarn.
+Requires **Node v22.x**. The root app uses Yarn 1.22.22 and the Cloudflare Worker in `server/` uses npm with its checked-in `server/package-lock.json`; do not run npm from the repository root.
 
 ```bash
 yarn install
@@ -86,8 +86,12 @@ A physical device is strongly recommended — on-device LLM inference is the who
 
 ### Server (local dev)
 
+Install the Worker dependencies with npm from `server/`; this package intentionally has its own lockfile and toolchain.
+
 ```bash
-cd server && wrangler dev      # port 8787, Miniflare
+cd server
+npm ci
+wrangler dev                  # port 8787, Miniflare
 ```
 
 Point the app at it with `EXPO_PUBLIC_API_URL=http://localhost:8787` in `.env.local`.
@@ -95,9 +99,11 @@ Point the app at it with `EXPO_PUBLIC_API_URL=http://localhost:8787` in `.env.lo
 ## Development
 
 ```bash
-yarn test        # Jest — must pass before any commit
+bash .claude/scripts/run-jest.sh        # Jest — serialized and must pass before any commit
+bash .claude/scripts/run-jest.sh --coverage
 yarn tsc         # TypeScript, strict, no emit
-yarn lint        # ESLint
+yarn lint        # ESLint, zero warnings
+cd server && npm run typecheck && npm run lint
 ```
 
 Conventions worth knowing before you contribute:

@@ -41,12 +41,20 @@ jobs:
         working-directory: server
         run: npm run typecheck
 
-      - name: Lint
+      - name: Lint (zero warnings)
         run: yarn lint
 
-      - name: Server lint
+      - name: Server lint (zero warnings)
         working-directory: server
         run: npm run lint
 
-      - name: Test
-        run: yarn test --ci --maxWorkers 2
+      - name: Test with coverage
+        run: bash .claude/scripts/run-jest.sh --ci --coverage
+        # Jest/native mocks verify JavaScript behavior only; they do not prove physical-device behavior.
+
+      - name: Verify coverage report
+        run: test -f coverage/coverage-summary.json
+
+      - name: Verify privacy and lifecycle suites
+        run: bash .claude/scripts/run-jest.sh __tests__/services/auth __tests__/services/sync __tests__/services/storage __tests__/services/notifications __tests__/server __tests__/app __tests__/components
+        # Physical-device accessibility, native, and encrypted-storage verification remains a separate device gate.

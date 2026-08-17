@@ -1,6 +1,6 @@
 import { Text as RNText, StyleSheet, type TextProps as RNTextProps, type TextStyle } from 'react-native'
 
-import { type ColorTokens, type TextVariant, type Theme, useTheme, useThemedStyles } from '@/theme'
+import { type ColorTokens, type TextVariant, type Theme, useThemedStyles } from '@/theme'
 
 interface TextProps extends RNTextProps {
   variant?: TextVariant

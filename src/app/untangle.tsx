@@ -17,7 +17,7 @@ export default function UntangleScreen() {
   const styles = useThemedStyles(makeStyles)
   const {
     step, stage, thought, patterns, selectedPatterns, observations, candidates,
-    candidateLoading, candidateErrorCode, matchedBelief, error,
+    candidateLoading, matchedBelief, error,
     submitThought, next, previous, setSelectedPatterns, generateCandidates, finishReframe,
     cancel,
   } = useUntangleThought()

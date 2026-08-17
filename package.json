@@ -8,9 +8,10 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "prebuild": "expo prebuild --clean",
-    "lint": "eslint .",
+    "lint": "eslint src plugins --max-warnings 0",
     "tsc": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "test:coverage": "jest --coverage"
   },
   "jest": {
     "preset": "jest-expo",
@@ -32,7 +33,23 @@
       "/node_modules/",
       "<rootDir>/.claude/worktrees/",
       "fixtures/"
-    ]
+    ],
+    "collectCoverage": false,
+    "coverageDirectory": "<rootDir>/coverage",
+    "coverageReporters": [
+      "text",
+      "text-summary",
+      "json-summary",
+      "lcov"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "lines": 81,
+        "statements": 79,
+        "functions": 79,
+        "branches": 69
+      }
+    }
   },
   "op-sqlite": {
     "sqlcipher": true
