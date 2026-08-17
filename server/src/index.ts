@@ -55,6 +55,10 @@ export default {
     const method = req.method
     const path = url.pathname
 
+    if (method === 'GET' && path === '/health') {
+      return Response.json({ ok: true })
+    }
+
     // Public routes (no auth)
     if (method === 'POST' && path === '/auth/register') {
       const ip = clientIp(req)

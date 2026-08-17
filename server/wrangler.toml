@@ -3,10 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2024-11-06"
 compatibility_flags = ["nodejs_compat"]
 
-# Local dev (wrangler dev) simulates KV + R2 via Miniflare; ids are placeholders
-# until real namespaces/buckets are created for staging/production.
+# Default target: local Miniflare only. Replace the staging/production resource
+# identifiers below after provisioning them in Cloudflare; identifiers are not
+# credentials and may be committed, while secrets remain in Wrangler/GitHub.
 kv_namespaces = [{ binding = "AUTH_KV", id = "local_dev_auth_kv" }]
-r2_buckets = [{ binding = "R2", bucket_name = "mindwiki-sync" }]
+r2_buckets = [{ binding = "R2", bucket_name = "mindwiki-sync-local" }]
 
 durable_objects.bindings = [{ name = "AUTH_COORDINATOR", class_name = "AuthCoordinator" }]
 
@@ -14,5 +15,14 @@ durable_objects.bindings = [{ name = "AUTH_COORDINATOR", class_name = "AuthCoord
 tag = "v1"
 new_classes = ["AuthCoordinator"]
 
-# The local binding uses the same class; staging and production must provision
-# separate namespaces before deployment promotion.
+[env.staging]
+name = "mindwiki-server-staging"
+kv_namespaces = [{ binding = "AUTH_KV", id = "00000000000000000000000000000000" }]
+r2_buckets = [{ binding = "R2", bucket_name = "mindwiki-staging-placeholder" }]
+durable_objects.bindings = [{ name = "AUTH_COORDINATOR", class_name = "AuthCoordinator" }]
+
+[env.production]
+name = "mindwiki-server-production"
+kv_namespaces = [{ binding = "AUTH_KV", id = "11111111111111111111111111111111" }]
+r2_buckets = [{ binding = "R2", bucket_name = "mindwiki-production-placeholder" }]
+durable_objects.bindings = [{ name = "AUTH_COORDINATOR", class_name = "AuthCoordinator" }]
