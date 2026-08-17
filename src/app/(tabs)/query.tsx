@@ -48,6 +48,8 @@ export default function QueryScreen() {
   const router = useRouter()
   const isEmpty = messages.length === 0
   const [tab, setTab] = useState<'start' | 'history' | 'paths'>('start')
+  const [startRevealed, setStartRevealed] = useState(false)
+  const [moreWaysRevealed, setMoreWaysRevealed] = useState(false)
   // One-time Reflect-tab intro hint (P8). null while checking; false → show; true → hide.
   const [reflectHint, setReflectHint] = useState<boolean | null>(null)
 
@@ -195,7 +197,7 @@ export default function QueryScreen() {
                 <Card variant="sunken" style={styles.hintCard} testID="reflect-intro-hint">
                   <View style={styles.hintRow}>
                     <Text variant="caption" color="textSecondary" style={styles.hintText}>
-                      Reflect is your private companion — try one of the feeling chips below to start.
+                      Reflect is your private companion — use Start reflecting below when you’re ready.
                     </Text>
                     <Chip
                       label="Got it"
@@ -209,123 +211,151 @@ export default function QueryScreen() {
                 </Card>
               )}
 
-              <SegmentedControl
-                options={[
-                  { key: 'start', label: 'Start', testID: 'tab-start' },
-                  { key: 'history', label: 'History', testID: 'tab-history' },
-                  { key: 'paths', label: 'Paths', testID: 'tab-paths' },
-                ]}
-                selectedKey={tab}
-                onChange={(key) => setTab(key as 'start' | 'history' | 'paths')}
-                testID="reflect-tabs"
-              />
+              {!startRevealed ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Start reflecting"
+                  onPress={() => setStartRevealed(true)}
+                  style={styles.startAction}
+                  testID="start-reflecting"
+                >
+                  <Text variant="label" color="accent">Start reflecting</Text>
+                </Pressable>
+              ) : (
+                <>
+                  <SegmentedControl
+                    options={[
+                      { key: 'start', label: 'Start', testID: 'tab-start' },
+                      { key: 'history', label: 'History', testID: 'tab-history' },
+                      { key: 'paths', label: 'Paths', testID: 'tab-paths' },
+                    ]}
+                    selectedKey={tab}
+                    onChange={(key) => setTab(key as 'start' | 'history' | 'paths')}
+                    testID="reflect-tabs"
+                  />
 
-              {tab === 'start' ? (
-                <View>
-                  <Text variant="label" color="accent" style={styles.sectionLabel}>
-                    What’s weighing on you lately?
-                  </Text>
-                  <View style={styles.chips}>
-                    {FEELING_CHIPS.map((c) => (
-                      <Pressable
-                        key={c.label}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Start a chat: ${c.label}`}
-                        style={styles.chip}
-                        onPress={() =>
-                          setComposerSeed((s) => ({ text: c.seed, nonce: (s?.nonce ?? 0) + 1 }))
-                        }
-                        testID={`feeling-chip-${c.label}`}
-                      >
-                        <Text variant="label" color="textSecondary">
-                          {c.label}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-
-                  <Pressable
-                    style={styles.untangleCard}
-                    onPress={() => router.push('/untangle')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Untangle a thought, five-step reflection exercise"
-                    testID="untangle-entry"
-                  >
-                    <Text variant="label" color="accent">
-                      🧩 Untangle a thought
-                    </Text>
-                    <Text variant="caption" color="textMuted">
-                      Untangle a difficult thought, one step at a time.
-                    </Text>
-                  </Pressable>
-
-                  {suggestions.length > 0 && (
-                    <View style={styles.exploreSection}>
+                  {tab === 'start' ? (
+                    <View>
                       <Text variant="label" color="accent" style={styles.sectionLabel}>
-                        Or explore a pattern
+                        What’s weighing on you lately?
                       </Text>
-                      {suggestions.map((q) => (
+                      <View style={styles.chips}>
+                        {FEELING_CHIPS.map((c) => (
+                          <Pressable
+                            key={c.label}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Start a chat: ${c.label}`}
+                            style={styles.chip}
+                            onPress={() =>
+                              setComposerSeed((s) => ({ text: c.seed, nonce: (s?.nonce ?? 0) + 1 }))
+                            }
+                            testID={`feeling-chip-${c.label}`}
+                          >
+                            <Text variant="label" color="textSecondary">
+                              {c.label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="More ways to reflect"
+                        onPress={() => setMoreWaysRevealed(true)}
+                        style={styles.moreAction}
+                        testID="more-reflecting-options"
+                      >
+                        <Text variant="label" color="accent">More ways to reflect</Text>
+                      </Pressable>
+
+                      {moreWaysRevealed ? (
+                        <>
+                          <Pressable
+                            style={styles.untangleCard}
+                            onPress={() => router.push('/untangle')}
+                            accessibilityRole="button"
+                            accessibilityLabel="Untangle a thought, five-step reflection exercise"
+                            testID="untangle-entry"
+                          >
+                            <Text variant="label" color="accent">
+                              🧩 Untangle a thought
+                            </Text>
+                            <Text variant="caption" color="textMuted">
+                              Untangle a difficult thought, one step at a time.
+                            </Text>
+                          </Pressable>
+
+                          {suggestions.length > 0 && (
+                            <View style={styles.exploreSection}>
+                              <Text variant="label" color="accent" style={styles.sectionLabel}>
+                                Or explore a pattern
+                              </Text>
+                              {suggestions.map((q) => (
+                                <Card
+                                  key={q}
+                                  variant="sunken"
+                                  style={styles.suggestion}
+                                  onPress={() => openStarter(q)}
+                                >
+                                  <Text variant="body">{q}</Text>
+                                </Card>
+                              ))}
+                            </View>
+                          )}
+                        </>
+                      ) : null}
+                    </View>
+                  ) : tab === 'paths' ? (
+                    <View style={styles.pathsContainer}>
+                      <Text variant="label" color="accent" style={styles.sectionLabel}>
+                        Guided reflections
+                      </Text>
+                      <Text variant="body" color="textSecondary" style={styles.pathsIntro}>
+                        A few gentle prompts to work through, one at a time. Whatever you write feeds your wiki.
+                      </Text>
+                      {GUIDED_PATHS.map((path) => (
                         <Card
-                          key={q}
-                          variant="sunken"
-                          style={styles.suggestion}
-                          onPress={() => openStarter(q)}
+                          key={path.id}
+                          variant="surface"
+                          style={styles.pathCard}
+                          onPress={() => router.push(`/paths/${path.id}`)}
+                          testID={`path-${path.id}`}
                         >
-                          <Text variant="body">{q}</Text>
+                          <Text variant="heading">{path.title}</Text>
+                          <Text variant="body" color="textSecondary" style={styles.pathCardDesc}>
+                            {path.description}
+                          </Text>
+                          <Text variant="caption" color="textMuted" style={styles.pathCardMeta}>
+                            {path.steps.length} prompts
+                          </Text>
                         </Card>
                       ))}
                     </View>
+                  ) : history.length > 0 ? (
+                    history.map((c) => (
+                      <Pressable
+                        key={c.id}
+                        accessibilityRole="button"
+                        style={styles.historyRow}
+                        onPress={() => loadConversation(c.id)}
+                      >
+                        <Text variant="body" numberOfLines={1}>
+                          {c.title ?? 'Conversation'}
+                        </Text>
+                        <Text variant="caption" color="textMuted" style={styles.historyDate}>
+                          {new Date(c.updated_at).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </Text>
+                      </Pressable>
+                    ))
+                  ) : (
+                    <Text variant="body" color="textMuted">
+                      No past conversations yet.
+                    </Text>
                   )}
-                </View>
-              ) : tab === 'paths' ? (
-                <View style={styles.pathsContainer}>
-                  <Text variant="label" color="accent" style={styles.sectionLabel}>
-                    Guided reflections
-                  </Text>
-                  <Text variant="body" color="textSecondary" style={styles.pathsIntro}>
-                    A few gentle prompts to work through, one at a time. Whatever you write feeds your wiki.
-                  </Text>
-                  {GUIDED_PATHS.map((path) => (
-                    <Card
-                      key={path.id}
-                      variant="surface"
-                      style={styles.pathCard}
-                      onPress={() => router.push(`/paths/${path.id}`)}
-                      testID={`path-${path.id}`}
-                    >
-                      <Text variant="heading">{path.title}</Text>
-                      <Text variant="body" color="textSecondary" style={styles.pathCardDesc}>
-                        {path.description}
-                      </Text>
-                      <Text variant="caption" color="textMuted" style={styles.pathCardMeta}>
-                        {path.steps.length} prompts
-                      </Text>
-                    </Card>
-                  ))}
-                </View>
-              ) : history.length > 0 ? (
-                history.map((c) => (
-                  <Pressable
-                    key={c.id}
-                    accessibilityRole="button"
-                    style={styles.historyRow}
-                    onPress={() => loadConversation(c.id)}
-                  >
-                    <Text variant="body" numberOfLines={1}>
-                      {c.title ?? 'Conversation'}
-                    </Text>
-                    <Text variant="caption" color="textMuted" style={styles.historyDate}>
-                      {new Date(c.updated_at).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  </Pressable>
-                ))
-              ) : (
-                <Text variant="body" color="textMuted">
-                  No past conversations yet.
-                </Text>
+                </>
               )}
             </View>
           ) : (
@@ -372,6 +402,21 @@ const makeStyles = (t: Theme) =>
     hintCard: { marginBottom: t.spacing.md },
     hintRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
     hintText: { flex: 1 },
+    startAction: {
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: t.spacing.md,
+      borderRadius: t.radii.md,
+      backgroundColor: t.colors.surfaceAlt,
+      marginTop: t.spacing.sm,
+    },
+    moreAction: {
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingVertical: t.spacing.sm,
+      marginTop: t.spacing.lg,
+    },
     sectionLabel: { marginBottom: t.spacing.sm },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
     chip: {

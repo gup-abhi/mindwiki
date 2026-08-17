@@ -87,23 +87,56 @@ describe('QueryScreen (reflective conversation)', () => {
     expect(mockConversationArgs).toHaveBeenCalledWith()
   })
 
+  it('shows one clear starting action before revealing Reflect options', () => {
+    mockUse.mockReturnValue(base)
+    render(<QueryScreen />)
+    expect(screen.getByTestId('start-reflecting')).toBeTruthy()
+    expect(screen.queryByTestId('feeling-chip-Anxious')).toBeNull()
+    expect(screen.queryByTestId('untangle-entry')).toBeNull()
+    expect(screen.queryByTestId('tab-history')).toBeNull()
+    expect(screen.queryByTestId('tab-paths')).toBeNull()
+  })
+
+  it('reveals Reflect options in two steps', () => {
+    mockUse.mockReturnValue(base)
+    render(<QueryScreen />)
+
+    fireEvent.press(screen.getByTestId('start-reflecting'))
+    expect(screen.getByTestId('feeling-chip-Anxious')).toBeTruthy()
+    expect(screen.getByTestId('reflect-tabs')).toBeTruthy()
+    expect(screen.getByTestId('tab-history')).toBeTruthy()
+    expect(screen.getByTestId('tab-paths')).toBeTruthy()
+    expect(screen.getByTestId('more-reflecting-options')).toBeTruthy()
+    expect(screen.queryByTestId('untangle-entry')).toBeNull()
+
+    fireEvent.press(screen.getByTestId('more-reflecting-options'))
+    expect(screen.getByText('What patterns show up around Work?')).toBeTruthy()
+    expect(screen.getByTestId('untangle-entry')).toBeTruthy()
+  })
+
   it('opens a starter via openStarter when tapped (reuses an existing conversation)', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('start-reflecting'))
+    fireEvent.press(screen.getByTestId('more-reflecting-options'))
     const starter = screen.getByText('What patterns show up around Work?')
     fireEvent.press(starter)
     expect(mockOpenStarter).toHaveBeenCalledWith('What patterns show up around Work?')
   })
 
-  it('shows the Untangle a thought entry on the start screen', () => {
+  it('shows the Untangle a thought entry after revealing more options', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('start-reflecting'))
+    fireEvent.press(screen.getByTestId('more-reflecting-options'))
     expect(screen.getByTestId('untangle-entry')).toBeTruthy()
   })
 
   it('tapping Untangle a thought pushes the /untangle route', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('start-reflecting'))
+    fireEvent.press(screen.getByTestId('more-reflecting-options'))
     fireEvent.press(screen.getByTestId('untangle-entry'))
     expect(mockPush).toHaveBeenCalledWith('/untangle')
   })
@@ -111,7 +144,10 @@ describe('QueryScreen (reflective conversation)', () => {
   it('seeds the composer from a feeling chip (does not send yet)', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('start-reflecting'))
     fireEvent.press(screen.getByTestId('feeling-chip-Anxious'))
+
+
     // the chip pre-fills the composer with an editable starter, without sending
     expect(screen.getByTestId('composer-input').props.value).toBe('I’ve been feeling anxious lately.')
     expect(mockSend).not.toHaveBeenCalled()
@@ -172,6 +208,8 @@ describe('QueryScreen (reflective conversation)', () => {
     })
     render(<QueryScreen />)
     // Start tab is default: suggestions show, history is hidden
+    fireEvent.press(screen.getByTestId('start-reflecting'))
+    fireEvent.press(screen.getByTestId('more-reflecting-options'))
     expect(screen.getByText('What patterns show up around Work?')).toBeTruthy()
     expect(screen.queryByText('A past chat')).toBeNull()
   })
@@ -202,6 +240,7 @@ describe('QueryScreen (reflective conversation)', () => {
       history: [{ id: 'c1', title: 'A past chat', created_at: 0, updated_at: 0 }],
     })
     render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('start-reflecting'))
     fireEvent.press(screen.getByTestId('tab-history'))
     fireEvent.press(screen.getByText('A past chat'))
     expect(mockLoad).toHaveBeenCalledWith('c1')
@@ -210,6 +249,7 @@ describe('QueryScreen (reflective conversation)', () => {
   it('shows guided paths on the Paths tab', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('start-reflecting'))
     fireEvent.press(screen.getByTestId('tab-paths'))
     expect(screen.getByText('Guided reflections')).toBeTruthy()
     expect(screen.getByText('Slow down and untangle what’s piling up.')).toBeTruthy()
@@ -218,6 +258,7 @@ describe('QueryScreen (reflective conversation)', () => {
   it('opens the path runner from the Paths tab', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
+    fireEvent.press(screen.getByTestId('start-reflecting'))
     fireEvent.press(screen.getByTestId('tab-paths'))
     fireEvent.press(screen.getByTestId('path-overwhelmed'))
     expect(mockPush).toHaveBeenCalledWith('/paths/overwhelmed')
