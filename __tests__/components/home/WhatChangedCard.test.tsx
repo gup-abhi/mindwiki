@@ -37,6 +37,17 @@ describe('WhatChangedCard', () => {
     expect(screen.queryByText('This reflection contributed to…')).toBeNull()
   })
 
+  it('keeps pending synthesis visible while an older lineage result is present', () => {
+    render(
+      <WhatChangedCard
+        pages={[{ id: 'p1', title: 'Anxiety', category: 'emotion' }]}
+        pending
+      />
+    )
+    expect(screen.getByTestId('what-changed-pending')).toBeTruthy()
+    expect(screen.queryByText('This reflection contributed to…')).toBeNull()
+  })
+
   it('renders no card when there is no receipt-backed page', () => {
     render(<WhatChangedCard pages={[]} />)
     expect(screen.queryByTestId('what-changed-card')).toBeNull()

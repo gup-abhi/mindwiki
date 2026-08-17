@@ -6,7 +6,7 @@ import { type SqliteDatabase, getDb, isWiping } from '@/services/storage/db'
 import { getSetting, setSetting } from '@/services/storage/settings'
 import { pendingUploads, markSynced, backfillSyncQueue, enqueueUpsert, notifySyncPending } from '@/services/storage/sync-queue'
 import { incrementSourceGeneration } from '@/services/storage/maintenance-state'
-import { useSyncStore } from '@/store/sync.store'
+import { runtimeStoreBridge } from '@/services/runtime/store-bridge'
 import { type Result, ok, err } from '@/types/result'
 import { repairLegacyRow } from '@/services/wiki/legacy-backfill'
 import { startSessionWork } from '@/services/auth/session-work'
@@ -730,7 +730,7 @@ export async function pullDelta(
       }
     }
     // The first fully-drained window after a login/pair is the restore boundary.
-    useSyncStore.getState().endRestore()
+    runtimeStoreBridge().endSyncRestore()
   }
   const persisted = await persistPullState(db, nextState, paused ? null : nextState.since)
   if (!persisted.success) return persisted
@@ -739,7 +739,7 @@ export async function pullDelta(
   // (and rebuild the derived graph only when the window touched graph tables).
   if (applied > 0) {
     if (graphAffected) await rebuildGraph()
-    useSyncStore.getState().bumpRevision()
+    runtimeStoreBridge().bumpSyncRevision()
   }
   return ok(applied)
 }
@@ -767,8 +767,8 @@ export async function sync(): Promise<Result<{ pushed: number; pulled: number }>
     return err('NO_MASTER_KEY', 'Master key unavailable', e)
   }
 
-  const store = useSyncStore.getState()
-  store.setSyncing(true)
+  const bridge = runtimeStoreBridge()
+  bridge.setSyncing(true)
   try {
     const db = getDb()
     if (!lease.checkpoint()) return err('SESSION_WORK_STOPPED', 'Session work stopped')
@@ -789,7 +789,7 @@ export async function sync(): Promise<Result<{ pushed: number; pulled: number }>
     // reassurance banner until the data actually lands.
     return ok({ pushed: pushed.data, pulled: pulled.data })
   } finally {
-    store.setSyncing(false)
+    bridge.setSyncing(false)
   }
   } finally {
     lease.done()

@@ -8,8 +8,7 @@ import { getDeviceId } from '@/services/auth/device-id'
 import { saveTokens } from '@/services/auth/token-store'
 import { repairInterruptedWipe } from '@/services/auth/wipe-marker'
 import { repairAccountTransition } from '@/services/auth/account-transition'
-import { useAuthStore } from '@/store/auth.store'
-import { useSyncStore } from '@/store/sync.store'
+import { runtimeStoreBridge } from '@/services/runtime/store-bridge'
 import { type Result, ok, err } from '@/types/result'
 
 /**
@@ -100,8 +99,8 @@ export async function redeemPairing(raw: string): Promise<Result<{ accountId: st
     await CryptoModule.setKeyOwner(data.account_id) // R3: this key belongs to this account
     await saveTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, accountId: data.account_id })
     // Paired device starts empty until the first pull — reassure the user.
-    useSyncStore.getState().beginRestore()
-    useAuthStore.getState().setAuthenticated(data.account_id)
+    runtimeStoreBridge().beginSyncRestore()
+    runtimeStoreBridge().setAuthenticated(data.account_id)
     return ok({ accountId: data.account_id })
   } catch (e) {
     return err('PAIR_REDEEM_FAILED', 'Pairing failed', e)

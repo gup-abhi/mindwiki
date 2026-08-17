@@ -20,8 +20,7 @@ import { snapBeliefsSemantic } from '@/services/wiki/belief-snap'
 import { getSetting, setSetting, bumpSetting } from '@/services/storage/settings'
 import { updateGraphForEntry, rebuildGraph } from '@/services/graph/engine'
 import { updateWikiForEntry, maybeRefreshEmotionPages } from '@/services/wiki/engine'
-import { useWikiStore } from '@/store/wiki.store'
-import { useSyncStore } from '@/store/sync.store'
+import { runtimeStoreBridge } from '@/services/runtime/store-bridge'
 import { announceFirstRunPageAfterIndexing } from '@/services/onboarding/first-run'
 import { onEntrySaved } from '@/services/notifications/scheduler'
 import { reconcileNotifications, recordEntrySaved } from '@/services/notifications/orchestrator'
@@ -144,7 +143,7 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // (the timeline EntryCard's "tagging…", the graph) re-reads and shows them
   // immediately — background tagging otherwise only surfaces on the next screen
   // refocus. Mirrors what a sync pull does.
-  useSyncStore.getState().bumpRevision()
+  runtimeStoreBridge().bumpSyncRevision()
 
   const topics = normalized.topics.filter((t) => t.length > 0).slice(0, 2)
   const taggedEntry: Entry = {
@@ -170,12 +169,12 @@ async function indexFromExtract(entry: Entry, ex: EntryExtract): Promise<void> {
   // marker unset so catch-up re-runs the wiki step. A resolved-but-partial run
   // still counts as done — per-page model failures heal opportunistically, not
   // by re-churning every launch.
-  useWikiStore.getState().begin()
+  runtimeStoreBridge().beginWikiWork()
   try {
     const wiki = await updateWikiForEntry(taggedEntry, topics)
     if (wiki.success && lease.checkpoint()) await markWikiIndexed(entry.id)
   } finally {
-    useWikiStore.getState().end()
+    runtimeStoreBridge().endWikiWork()
   }
   } finally {
     lease.done()
@@ -269,13 +268,13 @@ export async function catchUpUnindexed(): Promise<void> {
  * synthesis leaves the marker unset so a later launch retries. Never throws.
  */
 async function wikiIndexOnly(entry: Entry): Promise<void> {
-  useWikiStore.getState().begin()
+  runtimeStoreBridge().beginWikiWork()
   try {
     const themes = [entry.topic, entry.topic2].filter((t): t is string => !!t && t.length > 0)
     const res = await updateWikiForEntry(entry, themes)
     if (res.success) await markWikiIndexed(entry.id)
   } finally {
-    useWikiStore.getState().end()
+    runtimeStoreBridge().endWikiWork()
   }
 }
 

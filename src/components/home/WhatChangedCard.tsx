@@ -20,8 +20,7 @@ export function WhatChangedCard({
   const router = useRouter()
   const styles = useThemedStyles(makeStyles)
 
-  if (!pages || pages.length === 0) {
-    if (!pending) return null
+  if (pending) {
     return (
       <Card variant="sunken" style={styles.card} testID="what-changed-pending">
         <Text variant="caption" color="accent">
@@ -33,6 +32,8 @@ export function WhatChangedCard({
       </Card>
     )
   }
+
+  if (!pages || pages.length === 0) return null
 
   return (
     <Card variant="sunken" style={styles.card} testID="what-changed-card">
