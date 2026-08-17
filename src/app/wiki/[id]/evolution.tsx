@@ -9,7 +9,6 @@ import { VersionViewer } from '@/components/wiki/VersionViewer'
 import { type Theme, useThemedStyles } from '@/theme'
 import { pageEvolution, type EvolutionVersion } from '@/services/wiki/evolution'
 
-import { getPage } from '@/services/storage/wiki'
 import { useWikiPage } from '@/hooks/useWiki'
 
 type Mode = 'view' | 'compare'

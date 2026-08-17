@@ -4,10 +4,11 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "../node_modules/.bin/eslint src --no-ignore --max-warnings 0"
   },
   "dependencies": {
-    "@tsndr/cloudflare-worker-jwt": "^2.5.3",
+    "@tsndr/cloudflare-worker-jwt": "^3.2.3",
     "bcryptjs": "^2.4.3"
   },
   "devDependencies": {

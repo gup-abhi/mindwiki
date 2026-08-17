@@ -51,6 +51,7 @@ export function useMergeSuggestions() {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       void recompute()
     }, [recompute, revision])
   )

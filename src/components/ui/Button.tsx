@@ -36,8 +36,8 @@ const makeStyles = (t: Theme) =>
       borderRadius: t.radii.md,
     },
     sm: { minHeight: 48, paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.lg },
-    md: { paddingVertical: t.spacing.md + 2, paddingHorizontal: t.spacing.xl },
-    lg: { paddingVertical: t.spacing.lg, paddingHorizontal: t.spacing.xl },
+    md: { minHeight: 48, paddingVertical: t.spacing.md + 2, paddingHorizontal: t.spacing.xl },
+    lg: { minHeight: 48, paddingVertical: t.spacing.lg, paddingHorizontal: t.spacing.xl },
     primary: { backgroundColor: t.colors.primary },
     secondary: { backgroundColor: t.colors.surfaceAlt },
     ghost: { backgroundColor: 'transparent' },
@@ -91,6 +91,8 @@ export function Button({
       }}
       disabled={isDisabled}
       accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
       testID={testID}
       // NOTE: an Animated (reanimated) component must take a static/array style —
       // a function style ({ pressed }) => … is NOT applied, which silently drops

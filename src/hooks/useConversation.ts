@@ -125,13 +125,11 @@ async function refreshSummary(conversationId: string): Promise<void> {
 
 /**
  * Reflective conversation: loads wiki + graph context on focus, drives the
- * grounded companion (streaming), checks every user message for crisis, and
- * persists the thread. UI state lives in the chat store so streaming re-renders
- * only the live bubble.
+ * grounded companion, checks every user message for crisis, and persists the
+ * thread. Replies are added to the UI only after the complete response arrives.
  */
 export function useConversation(initialQuestion?: string) {
   const messages = useChatStore((s) => s.messages)
-  const streaming = useChatStore((s) => s.streaming)
   const sending = useChatStore((s) => s.sending)
 
   const [pages, setPages] = useState<WikiPage[]>([])
@@ -196,21 +194,13 @@ export function useConversation(initialQuestion?: string) {
       generationsInFlight.add(conversationId)
       const store = useChatStore.getState()
       const res = await respond(
-        { history: priorHistory, message, pages, nodes, edges, summary: store.summary, conversationId },
-        // Token streaming appends while this generation is both current and on
-        // screen. Superseded generations stop streaming so they can't bleed into
-        // a newer reply; off-screen ones skip (the reply still persists on done).
-        (t) => {
-          if (!isCurrentEpoch(conversationId, epoch)) return
-          if (useChatStore.getState().conversationId !== conversationId) return
-          useChatStore.getState().appendToken(t)
-        }
+        { history: priorHistory, message, pages, nodes, edges, summary: store.summary, conversationId }
       )
 
       // A newer generation (retry) superseded this one: drop it entirely. Adding
       // a message or persisting would create the duplicate reply the user is
-      // already re-generating against; clearing sending/streaming would clobber
-      // the newer turn's live state. Leave the in-flight flag to the winner.
+      // already re-generating against; clearing sending would clobber the
+      // newer turn's live state. Leave the in-flight flag to the winner.
       if (!isCurrentEpoch(conversationId, epoch)) {
         generationsInFlight.delete(conversationId)
         return
@@ -218,7 +208,7 @@ export function useConversation(initialQuestion?: string) {
 
       // Whether this generation's conversation is still loaded in the UI.
       // The reply always persists to the DB regardless (it belongs to its
-      // conversation), but addMessage/clearStreaming/setSending are UI writes
+      // conversation), but addMessage/setSending are UI writes
       // that must not leak into the wrong screen (e.g. the reply landing on
       // the start screen with just the reply and a text field, or on a
       // different conversation's thread).
@@ -249,6 +239,7 @@ export function useConversation(initialQuestion?: string) {
             content: res.data.text,
             sources,
             crisisTier: null,
+            animateEntrance: true,
           })
           // Keep the rolling recap current so a long, resumed thread doesn't lose
           // earlier context to the model's window. Background, best-effort.
@@ -268,12 +259,12 @@ export function useConversation(initialQuestion?: string) {
             sources: [],
             crisisTier: null,
             failed: true,
+            animateEntrance: true,
           })
           retryRef.current = { conversationId, message, priorHistory }
         }
       }
       if (uiOpen()) {
-        useChatStore.getState().clearStreaming()
         useChatStore.getState().setSending(false)
       }
       generationsInFlight.delete(conversationId)
@@ -293,7 +284,6 @@ export function useConversation(initialQuestion?: string) {
     store.dropFailed()
     retryRef.current = null
     store.setSending(true)
-    store.clearStreaming()
     await generateReply(pending.conversationId, pending.message, pending.priorHistory)
   }, [generateReply])
 
@@ -308,7 +298,6 @@ export function useConversation(initialQuestion?: string) {
       if (store.conversationId && generationsInFlight.has(store.conversationId)) return
 
       store.setSending(true)
-      store.clearStreaming()
       // Sending a new message supersedes any pending retry: drop a lingering
       // failed/interrupted placeholder so it neither stays orphaned mid-thread
       // nor leaks its text into the model history captured below.
@@ -365,6 +354,7 @@ export function useConversation(initialQuestion?: string) {
         content: message,
         sources: [],
         crisisTier: null,
+        animateEntrance: true,
       }
       store.addMessage(userMsg)
 
@@ -390,6 +380,7 @@ export function useConversation(initialQuestion?: string) {
           content: CRISIS_REPLY,
           sources: [],
           crisisTier: null,
+          animateEntrance: true,
         }
         store.addMessage(reply)
         await appendMessage({ conversation_id: conversationId, role: 'assistant', content: CRISIS_REPLY })
@@ -404,6 +395,7 @@ export function useConversation(initialQuestion?: string) {
           content: MODELS_MISSING,
           sources: [],
           crisisTier: null,
+          animateEntrance: true,
         }
         store.addMessage(reply)
         store.setSending(false)
@@ -479,7 +471,7 @@ export function useConversation(initialQuestion?: string) {
       })
     } else if (last?.role === 'user' && inFlight) {
       // The original generation is still going to land; don't offer retry, and
-      // mark the thread as sending so the UI shows the live/streaming state.
+      // mark the thread as sending so the UI shows the typing state.
       retryRef.current = null
       store.setSending(true)
     } else {
@@ -513,7 +505,6 @@ export function useConversation(initialQuestion?: string) {
 
   return {
     messages,
-    streaming,
     sending,
     suggestions,
     history,

@@ -4,7 +4,7 @@ jest.mock('@tsndr/cloudflare-worker-jwt', () => ({
 }), { virtual: true })
 jest.mock('bcryptjs', () => ({
   compare: jest.fn(async (value: string, hash: string) => {
-    if (hash === '$2a$04$pROX6Ae0nF2RCLo46x2DF.r0mLTYSYDyAr04yXs8PbHCdW4ak0.Fe') return value === 'phrase-hash'
+    if (hash === '$2a$04$pROX6Ae0nF2RCLo46x2DF.r0mLTYSYDyAr04yXs8PbHCdW4ak0.Fe') return value === 'a'.repeat(64)
     return true
   }),
 }), { virtual: true })
@@ -93,7 +93,7 @@ describe('server auth boundaries', () => {
         method: 'POST',
         body: JSON.stringify({
           email: 'user@example.com',
-          recovery_hash: 'phrase-hash',
+          recovery_hash: 'a'.repeat(64),
           device_label: 'Recovery phone',
           platform: 'ios',
           device_id: 'device-1',

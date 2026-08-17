@@ -34,6 +34,25 @@ import { OnboardingCarousel } from '@/components/onboarding/OnboardingCarousel'
 import { useFirstRunRedirect, resetFirstRunRedirect } from '@/hooks/useFirstRunRedirect'
 import { isIntroOnboardingDone, markIntroOnboardingDone } from '@/services/onboarding/intro'
 import { ThemeProvider, type Theme, useTheme, useThemedStyles } from '@/theme'
+import { useSyncStore } from '@/store/sync.store'
+import { useWikiStore } from '@/store/wiki.store'
+import { configureRuntimeStoreBridge } from '@/services/runtime/store-bridge'
+
+configureRuntimeStoreBridge({
+  bumpSyncRevision: () => useSyncStore.getState().bumpRevision(),
+  notifySyncPending: () => useSyncStore.getState().notifyLocalChange(),
+  setSyncing: (syncing) => useSyncStore.getState().setSyncing(syncing),
+  beginSyncRestore: () => useSyncStore.getState().beginRestore(),
+  endSyncRestore: () => useSyncStore.getState().endRestore(),
+  beginWikiWork: () => useWikiStore.getState().begin(),
+  endWikiWork: () => useWikiStore.getState().end(),
+  setAuthenticated: (accountId, isNewAccount) => useAuthStore.getState().setAuthenticated(accountId, isNewAccount),
+  setRecoveryPending: (accountId) => useAuthStore.getState().setRecoveryPending(accountId),
+  setDeleting: (accountId) => useAuthStore.getState().setDeleting(accountId),
+  setUnauthenticated: () => useAuthStore.getState().setUnauthenticated(),
+  getAccountId: () => useAuthStore.getState().accountId,
+  isNewAccount: () => useAuthStore.getState().isNewAccount,
+})
 
 // Hold the native splash until our custom fonts are ready (best-effort).
 void SplashScreen.preventAutoHideAsync()

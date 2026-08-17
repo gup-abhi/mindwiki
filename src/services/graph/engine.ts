@@ -8,7 +8,7 @@ import {
   type NodeType,
 } from '@/services/storage/graph'
 import {
-  listEntriesForGraph,
+  listEntriesForGraphPage,
   countEntriesByEmotion,
   countEntriesByDistortion,
   countEntriesByAnyTopic,
@@ -206,31 +206,31 @@ async function rebuildGraphImpl(): Promise<Result<void>> {
     // One transaction so a UI read mid-rebuild never sees a partially-empty graph
     // (the mutex already serializes against concurrent writes, but without the tx
     // a reader can observe the graph between the DELETE and the last re-derive).
-    // Support counts are fetched outside: they're in-memory maps from GROUP BY SQL
-    // and can't race; entries are snapshot before the tx to keep the snapshot size
-    // tiny and avoid holding the tx open across unrelated reads.
-    const dismissed = await loadDismissedNodeKeys(db)
-    const support = await precomputedSupport(db)
-    const entries = await listEntriesForGraph(10000)
-    if (!entries.success) return entries
     let anyFailed = false
-    // Nested tx caution: op-sqlite uses SQLite savepoints when a transaction is
-    // opened inside another transaction — the inner savepoints nest correctly.
-    // The only graph-adjacent call that opens its own transaction is dismissNode,
-    // which never fires during a rebuild (rebuild does not call dismissNode).
+    // Keep support counts, entry reads, graph writes, and backlog stamping in one
+    // SQLite transaction snapshot. Only one page is retained at a time.
     await db.transaction(async (tx) => {
+      const dismissed = await loadDismissedNodeKeys(tx)
+      const support = await precomputedSupport(tx)
       await tx.execute('DELETE FROM graph_edges')
       await tx.execute('DELETE FROM graph_nodes')
-      for (const entry of entries.data) {
-        const themes = [entry.topic, entry.topic2].filter((t): t is string => !!t && t.length > 0)
-        const res = await updateGraphForEntryImpl(entry, themes, dismissed, support, tx)
-        if (!res.success) anyFailed = true
-      }
-      // Stamp the graph-heal backlog only if every entry folded in cleanly. If one
-      // entry's update failed (e.g. a bad row threw), stamping ALL entries would
-      // mark it healed with its signals permanently missing — so leave the backlog
-      // and let the next launch's catch-up re-run this (exactly-once) rebuild. The
-      // stamp also re-heals any entry whose graph_indexed_at a sync pull wiped.
+
+      let cursor: { createdAt: number; id: string } | null = null
+      do {
+        const page = await listEntriesForGraphPage({ limit: 500, cursor }, tx)
+        if (!page.success) {
+          throw new Error('Failed to read graph entry page')
+        }
+        for (const entry of page.data.items) {
+          const themes = [entry.topic, entry.topic2].filter((t): t is string => !!t && t.length > 0)
+          const res = await updateGraphForEntryImpl(entry, themes, dismissed, support, tx)
+          if (!res.success) anyFailed = true
+        }
+        cursor = page.data.nextCursor
+      } while (cursor)
+
+      // Stamp only after every page and entry folded in cleanly. A failed page or
+      // row leaves the durable backlog eligible for a complete retry.
       if (!anyFailed) {
         await tx.execute(
           'UPDATE entries SET graph_indexed_at = ? WHERE tagged_at IS NOT NULL AND graph_indexed_at IS NULL',

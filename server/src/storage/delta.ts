@@ -49,7 +49,7 @@ export async function handleDelta(
   } as unknown as Parameters<typeof env.R2.list>[0]
   const listed = await env.R2.list(listOptions)
 
-  const records: Array<DeltaRecordV1 | DeltaRecordV2> = []
+  const records: (DeltaRecordV1 | DeltaRecordV2)[] = []
   let skipped = 0
   for (const object of listed.objects) {
     const parsedKey = parseSyncObjectKey(object.key, accountId)

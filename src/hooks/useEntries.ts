@@ -29,6 +29,7 @@ export function useEntries() {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       refresh()
     }, [refresh, revision])
   )
@@ -84,6 +85,7 @@ export function useJournalEntryCount() {
 
   useFocusEffect(
     useCallback(() => {
+      void revision
       void refresh()
     }, [refresh, revision])
   )
@@ -182,6 +184,7 @@ export function useEntryArchive(): EntryArchiveState {
   // Initial load and focus/sync refresh. Query changes use the debounced effect below.
   useFocusEffect(
     useCallback(() => {
+      void revision
       initializedRef.current = true
       void refresh()
     }, [refresh, revision])

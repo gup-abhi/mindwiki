@@ -6,7 +6,7 @@ jest.mock('@tsndr/cloudflare-worker-jwt', () => ({
 import { authMiddleware } from '../../server/src/middleware/auth'
 import { handleLogout } from '../../server/src/auth/logout'
 import { handleRefresh } from '../../server/src/auth/refresh'
-import { handleRevokeDevice, revokeDevice, revokeFamily } from '../../server/src/auth/devices'
+import { handleRevokeDevice, revokeDevice, revokeFamily, revokeOtherFamilies } from '../../server/src/auth/devices'
 import { sha256 } from '../../server/src/auth/tokens'
 import type { Env } from '../../server/src/types'
 
@@ -100,6 +100,16 @@ describe('server device session boundaries', () => {
     await revokeFamily(env(kv), 'acc', 'fam-current')
     expect(kv.json('devices:acc')).toEqual([devices[1]])
     expect(kv.json('family:fam-other')).toMatchObject({ invalidated: false })
+  })
+
+  it('revokes indexed families that are no longer in the capped device list', async () => {
+    const kv = await setup()
+    await kv.put('families:acc', JSON.stringify(['fam-current', 'fam-other', 'fam-hidden']))
+    await kv.put('family:fam-hidden', JSON.stringify({ account_id: 'acc', invalidated: false }))
+    await revokeOtherFamilies(env(kv), 'acc', 'fam-current')
+    expect(kv.json('family:fam-current')).toMatchObject({ invalidated: false })
+    expect(kv.json('family:fam-other')).toMatchObject({ invalidated: true })
+    expect(kv.json('family:fam-hidden')).toMatchObject({ invalidated: true })
   })
 
   it('logout invalidates current access and refresh tokens without affecting another family', async () => {

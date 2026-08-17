@@ -17,7 +17,7 @@ export default function UntangleScreen() {
   const styles = useThemedStyles(makeStyles)
   const {
     step, stage, thought, patterns, selectedPatterns, observations, candidates,
-    candidateLoading, candidateErrorCode, matchedBelief, error,
+    candidateLoading, matchedBelief, error,
     submitThought, next, previous, setSelectedPatterns, generateCandidates, finishReframe,
     cancel,
   } = useUntangleThought()
@@ -276,7 +276,7 @@ export default function UntangleScreen() {
                 </Text>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Open wiki page ${obs.title}`}
+                  accessibilityLabel="Open related wiki page"
                   onPress={() => router.push(`/wiki/${obs.pageId}`)}
                 >
                   <Text variant="label" color="accent">

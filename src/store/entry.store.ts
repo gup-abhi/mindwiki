@@ -1,19 +1,14 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
+import { type EntryDraft } from '@/types/entry'
+
 // Free-write draft. Capture is an energy×pleasantness grid: `mood` is the
 // pleasantness axis (1–5, unchanged semantics) and `energy` the arousal axis
 // (1–5). `thought` is an optional CBT facet; `emotion` is the feeling word the
 // user names (drawn from the grid quadrant). Anything not named here (distortion,
 // people, places…) is derived from the text by the fast model after save.
-export interface EntryDraft {
-  mood: number | null
-  energy: number | null
-  body: string
-  thought: string
-  /** A feeling word the user picked, or null. Authoritative over the model's. */
-  emotion: string | null
-}
+export type { EntryDraft } from '@/types/entry'
 
 export interface EntryState {
   draft: EntryDraft
