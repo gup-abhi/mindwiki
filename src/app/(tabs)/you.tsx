@@ -5,6 +5,7 @@ import {
   Alert,
   BackHandler,
   FlatList,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -56,6 +57,12 @@ const TREND_DAYS = 14
 type Tab = 'pages' | 'patterns' | 'map'
 type Filter = NodeType | 'all'
 
+const TAB_DESCRIPTIONS: Record<Tab, string> = {
+  pages: 'Browse the insight pages built from your entries.',
+  patterns: 'Notice trends in your mood, thoughts, and rhythms.',
+  map: 'See how your emotions, themes, and patterns connect.',
+}
+
 function formatShortDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
@@ -77,6 +84,7 @@ export default function YouScreen() {
   const { dismissals, refresh: refreshHidden } = useNodeDismissals()
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<GraphNode | null>(null)
+  const [graphFullScreen, setGraphFullScreen] = useState(false)
   const [nodeDetailsExpanded, setNodeDetailsExpanded] = useState(false)
   const { context } = useNodeContext(selected)
 
@@ -152,6 +160,20 @@ export default function YouScreen() {
     [nodes]
   )
 
+  const graphColors = useMemo(
+    () => ({
+      emotion: theme.colors.graphEmotion,
+      situation: theme.colors.graphSituation,
+      person: theme.colors.graphPerson,
+      belief: theme.colors.graphBelief,
+      behavior: theme.colors.graphBehavior,
+      distortion: theme.colors.graphDistortion,
+      place: theme.colors.graphPlace,
+      activity: theme.colors.graphActivity,
+    }),
+    [theme.colors]
+  )
+
   const confirmDrop = (node: GraphNode) => {
     Alert.alert(
       `Remove “${node.label}” from your connections?`,
@@ -214,12 +236,16 @@ export default function YouScreen() {
           selectedKey={tab}
           onChange={(key) => setTab(key as Tab)}
           testID="you-tabs"
+          compact
         />
+        <Text variant="body" color="textSecondary" style={styles.tabDescription}>
+          {TAB_DESCRIPTIONS[tab]}
+        </Text>
       </View>
 
       {/* Pages — wiki category browse */}
       {tab === 'pages' && (
-        <Screen padded={false}>
+        <Screen padded={false} edges={['left', 'right']}>
           <FlatList
             data={categories}
             keyExtractor={(c) => c.key}
@@ -281,7 +307,7 @@ export default function YouScreen() {
 
       {/* Patterns — trends + digest */}
       {tab === 'patterns' && (
-        <Screen scroll>
+        <Screen scroll edges={['left', 'right']}>
           {digest && !digestLoading && (
             <Card variant="accent" style={styles.digestCard} onPress={() => router.push('/digest')}>
               <Text variant="subtitle" color="accentText">
@@ -376,7 +402,7 @@ export default function YouScreen() {
 
       {/* Map — graph */}
       {tab === 'map' && (
-        <Screen padded={false}>
+        <Screen padded={false} edges={['left', 'right']}>
           <View style={styles.mapTopRow}>
             <ScrollView
               horizontal
@@ -412,6 +438,14 @@ export default function YouScreen() {
                 <Text style={styles.hiddenText}>Hidden ({dismissals.length})</Text>
               </Pressable>
             )}
+            {nodes.length > 0 && (
+              <IconButton
+                name="expand-outline"
+                onPress={() => setGraphFullScreen(true)}
+                accessibilityLabel="Open graph full screen"
+                testID="graph-fullscreen-open"
+              />
+            )}
           </View>
 
           {nodes.length === 0 ? (
@@ -426,16 +460,7 @@ export default function YouScreen() {
               <Graph3D
                 nodes={nodes}
                 edges={edges}
-                colors={{
-                  emotion: theme.colors.graphEmotion,
-                  situation: theme.colors.graphSituation,
-                  person: theme.colors.graphPerson,
-                  belief: theme.colors.graphBelief,
-                  behavior: theme.colors.graphBehavior,
-                  distortion: theme.colors.graphDistortion,
-                  place: theme.colors.graphPlace,
-                  activity: theme.colors.graphActivity,
-                }}
+                colors={graphColors}
                 edgeColor={theme.colors.graphEdge}
                 labelColor={theme.colors.textSecondary}
                 backgroundColor={theme.colors.bg}
@@ -538,6 +563,58 @@ export default function YouScreen() {
           )}
         </Screen>
       )}
+
+      <Modal
+        visible={graphFullScreen && nodes.length > 0}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setGraphFullScreen(false)}
+        testID="graph-fullscreen-modal"
+      >
+        <View style={[styles.fullScreenGraph, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <View style={styles.fullScreenTopRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.pillBar}
+              contentContainerStyle={styles.pills}
+            >
+              {(['all', ...presentTypes] as Filter[]).map((f) => (
+                <Pressable
+                  key={f}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setFilter(f)
+                    closeNodeDetails()
+                  }}
+                  style={[styles.pill, filter === f && styles.pillActive]}
+                >
+                  <Text style={[styles.pillText, filter === f && styles.pillTextActive]}>{f}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <IconButton
+              name="close"
+              onPress={() => setGraphFullScreen(false)}
+              accessibilityLabel="Close full-screen graph"
+              testID="graph-fullscreen-close"
+            />
+          </View>
+          <View style={styles.fullScreenCanvas}>
+            <Graph3D
+              nodes={nodes}
+              edges={edges}
+              colors={graphColors}
+              edgeColor={theme.colors.graphEdge}
+              labelColor={theme.colors.textSecondary}
+              backgroundColor={theme.colors.bg}
+              filter={filter}
+              selectedId={selected?.id ?? null}
+              onSelect={selectNode}
+            />
+          </View>
+        </View>
+      </Modal>
     </>
   )
 }
@@ -693,10 +770,21 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     // Segment switcher
     header: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, backgroundColor: t.colors.bg },
+    tabDescription: {
+      alignSelf: 'center',
+      width: '100%',
+      marginTop: t.spacing.xs,
+      marginBottom: t.spacing.xs,
+      color: t.colors.textSecondary,
+      fontSize: 15,
+      lineHeight: 21,
+      fontFamily: t.fontFamily.uiRegular,
+      textAlign: 'center',
+    },
     // Pages segment
     listContent: {
       paddingHorizontal: t.spacing.xl,
-      paddingTop: t.spacing.md,
+      paddingTop: t.spacing.xs,
       paddingBottom: t.spacing['2xl'],
     },
     hintCard: { marginBottom: t.spacing.sm },
@@ -736,6 +824,9 @@ const makeStyles = (t: Theme) =>
 
     // Map segment
     mapTopRow: { flexDirection: 'row', alignItems: 'center', paddingTop: t.spacing.sm },
+    fullScreenGraph: { flex: 1, backgroundColor: t.colors.bg },
+    fullScreenTopRow: { flexDirection: 'row', alignItems: 'center' },
+    fullScreenCanvas: { flex: 1 },
     pillBar: { flexGrow: 1, maxHeight: 40 },
     hiddenLink: { paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.xs },
     hiddenText: {

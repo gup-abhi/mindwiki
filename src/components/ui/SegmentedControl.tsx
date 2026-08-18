@@ -15,6 +15,7 @@ interface SegmentedControlProps {
   selectedKey: string
   onChange: (key: string) => void
   testID?: string
+  compact?: boolean
 }
 
 const makeStyles = (t: Theme) =>
@@ -25,6 +26,9 @@ const makeStyles = (t: Theme) =>
       borderRadius: t.radii.lg,
       padding: t.spacing.xs,
       marginBottom: t.spacing.xl,
+    },
+    compactContainer: {
+      marginBottom: 0,
     },
     segment: {
       flex: 1,
@@ -42,11 +46,15 @@ const makeStyles = (t: Theme) =>
     pressed: { opacity: 0.8 },
   })
 
-export function SegmentedControl({ options, selectedKey, onChange, testID }: SegmentedControlProps) {
+export function SegmentedControl({ options, selectedKey, onChange, testID, compact = false }: SegmentedControlProps) {
   const styles = useThemedStyles(makeStyles)
 
   return (
-    <View style={styles.container} accessibilityRole="tablist" testID={testID}>
+    <View
+      style={[styles.container, compact && styles.compactContainer]}
+      accessibilityRole="tablist"
+      testID={testID}
+    >
       {options.map((option) => {
         const selected = option.key === selectedKey
         return (

@@ -106,7 +106,8 @@ export function buildGraphHtml(
     // and disarmed the moment the user touches the camera — so we frame the graph
     // for them on open but never yank it back while they're reading/exploring.
     'var pendingFit = true;',
-    'function fit(){ if (pendingFit && CURRENT && CURRENT.length) { pendingFit = false; G.zoomToFit(600, 70); } }',
+    'var pendingFitMargin = 24;',
+    'function fit(){ if (pendingFit && CURRENT && CURRENT.length) { pendingFit = false; G.zoomToFit(600, pendingFitMargin); } }',
     'function size(){ G.width(window.innerWidth).height(window.innerHeight); }',
     "size(); window.addEventListener('resize', size);",
     // Gesture mapping (Maps-style): one finger pans/moves the graph in the screen
@@ -207,7 +208,7 @@ export function buildGraphHtml(
     // node (tapping it, then closing the card) must NOT move the camera, or exiting
     // a node would yank the view back to fit-all. onEngineStop fits once when armed;
     // the guarded fallback covers an instant engine stop.
-    '  if (shouldFit) { pendingFit = true; setTimeout(fit, 600); }',
+    '  if (shouldFit) { pendingFitMargin = 70; pendingFit = true; setTimeout(fit, 600); }',
     '}',
     'window.applyFilter = function(type){ FILTER = type; render(true); };',
     'window.focusNode = function(id){ FOCUS = id; render(false); };',

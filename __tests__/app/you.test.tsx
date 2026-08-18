@@ -73,7 +73,18 @@ describe('YouScreen', () => {
     expect(screen.getByTestId('you-tab-pages').props.accessibilityState.selected).toBe(true)
     expect(screen.getByTestId('you-tab-patterns').props.accessibilityState.selected).toBe(false)
     expect(screen.getByTestId('you-tab-map').props.accessibilityState.selected).toBe(false)
+    expect(screen.getByText('Browse the insight pages built from your entries.')).toBeTruthy()
     expect(screen.getByText('No pages yet')).toBeTruthy()
+  })
+
+  it('updates the tab description for each You segment', () => {
+    render(<YouScreen />)
+
+    fireEvent.press(screen.getByTestId('you-tab-patterns'))
+    expect(screen.getByText('Notice trends in your mood, thoughts, and rhythms.')).toBeTruthy()
+
+    fireEvent.press(screen.getByTestId('you-tab-map'))
+    expect(screen.getByText('See how your emotions, themes, and patterns connect.')).toBeTruthy()
   })
 
   it('switches to Patterns segment and shows digest-trends content', () => {
@@ -107,6 +118,30 @@ describe('YouScreen', () => {
     render(<YouScreen />)
     fireEvent.press(screen.getByText('Map'))
     expect(screen.getByText('Graph3D-mock')).toBeTruthy()
+  })
+
+  it('opens and closes the graph full-screen mode with filter chips', () => {
+    mockUseGraph.mockReturnValue({
+      nodes: [{ id: 'n1', label: 'Anxiety', type: 'emotion', frequency: 3 }],
+      edges: [],
+      refresh: jest.fn(),
+    })
+    render(<YouScreen />)
+    fireEvent.press(screen.getByTestId('you-tab-map'))
+
+    fireEvent.press(screen.getByTestId('graph-fullscreen-open'))
+    expect(screen.getByTestId('graph-fullscreen-modal')).toBeTruthy()
+    expect(screen.getAllByText('all')).toHaveLength(2)
+    expect(screen.getAllByText('Graph3D-mock')).toHaveLength(2)
+
+    fireEvent.press(screen.getByTestId('graph-fullscreen-close'))
+    expect(screen.queryByTestId('graph-fullscreen-modal')).toBeNull()
+  })
+
+  it('does not show full-screen mode when the Map is empty', () => {
+    render(<YouScreen />)
+    fireEvent.press(screen.getByTestId('you-tab-map'))
+    expect(screen.queryByTestId('graph-fullscreen-open')).toBeNull()
   })
 
   it('renders category rows in Pages segment when pages exist', () => {
