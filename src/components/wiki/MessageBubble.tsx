@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 
 import { Text } from '@/components/ui'
 import { type Theme, useThemedStyles } from '@/theme'
@@ -11,15 +12,38 @@ import { SourceChips } from './SourceChips'
 
 function MessageBubbleBase({
   message,
+  reducedMotion,
   onRetry,
 }: {
   message: UIMessage
+  reducedMotion: boolean
   onRetry?: () => void
 }) {
   const styles = useThemedStyles(makeStyles)
   const isUser = message.role === 'user'
+  const opacity = useSharedValue(message.animateEntry && !reducedMotion ? 0 : 1)
+  const translateX = useSharedValue(message.animateEntry && !reducedMotion ? (isUser ? 16 : -16) : 0)
+
+  useEffect(() => {
+    if (reducedMotion || !message.animateEntry) {
+      opacity.value = 1
+      translateX.value = 0
+      return
+    }
+    opacity.value = withTiming(1, { duration: 220 })
+    translateX.value = withTiming(0, { duration: 220 })
+  }, [message.animateEntry, opacity, reducedMotion, translateX])
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateX: translateX.value }],
+  }))
+
   return (
-    <View style={isUser ? styles.userWrap : styles.assistantWrap}>
+    <Animated.View
+      style={[isUser ? styles.userWrap : styles.assistantWrap, animatedStyle]}
+      testID={`message-${message.role}`}
+    >
       <View style={[styles.bubble, isUser ? styles.user : styles.assistant]}>
         {isUser ? (
           // The user's own text, shown verbatim.
@@ -47,7 +71,7 @@ function MessageBubbleBase({
           </Text>
         </Pressable>
       )}
-    </View>
+    </Animated.View>
   )
 }
 

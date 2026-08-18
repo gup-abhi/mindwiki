@@ -11,16 +11,15 @@ export interface UIMessage {
   crisisTier: number | null
   /** A reply that failed to generate — renders a "Try again" affordance. */
   failed?: boolean
+  /** Transient UI provenance; restored messages omit it and mount without motion. */
+  animateEntry?: boolean
 }
 
 // In-flight conversation UI state. Persistence lives in SQLite (services/storage/
-// chat.ts); this store holds only what the screen renders, so streaming token
-// updates re-render the live bubble without touching the rest of the thread.
+// chat.ts); this store holds only complete messages and the truthful pending state.
 export interface ChatState {
   conversationId: string | null
   messages: UIMessage[]
-  /** The assistant reply being streamed in (empty when idle). */
-  streaming: string
   sending: boolean
   /** Rolling recap of earlier turns + how many messages it covers. */
   summary: string
@@ -33,21 +32,20 @@ export interface ChatState {
   load: (conversationId: string, messages: UIMessage[], summary: string, summaryCount: number) => void
   setConversationId: (id: string) => void
   addMessage: (message: UIMessage) => void
+  /** Append a complete assistant reply and remove the pending indicator atomically. */
+  completeReply: (message: UIMessage) => void
   /** Drop any failed-reply placeholders (before a retry re-runs the turn). */
   dropFailed: () => void
   setMessageCrisis: (id: string, tier: number) => void
   setSending: (sending: boolean) => void
   setSummary: (summary: string, summaryCount: number) => void
   setSummaryCrisisTier: (tier: number) => void
-  appendToken: (token: string) => void
-  clearStreaming: () => void
 }
 
 export const useChatStore = create<ChatState>()(
   immer((set) => ({
     conversationId: null,
     messages: [],
-    streaming: '',
     sending: false,
     summary: '',
     summaryCount: 0,
@@ -57,7 +55,6 @@ export const useChatStore = create<ChatState>()(
       set((s) => {
         s.conversationId = null
         s.messages = []
-        s.streaming = ''
         s.sending = false
         s.summary = ''
         s.summaryCount = 0
@@ -68,7 +65,6 @@ export const useChatStore = create<ChatState>()(
       set((s) => {
         s.conversationId = conversationId
         s.messages = messages
-        s.streaming = ''
         s.sending = false
         s.summary = summary
         s.summaryCount = summaryCount
@@ -82,6 +78,11 @@ export const useChatStore = create<ChatState>()(
     addMessage: (message) =>
       set((s) => {
         s.messages.push(message)
+      }),
+    completeReply: (message) =>
+      set((s) => {
+        s.messages.push(message)
+        s.sending = false
       }),
     dropFailed: () =>
       set((s) => {
@@ -105,14 +106,6 @@ export const useChatStore = create<ChatState>()(
     setSummaryCrisisTier: (tier) =>
       set((s) => {
         s.summaryCrisisTier = tier
-      }),
-    appendToken: (token) =>
-      set((s) => {
-        s.streaming += token
-      }),
-    clearStreaming: () =>
-      set((s) => {
-        s.streaming = ''
       }),
   }))
 )

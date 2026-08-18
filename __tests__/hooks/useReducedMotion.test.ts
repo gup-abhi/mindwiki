@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import { AccessibilityInfo } from 'react-native'
 
-import { useReducedMotion } from '@/hooks/useReducedMotion'
+import { resetReducedMotionForTests, useReducedMotion } from '@/hooks/useReducedMotion'
 
 describe('useReducedMotion', () => {
   const remove = jest.fn()
@@ -9,6 +9,7 @@ describe('useReducedMotion', () => {
   const isReduceMotionEnabled = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
 
   beforeEach(() => {
+    resetReducedMotionForTests()
     remove.mockClear()
     addEventListener.mockReturnValue({ remove } as never)
     isReduceMotionEnabled.mockResolvedValue(false)
@@ -17,6 +18,19 @@ describe('useReducedMotion', () => {
   afterAll(() => {
     addEventListener.mockRestore()
     isReduceMotionEnabled.mockRestore()
+  })
+
+  it('defaults to reduced motion until the OS preference resolves', async () => {
+    let resolvePreference!: (enabled: boolean) => void
+    isReduceMotionEnabled.mockReturnValue(new Promise((resolve) => {
+      resolvePreference = resolve
+    }))
+
+    const { result } = renderHook(() => useReducedMotion())
+
+    expect(result.current).toBe(true)
+    await act(async () => resolvePreference(false))
+    expect(result.current).toBe(false)
   })
 
   it('hydrates the OS preference and listens for changes', async () => {

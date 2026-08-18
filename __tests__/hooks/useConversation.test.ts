@@ -55,6 +55,14 @@ function resolveNext(text: string) {
   r({ success: true, data: { text, sources: [] } })
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
 jest.spyOn(chat, 'createConversation').mockResolvedValue({
   success: true,
   data: { id: 'conv-1', title: null, created_at: 0, updated_at: 0, summary: '', summary_count: 0 },
@@ -94,6 +102,151 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.clearAllMocks()
+})
+
+describe('useConversation — complete reply delivery', () => {
+  it('keeps partial tokens out of UI state and adds the completed reply once', async () => {
+    const { result } = renderHook(() => useConversation())
+
+    act(() => {
+      void result.current.send('work was difficult')
+    })
+    await waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+
+    expect(respondMock.mock.calls[0]).toHaveLength(1)
+    expect(useChatStore.getState().sending).toBe(true)
+    expect(useChatStore.getState().messages.map((m) => m.content)).toEqual(['work was difficult'])
+
+    await act(async () => {
+      resolveNext('That sounds like a difficult day.')
+    })
+
+    const state = useChatStore.getState()
+    expect(state.sending).toBe(false)
+    expect(state.messages.map((m) => m.content)).toEqual([
+      'work was difficult',
+      'That sounds like a difficult day.',
+    ])
+    expect(state.messages[0].animateEntry).toBe(true)
+    expect(state.messages[1].animateEntry).toBe(true)
+  })
+
+  it('keeps the pending state until the complete assistant reply is persisted', async () => {
+    const persisted = deferred<Awaited<ReturnType<typeof chat.appendMessage>>>()
+    jest.spyOn(chat, 'appendMessage').mockImplementationOnce(async (input) => ({
+      success: true,
+      data: {
+        id: 'user-persisted',
+        conversation_id: input.conversation_id,
+        role: input.role,
+        content: input.content,
+        sources: input.sources ?? [],
+        crisis_tier: input.crisis_tier ?? null,
+        created_at: 0,
+      },
+    })).mockImplementationOnce(() => persisted.promise)
+    const { result } = renderHook(() => useConversation())
+
+    act(() => {
+      void result.current.send('work was difficult')
+    })
+    await waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      resolveNext('That sounds like a difficult day.')
+    })
+
+    expect(useChatStore.getState().sending).toBe(true)
+    expect(useChatStore.getState().messages.map((m) => m.content)).toEqual(['work was difficult'])
+
+    await act(async () => {
+      persisted.resolve({
+        success: true,
+        data: {
+          id: 'assistant-persisted',
+          conversation_id: 'conv-1',
+          role: 'assistant',
+          content: 'That sounds like a difficult day.',
+          sources: [],
+          crisis_tier: null,
+          created_at: 1,
+        },
+      })
+    })
+
+    const state = useChatStore.getState()
+    expect(state.sending).toBe(false)
+    expect(state.messages[1]).toMatchObject({
+      id: 'assistant-persisted',
+      content: 'That sounds like a difficult day.',
+    })
+  })
+
+  it('shows a retryable failure instead of unpersisted generated text', async () => {
+    jest.spyOn(chat, 'appendMessage').mockImplementationOnce(async (input) => ({
+      success: true,
+      data: {
+        id: 'user-persisted',
+        conversation_id: input.conversation_id,
+        role: input.role,
+        content: input.content,
+        sources: input.sources ?? [],
+        crisis_tier: input.crisis_tier ?? null,
+        created_at: 0,
+      },
+    })).mockResolvedValueOnce({
+      success: false,
+      error: { code: 'DB_WRITE_FAILED', message: 'write failed' },
+    })
+    const { result } = renderHook(() => useConversation())
+
+    act(() => {
+      void result.current.send('work was difficult')
+    })
+    await waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      resolveNext('Generated but not persisted.')
+    })
+
+    const state = useChatStore.getState()
+    expect(state.sending).toBe(false)
+    expect(state.messages.some((m) => m.content === 'Generated but not persisted.')).toBe(false)
+    expect(state.messages.at(-1)).toMatchObject({ role: 'assistant', failed: true, animateEntry: true })
+  })
+
+  it('restores history without marking messages for entry animation', async () => {
+    jest.spyOn(chat, 'listMessages').mockResolvedValueOnce({
+      success: true,
+      data: [
+        {
+          id: 'u1',
+          conversation_id: 'conv-1',
+          role: 'user',
+          content: 'restored user',
+          sources: [],
+          crisis_tier: null,
+          created_at: 0,
+        },
+        {
+          id: 'a1',
+          conversation_id: 'conv-1',
+          role: 'assistant',
+          content: 'restored assistant',
+          sources: [],
+          crisis_tier: null,
+          created_at: 1,
+        },
+      ],
+    })
+    const { result } = renderHook(() => useConversation())
+
+    await act(async () => {
+      await result.current.loadConversation('conv-1')
+    })
+
+    expect(useChatStore.getState().messages.every((m) => m.animateEntry !== true)).toBe(true)
+  })
 })
 
 describe('useConversation — duplicate-reply race', () => {

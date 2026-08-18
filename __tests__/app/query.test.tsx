@@ -24,6 +24,9 @@ jest.mock('@/hooks/useConversation', () => ({
     return mockUse()
   },
 }))
+jest.mock('@/hooks/useReducedMotion', () => ({
+  useReducedMotion: () => false,
+}))
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
   useFocusEffect: (cb: () => void | (() => void)) => {
@@ -48,7 +51,6 @@ const message = (over: Partial<UIMessage> = {}): UIMessage => ({
 
 const base = {
   messages: [] as UIMessage[],
-  streaming: '',
   sending: false,
   suggestions: ['What patterns show up around Work?'],
   history: [] as { id: string; title: string | null; created_at: number; updated_at: number }[],
@@ -130,15 +132,16 @@ describe('QueryScreen (reflective conversation)', () => {
     expect(screen.getByText('Deadlines spike it.')).toBeTruthy()
   })
 
-  it('shows the streaming text while a reply is in flight', () => {
+  it('shows a typing indicator instead of partial text while a reply is in flight', () => {
     mockUse.mockReturnValue({
       ...base,
       messages: [message({ role: 'user', content: 'hi' })],
       sending: true,
-      streaming: 'Thinking abou',
     })
     render(<QueryScreen />)
-    expect(screen.getByText('Thinking abou')).toBeTruthy()
+    expect(screen.getByTestId('typing-indicator')).toBeTruthy()
+    expect(screen.getByLabelText('Assistant is replying')).toBeTruthy()
+    expect(screen.queryByText('Thinking abou')).toBeNull()
   })
 
   it('shows a Try again button on a failed reply and retries when tapped', () => {

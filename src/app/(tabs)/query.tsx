@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router'
 import {
-  ActivityIndicator,
   BackHandler,
   KeyboardAvoidingView,
   Platform,
@@ -14,13 +13,15 @@ import {
 import { Card, Chip, IconButton, Screen, SegmentedControl, Text } from '@/components/ui'
 import { ConversationComposer } from '@/components/wiki/ConversationComposer'
 import { MessageBubble } from '@/components/wiki/MessageBubble'
+import { TypingIndicator } from '@/components/wiki/TypingIndicator'
 import { useConversation } from '@/hooks/useConversation'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { useChatStore } from '@/store/chat.store'
 import { getHintSeen, markHintSeen } from '@/services/onboarding/first-run'
 import { isModelDownloaded } from '@/services/llm/model-manager'
 import { CRISIS_RESOURCES } from '@/services/crisis/resources'
 import { GUIDED_PATHS } from '@/lib/guided-paths'
-import { type Theme, useTheme, useThemedStyles } from '@/theme'
+import { type Theme, useThemedStyles } from '@/theme'
 
 // Feeling/struggle chips that seed the composer, so the user can start by naming
 // what's going on right now instead of facing a blank box. A fixed, curated set —
@@ -37,8 +38,8 @@ const FEELING_CHIPS: { label: string; seed: string }[] = [
 
 export default function QueryScreen() {
   const styles = useThemedStyles(makeStyles)
-  const theme = useTheme()
-  const { messages, streaming, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
+  const reducedMotion = useReducedMotion()
+  const { messages, sending, suggestions, history, send, retry, openStarter, newConversation, loadConversation } =
     useConversation()
   const summaryCrisisTier = useChatStore((s) => s.summaryCrisisTier)
   const scrollRef = useRef<ScrollView>(null)
@@ -89,12 +90,12 @@ export default function QueryScreen() {
     )
   }, [])
 
-  // Re-pin when a conversation loads or a turn is added/streamed — but only
+  // Re-pin when a conversation loads, a turn is added, or pending state changes — but only
   // inside an active thread, never on the start screen (which shows suggestions
   // and history in descending order and shouldn't scroll to bottom).
   useEffect(() => {
     if (!isEmpty) scrollToBottom()
-  }, [messages, streaming, scrollToBottom, isEmpty])
+  }, [messages, sending, scrollToBottom, isEmpty])
 
   // Save the start screen's scroll position before entering a conversation,
   // and restore it when returning. Without this, closing a conversation resets
@@ -329,19 +330,12 @@ export default function QueryScreen() {
               )}
             </View>
           ) : (
-            messages.map((m) => <MessageBubble key={m.id} message={m} onRetry={retry} />)
+            messages.map((m) => (
+              <MessageBubble key={m.id} message={m} reducedMotion={reducedMotion} onRetry={retry} />
+            ))
           )}
 
-          {sending && streaming.length > 0 && (
-            <View style={styles.assistantWrap}>
-              <View style={styles.streamBubble}>
-                <Text variant="body">{streaming}</Text>
-              </View>
-            </View>
-          )}
-          {sending && streaming.length === 0 && (
-            <ActivityIndicator style={styles.spinner} color={theme.colors.accent} />
-          )}
+          {sending && <TypingIndicator />}
         </ScrollView>
 
         {!isEmpty && summaryCrisisTier > 0 && (
@@ -396,7 +390,6 @@ const makeStyles = (t: Theme) =>
     pathCard: { marginBottom: t.spacing.md },
     pathCardDesc: { marginTop: t.spacing.xs },
     pathCardMeta: { marginTop: t.spacing.sm },
-    assistantWrap: { alignItems: 'flex-start', marginBottom: t.spacing.md },
     crisisResourceStrip: {
       paddingVertical: t.spacing.sm,
       paddingHorizontal: t.spacing.lg,
@@ -405,12 +398,4 @@ const makeStyles = (t: Theme) =>
       marginBottom: t.spacing.sm,
     },
     crisisResourceText: { textAlign: 'center' },
-    streamBubble: {
-      maxWidth: '85%',
-      paddingVertical: t.spacing.md,
-      paddingHorizontal: t.spacing.lg,
-      borderRadius: t.radii.lg,
-      backgroundColor: t.colors.surfaceAlt,
-    },
-    spinner: { marginTop: t.spacing.lg, alignSelf: 'flex-start' },
   })

@@ -213,7 +213,7 @@ describe('respond pipeline (LLM mocked)', () => {
     mockConverse.mockResolvedValue({ text: '   ' })
     const res = await respond({
       history: [],
-      message: 'hello',
+      message: 'work felt difficult today',
       pages: PAGES,
       nodes: [],
       edges: [],

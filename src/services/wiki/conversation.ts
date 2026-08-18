@@ -52,6 +52,46 @@ const MIN_RELEVANCE = 3
 // text would bias retrieval toward wiki content we already injected.
 const RETRIEVAL_TURNS = 2
 
+// Exact standalone expressions only. A generic short-message heuristic would
+// misclassify substantive lines such as "I was fired" or "I feel unsafe" and
+// bypass the grounded companion path that those messages need.
+const STANDALONE_REPLY_DELAY_MS = 700
+
+const STANDALONE_EXPRESSION_REPLIES = new Map<string, string>([
+  ['hi', 'Hi! I’m here.'],
+  ['hello', 'Hi! I’m here.'],
+  ['hey', 'Hi! I’m here.'],
+  ['hi there', 'Hi! I’m here.'],
+  ['hello there', 'Hi! I’m here.'],
+  ['hey there', 'Hi! I’m here.'],
+  ['ok', 'Okay. I’m here with you.'],
+  ['okay', 'Okay. I’m here with you.'],
+  ['alright', 'Okay. I’m here with you.'],
+  ['all right', 'Okay. I’m here with you.'],
+  ['got it', 'I’m glad that makes sense.'],
+  ['i see', 'I’m glad that makes sense.'],
+  ['i understand', 'I’m glad that makes sense.'],
+  ['i can understand that', 'I’m glad that makes sense.'],
+  ['that makes sense', 'I’m glad that makes sense.'],
+  ['makes sense', 'I’m glad that makes sense.'],
+  ["i don't know", 'That’s okay. You don’t have to know right now.'],
+  ['i dont know', 'That’s okay. You don’t have to know right now.'],
+  ["i'm not sure", 'That’s okay. You don’t have to know right now.'],
+  ['im not sure', 'That’s okay. You don’t have to know right now.'],
+  ['not sure', 'That’s okay. You don’t have to know right now.'],
+])
+
+function standaloneExpressionReply(message: string): string | null {
+  const normalized = message
+    .trim()
+    .toLowerCase()
+    .replace(/’/g, "'")
+    .replace(/\s+/g, ' ')
+    .replace(/[.!?,…]+$/u, '')
+    .trim()
+  return STANDALONE_EXPRESSION_REPLIES.get(normalized) ?? null
+}
+
 /** The text to rank pages against: the last few user turns plus the new message. */
 function retrievalQuery(history: ChatMessage[], message: string): string {
   const recentUser = history
@@ -178,6 +218,12 @@ export async function respond(
   { history, message, pages, nodes, edges, summary, conversationId }: RespondInput,
   onToken?: (token: string) => void
 ): Promise<Result<ConversationReply>> {
+  const standaloneReply = standaloneExpressionReply(message)
+  if (standaloneReply) {
+    await new Promise<void>((resolve) => setTimeout(resolve, STANDALONE_REPLY_DELAY_MS))
+    return ok({ text: standaloneReply, sources: [] })
+  }
+
   // Two best-effort retrieval aids, run in PARALLEL so neither stacks latency on
   // the other before the reply: (1) embed the query for semantic ranking, (2) ask
   // the fast model for alternate keywords (HyDE) to widen lexical ranking. Either

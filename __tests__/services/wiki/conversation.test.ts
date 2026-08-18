@@ -96,6 +96,80 @@ describe('buildContext', () => {
 describe('respond', () => {
   beforeEach(() => mockConverse.mockReset())
 
+  it('briefly holds a standalone reply so the typing state remains visible', async () => {
+    jest.useFakeTimers()
+    const onToken = jest.fn()
+
+    try {
+      const pending = respond({
+        history: [],
+        message: 'hello',
+        pages: [],
+        nodes: [],
+        edges: [],
+        summary: 'A rolling summary that must not affect this reply.',
+      }, onToken)
+      let settled = false
+      void pending.then(() => { settled = true })
+
+      await jest.advanceTimersByTimeAsync(699)
+      expect(settled).toBe(false)
+      expect(mockConverse).not.toHaveBeenCalled()
+
+      await jest.advanceTimersByTimeAsync(1)
+      await expect(pending).resolves.toEqual(ok({ text: 'Hi! I’m here.', sources: [] }))
+      expect(onToken).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it.each([
+    ['hi', 'Hi! I’m here.'],
+    ['Hello!', 'Hi! I’m here.'],
+    ['hey there', 'Hi! I’m here.'],
+    ['I see.', 'I’m glad that makes sense.'],
+    ['I understand', 'I’m glad that makes sense.'],
+    ['I can understand that', 'I’m glad that makes sense.'],
+    ['that makes sense', 'I’m glad that makes sense.'],
+    ['Got it!', 'I’m glad that makes sense.'],
+    ['okay', 'Okay. I’m here with you.'],
+    ['all right', 'Okay. I’m here with you.'],
+    ['I don’t know', 'That’s okay. You don’t have to know right now.'],
+    ['I’m not sure', 'That’s okay. You don’t have to know right now.'],
+  ])('responds warmly to standalone expression "%s" without summary or inference', async (message, reply) => {
+    const onToken = jest.fn()
+
+    const res = await respond({
+      history: [{ role: 'assistant', content: 'A summary-shaped prior reply.' }],
+      message,
+      pages: [page({ title: 'Work', content: 'work work work deadlines' })],
+      nodes: [],
+      edges: [],
+      summary: 'A rolling summary that must not affect this reply.',
+    }, onToken)
+
+    expect(res).toEqual(ok({ text: reply, sources: [] }))
+    expect(mockConverse).not.toHaveBeenCalled()
+    expect(onToken).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'hello, I had a terrible day',
+    'okay but I still feel anxious',
+    "I don't know what to do",
+    'I see why work keeps affecting me',
+    'hello Sam',
+    'I was fired',
+    'I feel unsafe',
+  ])('keeps substantive message "%s" on the grounded model path', async (message) => {
+    mockConverse.mockResolvedValue(ok('A grounded reply.'))
+
+    await respond({ history: [], message, pages: [], nodes: [], edges: [] })
+
+    expect(mockConverse).toHaveBeenCalledTimes(1)
+  })
+
   it('trims history to the last 8 messages and returns grounded sources', async () => {
     mockConverse.mockResolvedValue(ok('That sounds heavy.'))
     const history = Array.from({ length: 12 }, (_, i) => ({
@@ -120,13 +194,13 @@ describe('respond', () => {
   it('forwards the streaming callback to the model', async () => {
     mockConverse.mockResolvedValue(ok('ok'))
     const onToken = jest.fn()
-    await respond({ history: [], message: 'hi', pages: [], nodes: [], edges: [] }, onToken)
+    await respond({ history: [], message: 'work felt difficult today', pages: [], nodes: [], edges: [] }, onToken)
     expect(mockConverse.mock.calls[0][1]).toBe(onToken)
   })
 
   it('forwards the rolling summary to the model', async () => {
     mockConverse.mockResolvedValue(ok('ok'))
-    await respond({ history: [], message: 'hi', pages: [], nodes: [], edges: [], summary: 'recap' })
+    await respond({ history: [], message: 'work felt difficult today', pages: [], nodes: [], edges: [], summary: 'recap' })
     expect(mockConverse.mock.calls[0][0].summary).toBe('recap')
   })
 
@@ -171,7 +245,7 @@ describe('respond', () => {
 
   it('propagates a model failure', async () => {
     mockConverse.mockResolvedValue(err('CONVERSE_INFERENCE_FAILED', 'down'))
-    const res = await respond({ history: [], message: 'hi', pages: [], nodes: [], edges: [] })
+    const res = await respond({ history: [], message: 'work felt difficult today', pages: [], nodes: [], edges: [] })
     expect(res.success).toBe(false)
   })
 
