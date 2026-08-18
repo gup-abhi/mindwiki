@@ -26,6 +26,7 @@ interface Props {
   /** When set, the graph shows only this node + its direct neighbors. */
   selectedId: string | null
   onSelect: (node: GraphNode | null) => void
+  zoomCommand?: { direction: 'in' | 'out'; id: number } | null
 }
 
 interface GraphData {
@@ -212,6 +213,7 @@ export function buildGraphHtml(
     '}',
     'window.applyFilter = function(type){ FILTER = type; render(true); };',
     'window.focusNode = function(id){ FOCUS = id; render(false); };',
+    "window.zoomGraph = function(direction){ var camera = G.camera(); var factor = direction === 'in' ? 0.72 : 1.38; camera.position.multiplyScalar(factor); G.cameraPosition(camera.position, undefined, 300); };",
     "post({ type: 'ready' });",
   ].join('\n')
 
@@ -246,7 +248,7 @@ export function buildGraphHtml(
  * library. Node taps surface back through `onSelect`; filtering is applied live
  * without reloading. The whole thing runs offline — see the bundle note above.
  */
-export function Graph3D({ nodes, edges, colors, edgeColor, labelColor, backgroundColor, filter, selectedId, onSelect }: Props) {
+export function Graph3D({ nodes, edges, colors, edgeColor, labelColor, backgroundColor, filter, selectedId, onSelect, zoomCommand }: Props) {
   const theme = useTheme()
   const webRef = useRef<WebView>(null)
   const [lib, setLib] = useState<string | null>(null)
@@ -289,6 +291,11 @@ export function Graph3D({ nodes, edges, colors, edgeColor, labelColor, backgroun
     if (!ready) return
     webRef.current?.injectJavaScript(`window.focusNode(${JSON.stringify(selectedId)});true;`)
   }, [selectedId, ready])
+
+  useEffect(() => {
+    if (!ready || !zoomCommand) return
+    webRef.current?.injectJavaScript(`window.zoomGraph(${JSON.stringify(zoomCommand.direction)});true;`)
+  }, [zoomCommand, ready])
 
   const onMessage = useCallback(
     (e: WebViewMessageEvent) => {

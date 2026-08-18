@@ -61,6 +61,7 @@ describe('buildGraphHtml', () => {
     expect(html).toContain("if (!nodeTapInProgress) post({ type: 'bg' });")
     // auto-frames the camera to the content (no manual pinch-zoom on open)
     expect(html).toContain('zoomToFit')
+    expect(html).toContain('zoomGraph')
     expect(html).toContain('onEngineStop')
     // forces tuned to spread clusters apart on a phone canvas
     expect(html).toContain("d3Force('charge').strength(-260)")

@@ -129,6 +129,8 @@ describe('YouScreen', () => {
     render(<YouScreen />)
     fireEvent.press(screen.getByTestId('you-tab-map'))
 
+    expect(screen.getByTestId('graph-zoom-in')).toBeTruthy()
+    expect(screen.getByTestId('graph-zoom-out')).toBeTruthy()
     fireEvent.press(screen.getByTestId('graph-fullscreen-open'))
     expect(screen.getByTestId('graph-fullscreen-modal')).toBeTruthy()
     expect(screen.getAllByText('all')).toHaveLength(2)

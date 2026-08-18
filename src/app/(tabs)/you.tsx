@@ -85,6 +85,8 @@ export default function YouScreen() {
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<GraphNode | null>(null)
   const [graphFullScreen, setGraphFullScreen] = useState(false)
+  const [zoomCommand, setZoomCommand] = useState<{ direction: 'in' | 'out'; id: number } | null>(null)
+  const zoomCommandId = useRef(0)
   const [nodeDetailsExpanded, setNodeDetailsExpanded] = useState(false)
   const { context } = useNodeContext(selected)
 
@@ -99,6 +101,11 @@ export default function YouScreen() {
   }
 
   const toggleNodeDetails = () => setNodeDetailsExpanded((expanded) => !expanded)
+  const zoomGraph = (direction: 'in' | 'out') => {
+    zoomCommandId.current += 1
+    setZoomCommand({ direction, id: zoomCommandId.current })
+  }
+
   // One-time You-tab intro hint (P8). null while checking; false → show; true → hide.
   const [youHint, setYouHint] = useState<boolean | null>(null)
 
@@ -173,6 +180,42 @@ export default function YouScreen() {
     }),
     [theme.colors]
   )
+
+  const graphControls = (fullScreen: boolean) => (
+    <View style={[styles.graphControls, fullScreen && styles.graphControlsFullScreen]}>
+      <IconButton
+        name={fullScreen ? 'close' : 'expand-outline'}
+        onPress={() => setGraphFullScreen(!fullScreen)}
+        accessibilityLabel={fullScreen ? 'Close full-screen graph' : 'Open graph full screen'}
+        testID={fullScreen ? 'graph-fullscreen-close' : 'graph-fullscreen-open'}
+      />
+      <IconButton
+        name="add"
+        onPress={() => zoomGraph('in')}
+        accessibilityLabel="Zoom in on graph"
+        testID="graph-zoom-in"
+      />
+      <IconButton
+        name="remove"
+        onPress={() => zoomGraph('out')}
+        accessibilityLabel="Zoom out on graph"
+        testID="graph-zoom-out"
+      />
+    </View>
+  )
+
+  const graphProps = {
+    nodes,
+    edges,
+    colors: graphColors,
+    edgeColor: theme.colors.graphEdge,
+    labelColor: theme.colors.textSecondary,
+    backgroundColor: theme.colors.bg,
+    filter,
+    selectedId: selected?.id ?? null,
+    onSelect: selectNode,
+    zoomCommand,
+  }
 
   const confirmDrop = (node: GraphNode) => {
     Alert.alert(
@@ -407,9 +450,10 @@ export default function YouScreen() {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              style={styles.pillBar}
+              style={[styles.pillBar, styles.mapPillBar]}
               contentContainerStyle={styles.pills}
             >
+
               {(['all', ...presentTypes] as Filter[]).map((f) => (
                 <Pressable
                   key={f}
@@ -438,14 +482,6 @@ export default function YouScreen() {
                 <Text style={styles.hiddenText}>Hidden ({dismissals.length})</Text>
               </Pressable>
             )}
-            {nodes.length > 0 && (
-              <IconButton
-                name="expand-outline"
-                onPress={() => setGraphFullScreen(true)}
-                accessibilityLabel="Open graph full screen"
-                testID="graph-fullscreen-open"
-              />
-            )}
           </View>
 
           {nodes.length === 0 ? (
@@ -457,17 +493,8 @@ export default function YouScreen() {
             </View>
           ) : (
             <View style={styles.canvas}>
-              <Graph3D
-                nodes={nodes}
-                edges={edges}
-                colors={graphColors}
-                edgeColor={theme.colors.graphEdge}
-                labelColor={theme.colors.textSecondary}
-                backgroundColor={theme.colors.bg}
-                filter={filter}
-                selectedId={selected?.id ?? null}
-                onSelect={selectNode}
-              />
+              <Graph3D {...graphProps} />
+              {graphControls(false)}
             </View>
           )}
 
@@ -572,11 +599,12 @@ export default function YouScreen() {
         testID="graph-fullscreen-modal"
       >
         <View style={[styles.fullScreenGraph, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          {nodes.length > 0 && graphControls(true)}
           <View style={styles.fullScreenTopRow}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              style={styles.pillBar}
+              style={[styles.pillBar, styles.fullScreenPillBar]}
               contentContainerStyle={styles.pills}
             >
               {(['all', ...presentTypes] as Filter[]).map((f) => (
@@ -593,25 +621,9 @@ export default function YouScreen() {
                 </Pressable>
               ))}
             </ScrollView>
-            <IconButton
-              name="close"
-              onPress={() => setGraphFullScreen(false)}
-              accessibilityLabel="Close full-screen graph"
-              testID="graph-fullscreen-close"
-            />
           </View>
           <View style={styles.fullScreenCanvas}>
-            <Graph3D
-              nodes={nodes}
-              edges={edges}
-              colors={graphColors}
-              edgeColor={theme.colors.graphEdge}
-              labelColor={theme.colors.textSecondary}
-              backgroundColor={theme.colors.bg}
-              filter={filter}
-              selectedId={selected?.id ?? null}
-              onSelect={selectNode}
-            />
+            <Graph3D {...graphProps} />
           </View>
         </View>
       </Modal>
@@ -827,6 +839,20 @@ const makeStyles = (t: Theme) =>
     fullScreenGraph: { flex: 1, backgroundColor: t.colors.bg },
     fullScreenTopRow: { flexDirection: 'row', alignItems: 'center' },
     fullScreenCanvas: { flex: 1 },
+    fullScreenPillBar: {},
+    mapPillBar: {},
+    graphControls: {
+      position: 'absolute',
+      left: t.spacing.sm,
+      top: '50%',
+      zIndex: 2,
+      backgroundColor: t.colors.surfaceAlt,
+      borderRadius: t.radii.lg,
+      paddingVertical: t.spacing.xs,
+      transform: [{ translateY: -76 }],
+      ...t.shadows.low,
+    },
+    graphControlsFullScreen: {},
     pillBar: { flexGrow: 1, maxHeight: 40 },
     hiddenLink: { paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.xs },
     hiddenText: {
