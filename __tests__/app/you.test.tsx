@@ -157,5 +157,33 @@ describe('YouScreen', () => {
     render(<YouScreen />)
     expect(screen.getByText('Emotions')).toBeTruthy()
     expect(screen.getByText('Themes')).toBeTruthy()
+    expect(screen.getByTestId('you-category-emotion').props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ minHeight: 48 })])
+    )
+  })
+
+  it('keeps Map filters at the full interaction target', () => {
+    mockUseGraph.mockReturnValue({
+      nodes: [{ id: 'n1', label: 'Anxiety', type: 'emotion', frequency: 3 }],
+      edges: [],
+      refresh: jest.fn(),
+    })
+    render(<YouScreen />)
+    fireEvent.press(screen.getByTestId('you-tab-map'))
+    expect(screen.getByTestId('map-filter-all').props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ minHeight: 48 })])
+    )
+  })
+
+  it('keeps the graph node detail controls accessible', () => {
+    mockUseGraph.mockReturnValue({
+      nodes: [{ id: 'n1', label: 'Anxiety', type: 'emotion', frequency: 3 }],
+      edges: [],
+      refresh: jest.fn(),
+    })
+    render(<YouScreen />)
+    fireEvent.press(screen.getByTestId('you-tab-map'))
+    expect(screen.getByTestId('graph-zoom-in').props.accessibilityRole).toBe('button')
+    expect(screen.getByTestId('graph-zoom-out').props.accessibilityRole).toBe('button')
   })
 })

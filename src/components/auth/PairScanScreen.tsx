@@ -77,7 +77,13 @@ export function PairScanScreen({ onCancel }: { onCancel: () => void }) {
         <Text style={styles.scanHint}>Point at the code on your other device.</Text>
         {busy && <ActivityIndicator color="#fff" style={styles.spinner} />}
         {error && <Text style={styles.error}>{error}</Text>}
-        <Pressable style={styles.cancelBtn} onPress={onCancel} testID="pair-scan-cancel">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Cancel pairing"
+          style={styles.cancelBtn}
+          onPress={onCancel}
+          testID="pair-scan-cancel"
+        >
           <Text style={styles.cancelBtnText}>Cancel</Text>
         </Pressable>
       </View>
@@ -97,6 +103,15 @@ const makeStyles = (t: Theme) =>
     scanHint: { fontSize: 14, fontFamily: t.fontFamily.uiRegular, color: '#ddd', marginTop: t.spacing.xs },
     spinner: { marginTop: t.spacing.lg },
     error: { color: '#ff9a9a', fontSize: 14, fontFamily: t.fontFamily.uiRegular, marginTop: t.spacing.lg, textAlign: 'center' },
-    cancelBtn: { marginTop: t.spacing.lg, paddingVertical: t.spacing.md, paddingHorizontal: t.spacing['2xl'], borderRadius: t.radii.md, borderWidth: 1, borderColor: '#fff' },
+    cancelBtn: {
+      minHeight: 48,
+      marginTop: t.spacing.lg,
+      paddingVertical: t.spacing.md,
+      paddingHorizontal: t.spacing['2xl'],
+      borderRadius: t.radii.md,
+      borderWidth: 1,
+      borderColor: '#fff',
+      justifyContent: 'center',
+    },
     cancelBtnText: { color: '#fff', fontSize: 15, fontFamily: t.fontFamily.uiSemibold },
   })

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Button, Text } from '@/components/ui'
+import { Button, Card, Text } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 
 /**
@@ -31,16 +31,18 @@ export function RecoveryPhraseView({ phrase, onConfirm, onRetry, loading = false
         safe — never share them.
       </Text>
 
-      <View style={styles.grid} testID="recovery-phrase-grid">
-        {words.map((word, i) => (
-          <View key={`${i}-${word}`} style={styles.wordChip}>
-            <Text variant="caption" color="textMuted" style={styles.wordIndex}>
-              {i + 1}
-            </Text>
-            <Text variant="bodyStrong">{word}</Text>
-          </View>
-        ))}
-      </View>
+      <Card style={styles.phraseCard}>
+        <View style={styles.grid} testID="recovery-phrase-grid">
+          {words.map((word, i) => (
+            <View key={`${i}-${word}`} style={styles.wordChip}>
+              <Text variant="caption" color="textMuted" style={styles.wordIndex}>
+                {i + 1}
+              </Text>
+              <Text variant="bodyStrong">{word}</Text>
+            </View>
+          ))}
+        </View>
+      </Card>
 
       <Pressable
         style={styles.checkboxRow}
@@ -78,7 +80,8 @@ const makeStyles = (t: Theme) =>
     container: { flex: 1, backgroundColor: t.colors.bg },
     body: { padding: t.spacing['2xl'], paddingTop: t.spacing['3xl'] },
     subtitle: { marginTop: t.spacing.sm },
-    grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: t.spacing.xl, gap: t.spacing.sm },
+    phraseCard: { marginTop: t.spacing.xl },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
     wordChip: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -90,7 +93,13 @@ const makeStyles = (t: Theme) =>
       minWidth: '45%',
     },
     wordIndex: { width: 22, fontVariant: ['tabular-nums'] },
-    checkboxRow: { flexDirection: 'row', alignItems: 'center', marginTop: t.spacing.xl, gap: t.spacing.sm },
+    checkboxRow: {
+      minHeight: 48,
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: t.spacing.xl,
+      gap: t.spacing.sm,
+    },
     checkboxLabel: { flexShrink: 1 },
     error: { marginTop: t.spacing.md },
     retry: { marginTop: t.spacing.md },

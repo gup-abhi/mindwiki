@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 
 import { Button, Chip, ProgressBar, Screen, Text, TextField } from '@/components/ui'
@@ -57,15 +57,15 @@ export default function PathRunnerScreen() {
             <>
               <Button title="Done" fullWidth onPress={() => router.replace('/')} />
               {p.deepReady === true && (
-                <Text
-                  variant="label"
-                  color="accent"
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Try Reflect later"
                   style={styles.secondaryLink}
                   onPress={() => router.replace('/(tabs)/query')}
                   testID="path-try-reflect"
                 >
-                  Later, try Reflect →
-                </Text>
+                  <Text variant="label" color="accent">Later, try Reflect →</Text>
+                </Pressable>
               )}
             </>
           )}

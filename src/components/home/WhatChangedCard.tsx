@@ -35,8 +35,8 @@ export function WhatChangedCard({
   }
 
   return (
-    <Card variant="sunken" style={styles.card} testID="what-changed-card">
-      <Text variant="caption" color="accent">
+    <Card variant="surface" style={styles.confirmedCard} testID="what-changed-card">
+      <Text variant="caption" color="knowledgeText">
         This reflection contributed to…
       </Text>
       <View style={styles.row}>
@@ -49,7 +49,7 @@ export function WhatChangedCard({
             style={styles.chip}
             testID="what-changed-page"
           >
-            <Text variant="body">{p.title}</Text>
+            <Text variant="body" color="knowledgeText">{p.title}</Text>
           </Pressable>
         ))}
       </View>
@@ -60,12 +60,13 @@ export function WhatChangedCard({
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     card: { alignSelf: 'stretch', marginTop: t.spacing.md, marginBottom: t.spacing.md },
-    row: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm, marginTop: t.spacing.sm },
-    pendingText: { marginTop: t.spacing.xs },
+    confirmedCard: { alignSelf: 'stretch', marginTop: t.spacing.md, marginBottom: t.spacing.md, backgroundColor: t.colors.knowledgeMuted, borderColor: t.colors.knowledge },
     chip: {
       paddingVertical: t.spacing.xs,
       paddingHorizontal: t.spacing.md,
       borderRadius: t.radii.pill,
-      backgroundColor: t.colors.surfaceAlt,
+      backgroundColor: t.colors.knowledge,
     },
+    row: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm, marginTop: t.spacing.sm },
+    pendingText: { marginTop: t.spacing.xs },
   })

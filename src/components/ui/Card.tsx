@@ -15,7 +15,12 @@ interface CardProps {
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    base: { borderRadius: t.radii.lg, padding: t.spacing.lg, ...t.shadows.low },
+    base: {
+      borderRadius: t.radii.lg,
+      padding: t.spacing.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.colors.border,
+    },
     surface: { backgroundColor: t.colors.surface },
     accent: { backgroundColor: t.colors.accentMuted },
     sunken: { backgroundColor: t.colors.surfaceSunken },

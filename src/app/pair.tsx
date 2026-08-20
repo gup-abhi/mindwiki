@@ -101,7 +101,13 @@ export default function Pair() {
             <View style={styles.qrCode}>
               <QRCode value={payload} size={240} />
             </View>
-            <Pressable style={styles.reload} onPress={() => generate()} testID="pair-reload">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Reload pairing code"
+              style={styles.reload}
+              onPress={() => generate()}
+              testID="pair-reload"
+            >
               <Text variant="label" color="accent">
                 Reload code
               </Text>
@@ -122,5 +128,11 @@ const makeStyles = (t: Theme) =>
     qrCode: { backgroundColor: '#fff', padding: t.spacing.md, borderRadius: t.radii.md },
     error: { textAlign: 'center' },
     retry: { marginTop: t.spacing.lg },
-    reload: { marginTop: t.spacing.xl, paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.xl },
+    reload: {
+      minHeight: 48,
+      marginTop: t.spacing.xl,
+      paddingVertical: t.spacing.sm,
+      paddingHorizontal: t.spacing.xl,
+      justifyContent: 'center',
+    },
   })

@@ -15,12 +15,16 @@ interface ChipProps {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     base: {
+      minHeight: 48,
+      justifyContent: 'center',
       borderRadius: t.radii.pill,
       paddingVertical: t.spacing.sm,
       paddingHorizontal: t.spacing.lg,
       backgroundColor: t.colors.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.colors.border,
     },
-    selected: { backgroundColor: t.colors.accent },
+    selected: { backgroundColor: t.colors.accentMuted, borderColor: t.colors.accent },
     pressed: { opacity: 0.85 },
   })
 
@@ -42,7 +46,7 @@ export function Chip({ label, selected = false, onPress, testID }: ChipProps) {
       testID={testID}
       style={({ pressed }) => [styles.base, selected && styles.selected, pressed && styles.pressed]}
     >
-      <Text variant="label" color={selected ? 'primaryText' : 'textPrimary'}>
+      <Text variant="label" color={selected ? 'accentText' : 'textPrimary'}>
         {label}
       </Text>
     </Pressable>

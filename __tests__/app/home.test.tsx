@@ -202,6 +202,17 @@ describe('Home dashboard', () => {
     expect(mockPush).toHaveBeenCalledWith('/entries')
   })
 
+  it('prioritizes capture before recent continuity and secondary insight', async () => {
+    mockList.mockResolvedValue(ok([entry()]))
+    render(<Home />)
+    await waitFor(() => expect(screen.getByText('a tense meeting', { includeHiddenElements: true })).toBeTruthy())
+
+    const labels = screen.getAllByRole('button').map((node) => node.props.testID)
+    expect(labels.indexOf('home-new-entry')).toBeGreaterThanOrEqual(0)
+    expect(labels.indexOf('home-new-entry')).toBeLessThan(labels.indexOf('home-view-all'))
+    expect(screen.getByText('Recent entries')).toBeTruthy()
+  })
+
   it('keeps Home focused on capture and recent continuity', async () => {
     mockList.mockResolvedValue(ok([entry()]))
     render(<Home />)

@@ -36,7 +36,7 @@ export function ListRow({ title, subtitle, onPress, right, testID }: ListRowProp
           {title}
         </Text>
         {subtitle ? (
-          <Text variant="caption" color="textSecondary" numberOfLines={1}>
+          <Text variant="caption" color="textSecondary">
             {subtitle}
           </Text>
         ) : null}

@@ -89,6 +89,10 @@ const makeStyles = (t: Theme) =>
       borderRadius: t.radii.lg,
     },
     user: { backgroundColor: t.colors.accent },
-    assistant: { backgroundColor: t.colors.surfaceAlt },
-    retry: { marginTop: t.spacing.xs, paddingVertical: t.spacing.xs },
+    assistant: {
+      backgroundColor: t.colors.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.colors.border,
+    },
+    retry: { marginTop: t.spacing.xs, paddingVertical: t.spacing.xs, minHeight: 48, justifyContent: 'center' },
   })

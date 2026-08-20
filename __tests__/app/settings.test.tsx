@@ -319,4 +319,30 @@ describe('Settings', () => {
     expect(screen.getByRole('header', { name: 'Sync' })).toBeTruthy()
     expect(screen.getByRole('header', { name: 'Account' })).toBeTruthy()
   })
+
+  it('keeps preference controls at the full interaction target', () => {
+    render(<Settings />)
+    expect(screen.getByTestId('appearance-system').props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ minHeight: 48 })])
+    )
+    expect(screen.getByTestId('settings-app-lock').props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ minHeight: 48 })])
+    )
+  })
+
+  it('keeps paired-device rows readable and navigable', () => {
+    const refresh = jest.fn()
+    mockDevices.mockReturnValue({
+      devices: [{ id: 'd1', label: 'Pixel 7', platform: 'android', paired_at: Date.now() }],
+      loading: false,
+      refresh,
+      currentDeviceId: 'other',
+      logoutDevice: jest.fn(),
+    })
+    render(<Settings />)
+    expect(screen.getByTestId('settings-device').props.style).toEqual(
+      expect.objectContaining({ minHeight: 48 })
+    )
+    expect(screen.getByTestId('settings-device-logout').props.accessibilityRole).toBe('button')
+  })
 })

@@ -48,7 +48,7 @@ export function ConversationComposer({ sending, onSend, seed }: Props) {
     <View style={styles.row}>
       <TextInput
         ref={inputRef}
-        style={[styles.input, { height }]}
+        style={[styles.input, sending && styles.inputDisabled, { height }]}
         value={text}
         onChangeText={setText}
         onContentSizeChange={(e) =>
@@ -93,12 +93,16 @@ const makeStyles = (t: Theme) =>
       borderWidth: 1,
       borderColor: t.colors.border,
       borderRadius: t.radii.md,
+      backgroundColor: t.colors.surfaceAlt,
       paddingHorizontal: t.spacing.lg,
       paddingVertical: t.spacing.sm + 2,
       fontSize: t.typography.body.fontSize,
       fontFamily: t.fontFamily.serifRegular,
       color: t.colors.textPrimary,
-      backgroundColor: t.colors.surface,
       textAlignVertical: 'top', // Android: start text at the top, not vertically centered
+    },
+    inputDisabled: {
+      backgroundColor: t.colors.surfaceSunken,
+      color: t.colors.textMuted,
     },
   })

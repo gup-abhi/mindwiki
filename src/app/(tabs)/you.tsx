@@ -342,6 +342,7 @@ export default function YouScreen() {
                 subtitle={`${item.count} ${item.count === 1 ? 'page' : 'pages'}`}
                 onPress={() => router.push(`/wiki/category/${item.key}`)}
                 right={<Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />}
+                testID={`you-category-${item.key}`}
               />
             )}
           />
@@ -352,11 +353,11 @@ export default function YouScreen() {
       {tab === 'patterns' && (
         <Screen scroll edges={['left', 'right']}>
           {digest && !digestLoading && (
-            <Card variant="accent" style={styles.digestCard} onPress={() => router.push('/digest')}>
-              <Text variant="subtitle" color="accentText">
+            <Card variant="surface" style={styles.digestCard} onPress={() => router.push('/digest')}>
+              <Text variant="subtitle" color="knowledgeText">
                 Your weekly digest is ready
               </Text>
-              <Text variant="caption" color="accentText" style={styles.digestSub}>
+              <Text variant="caption" color="knowledgeText" style={styles.digestSub}>
                 Avg mood {digest.avgMood.toFixed(1)} · {digest.entryCount} entries → View full
               </Text>
             </Card>
@@ -463,6 +464,7 @@ export default function YouScreen() {
                     closeNodeDetails()
                   }}
                   style={[styles.pill, filter === f && styles.pillActive]}
+                  testID={`map-filter-${f}`}
                 >
                   <Text
                     style={[styles.pillText, filter === f && styles.pillTextActive]}
@@ -580,7 +582,12 @@ export default function YouScreen() {
                   </ScrollView>
 
                   <View style={styles.nodeCardActions}>
-                    <Pressable onPress={() => confirmDrop(selected)} testID="graph-drop">
+                    <Pressable
+                      onPress={() => confirmDrop(selected)}
+                      style={styles.nodeCardAction}
+                      accessibilityRole="button"
+                      testID="graph-drop"
+                    >
                       <Text style={styles.nodeCardDrop}>Remove from connections</Text>
                     </Pressable>
                   </View>
@@ -616,6 +623,7 @@ export default function YouScreen() {
                     closeNodeDetails()
                   }}
                   style={[styles.pill, filter === f && styles.pillActive]}
+                  testID={`map-filter-${f}`}
                 >
                   <Text style={[styles.pillText, filter === f && styles.pillTextActive]}>{f}</Text>
                 </Pressable>
@@ -781,12 +789,16 @@ function MoodRhythm({ data }: { data: WeekdayTimeMood }) {
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
     // Segment switcher
-    header: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md, backgroundColor: t.colors.bg },
+    header: {
+      paddingHorizontal: t.spacing.xl,
+      paddingTop: t.spacing.md,
+      paddingBottom: t.spacing.sm,
+      backgroundColor: t.colors.bg,
+    },
     tabDescription: {
       alignSelf: 'center',
       width: '100%',
-      marginTop: t.spacing.xs,
-      marginBottom: t.spacing.xs,
+      marginTop: t.spacing.sm,
       color: t.colors.textSecondary,
       fontSize: 15,
       lineHeight: 21,
@@ -805,9 +817,13 @@ const makeStyles = (t: Theme) =>
 
     // Patterns segment
     h1: { marginTop: t.spacing.sm },
-    digestCard: { marginTop: t.spacing.md },
+    digestCard: {
+      marginTop: t.spacing.md,
+      backgroundColor: t.colors.knowledgeMuted,
+      borderColor: t.colors.knowledge,
+    },
     digestSub: { marginTop: t.spacing.xs },
-    card: { marginTop: t.spacing.lg },
+    card: { marginTop: t.spacing.lg, borderColor: t.colors.border },
     cardTitle: { marginBottom: t.spacing.md },
     empty: { marginTop: t.spacing['2xl'] },
     trendRow: { paddingVertical: t.spacing.md },
@@ -835,9 +851,22 @@ const makeStyles = (t: Theme) =>
     rhythmMsg: { marginTop: t.spacing.sm },
 
     // Map segment
-    mapTopRow: { flexDirection: 'row', alignItems: 'center', paddingTop: t.spacing.sm },
+    mapTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingTop: t.spacing.sm,
+      paddingBottom: t.spacing.sm,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: t.colors.divider,
+    },
     fullScreenGraph: { flex: 1, backgroundColor: t.colors.bg },
-    fullScreenTopRow: { flexDirection: 'row', alignItems: 'center' },
+    fullScreenTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingBottom: t.spacing.sm,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: t.colors.divider,
+    },
     fullScreenCanvas: { flex: 1 },
     fullScreenPillBar: {},
     mapPillBar: {},
@@ -848,13 +877,20 @@ const makeStyles = (t: Theme) =>
       zIndex: 2,
       backgroundColor: t.colors.surfaceAlt,
       borderRadius: t.radii.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.colors.border,
       paddingVertical: t.spacing.xs,
       transform: [{ translateY: -76 }],
       ...t.shadows.low,
     },
     graphControlsFullScreen: {},
-    pillBar: { flexGrow: 1, maxHeight: 40 },
-    hiddenLink: { paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.xs },
+    pillBar: { flexGrow: 1, maxHeight: 48 },
+    hiddenLink: {
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingHorizontal: t.spacing.lg,
+      paddingVertical: t.spacing.xs,
+    },
     hiddenText: {
       color: t.colors.accent,
       fontSize: 13,
@@ -862,13 +898,17 @@ const makeStyles = (t: Theme) =>
     },
     pills: { paddingHorizontal: t.spacing.lg, gap: t.spacing.sm, alignItems: 'center' },
     pill: {
+      minHeight: 48,
+      justifyContent: 'center',
       paddingVertical: t.spacing.xs,
       paddingHorizontal: t.spacing.lg,
       borderRadius: t.radii.pill,
       backgroundColor: t.colors.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.colors.border,
       alignSelf: 'flex-start',
     },
-    pillActive: { backgroundColor: t.colors.primary },
+    pillActive: { backgroundColor: t.colors.primary, borderColor: t.colors.primary },
     pillText: {
       color: t.colors.textPrimary,
       fontSize: 13,
@@ -891,6 +931,8 @@ const makeStyles = (t: Theme) =>
       right: t.spacing.xl,
       backgroundColor: t.colors.surface,
       borderRadius: t.radii.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.colors.border,
       padding: t.spacing.lg,
       ...t.shadows.high,
     },
@@ -922,9 +964,10 @@ const makeStyles = (t: Theme) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      minHeight: 48,
       paddingVertical: t.spacing.sm,
       borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: t.colors.surfaceAlt,
+      borderTopColor: t.colors.divider,
       gap: t.spacing.md,
     },
     nodeLinkTitle: {
@@ -950,6 +993,11 @@ const makeStyles = (t: Theme) =>
       justifyContent: 'space-between',
       alignItems: 'center',
       marginTop: t.spacing.md,
+    },
+    nodeCardAction: {
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingVertical: t.spacing.xs,
     },
     nodeCardDrop: { fontSize: 15, fontFamily: t.fontFamily.uiSemibold, color: t.colors.danger },
     nodeCardClose: { fontSize: 15, fontFamily: t.fontFamily.uiSemibold, color: t.colors.accent },

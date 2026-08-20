@@ -30,10 +30,27 @@ Every redesign slice must preserve existing business behavior and test IDs unles
 2. **Let content breathe.** Use the existing 4-point spacing scale and restrained surfaces instead of decoration or density.
 3. **Use typography to create hierarchy.** Lora is for reflective reading and authored content; Nunito is for controls, navigation, labels, and status.
 4. **Reveal progressively.** Show the essential context first; expose detail when the user asks for it.
-5. **Make calm feel intentional.** Use warm neutrals, sage accents, gentle borders, and low elevation. Avoid visual noise.
+5. **Make calm feel intentional.** Use warm paper neutrals, restrained teal interaction, gentle borders, and low elevation. Avoid visual noise.
 6. **Make state truthful.** Saved, queued, processing, failed, and complete are different states and must not be visually conflated.
-7. **Design for return, not compulsion.** The product should be easy to leave and reassuring to return to.
-8. **Keep personalization inspectable.** Defaults and suggestions must be editable and grounded in local evidence.
+7. **Keep knowledge transparent.** Use the indigo knowledge roles only for evidence-backed or explicitly tentative generated knowledge, and keep it visually distinct from user-authored content and pending work.
+8. **Design for return, not compulsion.** The product should be easy to leave and reassuring to return to.
+9. **Keep personalization inspectable.** Defaults and suggestions must be editable and grounded in local evidence.
+
+### Color position
+
+MindWiki uses a warm-paper background with restrained teal for general interaction and an indigo family for generated-knowledge provenance. This is a hierarchy and transparency decision, not a claim that a hue universally produces a psychological effect. Color associations are contextual and culturally learned; readability, contrast, dark-mode legibility, and a clear non-color distinction take priority.
+
+The first system/Home slice was informed by familiar content-first patterns in Day One, Apple Journal, and Stoic, alongside caution from Rosebud, Finch, Headspace, Calm, and Reflectly about separating user words, prompts, generated interpretation, and attention-oriented rewards. The resulting thesis is: **a private writing room with a transparent knowledge layer**.
+
+Research references:
+
+- [Day One](https://dayoneapp.com/) and [Day One features](https://dayoneapp.com/features/)
+- [Apple Journal announcement](https://www.apple.com/newsroom/2023/12/apple-launches-journal-app-for-reflecting-on-everyday-moments/)
+- [Stoic](https://www.stoicroutine.com/), [Rosebud](https://rosebud.app/), [Finch](https://finchcare.com/), [Headspace](https://www.headspace.com/), [Calm](https://www.calm.com/), and [Reflectly](https://reflectly.app/)
+- [WCAG 2.2 contrast minimum](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html), [non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html), and [use of color](https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html)
+- [Elliot & Maier, Color Psychology](https://doi.org/10.1146/annurev-psych-010213-115035)
+- [Jonauskaite et al., color-emotion associations](https://doi.org/10.1177/0956797620948810)
+- [Apple dark mode guidance](https://developer.apple.com/design/human-interface-guidelines/dark-mode) and [Material dark theme guidance](https://m2.material.io/design/color/dark-theme.html)
 
 ### Explicit anti-patterns
 
@@ -189,14 +206,27 @@ Update this table as each phase ships. “Device status” must reflect actual i
 
 | Surface | Current concern | Phase | Tests | Device status | Rollback condition |
 | --- | --- | ---: | --- | --- | --- |
-| Theme and primitives | Shared contracts exist but target/motion/selected-state gaps remain | 1 | Theme + UI suites | Pending | Existing component behavior regresses |
-| Bottom tabs | Four tabs are correct; safe-area and explicit state contract needs hardening | 2 | Tab/layout suite | Pending | Route order or tab state changes |
-| Home | Too many competing cards/actions | 3 | Home suite | Pending | Existing entry/path/status behavior changes |
-| Reflect | Local segmented control and dense start state | 4 | Reflect suite | Pending | Composer/history/back/crisis behavior changes |
-| You | Large mixed Pages/Patterns/Map screen | 5 | Wiki/graph suites | Pending | Focus, opaque IDs, or node behavior changes |
-| Settings | Long card stack mixes security and preferences | 6 | Settings suite | Pending | Sync/logout/delete/recovery behavior changes |
-| Entry/Auth/onboarding | Duplicated inputs and high-sensitivity flows | 7 | Entry/auth/onboarding suites | Pending | Draft, privacy, recovery, or Fabric behavior changes |
-| Remaining routes | Local recipes remain outside primary surfaces | 8 | Focused route suites | Pending | Privacy or route behavior changes |
+| Theme and primitives | Warm-paper/teal system with indigo knowledge roles; shared target/motion/selected-state contracts hardened | 1 | Theme + UI suites | Pending physical-device verification | Existing component behavior or contrast contract regresses |
+| Bottom tabs | Four labeled destinations with full-cell targets, semantic selection, and safe-area-aware quiet surface | 2 | Tab/layout suite | Pending physical-device verification | Route order, labels, or tab state changes |
+| Home | Capture-first hierarchy with transparent pending/confirmed knowledge states | 3 | Home + Home component suites | Pending physical-device verification | Existing entry/path/status behavior changes or pending work looks confirmed |
+| Reflect | Private companion start state and conversation surfaces refined with semantic borders, quiet surfaces, and full-size feeling chips | 4 | Query + composer + motion suites | Pending physical-device verification | Composer/history/back/crisis behavior changes |
+| You | Pages, Patterns, and Map refined with transparent knowledge, evidence, and graph hierarchy | 5 | You + wiki/graph suites | Pending physical-device verification | Focus, opaque IDs, category navigation, chart, or node behavior changes |
+| Settings | Long card stack mixes security and preferences | 6 | Settings suite | Pending physical-device verification | Sync/logout/delete/recovery behavior changes |
+
+Reflect preserves a clear visual distinction between authored messages, companion synthesis, source provenance, pending work, and crisis support. User bubbles use the interaction teal; assistant replies use a quiet bordered surface; source affordances remain inspectable and pending states do not imply a confirmed wiki change.
+
+Reflect migration status: automated query, composer, and reduced-motion suites pass. iOS and Android/Fabric verification remains pending.
+
+You preserves a clear distinction between generated knowledge, evidence-backed patterns, and graph relationships. Pages remain navigational, patterns remain grounded in local mood/entry data, and Map labels describe connections rather than diagnoses or certainty.
+
+You migration status: automated You, wiki, graph-route, and segmented-control suites pass. iOS and Android/Fabric verification remains pending.
+
+Settings keeps preferences, security state, sync/recovery status, and destructive account actions visually distinct while preserving their existing privacy and confirmation flows.
+
+Settings migration status: automated Settings suite passes. iOS and Android/Fabric verification remains pending.
+
+| Auth and recovery | Credential inputs now share themed field semantics; recovery phrase hierarchy and targets refined | 7 | Auth, recovery, pairing, and layout suites | Pending physical-device verification | Auth/recovery/pairing behavior, privacy, or Fabric input behavior changes |
+| Remaining routes | Onboarding/support, journal, guided paths, Trends, Wiki/graph, pairing, and safety surfaces now use the shared semantic recipes and interaction contracts | 8 | Focused route suites + full suite (all pass) | Pending physical-device verification | Privacy, route behavior, native scanner, or safety behavior changes |
 
 ## SPARC and TDD workflow
 

@@ -105,10 +105,12 @@ const makeStyles = (t: Theme) =>
     title: {},
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
     chip: {
+      minHeight: 48,
       borderRadius: t.radii.pill,
       paddingVertical: t.spacing.xs,
       paddingHorizontal: t.spacing.md,
       backgroundColor: t.colors.surfaceAlt,
+      justifyContent: 'center',
     },
     chipLink: { backgroundColor: t.colors.accentMuted },
   })

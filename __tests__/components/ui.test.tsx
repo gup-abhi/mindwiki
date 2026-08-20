@@ -29,11 +29,22 @@ describe('ui primitives', () => {
     expect(haptics.light).toHaveBeenCalled()
   })
 
-  it('Button does nothing when disabled', () => {
+  it('Button exposes disabled and busy accessibility state', () => {
     const onPress = jest.fn()
     renderWithTheme(<Button title="Go" onPress={onPress} disabled testID="btn2" />)
+    expect(screen.getByTestId('btn2').props.accessibilityState).toEqual({ disabled: true, busy: false })
     fireEvent.press(screen.getByTestId('btn2'))
     expect(onPress).not.toHaveBeenCalled()
+
+    renderWithTheme(<Button title="Loading" onPress={onPress} loading testID="btn-loading" />)
+    expect(screen.getByTestId('btn-loading').props.accessibilityState).toEqual({ disabled: true, busy: true })
+  })
+
+  it('keeps every button size at least 48dp tall', () => {
+    for (const size of ['sm', 'md', 'lg'] as const) {
+      renderWithTheme(<Button title={size} size={size} onPress={jest.fn()} testID={`btn-${size}`} />)
+      expect(flattenStyle(screen.getByTestId(`btn-${size}`).props.style)).toEqual(expect.objectContaining({ minHeight: 48 }))
+    }
   })
 
   it('Card renders children and is pressable', () => {

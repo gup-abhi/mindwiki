@@ -62,7 +62,13 @@ export default function BreatheScreen() {
         </View>
         <View style={styles.footer}>
           <Button title="Write about it" fullWidth onPress={() => router.replace('/entry')} testID="breathe-write" />
-          <Pressable onPress={() => router.back()} testID="breathe-done" style={styles.doneLink}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Done"
+            onPress={() => router.back()}
+            testID="breathe-done"
+            style={styles.doneLink}
+          >
             <Text variant="label" color="textMuted">
               Done
             </Text>
@@ -84,6 +90,7 @@ export default function BreatheScreen() {
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel={haptic ? 'Turn off vibration' : 'Turn on vibration'}
+          accessibilityState={{ selected: haptic }}
           testID="breathe-haptic"
         >
           <Ionicons name={haptic ? 'pulse' : 'pulse-outline'} size={22} color={theme.colors.textMuted} />
@@ -131,5 +138,10 @@ const makeStyles = (t: Theme) =>
     cycle: { marginTop: t.spacing['2xl'] },
     doneSub: { marginTop: t.spacing.md },
     footer: { paddingHorizontal: t.spacing['2xl'], paddingBottom: t.spacing.xl, gap: t.spacing.md },
-    doneLink: { alignItems: 'center', paddingVertical: t.spacing.sm },
+    doneLink: {
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: t.spacing.sm,
+    },
   })

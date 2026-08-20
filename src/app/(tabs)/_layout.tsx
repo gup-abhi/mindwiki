@@ -13,9 +13,16 @@ export default function TabsLayout() {
   const tabBarStyle = StyleSheet.create({
     bar: {
       minHeight: 56 + insets.bottom,
+      paddingTop: theme.spacing.xs,
       paddingBottom: insets.bottom,
       backgroundColor: theme.colors.surface,
+      borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: theme.colors.border,
+      elevation: 0,
+      shadowOpacity: 0,
+    },
+    item: {
+      minHeight: 48,
     },
   })
   return (
@@ -26,7 +33,12 @@ export default function TabsLayout() {
         tabBarActiveTintColor: theme.colors.accent,
         tabBarInactiveTintColor: theme.colors.textMuted,
         tabBarStyle: tabBarStyle.bar,
-        tabBarLabelStyle: { fontFamily: theme.fontFamily.uiSemibold, fontSize: 11 },
+        tabBarItemStyle: tabBarStyle.item,
+        tabBarLabelStyle: {
+          fontFamily: theme.fontFamily.uiSemibold,
+          fontSize: 11,
+          lineHeight: 14,
+        },
       }}
     >
       <Tabs.Screen

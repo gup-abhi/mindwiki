@@ -28,7 +28,16 @@ describe('TabsLayout', () => {
   it('keeps the four labeled destinations in order and reserves safe-area space', () => {
     renderWithTheme(<TabsLayout />)
 
-    const props = mockTabs.mock.calls[0][0] as { screenOptions: { tabBarStyle: Record<string, unknown> } }
+    const props = mockTabs.mock.calls[0][0] as {
+      screenOptions: {
+        tabBarStyle: Record<string, unknown>
+        tabBarItemStyle: Record<string, unknown>
+        tabBarLabelStyle: Record<string, unknown>
+        tabBarActiveTintColor: string
+        tabBarInactiveTintColor: string
+      }
+      screenListeners: { tabPress: () => void }
+    }
     const screens = mockScreens.mock.calls.map(([screen]) => screen as { name: string; options: Record<string, unknown> })
     const names = screens.map((screen) => screen.name)
     const options = screens.map((screen) => screen.options)
@@ -36,6 +45,26 @@ describe('TabsLayout', () => {
     expect(names).toEqual(['index', 'you', 'query', 'settings'])
     expect(options.map((item) => item.title)).toEqual(['Home', 'You', 'Reflect', 'Settings'])
     expect(options.map((item) => item.tabBarAccessibilityLabel)).toEqual(['Home', 'You', 'Reflect', 'Settings'])
-    expect(props.screenOptions.tabBarStyle).toEqual(expect.objectContaining({ minHeight: 90, paddingBottom: 34 }))
+    expect(props.screenOptions.tabBarStyle).toEqual(
+      expect.objectContaining({
+        minHeight: 90,
+        paddingBottom: 34,
+        borderTopWidth: expect.any(Number),
+        elevation: 0,
+        shadowOpacity: 0,
+      })
+    )
+    expect(props.screenOptions.tabBarItemStyle).toEqual(
+      expect.objectContaining({ minHeight: 48 })
+    )
+    expect(props.screenOptions.tabBarLabelStyle).toEqual(
+      expect.objectContaining({ fontSize: 11, lineHeight: 14 })
+    )
+    expect(props.screenOptions.tabBarActiveTintColor).toBe('#2D6965')
+    expect(props.screenOptions.tabBarInactiveTintColor).toBe('#5E6B64')
+    expect(typeof props.screenListeners.tabPress).toBe('function')
+    for (const item of options) {
+      expect(typeof item.tabBarIcon).toBe('function')
+    }
   })
 })

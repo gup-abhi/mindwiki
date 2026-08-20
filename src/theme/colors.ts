@@ -1,9 +1,8 @@
 /**
  * Color tokens. `lightColors` and `darkColors` share an identical key shape so
  * every themed style can read `theme.colors.<role>` and work in both modes.
- * Calm sage/eucalyptus palette on a warm cream base — green reads restorative
- * for a journaling app. Neutrals carry a faint green-gray undertone so nothing
- * clashes with the accent.
+ * Warm editorial neutrals with restrained teal interaction and indigo knowledge
+ * accents. Color supports hierarchy and provenance; it does not prescribe mood.
  */
 export interface ColorTokens {
   bg: string
@@ -24,6 +23,9 @@ export interface ColorTokens {
   success: string
   danger: string
   dangerText: string
+  knowledge: string
+  knowledgeMuted: string
+  knowledgeText: string
   overlay: string
   // Mood scale (1–5): a red→amber→green diverging ramp, reused for the entry
   // color bar + mood chips so mood reads at a glance.
@@ -51,25 +53,28 @@ export const lightColors: ColorTokens = {
   surfaceAlt: '#EDF3EE',
   surfaceSunken: '#E6EDE6',
   textPrimary: '#222B25',
-  textSecondary: '#5F6E66',
-  textMuted: '#9AA69D',
+  textSecondary: '#52605A',
+  textMuted: '#5E6B64',
   textInverse: '#FFFFFF',
-  accent: '#7BA589',
-  accentMuted: '#E4EDE6',
-  accentText: '#3C6450',
-  primary: '#2F4739',
+  accent: '#2D6965',
+  accentMuted: '#DCEBE7',
+  accentText: '#245650',
+  primary: '#245650',
   primaryText: '#FFFFFF',
-  border: '#E4EBE4',
-  divider: '#EBF1EC',
-  success: '#3C8F66',
-  danger: '#C75D5D',
+  border: '#D8E1DB',
+  divider: '#E5EBE6',
+  success: '#28724F',
+  danger: '#A13D3D',
   dangerText: '#FFFFFF',
+  knowledge: '#5C5F91',
+  knowledgeMuted: '#E5E5F3',
+  knowledgeText: '#454873',
   overlay: 'rgba(34,43,37,0.35)',
-  moodVeryLow: '#C75D5D',
-  moodLow: '#D69A6F',
-  moodOkay: '#E0BE72',
-  moodGood: '#84C29A',
-  moodGreat: '#3C8F66',
+  moodVeryLow: '#B85C5C',
+  moodLow: '#C98A68',
+  moodOkay: '#C7A45E',
+  moodGood: '#6FA77F',
+  moodGreat: '#3C8062',
   graphEmotion: '#E08A8A',
   graphSituation: '#6FA8DC',
   graphPerson: '#84C29A',
@@ -82,30 +87,33 @@ export const lightColors: ColorTokens = {
 }
 
 export const darkColors: ColorTokens = {
-  bg: '#121613',
+  bg: '#121718',
   surface: '#1B211C',
   surfaceAlt: '#242B25',
   surfaceSunken: '#141915',
   textPrimary: '#E9F0EA',
-  textSecondary: '#AFB9B1',
-  textMuted: '#7C867E',
-  textInverse: '#121613',
-  accent: '#93C2A4',
-  accentMuted: '#2B3A2F',
-  accentText: '#C4E2CE',
-  primary: '#93C2A4',
-  primaryText: '#121613',
-  border: '#2A332C',
-  divider: '#222A24',
-  success: '#6FB48C',
-  danger: '#E08A8A',
-  dangerText: '#121613',
+  textSecondary: '#B6C2BB',
+  textMuted: '#A1B0A8',
+  textInverse: '#121718',
+  accent: '#79BBB3',
+  accentMuted: '#24433F',
+  accentText: '#A9D8D1',
+  primary: '#79BBB3',
+  primaryText: '#121718',
+  border: '#344241',
+  divider: '#293635',
+  success: '#79C49A',
+  danger: '#EF8C8C',
+  dangerText: '#121718',
+  knowledge: '#A9ACE0',
+  knowledgeMuted: '#343655',
+  knowledgeText: '#D5D6F4',
   overlay: 'rgba(0,0,0,0.55)',
-  moodVeryLow: '#E08A8A',
-  moodLow: '#E0AE85',
-  moodOkay: '#E8CD87',
-  moodGood: '#93C2A4',
-  moodGreat: '#6FB48C',
+  moodVeryLow: '#D98282',
+  moodLow: '#D6A27D',
+  moodOkay: '#D6BD76',
+  moodGood: '#84B996',
+  moodGreat: '#69A987',
   graphEmotion: '#E08A8A',
   graphSituation: '#6FA8DC',
   graphPerson: '#84C29A',

@@ -11,6 +11,8 @@ describe('DesignPreview', () => {
     expect(screen.getByText('Type and surfaces')).toBeTruthy()
     expect(screen.getByText('Actions')).toBeTruthy()
     expect(screen.getByText('Selection and navigation')).toBeTruthy()
+    expect(screen.getByText('Generated knowledge')).toBeTruthy()
+    expect(screen.getByTestId('design-preview-knowledge')).toBeTruthy()
     expect(screen.getByText('Forms and states')).toBeTruthy()
     expect(screen.getByText('Truthful status')).toBeTruthy()
     expect(screen.getByText('Static, non-sensitive examples of the Quiet Editorial interface contract.')).toBeTruthy()

@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Button, Text } from '@/components/ui'
+import { Button, Text, TextField } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { useAuth, type AuthMode } from '@/hooks/useAuth'
 
@@ -85,11 +85,9 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
             : 'Sign in to restore your encrypted journal and continue on this device.'}
         </Text>
 
-        <TextInput
-          style={styles.input}
+        <TextField
           accessibilityLabel="Email"
           placeholder="Email"
-          placeholderTextColor={theme.colors.textMuted}
           autoCapitalize="none"
           keyboardType="email-address"
           autoComplete="email"
@@ -97,13 +95,13 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
           value={email}
           onChangeText={setEmail}
           testID="auth-email"
+          style={styles.input}
         />
         <View style={styles.passwordWrap}>
-          <TextInput
+          <TextField
             style={[styles.input, styles.passwordInput]}
             accessibilityLabel="Password"
             placeholder="Password (8+ characters)"
-            placeholderTextColor={theme.colors.textMuted}
             secureTextEntry={!showPassword}
             autoCapitalize="none"
             autoComplete={isRegister ? 'new-password' : 'current-password'}
@@ -127,11 +125,10 @@ export function AuthScreen({ initialMode = 'register' }: { initialMode?: AuthMod
         {isRegister && (
           <>
             <View style={styles.passwordWrap}>
-              <TextInput
+              <TextField
                 style={[styles.input, styles.passwordInput]}
                 accessibilityLabel="Confirm password"
                 placeholder="Confirm password"
-                placeholderTextColor={theme.colors.textMuted}
                 secureTextEntry={!showConfirm}
                 autoCapitalize="none"
                 autoComplete="new-password"
@@ -213,18 +210,7 @@ const makeStyles = (t: Theme) =>
     pendingGate: { flex: 1, justifyContent: 'center', padding: t.spacing['2xl'], backgroundColor: t.colors.bg },
     body: { flex: 1, justifyContent: 'center', padding: t.spacing['2xl'] },
     subtitle: { marginTop: t.spacing.sm },
-    input: {
-      borderWidth: 1,
-      borderColor: t.colors.border,
-      borderRadius: t.radii.md,
-      paddingHorizontal: t.spacing.lg,
-      paddingVertical: t.spacing.md + 2,
-      fontSize: t.typography.body.fontSize,
-      fontFamily: t.fontFamily.serifRegular,
-      color: t.colors.textPrimary,
-      backgroundColor: t.colors.surface,
-      marginTop: t.spacing.lg,
-    },
+    input: { marginTop: t.spacing.lg },
     passwordWrap: { marginTop: t.spacing.lg, justifyContent: 'center' },
     passwordInput: { marginTop: 0, paddingRight: 48 },
     eyeButton: {

@@ -47,23 +47,23 @@ export function FirstPageReadyBanner() {
   }
 
   return (
-    <Card variant="accent" style={styles.card} testID="first-page-ready-banner">
+    <Card variant="surface" style={styles.card} testID="first-page-ready-banner">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Review the early insight page ${page.title}`}
         onPress={view}
         testID="first-page-ready-open"
       >
-        <Text variant="label" color="accentText">
+        <Text variant="label" color="knowledgeText">
           An early insight from your reflections
         </Text>
-        <Text variant="body" color="accentText" style={styles.title}>
+        <Text variant="body" color="knowledgeText" style={styles.title}>
           {page.title}
         </Text>
-        <Text variant="caption" color="accentText" style={styles.explanation}>
+        <Text variant="caption" color="knowledgeText" style={styles.explanation}>
           This is a tentative synthesis you can correct or drop anytime.
         </Text>
-        <Text variant="caption" color="accentText" style={styles.cta}>
+        <Text variant="caption" color="knowledgeText" style={styles.cta}>
           Open and review →
         </Text>
       </Pressable>
@@ -85,7 +85,7 @@ export function FirstPageReadyBanner() {
 
 const makeStyles = (t: Theme) =>
   StyleSheet.create({
-    card: { marginTop: t.spacing.lg, alignSelf: 'stretch' },
+    card: { marginTop: t.spacing.lg, alignSelf: 'stretch', backgroundColor: t.colors.knowledgeMuted, borderColor: t.colors.knowledge },
     title: { marginTop: t.spacing.xs },
     explanation: { marginTop: t.spacing.sm },
     cta: { marginTop: t.spacing.sm },

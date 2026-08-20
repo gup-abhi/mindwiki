@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
@@ -36,8 +37,9 @@ const makeStyles = (t: Theme) =>
       borderRadius: t.radii.md,
     },
     sm: { minHeight: 48, paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.lg },
-    md: { paddingVertical: t.spacing.md + 2, paddingHorizontal: t.spacing.xl },
-    lg: { paddingVertical: t.spacing.lg, paddingHorizontal: t.spacing.xl },
+    md: { minHeight: 48, paddingVertical: t.spacing.md + 2, paddingHorizontal: t.spacing.xl },
+    lg: { minHeight: 48, paddingVertical: t.spacing.lg, paddingHorizontal: t.spacing.xl },
+    pressed: { opacity: 0.85 },
     primary: { backgroundColor: t.colors.primary },
     secondary: { backgroundColor: t.colors.surfaceAlt },
     ghost: { backgroundColor: 'transparent' },
@@ -68,6 +70,7 @@ export function Button({
   const styles = useThemedStyles(makeStyles)
   const theme = useTheme()
   const reducedMotion = useReducedMotion()
+  const [pressed, setPressed] = useState(false)
   const isDisabled = disabled || loading
   const tint = theme.colors[textColorFor[variant]]
 
@@ -84,13 +87,23 @@ export function Button({
     <AnimatedPressable
       onPress={handlePress}
       onPressIn={() => {
-        if (!reducedMotion && !isDisabled) scale.value = withTiming(0.97, { duration: 90 })
+        if (isDisabled) return
+        if (reducedMotion) {
+          setPressed(true)
+        } else {
+          scale.value = withTiming(0.97, { duration: 90 })
+        }
       }}
       onPressOut={() => {
-        if (!reducedMotion) scale.value = withTiming(1, { duration: 120 })
+        if (reducedMotion) {
+          setPressed(false)
+        } else {
+          scale.value = withTiming(1, { duration: 120 })
+        }
       }}
       disabled={isDisabled}
       accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
       testID={testID}
       // NOTE: an Animated (reanimated) component must take a static/array style —
       // a function style ({ pressed }) => … is NOT applied, which silently drops
@@ -101,6 +114,7 @@ export function Button({
         styles[variant],
         fullWidth && styles.fullWidth,
         isDisabled && styles.disabled,
+        reducedMotion && pressed && styles.pressed,
         animStyle,
       ]}
     >

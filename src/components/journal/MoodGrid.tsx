@@ -94,6 +94,7 @@ const makeStyles = (t: Theme) =>
     cell: {
       flex: 1,
       aspectRatio: 1,
+      minHeight: 48,
       borderRadius: t.radii.sm,
       borderWidth: 2,
       borderColor: 'transparent', // reserves space so selection adds no layout shift

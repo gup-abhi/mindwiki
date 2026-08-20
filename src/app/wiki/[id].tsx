@@ -179,17 +179,20 @@ export default function WikiPageScreen() {
                 </Card>
               ))}
               {reframes.length > 1 && (
-                <Text
-                  variant="label"
-                  color="accent"
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showEarlier }}
+                  accessibilityLabel={showEarlier ? 'Hide earlier reframes' : 'Show earlier reframes'}
                   onPress={() => setShowEarlier((v) => !v)}
                   style={styles.reframeToggle}
                   testID="wiki-reframes-toggle"
                 >
-                  {showEarlier
-                    ? 'Hide earlier reframes'
-                    : `${reframes.length - 1} earlier ${reframes.length - 1 === 1 ? 'reframe' : 'reframes'}`}
-                </Text>
+                  <Text variant="label" color="accent">
+                    {showEarlier
+                      ? 'Hide earlier reframes'
+                      : `${reframes.length - 1} earlier ${reframes.length - 1 === 1 ? 'reframe' : 'reframes'}`}
+                  </Text>
+                </Pressable>
               )}
             </View>
           )}

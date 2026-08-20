@@ -151,7 +151,7 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     card: {
       flexDirection: 'row',
-      backgroundColor: t.colors.surface,
+      backgroundColor: t.colors.surfaceAlt,
       borderRadius: t.radii.md,
       marginHorizontal: t.spacing.xl,
       marginTop: t.spacing.md,

@@ -78,18 +78,6 @@ export default function Home() {
         ListHeaderComponent={
           <View style={styles.header}>
             <SyncBanner />
-            <ModelDownloadCard />
-            <RecoverySetupCard />
-            <StreakCard
-              current={journalStreak.current}
-              longest={journalStreak.longest}
-              week={week}
-              headline={headline}
-              entries={journalCount}
-              insights={pages.length}
-              freezesAvailable={journalStreak.freezesAvailable}
-              onPress={() => router.push('/trends')}
-            />
             <View style={styles.primaryAction}>
               <Button
                 title="New entry"
@@ -102,6 +90,8 @@ export default function Home() {
                 A private place to capture what is here today.
               </Text>
             </View>
+            <ModelDownloadCard />
+            <RecoverySetupCard />
             <View style={styles.recentHeader}>
               <View>
                 <Text variant="subtitle">Recent entries</Text>
@@ -132,6 +122,16 @@ export default function Home() {
             )}
             <WhatChangedCard pages={reshaped} pending={synthesizing} />
             <FirstPageReadyBanner />
+            <StreakCard
+              current={journalStreak.current}
+              longest={journalStreak.longest}
+              week={week}
+              headline={headline}
+              entries={journalCount}
+              insights={pages.length}
+              freezesAvailable={journalStreak.freezesAvailable}
+              onPress={() => router.push('/trends')}
+            />
             {digestReady && (
               <Card variant="accent" style={styles.fullWidth} onPress={() => router.push('/digest')}>
                 <Text variant="subtitle" color="accentText">

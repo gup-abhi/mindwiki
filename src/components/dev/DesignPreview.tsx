@@ -90,6 +90,17 @@ export function DesignPreview({ onClose }: DesignPreviewProps) {
       </Card>
 
       <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
+        Generated knowledge
+      </Text>
+      <Card variant="surface" style={styles.knowledgeGroup} testID="design-preview-knowledge">
+        <Text variant="label" color="knowledgeText">Confirmed local synthesis</Text>
+        <Text variant="body" color="knowledgeText">
+          A tentative connection is ready to review, correct, or dismiss.
+        </Text>
+        <Text variant="caption" color="knowledgeText">Pending work stays separate until it is confirmed.</Text>
+      </Card>
+
+      <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Forms and states
       </Text>
       <Card variant="surface" style={styles.group}>
@@ -121,6 +132,7 @@ const makeStyles = (t: Theme) =>
     intro: { marginTop: t.spacing.sm },
     section: { marginTop: t.spacing['2xl'], marginBottom: t.spacing.sm, textTransform: 'uppercase' },
     group: { gap: t.spacing.md },
+    knowledgeGroup: { gap: t.spacing.sm, backgroundColor: t.colors.knowledgeMuted, borderColor: t.colors.knowledge },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
     statusText: { marginTop: -t.spacing.sm },
   })

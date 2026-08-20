@@ -75,7 +75,7 @@ const makeStyles = (t: Theme) =>
     blobBL: { bottom: -110, left: -120, backgroundColor: t.colors.graphBehavior },
     blobBR: { bottom: -130, right: -100, backgroundColor: t.colors.graphDistortion },
     content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: t.spacing['2xl'] },
-    eyebrow: { color: '#FFFFFF', opacity: 0.8, letterSpacing: 2, marginBottom: t.spacing.lg },
-    affirmation: { color: '#FFFFFF', textAlign: 'center' },
-    tap: { color: '#FFFFFF', opacity: 0.7, marginTop: t.spacing['2xl'] },
+    eyebrow: { color: t.colors.primaryText, opacity: 0.8, letterSpacing: 2, marginBottom: t.spacing.lg },
+    affirmation: { color: t.colors.primaryText, textAlign: 'center' },
+    tap: { color: t.colors.primaryText, opacity: 0.7, marginTop: t.spacing['2xl'] },
   })

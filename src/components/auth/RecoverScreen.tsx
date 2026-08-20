@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Button, Text } from '@/components/ui'
+import { Button, Text, TextField } from '@/components/ui'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 import { useAuth } from '@/hooks/useAuth'
 import { isValidRecoveryPhrase } from '@/services/auth/recovery'
@@ -43,10 +43,8 @@ export function RecoverScreen({ onCancel }: { onCancel: () => void }) {
           Enter your recovery phrase to restore your journal and set a new password.
         </Text>
 
-        <TextInput
-          style={styles.input}
+        <TextField
           placeholder="Email"
-          placeholderTextColor={theme.colors.textMuted}
           autoCapitalize="none"
           keyboardType="email-address"
           autoComplete="email"
@@ -54,11 +52,11 @@ export function RecoverScreen({ onCancel }: { onCancel: () => void }) {
           value={email}
           onChangeText={setEmail}
           testID="recover-email"
+          style={styles.input}
         />
-        <TextInput
+        <TextField
           style={[styles.input, styles.phraseInput]}
           placeholder="12-word recovery phrase"
-          placeholderTextColor={theme.colors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
           spellCheck={false}
@@ -66,15 +64,15 @@ export function RecoverScreen({ onCancel }: { onCancel: () => void }) {
           textContentType="none"
           importantForAutofill="noExcludeDescendants"
           multiline
+          sensitive
           value={phrase}
           onChangeText={setPhrase}
           testID="recover-phrase"
         />
         <View style={styles.passwordWrap}>
-          <TextInput
+          <TextField
             style={[styles.input, styles.passwordInput]}
             placeholder="New password (8+ characters)"
-            placeholderTextColor={theme.colors.textMuted}
             secureTextEntry={!showPassword}
             autoCapitalize="none"
             autoComplete="new-password"
@@ -96,10 +94,9 @@ export function RecoverScreen({ onCancel }: { onCancel: () => void }) {
         </View>
 
         <View style={styles.passwordWrap}>
-          <TextInput
+          <TextField
             style={[styles.input, styles.passwordInput]}
             placeholder="Confirm new password"
-            placeholderTextColor={theme.colors.textMuted}
             secureTextEntry={!showConfirmPassword}
             autoCapitalize="none"
             autoComplete="new-password"
@@ -167,18 +164,7 @@ const makeStyles = (t: Theme) =>
     container: { flex: 1, backgroundColor: t.colors.bg },
     body: { padding: t.spacing['2xl'], paddingTop: t.spacing['3xl'] },
     subtitle: { marginTop: t.spacing.sm },
-    input: {
-      borderWidth: 1,
-      borderColor: t.colors.border,
-      borderRadius: t.radii.md,
-      paddingHorizontal: t.spacing.lg,
-      paddingVertical: t.spacing.md + 2,
-      fontSize: t.typography.body.fontSize,
-      fontFamily: t.fontFamily.serifRegular,
-      color: t.colors.textPrimary,
-      backgroundColor: t.colors.surface,
-      marginTop: t.spacing.lg,
-    },
+    input: { marginTop: t.spacing.lg },
     phraseInput: { minHeight: 90, textAlignVertical: 'top' },
     passwordWrap: { marginTop: t.spacing.lg, justifyContent: 'center' },
     passwordInput: { marginTop: 0, paddingRight: 48 },

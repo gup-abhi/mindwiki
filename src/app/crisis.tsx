@@ -70,7 +70,12 @@ export default function CrisisScreen() {
           ))}
         </>
       ) : (
-        <Pressable style={styles.softLink} onPress={() => Linking.openURL('tel:988')}>
+        <Pressable
+          style={styles.softLink}
+          onPress={() => Linking.openURL('tel:988')}
+          accessibilityRole="link"
+          accessibilityLabel="Call or text 988 for support"
+        >
           <Text variant="bodyStrong" color="accent">
             If you ever want to talk, 988 is there — call or text, anytime.
           </Text>
@@ -106,7 +111,11 @@ const makeStyles = (t: Theme) =>
     resource: { marginTop: t.spacing.md },
     resourceContact: { marginTop: t.spacing.xs },
     resourceDesc: { marginTop: t.spacing.xs },
-    softLink: { marginTop: t.spacing.xl },
+    softLink: {
+      minHeight: 48,
+      marginTop: t.spacing.xl,
+      justifyContent: 'center',
+    },
     breatheWrap: { marginTop: t.spacing.xl },
     continueWrap: { marginTop: t.spacing.md },
   })

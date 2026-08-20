@@ -100,7 +100,17 @@ describe('QueryScreen (reflective conversation)', () => {
   it('shows the Untangle a thought entry on the start screen', () => {
     mockUse.mockReturnValue(base)
     render(<QueryScreen />)
-    expect(screen.getByTestId('untangle-entry')).toBeTruthy()
+    const untangle = screen.getByTestId('untangle-entry')
+    expect(untangle).toBeTruthy()
+    expect(untangle.props.style).toEqual(expect.objectContaining({ borderWidth: expect.any(Number) }))
+  })
+
+  it('keeps feeling chips at the full interaction target', () => {
+    mockUse.mockReturnValue(base)
+    render(<QueryScreen />)
+    expect(screen.getByTestId('feeling-chip-Anxious').props.style).toEqual(
+      expect.objectContaining({ minHeight: 48 })
+    )
   })
 
   it('tapping Untangle a thought pushes the /untangle route', () => {
