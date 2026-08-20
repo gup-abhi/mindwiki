@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 
-import { Button, Divider, IconButton, Screen, Text } from '@/components/ui'
+import { Button, Card, Divider, IconButton, Screen, Text } from '@/components/ui'
 import { VersionChipRow } from '@/components/wiki/VersionChipRow'
 import { VersionDiff } from '@/components/wiki/VersionDiff'
 import { VersionViewer } from '@/components/wiki/VersionViewer'
@@ -25,6 +25,7 @@ export default function PageEvolutionScreen() {
   const [compare, setCompare] = useState<number | null>(null)
   const [mode, setMode] = useState<Mode>('view')
   const [isPlaying, setIsPlaying] = useState(false)
+  const [showHistoryNote, setShowHistoryNote] = useState(false)
 
   // Build evolution data once the page loads
   const evo = useMemo(() => {
@@ -38,10 +39,6 @@ export default function PageEvolutionScreen() {
     return [...evo.versions, evo.current]
   }, [evo])
 
-  // The chip row consumes the same full archived + live chain normalization as
-  // drift metrics, including a retained-history gap immediately before live vN.
-  const timelineGaps = evo?.gaps ?? []
-
   // When a selected version's content + entry count
   const selectedVersion: EvolutionVersion | null = useMemo(() => {
     if (selected == null || !evo) return null
@@ -54,6 +51,22 @@ export default function PageEvolutionScreen() {
     const found = [...evo.versions, evo.current].find((v) => v.version === compare)
     return found ?? null
   }, [compare, evo])
+
+  const hasHistoryNote = evo != null && (evo.issues.length > 0 || evo.gaps.length > 0)
+
+  useEffect(() => {
+    if (!hasHistoryNote) setShowHistoryNote(false)
+  }, [hasHistoryNote])
+
+  const closeHistoryNote = useCallback(() => {
+    setShowHistoryNote(false)
+  }, [])
+
+  const openHistoryNote = useCallback(() => {
+    setShowHistoryNote(true)
+  }, [])
+
+  const historyNoteAction = showHistoryNote ? closeHistoryNote : openHistoryNote
 
   const onSelect = useCallback(
     (version: number) => {
@@ -151,21 +164,23 @@ export default function PageEvolutionScreen() {
   return (
     <Screen padded={false} animated={false}>
       <View style={styles.header}>
-        <IconButton
-          name="chevron-back"
-          color="accent"
-          accessibilityLabel="Back to page"
-          onPress={() => router.back()}
-          testID="evolution-back"
-        />
-        <View style={styles.headerContent}>
-          <Text accessibilityRole="header" variant="title">
-            {page.title}
-          </Text>
-          <Text variant="caption" color="textMuted" style={styles.meta}>
-            {page.category ?? 'page'} · {page.version} versions · {page.entry_count}{' '}
-            {page.entry_count === 1 ? 'entry' : 'entries'}
-          </Text>
+        <View style={styles.topRow}>
+          <IconButton
+            name="chevron-back"
+            color="accent"
+            accessibilityLabel="Back to page"
+            onPress={() => router.back()}
+            testID="evolution-back"
+          />
+          <View style={styles.headerContent}>
+            <Text accessibilityRole="header" variant="title">
+              {page.title}
+            </Text>
+            <Text variant="caption" color="textMuted" style={styles.meta}>
+              {page.category ?? 'page'} · {page.version} versions · {page.entry_count}{' '}
+              {page.entry_count === 1 ? 'entry' : 'entries'}
+            </Text>
+          </View>
         </View>
 
         {/* Action bar */}
@@ -186,6 +201,16 @@ export default function PageEvolutionScreen() {
             onPress={toggleMode}
             testID="evolution-mode"
           />
+          {hasHistoryNote && (
+            <IconButton
+              name="information-circle-outline"
+              color="accent"
+              accessibilityLabel={showHistoryNote ? 'Hide history note' : 'Show history note'}
+              accessibilityState={{ expanded: showHistoryNote }}
+              onPress={historyNoteAction}
+              testID="evolution-history-note"
+            />
+          )}
           {mode === 'compare' && (
             <Text variant="caption" color="accent" style={styles.compareHint}>
               Tap two versions to compare
@@ -195,13 +220,55 @@ export default function PageEvolutionScreen() {
 
         <VersionChipRow
           versions={timelineVersions}
-          gaps={timelineGaps}
           selectedVersion={selected}
           compareVersion={compare}
           onSelect={onSelect}
           isPlaying={isPlaying}
         />
+
       </View>
+
+      {hasHistoryNote && showHistoryNote && (
+        <View style={styles.modalOverlay} testID="evolution-history-modal">
+          <Pressable
+            style={styles.modalBackdrop}
+            accessibilityRole="button"
+            accessibilityLabel="Close history note"
+            onPress={closeHistoryNote}
+          />
+          <Card style={styles.historyModal}>
+            <Text variant="subtitle" style={styles.historyTitle} accessibilityRole="header">
+              History note
+            </Text>
+            <View style={styles.historyContent}>
+              {evo.issues.map((issue, index) => (
+                <Text
+                  key={`${issue.type}-${issue.version}-${index}`}
+                  variant="caption"
+                  color="textMuted"
+                >
+                  {issue.detail}
+                </Text>
+              ))}
+              {evo.gaps.map((gap) => (
+                <Text
+                  key={`gap-${gap.fromVersion}-${gap.toVersion}`}
+                  variant="caption"
+                  color="textMuted"
+                >
+                  {gap.missing} prior version{gap.missing === 1 ? '' : 's'} were sampled out between v{gap.fromVersion} and v{gap.toVersion}.
+                </Text>
+              ))}
+            </View>
+            <Button
+              title="Close"
+              variant="ghost"
+              onPress={closeHistoryNote}
+              testID="evolution-history-dismiss"
+            />
+          </Card>
+        </View>
+      )}
 
       <ScrollView
         style={styles.body}
@@ -209,32 +276,6 @@ export default function PageEvolutionScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Divider />
-
-        {evo != null && (evo.issues.length > 0 || evo.gaps.length > 0) && (
-          <View style={styles.integrityNotice} testID="evolution-integrity-notice">
-            <Text variant="bodyStrong" color="textSecondary">
-              History note
-            </Text>
-            {evo.issues.map((issue, index) => (
-              <Text
-                key={`${issue.type}-${issue.version}-${index}`}
-                variant="caption"
-                color="textMuted"
-              >
-                {issue.detail}
-              </Text>
-            ))}
-            {evo.gaps.map((gap) => (
-              <Text
-                key={`gap-${gap.fromVersion}-${gap.toVersion}`}
-                variant="caption"
-                color="textMuted"
-              >
-                {gap.missing} prior version{gap.missing === 1 ? '' : 's'} were sampled out between v{gap.fromVersion} and v{gap.toVersion}.
-              </Text>
-            ))}
-          </View>
-        )}
 
         {/* Content area */}
         <View style={styles.contentSection}>
@@ -274,11 +315,13 @@ const makeStyles = (t: Theme) =>
   StyleSheet.create({
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     header: {
+      paddingTop: t.spacing.lg,
+      paddingHorizontal: t.spacing.xl,
+    },
+    topRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: t.spacing.sm,
-      paddingTop: t.spacing.lg,
-      paddingHorizontal: t.spacing.xl,
     },
     headerContent: { flex: 1 },
     body: { flex: 1 },
@@ -294,13 +337,25 @@ const makeStyles = (t: Theme) =>
     },
     compareHint: { flex: 1, textAlign: 'right' },
     contentSection: { marginTop: t.spacing.md, marginBottom: t.spacing.xl },
-    integrityNotice: {
-      gap: t.spacing.xs,
-      marginTop: t.spacing.md,
-      padding: t.spacing.sm,
-      borderRadius: t.radii.sm,
-      backgroundColor: t.colors.surfaceAlt,
+    modalOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 10,
+      elevation: 10,
     },
+    modalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+    },
+    historyModal: {
+      position: 'absolute',
+      top: '50%',
+      left: t.spacing.xl,
+      right: t.spacing.xl,
+      transform: [{ translateY: -120 }],
+      padding: t.spacing.xl,
+    },
+    historyTitle: { textAlign: 'center' },
+    historyContent: { gap: t.spacing.xs, marginTop: t.spacing.md },
     sectionTitle: { marginBottom: t.spacing.sm },
     hint: { textAlign: 'center', marginTop: t.spacing.xl },
   })

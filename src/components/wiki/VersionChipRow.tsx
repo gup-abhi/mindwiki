@@ -5,7 +5,6 @@ import { Text } from '@/components/ui'
 import { haptics } from '@/lib/haptics'
 import { type Theme, useThemedStyles } from '@/theme'
 
-import { type TimelineGap } from './versionFormat'
 import { formatRelative } from './versionFormat'
 
 interface VersionChip {
@@ -15,7 +14,6 @@ interface VersionChip {
 
 interface VersionChipRowProps {
   versions: VersionChip[]
-  gaps: TimelineGap[]
   selectedVersion: number | null
   compareVersion: number | null
   onSelect: (version: number) => void
@@ -24,14 +22,12 @@ interface VersionChipRowProps {
 
 export function VersionChipRow({
   versions,
-  gaps,
   selectedVersion,
   compareVersion,
   onSelect,
   isPlaying = false,
 }: VersionChipRowProps) {
   const styles = useThemedStyles(makeStyles)
-  const gapsByFromVersion = new Map(gaps.map((gap) => [gap.fromVersion, gap]))
   const androidPressStart = useRef<{ version: number; pageX: number; pageY: number } | null>(null)
   const androidPressHandled = useRef<number | null>(null)
 
@@ -96,10 +92,6 @@ export function VersionChipRow({
       {versions.map((version, index) => {
         const isSelected = version.version === selectedVersion
         const isCompare = version.version === compareVersion
-        const next = versions[index + 1]
-        const gap = gapsByFromVersion.get(version.version)
-        const gapMatchesNext = gap != null && next?.version === gap.toVersion
-
         return (
           <View key={version.version} style={styles.itemGroup}>
             <Pressable
@@ -131,17 +123,6 @@ export function VersionChipRow({
                 {formatRelative(version.updated_at)}
               </Text>
             </Pressable>
-            {gapMatchesNext && (
-              <View
-                style={styles.gapChip}
-                testID={`version-gap-v${gap.fromVersion}`}
-                accessibilityLabel={`${gap.missing} prior versions sampled out`}
-              >
-                <Text variant="caption" color="textMuted" style={styles.gapText}>
-                  ⋮ {gap.missing} sampled out
-                </Text>
-              </View>
-            )}
           </View>
         )
       })}
@@ -185,12 +166,4 @@ const makeStyles = (t: Theme) =>
     },
     playing: { opacity: 0.8 },
     pressed: { opacity: 0.85 },
-    gapChip: {
-      minHeight: 44,
-      justifyContent: 'center',
-      borderRadius: t.radii.pill,
-      paddingHorizontal: t.spacing.sm,
-      backgroundColor: t.colors.surfaceAlt,
-    },
-    gapText: { fontStyle: 'italic', fontSize: 10 },
   })

@@ -24,6 +24,7 @@ interface ButtonProps {
   haptic?: boolean
   icon?: keyof typeof Ionicons.glyphMap
   fullWidth?: boolean
+  expanded?: boolean
   testID?: string
 }
 
@@ -65,6 +66,7 @@ export function Button({
   haptic = true,
   icon,
   fullWidth = false,
+  expanded,
   testID,
 }: ButtonProps) {
   const styles = useThemedStyles(makeStyles)
@@ -103,7 +105,7 @@ export function Button({
       }}
       disabled={isDisabled}
       accessibilityRole="button"
-      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      accessibilityState={{ disabled: isDisabled, busy: loading, ...(expanded == null ? {} : { expanded }) }}
       testID={testID}
       // NOTE: an Animated (reanimated) component must take a static/array style —
       // a function style ({ pressed }) => … is NOT applied, which silently drops

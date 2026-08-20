@@ -20,7 +20,6 @@ describe('VersionChipRow', () => {
     renderWithTheme(
       <VersionChipRow
         versions={versions}
-        gaps={[]}
         selectedVersion={2}
         compareVersion={5}
         onSelect={jest.fn()}
@@ -38,7 +37,6 @@ describe('VersionChipRow', () => {
     renderWithTheme(
       <VersionChipRow
         versions={versions}
-        gaps={[]}
         selectedVersion={null}
         compareVersion={null}
         onSelect={onSelect}
@@ -56,7 +54,6 @@ describe('VersionChipRow', () => {
     renderWithTheme(
       <VersionChipRow
         versions={versions}
-        gaps={[]}
         selectedVersion={null}
         compareVersion={null}
         onSelect={onSelect}
@@ -77,7 +74,6 @@ describe('VersionChipRow', () => {
     renderWithTheme(
       <VersionChipRow
         versions={versions}
-        gaps={[]}
         selectedVersion={null}
         compareVersion={null}
         onSelect={onSelect}
@@ -102,7 +98,6 @@ describe('VersionChipRow', () => {
     renderWithTheme(
       <VersionChipRow
         versions={versions}
-        gaps={[]}
         selectedVersion={null}
         compareVersion={null}
         onSelect={onSelect}
@@ -117,22 +112,19 @@ describe('VersionChipRow', () => {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform })
   })
 
-  it('shows sampled gaps only between matching adjacent versions', () => {
+  it('does not render sampled-out versions as chips', () => {
     renderWithTheme(
       <VersionChipRow
         versions={versions}
-        gaps={[
-          { fromVersion: 2, toVersion: 5, missing: 2 },
-          { fromVersion: 1, toVersion: 9, missing: 7 },
-        ]}
         selectedVersion={null}
         compareVersion={null}
         onSelect={jest.fn()}
       />
     )
 
-    expect(screen.getByTestId('version-gap-v2')).toBeTruthy()
-    expect(screen.getByText('⋮ 2 sampled out')).toBeTruthy()
-    expect(screen.queryByTestId('version-gap-v1')).toBeNull()
+    expect(screen.queryByTestId('version-gap-v2')).toBeNull()
+    expect(screen.queryByText('⋮ 2 sampled out')).toBeNull()
+    expect(screen.getByTestId('version-chip-v2')).toBeTruthy()
+    expect(screen.getByTestId('version-chip-v5')).toBeTruthy()
   })
 })
