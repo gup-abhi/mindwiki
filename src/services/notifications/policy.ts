@@ -1,9 +1,12 @@
 import * as Notifications from 'expo-notifications'
 
 import { type NotificationContentInput } from 'expo-notifications'
-import { type Result, ok } from '@/types/result'
 import { type NotificationCandidate, type NotificationCategory, type NotificationEvent, type NotificationKind, type NotificationPreferences } from './types'
-import { scheduleFirstInsightCandidate } from './orchestrator'
+import { DEFAULT_NOTIFICATION_PREFERENCES } from './preferences-defaults'
+
+export { DEFAULT_NOTIFICATION_PREFERENCES } from './preferences-defaults'
+
+import { type Result, ok } from '@/types/result'
 
 const ROUTINE_COPY = 'A quiet moment to check in, if it would help.'
 
@@ -22,29 +25,6 @@ export const GENERIC_COPY: Record<NotificationKind, string> = {
 
 export { type NotificationCandidate } from './types'
 export { type NotificationPreferencesInput } from './types'
-
-export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
-  enabled: false,
-  routineWeekdays: [1, 2, 3, 4, 5],
-  routineHour: 20,
-  retryDelayMinutes: 60,
-  pausedUntil: null,
-  firstPlanSavedAt: null,
-  setupDismissed: false,
-  challenge: false,
-  insights: false,
-  weeklyReview: false,
-  weeklyReviewWeekday: 0,
-  weeklyReviewHour: 10,
-  journal: true,
-  reengagement: true,
-  momentum: false,
-  patterns: false,
-  quietStartHour: 21,
-  quietEndHour: 9,
-  reminderStartHour: 17,
-  reminderEndHour: 21,
-}
 
 const categoryFor = (kind: NotificationKind): NotificationCategory =>
   kind === 'challenge' ? 'challenge' : kind === 'insight' || kind === 'weekly-review' ? 'insights' : 'routine'
@@ -158,12 +138,6 @@ export function safeRoute(route: string): string | null {
   if (route === '/entry' || route === '/challenge' || route === '/digest' || route === '/trends' || route === '/(tabs)/query') return route
   if (/^\/wiki\/[A-Za-z0-9_-]+$/.test(route)) return route
   return null
-}
-
-/** Compatibility wrapper: insight notifications still enter through the orchestrator. */
-export async function sendFirstPageReadyNotification(page: { id: string; title: string }): Promise<Result<void>> {
-  void page.title
-  return scheduleFirstInsightCandidate(page.id)
 }
 
 /** Configure local notifications without sound, badges, or foreground interruption. */

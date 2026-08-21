@@ -23,23 +23,6 @@ import { useBiometricLock } from '@/hooks/useBiometricLock'
 import { useDevices } from '@/hooks/useDevices'
 import { useRecoverySetup } from '@/hooks/useRecoverySetup'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
-import { useNotifications } from '@/hooks/useNotifications'
-
-function formatResumeDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
-}
-
-function pauseUntil(days: number): number {
-  const date = new Date(Date.now())
-  date.setHours(0, 0, 0, 0)
-  date.setDate(date.getDate() + days)
-  return date.getTime()
-}
-
-function pauseLabel(timestamp: number | null): string | null {
-  if (timestamp == null || timestamp <= Date.now()) return null
-  return `Paused until ${formatResumeDate(timestamp)}`
-}
 
 function timeAgo(ms: number | null): string {
   if (!ms) return 'Never'
@@ -77,7 +60,6 @@ export default function Settings() {
   } = useDevices()
   const { logout, deleteAccount, error: authError } = useAuth()
   const deviceIdentityReady = identityResolved === undefined ? currentDeviceId !== null : identityResolved
-  const { preferences: notificationPreferences, permission: notificationPermission, busy: notificationBusy, update: updateNotifications, savePlan, allow: allowNotifications, openSystemSettings } = useNotifications()
 
   // Logout is destructive (local wipe). Confirm first (R4), then require a
   // successful sync with an empty upload queue before deleting local data.
@@ -206,108 +188,11 @@ export default function Settings() {
       <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>
         Notifications
       </Text>
-      <Card variant="sunken">
-        <View style={styles.row}>
-          <View style={styles.lockText}>
-            <Text variant="bodyStrong">Private reminders</Text>
-            <Text variant="caption" color="textSecondary" style={styles.hint}>
-              Generic lock-screen copy. Journal data stays on this device.
-            </Text>
-          </View>
-          <Chip
-            label={notificationPreferences.enabled ? 'On' : 'Off'}
-            selected={notificationPreferences.enabled}
-            onPress={() => {
-              if (notificationPreferences.enabled) void updateNotifications({ enabled: false })
-              else void savePlan({ enabled: true })
-            }}
-            testID="settings-notifications-toggle"
-          />
-        </View>
-        <Text variant="caption" color="textMuted" style={styles.hint}>
-          Permission: {notificationPermission}
+      <Card variant="sunken" onPress={() => router.push('/notification-settings')} testID="settings-notification-settings">
+        <Text variant="bodyStrong">Notification settings</Text>
+        <Text variant="caption" color="textSecondary" style={styles.hint}>
+          Choose a private reflection routine and manage notification permission.
         </Text>
-        {notificationPreferences.enabled && (
-          <>
-            <Text variant="caption" color="textSecondary" style={styles.hint}>Days</Text>
-            <View style={styles.appearance}>
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, day) => (
-                <Chip
-                  key={label}
-                  label={label}
-                  selected={(notificationPreferences.routineWeekdays ?? []).includes(day)}
-                  onPress={() => {
-                    const days = new Set(notificationPreferences.routineWeekdays ?? [])
-                    if (days.has(day)) days.delete(day)
-                    else days.add(day)
-                    void savePlan({ routineWeekdays: [...days].sort() })
-                  }}
-                  testID={`settings-notifications-day-${day}`}
-                />
-              ))}
-            </View>
-            <Text variant="caption" color="textSecondary" style={styles.hint}>Preferred time</Text>
-            <View style={styles.appearance}>
-              {Array.from({ length: 18 }, (_, index) => index + 6).map((hour) => (
-                <Chip
-                  key={hour}
-                  label={new Date(2020, 0, 1, hour).toLocaleTimeString([], { hour: 'numeric' })}
-                  selected={notificationPreferences.routineHour === hour}
-                  onPress={() => void savePlan({ routineHour: hour })}
-                  testID={`settings-notifications-hour-${hour}`}
-                />
-              ))}
-            </View>
-            <Text variant="caption" color="textSecondary" style={styles.hint}>One same-day retry</Text>
-            <View style={styles.appearance}>
-              {[30, 60, 120].map((minutes) => (
-                <Chip key={minutes} label={`${minutes} min`} selected={notificationPreferences.retryDelayMinutes === minutes} onPress={() => void savePlan({ retryDelayMinutes: minutes as 30 | 60 | 120 })} testID={`settings-notifications-retry-${minutes}`} />
-              ))}
-            </View>
-            <Text variant="caption" color="textSecondary" style={styles.hint}>Optional extras</Text>
-            <View style={styles.appearance}>
-              <Chip label="Challenge" selected={notificationPreferences.challenge} onPress={() => void savePlan({ challenge: !notificationPreferences.challenge })} testID="settings-notifications-challenge" />
-              <Chip label="New insight" selected={notificationPreferences.insights} onPress={() => void savePlan({ insights: !notificationPreferences.insights })} testID="settings-notifications-insights" />
-              <Chip label="Weekly review" selected={notificationPreferences.weeklyReview === true} onPress={() => void savePlan({ weeklyReview: !notificationPreferences.weeklyReview })} testID="settings-notifications-weekly" />
-            </View>
-            <Text variant="caption" color="textMuted" style={styles.hint}>Preview: MindWiki — A quiet moment to check in, if it would help.</Text>
-            <Text variant="caption" color="textMuted" style={styles.hint}>This routine is stored on this device. Notification text never includes journal or Reflect content.</Text>
-          </>
-        )}
-        {(notificationPermission === 'blocked' || notificationPermission === 'denied') && (
-          <View style={styles.action}>
-            <Button title="Open system notification settings" variant="secondary" fullWidth onPress={() => void openSystemSettings()} testID="settings-notifications-system" />
-          </View>
-        )}
-        {notificationPreferences.enabled && (
-          <View style={styles.action}>
-            {pauseLabel(notificationPreferences.pausedUntil) ? (
-              <>
-                <Text variant="caption" color="textSecondary" style={styles.hint}>
-                  {pauseLabel(notificationPreferences.pausedUntil)}
-                </Text>
-                <Button
-                  title="Resume now"
-                  variant="secondary"
-                  fullWidth
-                  loading={notificationBusy}
-                  onPress={() => void updateNotifications({ pausedUntil: null })}
-                  testID="settings-notifications-resume"
-                />
-              </>
-            ) : (
-              <>
-                <Text variant="caption" color="textSecondary" style={styles.hint}>Pause reminders</Text>
-                <View style={styles.appearance}>
-                  <Chip label="Tomorrow" onPress={() => void updateNotifications({ pausedUntil: pauseUntil(1) })} testID="settings-notifications-pause-tomorrow" />
-                  <Chip label="One week" onPress={() => void updateNotifications({ pausedUntil: pauseUntil(7) })} testID="settings-notifications-pause-week" />
-                  <Chip label="Two weeks" onPress={() => void updateNotifications({ pausedUntil: pauseUntil(14) })} testID="settings-notifications-pause-two-weeks" />
-                </View>
-              </>
-            )}
-          </View>
-        )}
-
       </Card>
 
       <Text accessibilityRole="header" variant="label" color="textMuted" style={styles.section}>

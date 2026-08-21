@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { type Result, ok, err } from '@/types/result'
 import { getSetting, setSetting } from '@/services/storage/settings'
-import { DEFAULT_NOTIFICATION_PREFERENCES } from './policy'
+import { DEFAULT_NOTIFICATION_PREFERENCES } from './preferences-defaults'
 import { type NotificationPreferences, ROUTINE_HOURS, ROUTINE_WEEKDAYS, RETRY_DELAYS } from './types'
 
 const KEY = 'notification_preferences_v2'

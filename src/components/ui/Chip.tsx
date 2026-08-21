@@ -9,6 +9,7 @@ interface ChipProps {
   label: string
   selected?: boolean
   onPress?: () => void
+  disabled?: boolean
   testID?: string
 }
 
@@ -25,11 +26,12 @@ const makeStyles = (t: Theme) =>
       borderColor: t.colors.border,
     },
     selected: { backgroundColor: t.colors.accentMuted, borderColor: t.colors.accent },
+    disabled: { opacity: 0.45 },
     pressed: { opacity: 0.85 },
   })
 
 /** Pill — filter / selectable tag. */
-export function Chip({ label, selected = false, onPress, testID }: ChipProps) {
+export function Chip({ label, selected = false, onPress, disabled = false, testID }: ChipProps) {
   const styles = useThemedStyles(makeStyles)
   const handlePress = onPress
     ? () => {
@@ -40,11 +42,11 @@ export function Chip({ label, selected = false, onPress, testID }: ChipProps) {
   return (
     <Pressable
       onPress={handlePress}
-      disabled={!onPress}
+      disabled={disabled || !onPress}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       testID={testID}
-      style={({ pressed }) => [styles.base, selected && styles.selected, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.base, selected && styles.selected, disabled && styles.disabled, pressed && styles.pressed]}
     >
       <Text variant="label" color={selected ? 'accentText' : 'textPrimary'}>
         {label}

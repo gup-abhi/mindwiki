@@ -4,7 +4,7 @@ import { AppState, Linking } from 'react-native'
 import { reconcileNotifications } from '@/services/notifications/orchestrator'
 import { notificationPermissionState, requestNotificationPermission } from '@/services/notifications/permissions'
 import { getNotificationPreferences, setNotificationPreferences } from '@/services/notifications/preferences'
-import { DEFAULT_NOTIFICATION_PREFERENCES } from '@/services/notifications/policy'
+import { DEFAULT_NOTIFICATION_PREFERENCES } from '@/services/notifications/preferences-defaults'
 import { recordReflectionPlanVersion } from '@/services/notifications/plan'
 import { type NotificationPermissionState, type NotificationPreferences } from '@/services/notifications/types'
 

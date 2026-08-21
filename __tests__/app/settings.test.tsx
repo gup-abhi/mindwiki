@@ -220,6 +220,13 @@ describe('Settings', () => {
     expect(screen.getByText('Could not reach the server. Your account is unchanged — try again later.')).toBeTruthy()
   })
 
+  it('opens notification settings', () => {
+    render(<Settings />)
+    fireEvent.press(screen.getByTestId('settings-notification-settings'))
+    expect(mockPush).toHaveBeenCalledWith('/notification-settings')
+    expect(screen.queryByTestId('settings-notifications-toggle')).toBeNull()
+  })
+
   it('opens the pair-a-device screen', () => {
     render(<Settings />)
     fireEvent.press(screen.getByTestId('settings-pair'))
