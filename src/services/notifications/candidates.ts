@@ -1,87 +1,127 @@
 import { randomUUID } from 'expo-crypto'
 
-import { listEntries } from '@/services/storage/entries'
-import { getActiveChallenge } from '@/services/storage/challenges'
-import { generateDigest } from '@/services/digest/generator'
-import { detectMomentum, detectWeeklyRhythm } from '@/services/insights/mood-stats'
-import { type NotificationCandidate } from './types'
+import { type NotificationCandidate, type NotificationPreferences, type ReflectionPlanVersion } from './types'
 import { getNotificationPreferences } from './preferences'
-import { adaptiveReminderTiming, DEFAULT_SEND_HOUR } from './timing'
+import { listEntries } from '@/services/storage/entries'
+import { listReflectionCompletions } from './completions'
+import { isPlannedSlot, listReflectionPlanVersions, planVersionAt } from './plan'
+const MISS_LOOKBACK_DAYS = 30
+
+function isCompletionDate(completedDates: Set<string>, ts: number): boolean {
+  return completedDates.has(localDate(ts))
+}
+
+function plannedSlotForDate(dateTs: number, versions: ReflectionPlanVersion[]): number | null {
+  const version = planVersionAt(versions, dateTs + DAY_MS - 1)
+  if (!version) return null
+  const slot = atLocalDateHour(dateTs, version.hour)
+  return isPlannedSlot(version, slot) ? slot : null
+}
+
+function hasThreeConsecutiveMisses(beforeDate: number, versions: ReflectionPlanVersion[], completedDates: Set<string>, now: number): boolean {
+  let misses = 0
+  for (let offset = 1; offset <= MISS_LOOKBACK_DAYS; offset++) {
+    const dateTs = addLocalDays(beforeDate, -offset)
+    const slot = plannedSlotForDate(dateTs, versions)
+    if (slot == null || slot > now) continue
+    if (isCompletionDate(completedDates, dateTs)) break
+    misses++
+    if (misses >= 3) return true
+  }
+  return false
+}
+
+function fallbackPlan(preferences: NotificationPreferences): ReflectionPlanVersion {
+  return {
+    id: 'current', effectiveAt: 0, enabled: preferences.enabled,
+    weekdays: preferences.routineWeekdays ?? [], hour: preferences.routineHour ?? 20,
+    retryDelayMinutes: preferences.retryDelayMinutes ?? 60, pausedUntil: preferences.pausedUntil,
+  }
+}
+
+export function routineVersions(preferences: NotificationPreferences, history: ReflectionPlanVersion[]): ReflectionPlanVersion[] {
+  return history.length > 0 ? history : [fallbackPlan(preferences)]
+}
+
+export { MISS_LOOKBACK_DAYS }
+
 
 const DAY_MS = 86_400_000
+const HORIZON_DAYS = 14
 
-function dayIndex(ts: number): number {
-  const d = new Date(ts)
-  return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY_MS)
+function localDateParts(ts: number): { year: number; month: number; day: number; weekday: number } {
+  const date = new Date(ts)
+  return { year: date.getFullYear(), month: date.getMonth(), day: date.getDate(), weekday: date.getDay() }
 }
 
-function localDate(ts: number): string {
-  const d = new Date(ts)
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${month}-${day}`
+export function localDate(ts: number): string {
+  const parts = localDateParts(ts)
+  return `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
 }
 
-function atLocalDay(day: number, hour: number): number {
-  const d = new Date(day * DAY_MS)
-  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, 0, 0, 0).getTime()
+function atLocalDateHour(ts: number, hour: number): number {
+  const date = new Date(ts)
+  date.setHours(hour, 0, 0, 0)
+  return date.getTime()
 }
 
-function candidate(kind: NotificationCandidate['kind'], dedupeKey: string, route: string, eligibleAt: number, expiresAt: number, priority: number): NotificationCandidate {
+function addLocalDays(ts: number, days: number): number {
+  const date = new Date(ts)
+  date.setDate(date.getDate() + days)
+  return date.getTime()
+}
+
+function makeCandidate(
+  kind: NotificationCandidate['kind'],
+  dedupeKey: string,
+  route: string,
+  eligibleAt: number,
+  expiresAt: number,
+  priority: number
+): NotificationCandidate {
   return { id: randomUUID(), kind, dedupeKey, targetRoute: route, eligibleAt, expiresAt, priority }
 }
 
 export async function hasJournalEntryToday(now: number): Promise<boolean> {
   const entries = await listEntries(1)
-  return entries.success && entries.data[0] != null && dayIndex(entries.data[0].created_at) === dayIndex(now)
+  return entries.success && entries.data[0] != null && localDate(entries.data[0].created_at) === localDate(now)
 }
 
-export async function generateNotificationCandidates(now: number, activitySamples: { occurredAt: number; kind?: 'app_active' | 'entry_saved' }[] = []): Promise<NotificationCandidate[]> {
-  const [entriesResult, challengeResult, preferencesResult] = await Promise.all([
-    listEntries(500), getActiveChallenge(), getNotificationPreferences(),
-  ])
-  if (!entriesResult.success) return []
-  const entries = entriesResult.data
-  const preferences = preferencesResult.success ? preferencesResult.data : null
-  const momentumEnabled = preferences?.momentum === true
-  const patternsEnabled = preferences?.patterns === true
-  const today = dayIndex(now)
-  const lastEntry = entries[0]?.created_at ?? null
-  const journaledToday = lastEntry != null && dayIndex(lastEntry) === today
-  const result: NotificationCandidate[] = []
+export async function generateNotificationCandidates(now: number): Promise<NotificationCandidate[]> {
+  const preferencesResult = await getNotificationPreferences()
+  if (!preferencesResult.success) return []
+  const preferences = preferencesResult.data
+  const versionsResult = await listReflectionPlanVersions(addLocalDays(now, HORIZON_DAYS + 1))
+  if (!versionsResult.success) return []
+  const versions = routineVersions(preferences, versionsResult.data)
+  if (!preferences.enabled && versionsResult.data.length === 0) return []
 
-  if (preferences?.journal !== false && !journaledToday) {
-    const adaptive = adaptiveReminderTiming(activitySamples, now, preferences?.reminderStartHour ?? DEFAULT_SEND_HOUR)
-    const hour = Math.min(preferences?.reminderEndHour ?? 21, Math.max(preferences?.reminderStartHour ?? 17, adaptive.hour))
-    const eligibleAt = atLocalDay(today, hour) > now ? atLocalDay(today, hour) : atLocalDay(today + 1, hour)
-    result.push(candidate('journal', `journal:${today}`, '/', eligibleAt, atLocalDay(today + 2, 23), 30))
-  }
+  const completions = await listReflectionCompletions(addLocalDays(now, -MISS_LOOKBACK_DAYS), addLocalDays(now, HORIZON_DAYS + 1))
+  if (!completions.success) return []
+  const completedDates = new Set(completions.data.map((completion) => localDate(completion.completedAt)))
 
-  const challenge = challengeResult.success ? challengeResult.data : null
-  if (challenge && challenge.status === 'active' && challenge.last_checkin_date !== localDate(now)) {
-    const eligibleAt = atLocalDay(today, 9) > now ? atLocalDay(today, 9) : atLocalDay(today + 1, 9)
-    result.push(candidate('challenge', `challenge:${challenge.id}:${today}`, '/challenge', eligibleAt, atLocalDay(today + 2, 9), 60))
-  }
+  const candidates: NotificationCandidate[] = []
+  for (let offset = 0; offset < HORIZON_DAYS; offset++) {
+    const dayTs = addLocalDays(now, offset)
+    const date = localDate(dayTs)
+    const version = planVersionAt(versions, dayTs + DAY_MS - 1)
+    if (!version) continue
+    const mainAt = plannedSlotForDate(dayTs, versions)
+    if (mainAt == null || mainAt <= now || isCompletionDate(completedDates, dayTs)) continue
+    const expiresAt = addLocalDays(mainAt, 1)
+    candidates.push(makeCandidate('routine', `routine:${date}:main`, '/entry', mainAt, expiresAt, 100))
 
-  if (lastEntry != null) {
-    for (const days of [3, 7, 30] as const) {
-      const due = atLocalDay(dayIndex(lastEntry) + days, 10)
-      if (now < due + DAY_MS) {
-        result.push(candidate('reengagement', `reengagement:d${days}:${dayIndex(lastEntry)}`, '/entry', due, due + DAY_MS, 20 - days))
-      }
+    const retryAt = mainAt + version.retryDelayMinutes * 60_000
+    if (retryAt < expiresAt && !hasThreeConsecutiveMisses(dayTs, versions, completedDates, now)) {
+      candidates.push(makeCandidate('routine-retry', `routine:${date}:retry:${version.retryDelayMinutes}`, '/entry', retryAt, expiresAt, 90))
     }
   }
-
-  const digest = generateDigest(entries, now)
-  if (digest) result.push(candidate('digest', `digest:${digest.weekStart}`, '/digest', atLocalDay(today, 9), atLocalDay(today + 7, 9), 80))
-
-  if (momentumEnabled && detectMomentum(entries, now)) {
-    const week = Math.floor(today / 7)
-    result.push(candidate('momentum', `momentum:${week}`, '/trends', atLocalDay(today, 18), atLocalDay(today + 7, 21), 50))
-  }
-  if (patternsEnabled && detectWeeklyRhythm(entries, now)) {
-    const week = Math.floor(today / 7)
-    result.push(candidate('pattern', `pattern:${week}`, '/trends', atLocalDay(today, 18), atLocalDay(today + 7, 21), 40))
-  }
-  return result
+  return candidates
 }
+
+export function routineDateForCandidate(candidate: Pick<NotificationCandidate, 'dedupeKey'>): string | null {
+  const match = /^(?:routine|routine-retry):([^:]+)/.exec(candidate.dedupeKey)
+  return match?.[1] ?? null
+}
+
+export { DAY_MS }

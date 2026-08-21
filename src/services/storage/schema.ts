@@ -836,3 +836,60 @@ export const migration037: Migration = {
     `ALTER TABLE challenges ADD COLUMN deleted_at INTEGER`,
   ],
 }
+
+// Migration 038 — reflection routine state. All tables remain device-local and
+// contain only schedule metadata, durable ids, and timestamps; none are synced.
+export const migration038: Migration = {
+  version: 38,
+  name: 'reflection_routine_state',
+  statements: [
+    `ALTER TABLE notification_candidates RENAME TO notification_candidates_v1`,
+    `CREATE TABLE notification_candidates (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('routine','routine-retry','weekly-review','challenge','insight')),
+      dedupe_key TEXT NOT NULL UNIQUE,
+      target_route TEXT NOT NULL,
+      eligible_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      scheduled_for INTEGER,
+      status TEXT NOT NULL CHECK (status IN ('eligible','scheduled','opened','suppressed','cancelled','expired')),
+      reason_code TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `INSERT INTO notification_candidates SELECT * FROM notification_candidates_v1 WHERE kind IN ('challenge','insight')`,
+    `DROP TABLE notification_candidates_v1`,
+    `CREATE INDEX idx_notification_candidates_schedule ON notification_candidates (status, scheduled_for)`,
+    `ALTER TABLE notification_events RENAME TO notification_events_v1`,
+    `CREATE TABLE notification_events (
+      id TEXT PRIMARY KEY,
+      candidate_id TEXT,
+      kind TEXT CHECK (kind IS NULL OR kind IN ('routine','routine-retry','weekly-review','challenge','insight')),
+      event_type TEXT NOT NULL CHECK (event_type IN ('app_active','entry_saved','delivered','scheduled','opened','suppressed','cancelled')),
+      reason_code TEXT,
+      occurred_at INTEGER NOT NULL
+    )`,
+    `INSERT INTO notification_events SELECT * FROM notification_events_v1 WHERE kind IN ('challenge','insight') OR kind IS NULL`,
+    `DROP TABLE notification_events_v1`,
+    `CREATE INDEX idx_notification_events_time ON notification_events (occurred_at)`,
+    `CREATE TABLE reflection_plan_versions (
+      id TEXT PRIMARY KEY,
+      effective_at INTEGER NOT NULL,
+      enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+      weekdays_json TEXT NOT NULL,
+      hour INTEGER NOT NULL CHECK (hour BETWEEN 6 AND 23),
+      retry_delay_minutes INTEGER NOT NULL CHECK (retry_delay_minutes IN (30,60,120)),
+      paused_until INTEGER
+    )`,
+    `CREATE INDEX idx_reflection_plan_versions_effective ON reflection_plan_versions (effective_at)`,
+    `CREATE TABLE reflection_completions (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL CHECK (source IN ('journal','reflect')),
+      durable_id TEXT NOT NULL,
+      completed_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE (source, durable_id)
+    )`,
+    `CREATE INDEX idx_reflection_completions_completed ON reflection_completions (completed_at)`,
+  ],
+}

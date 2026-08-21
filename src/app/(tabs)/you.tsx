@@ -51,6 +51,9 @@ import {
 import { computeAffectMap } from '@/services/insights/affect-map'
 import { computeDistortionTrend } from '@/services/insights/distortion-trend'
 import { CATEGORY_ORDER, categoryKey, categoryLabel } from '@/services/wiki/categories'
+import { getWeeklyReflectionProgress } from '@/services/notifications/progress'
+import { type WeeklyReflectionProgress } from '@/services/notifications/progress'
+import { useEffect as useReactEffect } from 'react'
 
 const TREND_DAYS = 14
 
@@ -86,6 +89,14 @@ export default function YouScreen() {
   const [selected, setSelected] = useState<GraphNode | null>(null)
   const [graphFullScreen, setGraphFullScreen] = useState(false)
   const [zoomCommand, setZoomCommand] = useState<{ direction: 'in' | 'out'; id: number } | null>(null)
+  const [weeklyProgress, setWeeklyProgress] = useState<WeeklyReflectionProgress | null>(null)
+  useReactEffect(() => {
+    let active = true
+    void getWeeklyReflectionProgress().then((result) => {
+      if (active && result.success) setWeeklyProgress(result.data)
+    })
+    return () => { active = false }
+  }, [])
   const zoomCommandId = useRef(0)
   const [nodeDetailsExpanded, setNodeDetailsExpanded] = useState(false)
   const { context } = useNodeContext(selected)
@@ -352,6 +363,15 @@ export default function YouScreen() {
       {/* Patterns — trends + digest */}
       {tab === 'patterns' && (
         <Screen scroll edges={['left', 'right']}>
+          {weeklyProgress && weeklyProgress.planned > 0 && (
+            <Card variant="sunken" testID="weekly-reflection-progress">
+              <Text variant="subtitle">This week in reflection</Text>
+              <Text variant="body" color="textSecondary">
+                {weeklyProgress.completed} of {weeklyProgress.planned} planned reflection days completed.
+              </Text>
+              <Text variant="caption" color="textMuted">A private check-in, not a streak.</Text>
+            </Card>
+          )}
           {digest && !digestLoading && (
             <Card variant="surface" style={styles.digestCard} onPress={() => router.push('/digest')}>
               <Text variant="subtitle" color="knowledgeText">
@@ -429,7 +449,7 @@ export default function YouScreen() {
                     <Pressable
                       key={page.id}
                       accessibilityRole="button"
-                      accessibilityLabel={`Open the ${page.title} page`}
+                      accessibilityLabel="Open insight page"
                       onPress={() => router.push(`/wiki/${page.id}`)}
                       style={styles.trendRow}
                       testID="trend-row"
@@ -539,7 +559,7 @@ export default function YouScreen() {
                           <Pressable
                             key={p.id}
                             accessibilityRole="button"
-                            accessibilityLabel={`Open the ${p.title} page`}
+                            accessibilityLabel="Open insight page"
                             onPress={() => router.push(`/wiki/${p.id}`)}
                             style={styles.nodeLinkRow}
                             testID="graph-node-page"

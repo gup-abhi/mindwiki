@@ -28,6 +28,14 @@ import { backfillStaleEmbeddings } from '@/services/wiki/embeddings'
 import { backfillBeliefEmbeddings } from '@/services/wiki/belief-snap'
 import { suggestedQuestions } from '@/services/wiki/query'
 import { useChatStore, type UIMessage } from '@/store/chat.store'
+import { recordReflectionCompletion } from '@/services/notifications/completions'
+import { reconcileNotifications } from '@/services/notifications/orchestrator'
+
+function recordReflectCompletion(conversationId: string, assistantId: string): void {
+  void recordReflectionCompletion('reflect', `${conversationId}:${assistantId}`).then(() =>
+    reconcileNotifications('entry-saved')
+  )
+}
 
 const MODELS_MISSING =
   'The on-device AI models aren’t downloaded yet. Tap “Download AI models” on the Home screen, then try again.'
@@ -251,6 +259,7 @@ export function useConversation(initialQuestion?: string) {
             crisisTier: null,
             animateEntry: true,
           })
+          recordReflectCompletion(conversationId, persisted.data.id)
           // Keep the rolling recap current so a long, resumed thread doesn't lose
           // earlier context to the model's window. Background, best-effort.
           void refreshSummary(conversationId)
@@ -384,12 +393,16 @@ export function useConversation(initialQuestion?: string) {
       // hit we surface support and skip the reply, otherwise the reflective
       // reply proceeds normally.
       const isCrisis = hasCrisisKeyword(message)
-      await appendMessage({
+      const persistedUser = await appendMessage({
         conversation_id: conversationId,
         role: 'user',
         content: message,
         crisis_tier: isCrisis ? 3 : null,
       })
+      if (!persistedUser.success) {
+        store.setSending(false)
+        return
+      }
       if (isCrisis) {
         store.setMessageCrisis(userMsg.id, 3)
         const persisted = await appendMessage({
@@ -397,14 +410,19 @@ export function useConversation(initialQuestion?: string) {
           role: 'assistant',
           content: CRISIS_REPLY,
         })
-        store.completeReply({
-          id: persisted.success ? persisted.data.id : randomUUID(),
-          role: 'assistant',
-          content: CRISIS_REPLY,
-          sources: [],
-          crisisTier: null,
-          animateEntry: true,
-        })
+        if (persisted.success) {
+          store.completeReply({
+            id: persisted.data.id,
+            role: 'assistant',
+            content: CRISIS_REPLY,
+            sources: [],
+            crisisTier: null,
+            animateEntry: true,
+          })
+          recordReflectCompletion(conversationId, persisted.data.id)
+        } else {
+          store.setSending(false)
+        }
         return
       }
 

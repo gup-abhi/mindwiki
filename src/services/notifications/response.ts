@@ -4,7 +4,7 @@ import { type Result } from '@/types/result'
 import { isNotificationKind } from './policy'
 
 interface NotificationResponseHandlerDeps {
-  handleCandidate(candidateId: string): Promise<Result<string | null>>
+  handleCandidate(candidateId: string, action?: 'default' | 'reflect'): Promise<Result<string | null>>
   navigate(route: string): void
   clearResponse(): Promise<void>
 }
@@ -31,7 +31,19 @@ export function createNotificationResponseHandler(
       void deps.clearResponse()
       return
     }
-    void deps.handleCandidate(candidateId)
+    const actionIdentifier = response.actionIdentifier
+    const action = actionIdentifier === 'REFLECT'
+      ? 'reflect'
+      : actionIdentifier == null || actionIdentifier === 'expo.notifications.DEFAULT_ACTION_IDENTIFIER'
+        ? 'default'
+        : null
+    if (!action) {
+      void deps.clearResponse()
+      return
+    }
+    void (action === 'default'
+      ? deps.handleCandidate(candidateId)
+      : deps.handleCandidate(candidateId, action))
       .then((result) => {
         if (result.success && result.data) deps.navigate(result.data)
       })

@@ -8,7 +8,7 @@ export async function notificationPermissionState(): Promise<NotificationPermiss
     const status = await Notifications.getPermissionsAsync()
     return stateFromResponse(status)
   } catch {
-    return 'denied'
+    return 'unavailable'
   }
 }
 

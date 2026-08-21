@@ -1,8 +1,8 @@
 import { useCallback, useState } from 'react'
 
 import { type CrisisAssessment } from '@/services/crisis/detector'
-import { onEntrySaved } from '@/services/notifications/scheduler'
-import { reconcileNotifications, recordEntrySaved } from '@/services/notifications/orchestrator'
+import { reconcileNotifications } from '@/services/notifications/orchestrator'
+import { recordReflectionCompletion } from '@/services/notifications/completions'
 import { processEntry } from '@/services/pipeline'
 import { createEntry, type Entry } from '@/services/storage/entries'
 import { sync } from '@/services/sync/engine'
@@ -77,11 +77,11 @@ export function useJournalEntry() {
       // the result so the caller can show crisis support. processEntry never
       // throws; if the model is unavailable, the keyword safety net still runs.
       const processed = await processEntry(result.data)
-      // Habit system: local activity + reconciler trigger.
-      // Best-effort — never blocks the save.
-      void onEntrySaved(Date.now())
-      void recordEntrySaved()
-      void reconcileNotifications('entry-saved')
+      // The durable save is the meaningful reflection boundary. Best-effort
+      // notification bookkeeping never blocks the saved entry.
+      void recordReflectionCompletion('journal', result.data.id, Date.now()).then(() =>
+        reconcileNotifications('entry-saved')
+      )
       // Push the new entry promptly instead of waiting for the next foreground.
       // Best-effort; sync() no-ops when unauthenticated and never throws.
       if (useAuthStore.getState().status === 'authenticated') void sync()

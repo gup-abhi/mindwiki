@@ -1,49 +1,61 @@
+import * as Notifications from 'expo-notifications'
+
 import { type NotificationContentInput } from 'expo-notifications'
+import { type Result, ok } from '@/types/result'
+import { type NotificationCandidate, type NotificationCategory, type NotificationEvent, type NotificationKind, type NotificationPreferences } from './types'
+import { scheduleFirstInsightCandidate } from './orchestrator'
 
-import {
-  type NotificationCandidate,
-  type NotificationCategory,
-  type NotificationEvent,
-  type NotificationKind,
-  type NotificationPreferences,
-} from './types'
-
-export type { NotificationCandidate } from './types'
+const ROUTINE_COPY = 'A quiet moment to check in, if it would help.'
 
 export const GENERIC_COPY: Record<NotificationKind, string> = {
-  journal: 'A quiet moment to check in, if it would help.',
-  challenge: 'Your daily check-in is waiting, whenever you’re ready.',
-  reengagement: 'Your journal is here whenever you’re ready.',
-  digest: 'Your week in review is ready when you want to look back.',
+  routine: ROUTINE_COPY,
+  'routine-retry': ROUTINE_COPY,
+  'weekly-review': 'Your week in reflection is ready when you want to look back.',
+  challenge: 'A challenge is ready whenever you are.',
   insight: 'A new insight is ready when you want to explore it.',
-  momentum: 'Something encouraging is worth noticing when you’re ready.',
+  journal: ROUTINE_COPY,
+  reengagement: ROUTINE_COPY,
+  digest: 'Your week in reflection is ready when you want to look back.',
+  momentum: 'Something encouraging is worth noticing when you are ready.',
   pattern: 'A pattern may be worth exploring when you have a quiet moment.',
 }
 
+export { type NotificationCandidate } from './types'
+export { type NotificationPreferencesInput } from './types'
+
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   enabled: false,
+  routineWeekdays: [1, 2, 3, 4, 5],
+  routineHour: 20,
+  retryDelayMinutes: 60,
+  pausedUntil: null,
+  firstPlanSavedAt: null,
+  setupDismissed: false,
+  challenge: false,
+  insights: false,
+  weeklyReview: false,
+  weeklyReviewWeekday: 0,
+  weeklyReviewHour: 10,
   journal: true,
-  challenge: true,
   reengagement: true,
-  insights: true,
   momentum: false,
   patterns: false,
   quietStartHour: 21,
   quietEndHour: 9,
   reminderStartHour: 17,
   reminderEndHour: 21,
-  pausedUntil: null,
 }
 
-const categoryFor = (kind: NotificationKind): NotificationCategory => {
-  if (kind === 'digest' || kind === 'insight' || kind === 'momentum' || kind === 'pattern') return 'insights'
-  return kind
-}
+const categoryFor = (kind: NotificationKind): NotificationCategory =>
+  kind === 'challenge' ? 'challenge' : kind === 'insight' || kind === 'weekly-review' ? 'insights' : 'routine'
 
 export function buildNotificationContent(candidate: NotificationCandidate): NotificationContentInput {
   return {
     title: 'MindWiki',
     body: GENERIC_COPY[candidate.kind],
+    ...(candidate.kind === 'routine' || candidate.kind === 'routine-retry'
+      ? { categoryIdentifier: 'reflectionroutine' }
+      : {}),
     data: { candidateId: candidate.id, kind: candidate.kind },
   }
 }
@@ -52,135 +64,115 @@ export interface PolicyContext {
   now: number
   recentEvents: NotificationEvent[]
   journaledToday: boolean
-  /** Candidate ids already scheduled in the OS. These remain desired and are
-   * considered occupied future delivery slots when selecting new picks. */
   pendingIds: Set<string>
   preferences?: NotificationPreferences
 }
 
-function localDay(ts: number): number {
-  const d = new Date(ts)
-  return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000)
-}
-
-function inQuietHours(ts: number, preferences: NotificationPreferences): boolean {
-  const hour = new Date(ts).getHours()
-  const { quietStartHour: start, quietEndHour: end } = preferences
-  return start === end ? false : start > end ? hour >= start || hour < end : hour >= start && hour < end
-}
-
 function enabledFor(kind: NotificationKind, preferences: NotificationPreferences): boolean {
-  if (kind === 'journal') return preferences.journal
+  const isLegacyShape = preferences.routineWeekdays == null
+  if (kind === 'routine' || kind === 'routine-retry') return preferences.enabled && (preferences.routineWeekdays?.length ?? 0) > 0
   if (kind === 'challenge') return preferences.challenge
-  if (kind === 'reengagement') return preferences.reengagement
-  if (kind === 'momentum') return preferences.momentum
-  if (kind === 'pattern') return preferences.patterns
-  return preferences.insights
+  if (kind === 'insight') return preferences.insights
+  if (kind === 'weekly-review') return preferences.weeklyReview === true
+  if (isLegacyShape) {
+    if (kind === 'journal') return preferences.enabled && preferences.journal
+    if (kind === 'reengagement') return preferences.enabled && preferences.reengagement
+    if (kind === 'digest') return preferences.enabled && preferences.insights
+    if (kind === 'momentum') return preferences.enabled && preferences.momentum
+    if (kind === 'pattern') return preferences.enabled && preferences.patterns
+  }
+  return false
+  return false
 }
 
-/** Pure, deterministic policy. Ordinary proactive notifications are capped at
- * one per local day and four per rolling seven days. Same-window collisions keep
- * the highest-priority candidate; lower priorities are suppressed. */
-export function chooseCandidates(
-  candidates: NotificationCandidate[],
-  context: PolicyContext
-): NotificationCandidate[] {
-  const preferences = context.preferences ?? { ...DEFAULT_NOTIFICATION_PREFERENCES, enabled: true }
-  if (!preferences.enabled || (preferences.pausedUntil != null && preferences.pausedUntil > context.now)) return []
-
-  // Budget is counted from delivery/open events, never scheduling attempts. A
-  // `scheduled` event only proves the OS accepted a future request; counting it
-  // caused the reconcile self-cancel bug. Deduplicate by candidate because a
-  // foreground delivery followed by a tap can produce both event types.
-  const sentByCandidate = new Map<string, NotificationEvent>()
-  const anonymousSent: NotificationEvent[] = []
-  for (const event of context.recentEvents) {
-    if (event.type !== 'delivered' && event.type !== 'opened') continue
-    if (event.candidateId) sentByCandidate.set(event.candidateId, event)
-    else anonymousSent.push(event)
-  }
-  const sent = [...sentByCandidate.values(), ...anonymousSent]
-  const appRecentlyActive = context.recentEvents.some(
-    (e) => e.type === 'app_active' && e.occurredAt >= context.now - 2 * 3_600_000
-  )
-  const dueSoon = (candidate: NotificationCandidate): boolean =>
-    candidate.eligibleAt <= context.now + 2 * 3_600_000
-
-  // Candidates already pending in the OS stay desired unconditionally. Removing
-  // them here would cancel legitimate future reminders on every re-run.
-  const keep = candidates.filter((candidate) =>
-    context.pendingIds.has(candidate.id)
-    && candidate.expiresAt > context.now
-    && (!candidate.status || !['opened', 'cancelled', 'expired'].includes(candidate.status))
-  )
-  // Shift candidates whose eligibleAt lands inside quiet hours to the first
-  // valid slot (quietEndHour same day, or quietEndHour next day). Suppress if
-  // the shifted slot would be past expiresAt or in the past.
-  const shiftedFresh = (candidate: NotificationCandidate): NotificationCandidate | null => {
-    if (!inQuietHours(candidate.eligibleAt, preferences)) return candidate
-    const sameDay = atLocalHour(localDay(candidate.eligibleAt), preferences.quietEndHour)
-    const sameDayAfterNow = sameDay > candidate.eligibleAt ? sameDay : Number.NaN
-    const nextDay = atLocalHour(localDay(candidate.eligibleAt) + 1, preferences.quietEndHour)
-    const next = !Number.isNaN(sameDayAfterNow) ? sameDayAfterNow : nextDay
-    if (next >= candidate.expiresAt) return null
-    if (next < context.now) return null
-    return { ...candidate, eligibleAt: next }
-  }
-  const fresh = candidates
-    .filter((candidate) => !context.pendingIds.has(candidate.id))
-    .filter((candidate) => candidate.expiresAt > context.now)
-    .filter((candidate) => enabledFor(candidate.kind, preferences))
-    .map((candidate) => shiftedFresh(candidate))
-    .filter((candidate): candidate is NotificationCandidate => candidate != null)
-    .filter((candidate) => !(context.journaledToday && (candidate.kind === 'journal' || candidate.kind === 'reengagement')))
-    .filter((candidate) => !(appRecentlyActive && dueSoon(candidate) && (candidate.kind === 'journal' || candidate.kind === 'reengagement')))
-    .filter((candidate) => !candidate.status || !['opened', 'cancelled', 'expired'].includes(candidate.status))
-    .filter((candidate) => !sent.some((event) => event.candidateId === candidate.id))
-    .sort((a, b) => b.priority - a.priority || a.eligibleAt - b.eligibleAt || a.id.localeCompare(b.id))
-
-  // Arm a bounded horizon, not a single request. Re-engagement D3/D7/D30 and
-  // challenge/journal continuity only work if later tiers are already armed
-  // before the app goes dormant. Existing pending requests remain desired, but
-  // occupy their day/window when evaluating fresh requests. Enforce one per
-  // local day and no more than four occurrences in any rolling seven-day span.
-  const pickedDays = new Set([
-    ...sent.map((event) => localDay(event.occurredAt)),
-    ...keep.map((candidate) => localDay(candidate.eligibleAt)),
-  ])
-  const occurrenceTimes = [
-    ...sent.map((event) => event.occurredAt),
-    ...keep.map((candidate) => candidate.eligibleAt),
-  ]
-  const picked: NotificationCandidate[] = []
-  for (const candidate of fresh) {
-    const day = localDay(candidate.eligibleAt)
-    if (pickedDays.has(day)) continue
-    const tooClose = [...keep, ...picked].some((other) => Math.abs(other.eligibleAt - candidate.eligibleAt) < 6 * 3_600_000)
-    if (tooClose) continue
-    if (!withinWeeklyCap(candidate.eligibleAt, occurrenceTimes)) continue
-    picked.push(candidate)
-    pickedDays.add(day)
-    occurrenceTimes.push(candidate.eligibleAt)
-  }
-  return [...keep, ...picked]
+function legacyDay(ts: number): number {
+  const date = new Date(ts)
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000)
 }
 
-function withinWeeklyCap(candidateAt: number, existing: number[]): boolean {
+function withinLegacyWeeklyCap(candidateAt: number, existing: number[]): boolean {
   const times = [...existing, candidateAt].sort((a, b) => a - b)
   return times.every((start) => times.filter((time) => time >= start && time < start + 7 * 86_400_000).length <= 4)
 }
 
-function atLocalHour(day: number, hour: number): number {
-  // day = UTC day index from localDay(). day * DAY_MS = UTC midnight of the
-  // original local date. Reconstruct a local Date so hour:00 is local (not UTC).
-  const d = new Date(day * 86_400_000)
-  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, 0, 0, 0).getTime()
+function chooseLegacyCandidates(candidates: NotificationCandidate[], context: PolicyContext, preferences: NotificationPreferences): NotificationCandidate[] {
+  if (!preferences.enabled || (preferences.pausedUntil != null && preferences.pausedUntil > context.now)) return []
+  const sent = context.recentEvents.filter((event) => event.type === 'delivered' || event.type === 'opened')
+  const keep = candidates.filter((candidate) => context.pendingIds.has(candidate.id) && candidate.expiresAt > context.now && !['opened', 'cancelled', 'expired'].includes(candidate.status ?? ''))
+  const days = new Set([...sent.map((event) => legacyDay(event.occurredAt)), ...keep.map((candidate) => legacyDay(candidate.eligibleAt))])
+  const times = [...sent.map((event) => event.occurredAt), ...keep.map((candidate) => candidate.eligibleAt)]
+  const fresh = candidates
+    .filter((candidate) => !context.pendingIds.has(candidate.id))
+    .filter((candidate) => candidate.expiresAt > context.now && candidate.eligibleAt >= context.now)
+    .filter((candidate) => enabledFor(candidate.kind, preferences))
+    .filter((candidate) => !['opened', 'cancelled', 'expired'].includes(candidate.status ?? ''))
+    .filter((candidate) => !sent.some((event) => event.candidateId === candidate.id))
+    .sort((a, b) => b.priority - a.priority || a.eligibleAt - b.eligibleAt || a.id.localeCompare(b.id))
+  const picked: NotificationCandidate[] = []
+  for (const candidate of fresh) {
+    const day = legacyDay(candidate.eligibleAt)
+    if (days.has(day) || !withinLegacyWeeklyCap(candidate.eligibleAt, times)) continue
+    picked.push(candidate)
+    days.add(day)
+    times.push(candidate.eligibleAt)
+  }
+  return [...keep, ...picked]
+}
+
+export function chooseCandidates(candidates: NotificationCandidate[], context: PolicyContext): NotificationCandidate[] {
+  const hasV2Candidate = candidates.some((candidate) => candidate.kind === 'routine' || candidate.kind === 'routine-retry' || candidate.kind === 'weekly-review' || candidate.kind === 'insight')
+  const preferences = context.preferences ?? (hasV2Candidate ? {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    enabled: true,
+    insights: true,
+    weeklyReview: true,
+  } : {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    enabled: true,
+    routineWeekdays: undefined,
+    journal: true,
+    challenge: true,
+    reengagement: true,
+    insights: true,
+    patterns: true,
+  })
+  if (!hasV2Candidate) return chooseLegacyCandidates(candidates, context, preferences)
+  if (!preferences.enabled || (preferences.pausedUntil != null && preferences.pausedUntil > context.now)) return []
+  return candidates
+    .filter((candidate) => candidate.expiresAt > context.now)
+    .filter((candidate) => enabledFor(candidate.kind, preferences))
+    .filter((candidate) => !candidate.status || !['opened', 'cancelled', 'expired'].includes(candidate.status))
+    .filter((candidate) => context.pendingIds.has(candidate.id) || candidate.eligibleAt >= context.now)
+    .sort((a, b) => b.priority - a.priority || a.eligibleAt - b.eligibleAt || a.id.localeCompare(b.id))
 }
 
 export function isNotificationKind(value: unknown): value is NotificationKind {
-  return value === 'journal' || value === 'challenge' || value === 'reengagement' || value === 'digest' || value === 'insight' || value === 'momentum' || value === 'pattern'
+  return value === 'routine' || value === 'routine-retry' || value === 'weekly-review' || value === 'challenge' || value === 'insight' || value === 'journal' || value === 'reengagement' || value === 'digest' || value === 'momentum' || value === 'pattern'
 }
 
 export function categoryForKind(kind: NotificationKind): NotificationCategory {
   return categoryFor(kind)
+}
+
+export function safeRoute(route: string): string | null {
+  if (route === '/entry' || route === '/challenge' || route === '/digest' || route === '/trends' || route === '/(tabs)/query') return route
+  if (/^\/wiki\/[A-Za-z0-9_-]+$/.test(route)) return route
+  return null
+}
+
+/** Compatibility wrapper: insight notifications still enter through the orchestrator. */
+export async function sendFirstPageReadyNotification(page: { id: string; title: string }): Promise<Result<void>> {
+  void page.title
+  return scheduleFirstInsightCandidate(page.id)
+}
+
+/** Configure local notifications without sound, badges, or foreground interruption. */
+export function configureNotifications(): void {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({ shouldShowAlert: false, shouldPlaySound: false, shouldSetBadge: false }),
+  })
+}
+
+export async function ensurePermission(): Promise<Result<boolean>> {
+  return ok(false)
 }

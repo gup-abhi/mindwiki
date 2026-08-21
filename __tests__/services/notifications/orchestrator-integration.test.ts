@@ -152,13 +152,24 @@ describe('notification reconciliation integration', () => {
     expect(mockUpsert).toHaveBeenCalledTimes(4)
   })
 
-  it('marks a scheduled candidate expired when its native request disappeared', async () => {
+  it('does not infer delivery when a future native request disappears', async () => {
     mockList.mockResolvedValue(ok([candidate('gone', 1, 30, 'scheduled')]))
 
     await reconcileNotifications('launch', NOW)
 
-    expect(mockRecordEvent).toHaveBeenCalledWith('delivered', expect.objectContaining({ candidateId: 'gone', kind: 'journal' }))
-    expect(mockStatus).toHaveBeenCalledWith('gone', 'expired')
+    expect(mockRecordEvent).not.toHaveBeenCalledWith('delivered', expect.anything())
+    expect(mockStatus).toHaveBeenCalledWith('gone', 'eligible')
+    expect(schedule).toHaveBeenCalledTimes(1)
+  })
+
+  it('infers delivery only after the due-time tolerance', async () => {
+    const due = NOW - 10 * 60 * 1000
+    mockList.mockResolvedValue(ok([{ ...candidate('old', -1, 30, 'scheduled'), eligibleAt: due, scheduledFor: due, expiresAt: NOW + DAY }]))
+
+    await reconcileNotifications('launch', NOW)
+
+    expect(mockRecordEvent).toHaveBeenCalledWith('delivered', expect.objectContaining({ candidateId: 'old', kind: 'journal' }))
+    expect(mockStatus).toHaveBeenCalledWith('old', 'expired')
     expect(schedule).not.toHaveBeenCalled()
   })
 

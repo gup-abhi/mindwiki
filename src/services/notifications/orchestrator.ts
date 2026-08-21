@@ -9,11 +9,31 @@ import { getNotificationPreferences } from './preferences'
 import { notificationPermissionState } from './permissions'
 import { createCandidate, listEligibleCandidates, listRecentNotificationEvents, markCandidateOpened, markCandidateStatus, recordNotificationEvent, getCandidate, upsertCandidate, pruneNotificationHistory } from './repository'
 import { isWiping } from '@/services/storage/db'
+import { configureNotificationCategories } from './configuration'
 import { type NotificationCandidate, type NotificationReconcileReason, type NotificationReconcileSummary } from './types'
 
 const REQUEST_PREFIX = 'mindwiki-notification-'
 const LEGACY_PREFIXES = ['mindwiki-daily-reminder', 'mindwiki-weekly-digest', 'mindwiki-challenge-', 'mindwiki-first-page-ready']
 const CHANNEL_ID = 'reflection-reminders'
+const DELIVERY_TOLERANCE_MS = 5 * 60 * 1000
+
+export { DELIVERY_TOLERANCE_MS }
+
+function candidateDueAt(candidate: NotificationCandidate): number {
+  return candidate.scheduledFor ?? candidate.eligibleAt
+}
+
+function candidateExpired(candidate: NotificationCandidate, now: number): boolean {
+  return candidate.expiresAt <= now
+}
+
+function nativeRequestDisappeared(candidate: NotificationCandidate, nativePending: boolean, now: number): 'reschedule' | 'await-delivery' | 'delivered' | null {
+  if (candidate.status !== 'scheduled' || nativePending) return null
+  const dueAt = candidateDueAt(candidate)
+  if (now < dueAt) return 'reschedule'
+  if (now < dueAt + DELIVERY_TOLERANCE_MS) return 'await-delivery'
+  return 'delivered'
+}
 
 let flight: Promise<Result<NotificationReconcileSummary>> | null = null
 let rerun = false
@@ -75,7 +95,7 @@ async function configureChannel(): Promise<void> {
   try {
     await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
       name: 'Reflection reminders',
-      importance: 4,
+      importance: 3,
       description: 'Privacy-safe reminders from MindWiki',
       sound: null,
       enableVibrate: false,
@@ -113,15 +133,14 @@ async function reconcileOnce(now: number, capturedGeneration: number): Promise<R
   }
 
   await configureChannel()
+  await configureNotificationCategories()
   if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const activity = await listRecentNotificationEvents(now - 8 * 7 * 86_400_000)
   if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const recent = activity.success
     ? { ...activity, data: activity.data.filter((event) => event.occurredAt >= now - 7 * 86_400_000) }
     : activity
-  const generated = await generateNotificationCandidates(now, activity.success
-    ? activity.data.filter((event) => event.type === 'app_active' || event.type === 'entry_saved').map((event) => ({ occurredAt: event.occurredAt }))
-    : [])
+  const generated = await generateNotificationCandidates(now)
   if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   const candidates: NotificationCandidate[] = []
   for (const item of generated) {
@@ -139,24 +158,40 @@ async function reconcileOnce(now: number, capturedGeneration: number): Promise<R
       .filter((item) => item.identifier.startsWith(REQUEST_PREFIX))
       .map((item) => item.identifier.slice(REQUEST_PREFIX.length))
   )
-  // Reconcile DB/native divergence. A scheduled candidate whose native request
-  // vanished was delivered/cancelled externally; an expired pending request
-  // must be cancelled and terminal too. Neither may be resurrected.
+  // Reconcile DB/native divergence without inferring delivery before the request's due time.
   for (const candidate of candidates) {
     const nativePending = nativeCandidateIds.has(candidate.id)
-    if ((candidate.status === 'scheduled' && !nativePending) || candidate.expiresAt <= now) {
-      if (candidate.status === 'scheduled' && !nativePending) {
-        await recordNotificationEvent('delivered', {
-          candidateId: candidate.id,
-          kind: candidate.kind,
-          occurredAt: candidate.scheduledFor ?? candidate.eligibleAt,
-        })
-        if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
+    const disappearance = nativeRequestDisappeared(candidate, nativePending, now)
+    if (disappearance === 'reschedule') {
+      await markCandidateStatus(candidate.id, 'eligible')
+      candidate.status = 'eligible'
+      candidate.scheduledFor = undefined
+    } else if (disappearance === 'delivered') {
+      await recordNotificationEvent('delivered', {
+        candidateId: candidate.id,
+        kind: candidate.kind,
+        occurredAt: candidateDueAt(candidate),
+      })
+      if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
+      await markCandidateStatus(candidate.id, 'expired')
+      candidate.status = 'expired'
+    }
+    if (candidateExpired(candidate, now)) {
+      if (nativePending) {
+        try { await Notifications.cancelScheduledNotificationAsync(requestId(candidate)) } catch { /* converge next run */ }
       }
       await markCandidateStatus(candidate.id, 'expired')
       candidate.status = 'expired'
-      if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
+    } else if (candidate.kind !== 'routine' && candidate.kind !== 'routine-retry' && candidate.status === 'scheduled' && !nativePending) {
+      await recordNotificationEvent('delivered', {
+        candidateId: candidate.id,
+        kind: candidate.kind,
+        occurredAt: candidateDueAt(candidate),
+      })
+      await markCandidateStatus(candidate.id, 'expired')
+      candidate.status = 'expired'
     }
+    if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
   }
   // Already-pending candidates are passed to policy with their real status so
   // policy can keep them desired without re-evaluating eligibility or consuming
@@ -271,20 +306,21 @@ function safeRoute(route: string): string | null {
   return null
 }
 
-export async function handleNotificationCandidate(candidateId: string): Promise<Result<string | null>> {
+export async function handleNotificationCandidate(candidateId: string, action: 'default' | 'reflect' = 'default'): Promise<Result<string | null>> {
   const candidate = await getCandidate(candidateId)
   if (!candidate.success) return candidate
   if (!candidate.data || candidate.data.expiresAt <= Date.now()) return ok(null)
-  const marked = await markCandidateOpened(candidateId)
-  if (!marked.success) return marked
-  if (!marked.data) return ok(null)
+  if (action === 'reflect' && candidate.data.kind !== 'routine' && candidate.data.kind !== 'routine-retry') return ok(null)
+  const route = action === 'reflect' ? '/(tabs)/query' : safeRoute(candidate.data.targetRoute)
+  if (!route) return ok(null)
   if (candidate.data.kind === 'insight') {
     const pageId = candidate.data.targetRoute.split('/').pop() ?? ''
     const page = await getPage(pageId)
     if (!page.success || !page.data || page.data.dismissed_at != null || page.data.merged_into != null) return ok(null)
   }
-  const route = safeRoute(candidate.data.targetRoute)
-  if (!route) return ok(null)
+  const marked = await markCandidateOpened(candidateId)
+  if (!marked.success) return marked
+  if (!marked.data) return ok(null)
   await recordNotificationEvent('opened', { candidateId, kind: candidate.data.kind })
   return ok(route)
 }

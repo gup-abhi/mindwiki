@@ -5,6 +5,7 @@ import { reconcileNotifications } from '@/services/notifications/orchestrator'
 import { notificationPermissionState, requestNotificationPermission } from '@/services/notifications/permissions'
 import { getNotificationPreferences, setNotificationPreferences } from '@/services/notifications/preferences'
 import { DEFAULT_NOTIFICATION_PREFERENCES } from '@/services/notifications/policy'
+import { recordReflectionPlanVersion } from '@/services/notifications/plan'
 import { type NotificationPermissionState, type NotificationPreferences } from '@/services/notifications/types'
 
 export function useNotifications() {
@@ -41,6 +42,7 @@ export function useNotifications() {
       saved = await setNotificationPreferences(next)
       if (saved.success) {
         setPreferences(next)
+        if (next.enabled) await recordReflectionPlanVersion(next)
         await reconcileNotifications('preferences')
       }
     } catch {
@@ -50,26 +52,35 @@ export function useNotifications() {
     return saved
   }, [])
 
-  const enable = useCallback(async () => {
+  const savePlan = useCallback(async (patch: Partial<NotificationPreferences>) => {
+    setBusy(true)
+    const next = { ...preferencesRef.current, ...patch, enabled: true, firstPlanSavedAt: preferencesRef.current.firstPlanSavedAt ?? Date.now() }
+    const saved = await setNotificationPreferences(next)
+    if (saved.success) {
+      setPreferences(next)
+      await recordReflectionPlanVersion(next)
+      await reconcileNotifications('preferences')
+    }
+    setBusy(false)
+    return saved
+  }, [])
+
+  const allow = useCallback(async () => {
     setBusy(true)
     const requested = await requestNotificationPermission()
     if (requested.success) {
       setPermission(requested.data)
-      if (requested.data === 'granted' || requested.data === 'provisional') {
-        const saved = await setNotificationPreferences({ ...preferencesRef.current, enabled: true })
-        if (saved.success) {
-          setPreferences((current) => ({ ...current, enabled: true }))
-          await reconcileNotifications('preferences')
-        }
-      }
+      if (requested.data === 'granted' || requested.data === 'provisional') await reconcileNotifications('preferences')
     }
     setBusy(false)
     return requested
   }, [])
 
+  const enable = allow
+
   const openSystemSettings = useCallback(async () => {
     try { await Linking.openSettings() } catch { /* system settings unavailable */ }
   }, [])
 
-  return { preferences, permission, busy, refresh, update, enable, openSystemSettings }
+  return { preferences, permission, busy, refresh, update, savePlan, allow, enable, openSystemSettings }
 }

@@ -1,10 +1,13 @@
+import { useState } from 'react'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StyleSheet, View } from 'react-native'
 
 import { useEntryLifecycle } from '@/hooks/useEntryLifecycle'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Button, Screen, Text } from '@/components/ui'
+import { Button, Card, Screen, Text } from '@/components/ui'
+import { ReflectionRoutineEditor } from '@/components/notifications/ReflectionRoutineEditor'
+import { useNotifications } from '@/hooks/useNotifications'
 import { type Theme, useTheme, useThemedStyles } from '@/theme'
 
 const makeStyles = (t: Theme) =>
@@ -31,6 +34,10 @@ export default function SavedScreen() {
   const { id, mood } = useLocalSearchParams<{ id?: string; mood?: string }>()
   const lowMood = Number(mood) > 0 && Number(mood) <= 2
   const { status, refresh } = useEntryLifecycle(id)
+  const { preferences, busy, savePlan, allow, permission, openSystemSettings } = useNotifications()
+  const showSetup = Boolean(id) && !preferences.setupDismissed && preferences.firstPlanSavedAt == null
+  const [showConsent, setShowConsent] = useState(false)
+  const [showEditor, setShowEditor] = useState(false)
   return (
     <Screen>
       <View style={styles.center}>
@@ -46,6 +53,45 @@ export default function SavedScreen() {
         {status === 'unavailable' && <Text variant="caption" color="textMuted">Private synthesis is not available yet.</Text>}
         {status === 'retryable' && (
           <Button title="Check again" variant="ghost" onPress={refresh} testID="saved-retry" />
+        )}
+        {showSetup && !showConsent && !showEditor && (
+          <Card variant="sunken" testID="saved-notification-setup">
+            <Text variant="bodyStrong">Make reflection a routine</Text>
+            <Text variant="caption" color="textSecondary" style={styles.subtitle}>
+              Choose days and a time for a private, generic reminder. You can change or pause it anytime.
+            </Text>
+            <View style={styles.cta}>
+              <Button title="Set a routine" fullWidth onPress={() => setShowEditor(true)} testID="saved-notification-set" />
+              <Button title="Not now" variant="ghost" fullWidth onPress={() => void savePlan({ setupDismissed: true, enabled: false })} testID="saved-notification-not-now" />
+            </View>
+          </Card>
+        )}
+        {showSetup && showEditor && !showConsent && (
+          <ReflectionRoutineEditor
+            preferences={preferences}
+            busy={busy}
+            onCancel={() => setShowEditor(false)}
+            onSave={(patch) => void savePlan(patch).then((result) => {
+              if (result.success) {
+                setShowEditor(false)
+                setShowConsent(true)
+              }
+            })}
+            testID="saved-notification-editor"
+          />
+        )}
+        {showConsent && (
+          <Card variant="sunken" testID="saved-notification-consent">
+            <Text variant="bodyStrong">Your plan is saved on this device</Text>
+            <Text variant="caption" color="textSecondary" style={styles.subtitle}>
+              Notifications use generic copy. The main tap opens Journal, with Reflect as an optional action. No journal text enters the notification.
+            </Text>
+            <View style={styles.cta}>
+              <Button title="Allow notifications" loading={busy} fullWidth onPress={() => void allow()} testID="saved-notification-allow" />
+              <Button title="Not now" variant="ghost" fullWidth onPress={() => setShowConsent(false)} testID="saved-notification-consent-not-now" />
+              {(permission === 'denied' || permission === 'blocked') && <Button title="Open system settings" variant="secondary" fullWidth onPress={() => void openSystemSettings()} />}
+            </View>
+          </Card>
         )}
         {id && (
           <Button
