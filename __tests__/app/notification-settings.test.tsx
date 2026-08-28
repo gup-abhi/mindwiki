@@ -36,6 +36,8 @@ beforeEach(() => {
     busy: false,
     update: jest.fn().mockResolvedValue({ success: true, data: undefined }),
     savePlan: jest.fn().mockResolvedValue({ success: true, data: undefined }),
+    allow: jest.fn().mockResolvedValue({ success: true, data: undefined }),
+    enable: jest.fn().mockResolvedValue({ success: true, data: undefined }),
     openSystemSettings: jest.fn(),
   })
 })
@@ -46,6 +48,31 @@ describe('NotificationSettings', () => {
     expect(screen.getByText('Notification settings')).toBeTruthy()
     expect(screen.getByTestId('notification-settings-editor')).toBeTruthy()
     expect(screen.getByTestId('notification-settings-pause-tomorrow')).toBeTruthy()
+  })
+
+  it('shows stored routine choices that arrive after the screen mounts', () => {
+    const initial = mockNotifications()
+    mockNotifications.mockReturnValue({
+      ...initial,
+      preferences: { ...initial.preferences, routineWeekdays: [1, 2, 3, 4, 5] },
+    })
+    const view = render(<NotificationSettings />)
+    expect(screen.getByTestId('notification-settings-editor-day-6').props.accessibilityState.checked).toBe(false)
+
+    mockNotifications.mockReturnValue({
+      ...initial,
+      preferences: {
+        ...initial.preferences,
+        routineWeekdays: [1, 2, 3, 4, 5, 6],
+        routineHour: 18,
+        retryDelayMinutes: 120,
+      },
+    })
+    view.rerender(<NotificationSettings />)
+
+    expect(screen.getByTestId('notification-settings-editor-day-6').props.accessibilityState.checked).toBe(true)
+    expect(screen.getByTestId('notification-settings-editor-hour-picker-18').props.accessibilityState.selected).toBe(true)
+    expect(screen.getByTestId('notification-settings-editor-retry-picker-120').props.accessibilityState.selected).toBe(true)
   })
 
   it('saves an edited routine through the notification hook', async () => {
@@ -60,6 +87,24 @@ describe('NotificationSettings', () => {
     expect(savePlan).toHaveBeenCalledWith(expect.objectContaining({ routineHour: 18 }))
     const status = await screen.findByTestId('notification-settings-status')
     expect(status.props.children).toBe('Routine saved on this device.')
+  })
+
+  it('shows an error when reminders cannot be enabled', async () => {
+    const enable = jest.fn().mockResolvedValue({
+      success: false,
+      error: { code: 'NOTIF_PERMISSION_REQUIRED', message: 'Allow notifications in system settings before enabling reminders' },
+    })
+    mockNotifications.mockReturnValue({
+      ...mockNotifications(),
+      preferences: { ...mockNotifications().preferences, enabled: false },
+      enable,
+    })
+    render(<NotificationSettings />)
+
+    fireEvent.press(screen.getByTestId('notification-settings-toggle'))
+
+    expect(enable).toHaveBeenCalled()
+    expect(await screen.findByText('Allow notifications in system settings before enabling reminders')).toBeTruthy()
   })
 
   it('opens system settings when permission is blocked', () => {

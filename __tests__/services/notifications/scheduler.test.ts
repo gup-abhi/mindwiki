@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications'
 import { type SqliteDatabase } from '@/services/storage/db'
 import {
   cancelChallengeReminders,
+  configureNotifications,
   ensurePermission,
   onEntrySaved,
   recordActivity,
@@ -48,6 +49,19 @@ const at = (h: number): number => new Date(2026, 5, 1, h, 0).getTime()
 
 beforeEach(() => {
   jest.clearAllMocks()
+})
+
+describe('configureNotifications', () => {
+  it('shows a privacy-safe alert when a reminder fires in the foreground', async () => {
+    configureNotifications()
+
+    const handler = (Notifications.setNotificationHandler as jest.Mock).mock.calls[0][0]
+    await expect(handler.handleNotification()).resolves.toEqual({
+      shouldShowAlert: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    })
+  })
 })
 
 describe('ensurePermission', () => {

@@ -112,6 +112,12 @@ export function ReflectionRoutineEditor({ preferences, busy = false, disabled = 
   const [hour, setHour] = useState(preferences.routineHour ?? 20)
   const [retryDelayMinutes, setRetryDelayMinutes] = useState<30 | 60 | 120>(preferences.retryDelayMinutes ?? 60)
 
+  useEffect(() => {
+    setDays(new Set(preferences.routineWeekdays ?? []))
+    setHour(preferences.routineHour ?? 20)
+    setRetryDelayMinutes(preferences.retryDelayMinutes ?? 60)
+  }, [preferences.retryDelayMinutes, preferences.routineHour, preferences.routineWeekdays])
+
   return (
     <View testID={testID} style={styles.content}>
       <Text variant="bodyStrong">Choose your routine</Text>

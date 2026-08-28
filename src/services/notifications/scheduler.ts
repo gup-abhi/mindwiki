@@ -31,13 +31,14 @@ const REMINDER_DAYS = 7
 const CHALLENGE_REMINDER_HOUR = 9
 const CHALLENGE_REMINDER_DAYS = 14
 
-/** Show reminders even when the app is foregrounded; no sound/badge. */
+/** Show privacy-safe reminders while foregrounded, without sound or badge. */
 export function configureNotifications(): void {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      // Foreground notifications do not interrupt active journaling. The
-      // authenticated app can surface an in-app explanation later.
-      shouldShowAlert: false,
+      // Native content is generic and contains no authored text. Showing the
+      // alert avoids making a correctly scheduled reminder look broken when
+      // MindWiki happens to be open at its due time.
+      shouldShowAlert: true,
       shouldPlaySound: false,
       shouldSetBadge: false,
     }),

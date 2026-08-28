@@ -17,7 +17,7 @@ import { initStorage } from '@/services/storage/bootstrap'
 import { closeDb } from '@/services/storage/db'
 import { configureNotifications } from '@/services/notifications/scheduler'
 import { cleanupNotifications } from '@/services/notifications/cleanup'
-import { handleNotificationCandidate, handleNotificationDelivered, recordAndReconcile, resumeNotificationReconciliation } from '@/services/notifications/orchestrator'
+import { handleNotificationCandidate, handleNotificationDelivered, recordAndReconcile, resumeNotificationReconciliation, suspendNotificationReconciliation, waitForNotificationReconciliation } from '@/services/notifications/orchestrator'
 import { createNotificationResponseHandler } from '@/services/notifications/response'
 import { canReturnToAccountFromDeletion, deleteAccount, hydrateAuth, returnToAccountFromDeletion } from '@/services/auth/auth.service'
 import { resetSessionStores } from '@/services/auth/session-reset'
@@ -132,10 +132,19 @@ function AppGate() {
   // a fresh handle keyed to that account.
   useEffect(() => {
     if (authStatus === 'deleting' || authStatus === 'unauthenticated') {
-      void cleanupNotifications()
-      closeDb()
-      resetSessionStores()
-      setStorage('idle')
+      suspendNotificationReconciliation()
+      void (async () => {
+        await waitForNotificationReconciliation()
+        try {
+          await cleanupNotifications()
+        } catch {
+          // Native cleanup is best-effort; the account boundary still closes local state.
+        } finally {
+          closeDb()
+          resetSessionStores()
+          setStorage('idle')
+        }
+      })()
       // Clear the session-global first-run guard so a different account signing
       // in on this same app session can still be routed through its first run.
       resetFirstRunRedirect()

@@ -14,7 +14,10 @@ import { type NotificationCandidate, type NotificationReconcileReason, type Noti
 
 const REQUEST_PREFIX = 'mindwiki-notification-'
 const LEGACY_PREFIXES = ['mindwiki-daily-reminder', 'mindwiki-weekly-digest', 'mindwiki-challenge-', 'mindwiki-first-page-ready']
-const CHANNEL_ID = 'reflection-reminders'
+// Android channel settings are immutable after creation. The original channel
+// can remain at an OEM/user-lowered importance, so visible reminders use a new
+// identifier rather than pretending an in-place update restored visibility.
+const CHANNEL_ID = 'reflection-reminders-v3'
 const DELIVERY_TOLERANCE_MS = 5 * 60 * 1000
 
 export { DELIVERY_TOLERANCE_MS }
@@ -91,11 +94,58 @@ function isMindWikiRequest(identifier: string): boolean {
   return identifier.startsWith(REQUEST_PREFIX) || LEGACY_PREFIXES.some((prefix) => identifier.startsWith(prefix))
 }
 
+function usesCurrentChannel(request: Notifications.NotificationRequest): boolean {
+  if (request.trigger == null || typeof request.trigger !== 'object') return true
+  if (!('channelId' in request.trigger)) return true
+  const channelId: unknown = request.trigger.channelId
+  return channelId == null || channelId === CHANNEL_ID
+}
+
+function usesCandidateSchedule(
+  request: Notifications.NotificationRequest,
+  candidate: NotificationCandidate
+): boolean {
+  if (
+    candidate.scheduledFor != null &&
+    candidate.scheduledFor !== candidate.eligibleAt
+  ) {
+    return false
+  }
+
+  if (request.trigger == null || typeof request.trigger !== 'object') return false
+
+  const scheduledAt: unknown = 'value' in request.trigger
+    ? request.trigger.value
+    : 'date' in request.trigger
+      ? request.trigger.date
+      : undefined
+
+  if (typeof scheduledAt === 'number' || scheduledAt instanceof Date) {
+    return Number(scheduledAt) === candidate.eligibleAt
+  }
+
+  // iOS returns a relative time-interval trigger for one-shot date requests, so
+  // the encrypted candidate's scheduledFor timestamp is the schedule authority.
+  return candidate.scheduledFor === candidate.eligibleAt
+}
+
+function routineCandidateIsCurrent(
+  candidate: NotificationCandidate,
+  generated: NotificationCandidate[],
+  now: number
+): boolean {
+  if (candidate.kind !== 'routine' && candidate.kind !== 'routine-retry') return true
+  if (generated.some((item) => item.dedupeKey === candidate.dedupeKey)) return true
+  // Future routine candidates absent from the freshly generated plan are stale:
+  // the time/retry changed, the weekday was removed, or completion suppressed it.
+  return candidate.eligibleAt <= now
+}
+
 async function configureChannel(): Promise<void> {
   try {
     await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
       name: 'Reflection reminders',
-      importance: 3,
+      importance: Notifications.AndroidImportance.DEFAULT,
       description: 'Privacy-safe reminders from MindWiki',
       sound: null,
       enableVibrate: false,
@@ -150,12 +200,33 @@ async function reconcileOnce(now: number, capturedGeneration: number): Promise<R
   }
   const stored = await listEligibleCandidates(now)
   if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
-  if (stored.success) candidates.push(...stored.data.filter((item) => !candidates.some((current) => current.id === item.id)))
+  const supersededRoutineIds = new Set<string>()
+  if (stored.success) {
+    for (const item of stored.data) {
+      if (!routineCandidateIsCurrent(item, generated, now)) {
+        supersededRoutineIds.add(requestId(item))
+        await markCandidateStatus(item.id, 'cancelled')
+        continue
+      }
+      if (!candidates.some((current) => current.id === item.id)) candidates.push(item)
+    }
+  }
   const journaledToday = await hasJournalEntryToday(now)
   if (!canContinue(capturedGeneration)) return ok(EMPTY_SUMMARY)
+  const staleNativeIds = new Set(
+    existing
+      .filter((item) => {
+        if (!item.identifier.startsWith(REQUEST_PREFIX)) return false
+        if (!usesCurrentChannel(item)) return true
+        const candidateId = item.identifier.slice(REQUEST_PREFIX.length)
+        const candidate = candidates.find((current) => current.id === candidateId)
+        return candidate != null && !usesCandidateSchedule(item, candidate)
+      })
+      .map((item) => item.identifier)
+  )
   const nativeCandidateIds = new Set(
     existing
-      .filter((item) => item.identifier.startsWith(REQUEST_PREFIX))
+      .filter((item) => item.identifier.startsWith(REQUEST_PREFIX) && !staleNativeIds.has(item.identifier) && !supersededRoutineIds.has(item.identifier))
       .map((item) => item.identifier.slice(REQUEST_PREFIX.length))
   )
   // Reconcile DB/native divergence without inferring delivery before the request's due time.
@@ -202,7 +273,7 @@ async function reconcileOnce(now: number, capturedGeneration: number): Promise<R
   const desired = new Set(selected.map(requestId))
   let cancelled = 0
   for (const item of existing) {
-    if (!desired.has(item.identifier)) {
+    if (!desired.has(item.identifier) || staleNativeIds.has(item.identifier) || supersededRoutineIds.has(item.identifier)) {
       if (!canContinue(capturedGeneration)) return ok({ scheduled: 0, cancelled, suppressed: 0, permission })
       try {
         await Notifications.cancelScheduledNotificationAsync(item.identifier)
@@ -212,9 +283,10 @@ async function reconcileOnce(now: number, capturedGeneration: number): Promise<R
   }
 
   let scheduled = 0
+  let scheduleFailure: unknown
   for (const candidate of selected) {
     const identifier = requestId(candidate)
-    if (existing.some((item) => item.identifier === identifier)) continue
+    if (existing.some((item) => item.identifier === identifier && !staleNativeIds.has(identifier))) continue
     const input: NotificationRequestInput = {
       identifier,
       content: buildNotificationContent(candidate),
@@ -238,9 +310,14 @@ async function reconcileOnce(now: number, capturedGeneration: number): Promise<R
         break
       }
       scheduled++
-    } catch {
-      // Partial failure is represented by the Result summary; next lifecycle run converges.
+    } catch (cause) {
+      scheduleFailure ??= cause
+      // A later lifecycle run can still converge, but callers must not report
+      // that reminders are ready when the native scheduler rejected them.
     }
+  }
+  if (scheduleFailure) {
+    return err('NOTIF_SCHEDULE_FAILED', 'Could not schedule reminders on this device', scheduleFailure)
   }
   return ok({ scheduled, cancelled, suppressed: Math.max(0, generated.length - selected.length), permission })
 }

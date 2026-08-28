@@ -44,6 +44,7 @@ jest.mock('@/services/storage/db', () => ({ isWiping: jest.fn() }))
 const schedule = Notifications.scheduleNotificationAsync as jest.Mock
 const cancel = Notifications.cancelScheduledNotificationAsync as jest.Mock
 const getPending = Notifications.getAllScheduledNotificationsAsync as jest.Mock
+const setChannel = Notifications.setNotificationChannelAsync as jest.Mock
 const mockGenerate = generateNotificationCandidates as jest.Mock
 const mockJournaled = hasJournalEntryToday as jest.Mock
 const mockPreferences = getNotificationPreferences as jest.Mock
@@ -88,8 +89,12 @@ function candidate(id: string, days: number, priority = 30, status: Notification
   }
 }
 
-function native(id: string): { identifier: string } {
-  return { identifier: `mindwiki-notification-${id}` }
+function native(
+  id: string,
+  channelId = 'reflection-reminders-v3',
+  value = NOW + DAY
+): { identifier: string; trigger: { channelId: string; value: number } } {
+  return { identifier: `mindwiki-notification-${id}`, trigger: { channelId, value } }
 }
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
@@ -134,6 +139,115 @@ describe('notification reconciliation integration', () => {
     expect(mockStatus).not.toHaveBeenCalledWith('kept', 'expired')
   })
 
+  it('uses a fresh default-importance channel for visible routine reminders', async () => {
+    mockGenerate.mockResolvedValue([candidate('visible', 1)])
+
+    await reconcileNotifications('preferences', NOW)
+
+    expect(setChannel).toHaveBeenCalledWith(
+      'reflection-reminders-v3',
+      expect.objectContaining({ importance: Notifications.AndroidImportance.DEFAULT })
+    )
+    expect(schedule).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: expect.objectContaining({ channelId: 'reflection-reminders-v3' }),
+    }))
+  })
+
+  it('re-arms a pending reminder that still uses the muted legacy channel', async () => {
+    mockList.mockResolvedValue(ok([candidate('legacy-channel', 1, 30, 'scheduled')]))
+    getPending.mockResolvedValue([native('legacy-channel', 'reflection-reminders')])
+
+    await reconcileNotifications('launch', NOW)
+
+    expect(cancel).toHaveBeenCalledWith('mindwiki-notification-legacy-channel')
+    expect(schedule).toHaveBeenCalledWith(expect.objectContaining({
+      identifier: 'mindwiki-notification-legacy-channel',
+      trigger: expect.objectContaining({ channelId: 'reflection-reminders-v3' }),
+    }))
+  })
+
+  it('replaces a pending reminder when a routine edit changes its fire time', async () => {
+    const changed = candidate('changed-time', 1, 30, 'scheduled')
+    changed.eligibleAt = NOW + DAY + 60 * 60 * 1000
+    changed.scheduledFor = NOW + DAY
+    mockGenerate.mockResolvedValue([changed])
+    mockList.mockResolvedValue(ok([changed]))
+    getPending.mockResolvedValue([
+      native('changed-time', 'reflection-reminders-v3', NOW + DAY),
+    ])
+
+    await reconcileNotifications('preferences', NOW)
+
+    expect(cancel).toHaveBeenCalledWith('mindwiki-notification-changed-time')
+    expect(schedule).toHaveBeenCalledWith(expect.objectContaining({
+      identifier: 'mindwiki-notification-changed-time',
+      trigger: expect.objectContaining({
+        channelId: 'reflection-reminders-v3',
+        date: NOW + DAY + 60 * 60 * 1000,
+      }),
+    }))
+  })
+
+  it('keeps an unchanged iOS time-interval request without re-arming it', async () => {
+    const kept = candidate('ios-kept', 1, 30, 'scheduled')
+    kept.scheduledFor = kept.eligibleAt
+    mockList.mockResolvedValue(ok([kept]))
+    getPending.mockResolvedValue([{
+      identifier: 'mindwiki-notification-ios-kept',
+      trigger: { type: 'timeInterval', repeats: false, seconds: DAY / 1000 },
+    }])
+
+    await reconcileNotifications('launch', NOW)
+
+    expect(cancel).not.toHaveBeenCalled()
+    expect(schedule).not.toHaveBeenCalled()
+  })
+
+  it('re-arms an iOS time-interval request after the candidate fire time changes', async () => {
+    const changed = candidate('ios-changed', 1, 30, 'scheduled')
+    changed.scheduledFor = changed.eligibleAt - 60 * 60 * 1000
+    mockGenerate.mockResolvedValue([changed])
+    mockList.mockResolvedValue(ok([changed]))
+    getPending.mockResolvedValue([{
+      identifier: 'mindwiki-notification-ios-changed',
+      trigger: { type: 'timeInterval', repeats: false, seconds: DAY / 1000 },
+    }])
+
+    await reconcileNotifications('preferences', NOW)
+
+    expect(cancel).toHaveBeenCalledWith('mindwiki-notification-ios-changed')
+    expect(schedule).toHaveBeenCalledWith(expect.objectContaining({
+      identifier: 'mindwiki-notification-ios-changed',
+    }))
+  })
+
+  it('cancels a future retry left behind by a superseded routine plan', async () => {
+    mockPreferences.mockResolvedValue(ok({
+      ...prefs,
+      routineWeekdays: [0, 1, 2, 3, 4, 5, 6],
+      routineHour: 23,
+      retryDelayMinutes: 60,
+    }))
+    const current = {
+      ...candidate('current-main', 1),
+      kind: 'routine' as const,
+      dedupeKey: 'routine:2026-07-16:main',
+    }
+    const obsolete = {
+      ...candidate('obsolete-retry', 1, 30, 'scheduled'),
+      kind: 'routine-retry' as const,
+      dedupeKey: 'routine:2026-07-16:retry:30',
+    }
+    mockGenerate.mockResolvedValue([current])
+    mockList.mockResolvedValue(ok([obsolete]))
+    getPending.mockResolvedValue([native('obsolete-retry')])
+
+    await reconcileNotifications('preferences', NOW)
+
+    expect(mockStatus).toHaveBeenCalledWith('obsolete-retry', 'cancelled')
+    expect(cancel).toHaveBeenCalledWith('mindwiki-notification-obsolete-retry')
+  })
+
   it('arms multiple future days within the rolling weekly cap', async () => {
     const generated = [
       candidate('a', 1, 80),
@@ -173,7 +287,7 @@ describe('notification reconciliation integration', () => {
     expect(schedule).not.toHaveBeenCalled()
   })
 
-  it('converges after a partial native schedule failure on the next run', async () => {
+  it('surfaces a native schedule failure and converges on the next run', async () => {
     const item = candidate('retry', 1)
     mockGenerate.mockResolvedValue([item])
     schedule.mockRejectedValueOnce(new Error('native failure'))
@@ -181,7 +295,7 @@ describe('notification reconciliation integration', () => {
     const first = await reconcileNotifications('launch', NOW)
     const second = await reconcileNotifications('resume', NOW)
 
-    expect(first).toMatchObject({ success: true, data: { scheduled: 0 } })
+    expect(first).toMatchObject({ success: false, error: { code: 'NOTIF_SCHEDULE_FAILED' } })
     expect(second).toMatchObject({ success: true, data: { scheduled: 1 } })
     expect(schedule).toHaveBeenCalledTimes(2)
     expect(mockUpsert).toHaveBeenCalledTimes(1)

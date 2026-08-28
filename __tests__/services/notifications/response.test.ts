@@ -1,8 +1,15 @@
+import * as Notifications from 'expo-notifications'
+
 import { createNotificationResponseHandler } from '@/services/notifications/response'
 import { err, ok } from '@/types/result'
 
-function response(identifier: string, data: Record<string, unknown>) {
+function response(
+  identifier: string,
+  data: Record<string, unknown>,
+  actionIdentifier?: string
+) {
   return {
+    actionIdentifier,
     notification: { request: { identifier, content: { data } } },
   } as never
 }
@@ -10,6 +17,24 @@ function response(identifier: string, data: Record<string, unknown>) {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('notification response handler', () => {
+  it('accepts Expo default notification-body taps', async () => {
+    const handleCandidate = jest.fn().mockResolvedValue(ok('/entry'))
+    const navigate = jest.fn()
+    const clearResponse = jest.fn().mockResolvedValue(undefined)
+    const handle = createNotificationResponseHandler({ handleCandidate, navigate, clearResponse })
+
+    handle(response(
+      'request-1',
+      { candidateId: 'candidate-1', kind: 'routine' },
+      Notifications.DEFAULT_ACTION_IDENTIFIER
+    ))
+    await flush()
+
+    expect(handleCandidate).toHaveBeenCalledWith('candidate-1')
+    expect(navigate).toHaveBeenCalledWith('/entry')
+    expect(clearResponse).toHaveBeenCalledTimes(1)
+  })
+
   it('handles two distinct valid taps in one mounted session', async () => {
     const handleCandidate = jest.fn()
       .mockResolvedValueOnce(ok('/entry'))

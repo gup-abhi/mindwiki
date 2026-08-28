@@ -3,11 +3,27 @@ import { AppState, type AppStateStatus } from 'react-native'
 
 import RootLayout from '@/app/_layout'
 import { initStorage } from '@/services/storage/bootstrap'
+import { closeDb } from '@/services/storage/db'
+import { cleanupNotifications } from '@/services/notifications/cleanup'
+import {
+  suspendNotificationReconciliation,
+  waitForNotificationReconciliation,
+} from '@/services/notifications/orchestrator'
 import { isIntroOnboardingDone, markIntroOnboardingDone } from '@/services/onboarding/intro'
 import { useAuthStore } from '@/store/auth.store'
 import { ok, err } from '@/types/result'
 
 jest.mock('@/services/storage/bootstrap', () => ({ initStorage: jest.fn() }))
+jest.mock('@/services/storage/db', () => ({ closeDb: jest.fn() }))
+jest.mock('@/services/notifications/cleanup', () => ({ cleanupNotifications: jest.fn() }))
+jest.mock('@/services/notifications/orchestrator', () => ({
+  handleNotificationCandidate: jest.fn(),
+  handleNotificationDelivered: jest.fn(),
+  recordAndReconcile: jest.fn(),
+  resumeNotificationReconciliation: jest.fn(),
+  suspendNotificationReconciliation: jest.fn(),
+  waitForNotificationReconciliation: jest.fn(),
+}))
 // hydrateAuth is exercised in auth.service.test; here we drive auth state directly.
 const mockCanReturnToAccount = jest.fn()
 const mockDeleteAccount = jest.fn()
@@ -51,6 +67,10 @@ jest.mock('@/hooks/useFirstRunRedirect', () => ({
 }))
 
 const mockInitStorage = initStorage as jest.Mock
+const mockCloseDb = closeDb as jest.Mock
+const mockCleanupNotifications = cleanupNotifications as jest.Mock
+const mockSuspendNotifications = suspendNotificationReconciliation as jest.Mock
+const mockWaitForNotifications = waitForNotificationReconciliation as jest.Mock
 const mockIsIntroOnboardingDone = isIntroOnboardingDone as jest.Mock
 const mockMarkIntroOnboardingDone = markIntroOnboardingDone as jest.Mock
 let appStateHandler: ((state: AppStateStatus) => void) | null = null
@@ -66,6 +86,10 @@ describe('RootLayout — auth gate then DB open', () => {
   beforeEach(() => {
     mockInitStorage.mockReset()
     mockInitStorage.mockResolvedValue(ok(undefined))
+    mockCloseDb.mockReset()
+    mockCleanupNotifications.mockReset().mockResolvedValue(ok(undefined))
+    mockSuspendNotifications.mockReset()
+    mockWaitForNotifications.mockReset().mockResolvedValue(undefined)
     mockCanReturnToAccount.mockReset()
     mockCanReturnToAccount.mockResolvedValue(ok(false))
     mockDeleteAccount.mockReset()
@@ -140,6 +164,42 @@ describe('RootLayout — auth gate then DB open', () => {
     render(<RootLayout />)
     await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())
     expect(mockInitStorage).toHaveBeenCalledTimes(1)
+  })
+
+  it('quiesces notification work before closing storage after session expiry', async () => {
+    useAuthStore.setState({ status: 'authenticated', accountId: 'acc1' })
+    const calls: string[] = []
+    let finishDrain: (() => void) | undefined
+    let finishCleanup: (() => void) | undefined
+    mockSuspendNotifications.mockImplementation(() => calls.push('suspend'))
+    mockWaitForNotifications.mockImplementation(() => new Promise<void>((resolve) => {
+      finishDrain = () => {
+        calls.push('drained')
+        resolve()
+      }
+    }))
+    mockCleanupNotifications.mockImplementation(() => new Promise((resolve) => {
+      finishCleanup = () => {
+        calls.push('cleaned')
+        resolve(ok(undefined))
+      }
+    }))
+    mockCloseDb.mockImplementation(() => calls.push('close_db'))
+
+    render(<RootLayout />)
+    await waitFor(() => expect(screen.getByText('stack-rendered')).toBeTruthy())
+
+    act(() => useAuthStore.setState({ status: 'unauthenticated', accountId: null }))
+    await waitFor(() => expect(mockSuspendNotifications).toHaveBeenCalledTimes(1))
+    expect(calls).toEqual(['suspend'])
+
+    await act(async () => finishDrain?.())
+    await waitFor(() => expect(mockCleanupNotifications).toHaveBeenCalledTimes(1))
+    expect(calls).toEqual(['suspend', 'drained'])
+
+    await act(async () => finishCleanup?.())
+    await waitFor(() => expect(mockCloseDb).toHaveBeenCalledTimes(1))
+    expect(calls).toEqual(['suspend', 'drained', 'cleaned', 'close_db'])
   })
 
   it('backfills intro completion for an existing authenticated install', async () => {

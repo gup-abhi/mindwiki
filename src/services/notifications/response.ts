@@ -1,4 +1,4 @@
-import { type NotificationResponse } from 'expo-notifications'
+import { DEFAULT_ACTION_IDENTIFIER, type NotificationResponse } from 'expo-notifications'
 
 import { type Result } from '@/types/result'
 import { isNotificationKind } from './policy'
@@ -34,7 +34,7 @@ export function createNotificationResponseHandler(
     const actionIdentifier = response.actionIdentifier
     const action = actionIdentifier === 'REFLECT'
       ? 'reflect'
-      : actionIdentifier == null || actionIdentifier === 'expo.notifications.DEFAULT_ACTION_IDENTIFIER'
+      : actionIdentifier == null || actionIdentifier === DEFAULT_ACTION_IDENTIFIER
         ? 'default'
         : null
     if (!action) {

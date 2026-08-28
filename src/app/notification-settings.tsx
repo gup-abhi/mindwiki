@@ -68,6 +68,7 @@ export default function NotificationSettings() {
     busy,
     update,
     savePlan,
+    enable,
     openSystemSettings,
   } = useNotifications()
 
@@ -95,15 +96,18 @@ export default function NotificationSettings() {
             value={preferences.enabled}
             disabled={busy}
             onChange={(enabled) => {
-              if (enabled) void savePlan({ enabled: true })
-              else void update({ enabled: false })
+              setStatus(null)
+              const action = enabled ? enable() : update({ enabled: false })
+              void action.then((result) => {
+                if (!result.success) setStatus(result.error.message)
+              })
             }}
           />
         </View>
         <Text variant="caption" color="textMuted" style={styles.hint}>Permission: {permission}</Text>
         {(permission === 'blocked' || permission === 'denied') && (
           <View style={styles.action}>
-            <Button title="Open system notification settings" variant="secondary" fullWidth disabled={!preferences.enabled} onPress={() => void openSystemSettings()} testID="notification-settings-system" />
+            <Button title="Open system notification settings" variant="secondary" fullWidth disabled={busy} onPress={() => void openSystemSettings()} testID="notification-settings-system" />
           </View>
         )}
       </Card>
