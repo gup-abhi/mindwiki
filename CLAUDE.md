@@ -45,6 +45,22 @@ Define success criteria. Loop until verified.
 
 ---
 
+## Agent skills
+
+### Issue tracker
+
+Specs and issues live in this repo's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default five-role label vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout. See `docs/agents/domain.md`.
+
+---
+
 ## Project overview
 
 MindWiki is a privacy-first AI journaling app that builds a **compounding personal knowledge base** from journal entries. It uses an LLM Wiki architecture — each entry updates persistent wiki pages rather than re-deriving insights from scratch — CBT-structured prompts, and a visual knowledge graph. Everything runs on-device. No raw journal data ever leaves the phone.
